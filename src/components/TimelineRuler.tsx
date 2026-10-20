@@ -1,0 +1,230 @@
+/**
+ * X-PRO AUDIO - Timeline Ruler
+ * Top time ruler header (340px) + time marker lane with interactive playhead scrubbing.
+ */
+
+import React, { useRef, useEffect } from 'react';
+import { Clock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatTimecode } from '../utils/formatters';
+
+interface TimelineRulerProps {
+  pixelsPerSecond: number;
+  totalDurationSeconds: number;
+  playheadSeconds: number;
+  scrollLeft: number;
+  onSeek: (seconds: number) => void;
+  timelineWidth: number;
+  isControlsCollapsed?: boolean;
+  onToggleCollapseControls?: () => void;
+}
+
+export const TimelineRuler: React.FC<TimelineRulerProps> = ({
+  pixelsPerSecond,
+  totalDurationSeconds,
+  playheadSeconds,
+  scrollLeft,
+  onSeek,
+  timelineWidth,
+  isControlsCollapsed = false,
+  onToggleCollapseControls,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isScrubbingRef = useRef<boolean>(false);
+
+  // Determine tick spacing based on zoom level (pixelsPerSecond)
+  let majorStepSec = 1;
+  let minorTicks = 5;
+
+  if (pixelsPerSecond >= 500) {
+    majorStepSec = 0.1;
+    minorTicks = 5;
+  } else if (pixelsPerSecond >= 200) {
+    majorStepSec = 0.5;
+    minorTicks = 5;
+  } else if (pixelsPerSecond >= 80) {
+    majorStepSec = 1;
+    minorTicks = 5;
+  } else if (pixelsPerSecond >= 30) {
+    majorStepSec = 5;
+    minorTicks = 5;
+  } else if (pixelsPerSecond >= 10) {
+    majorStepSec = 10;
+    minorTicks = 5;
+  } else {
+    majorStepSec = 30;
+    minorTicks = 6;
+  }
+
+  // Draw ruler canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const width = canvas.width;
+    const height = canvas.height;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Background
+    ctx.fillStyle = '#101015';
+    ctx.fillRect(0, 0, width, height);
+
+    // Bottom border
+    ctx.strokeStyle = '#272730';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, height - 0.5);
+    ctx.lineTo(width, height - 0.5);
+    ctx.stroke();
+
+    // Calculate visible time window
+    const startTime = Math.max(0, scrollLeft / pixelsPerSecond);
+    const endTime = startTime + width / pixelsPerSecond;
+
+    const firstMajor = Math.floor(startTime / majorStepSec) * majorStepSec;
+    const lastMajor = Math.ceil(endTime / majorStepSec) * majorStepSec;
+
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.textBaseline = 'top';
+
+    for (let t = firstMajor; t <= lastMajor; t += majorStepSec) {
+      if (t < 0) continue;
+      const x = Math.round(t * pixelsPerSecond - scrollLeft);
+
+      // Major tick mark (distinguishable, clean 1px line)
+      ctx.strokeStyle = '#52525b';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, height - 12);
+      ctx.lineTo(x + 0.5, height);
+      ctx.stroke();
+
+      // Timestamp label (crisp text with subtle cyan tint for whole 10s intervals)
+      const isTenSec = Math.round(t) % 10 === 0 && t > 0;
+      ctx.fillStyle = isTenSec ? '#38bdf8' : '#a1a1aa';
+      const label = formatTimecode(t).slice(3); // e.g. "01.000" or "10.000"
+      ctx.fillText(label, x + 4, 3);
+
+      // Minor ticks
+      const minorStep = majorStepSec / minorTicks;
+      for (let m = 1; m < minorTicks; m++) {
+        const minorTime = t + m * minorStep;
+        const mx = Math.round(minorTime * pixelsPerSecond - scrollLeft);
+        if (mx >= 0 && mx <= width) {
+          ctx.strokeStyle = '#3f3f46';
+          ctx.beginPath();
+          ctx.moveTo(mx + 0.5, height - 6);
+          ctx.lineTo(mx + 0.5, height);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Playhead marker on the ruler
+    const playheadX = playheadSeconds * pixelsPerSecond - scrollLeft;
+    if (playheadX >= -10 && playheadX <= width + 10) {
+      // Glow
+      ctx.shadowColor = '#00F0FF';
+      ctx.shadowBlur = 6;
+      ctx.fillStyle = '#00F0FF';
+
+      // Triangle head
+      ctx.beginPath();
+      ctx.moveTo(playheadX - 6, 0);
+      ctx.lineTo(playheadX + 6, 0);
+      ctx.lineTo(playheadX, 10);
+      ctx.closePath();
+      ctx.fill();
+
+      // Vertical line
+      ctx.strokeStyle = '#00F0FF';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(playheadX, 10);
+      ctx.lineTo(playheadX, height);
+      ctx.stroke();
+
+      ctx.shadowBlur = 0;
+    }
+  }, [pixelsPerSecond, totalDurationSeconds, playheadSeconds, scrollLeft, timelineWidth, majorStepSec, minorTicks]);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    isScrubbingRef.current = true;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pixelX = e.clientX - rect.left;
+    const time = Math.max(0, (pixelX + scrollLeft) / pixelsPerSecond);
+    onSeek(time);
+
+    const onPointerMove = (moveEv: PointerEvent) => {
+      if (!isScrubbingRef.current) return;
+      const movePixelX = moveEv.clientX - rect.left;
+      const moveTime = Math.max(0, (movePixelX + scrollLeft) / pixelsPerSecond);
+      onSeek(moveTime);
+    };
+
+    const onPointerUp = () => {
+      isScrubbingRef.current = false;
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  };
+
+  return (
+    <div className="h-7 w-full flex shrink-0 border-b border-zinc-800/80 bg-[#101015] select-none">
+      {/* Collapsible Header matching track controls */}
+      {isControlsCollapsed ? (
+        <div className="w-[32px] shrink-0 border-r border-zinc-700/80 flex items-center justify-center bg-[#0d0d12] transition-all duration-200">
+          <button
+            type="button"
+            onClick={onToggleCollapseControls}
+            aria-expanded="false"
+            aria-label="Expand Track Controls"
+            title="Expand Track Controls (Show volume, pan, mute, solo)"
+            className="w-6 h-6 rounded flex items-center justify-center text-zinc-400 hover:text-cyan-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ) : (
+        <div className="w-[272px] shrink-0 border-r border-zinc-700/80 px-2.5 flex items-center justify-between text-zinc-400 transition-all duration-200">
+          <div className="flex items-center gap-1.5 text-xs font-mono font-medium">
+            <Clock className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-zinc-200 font-semibold tracking-wider text-[11px]">TIMELINE</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-mono text-cyan-400 font-bold bg-[#0A0A0E] px-1.5 py-0.5 rounded border border-zinc-800">
+              {formatTimecode(playheadSeconds)}
+            </span>
+            <button
+              type="button"
+              onClick={onToggleCollapseControls}
+              aria-expanded="true"
+              aria-label="Collapse Track Controls"
+              title="Collapse Track Controls (Expand waveform workspace)"
+              className="p-1 rounded text-zinc-500 hover:text-cyan-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Ruler canvas */}
+      <div className="flex-1 overflow-hidden relative cursor-ew-resize">
+        <canvas
+          ref={canvasRef}
+          width={Math.max(100, timelineWidth)}
+          height={28}
+          onPointerDown={handlePointerDown}
+          className="w-full h-full block"
+        />
+      </div>
+    </div>
+  );
+};

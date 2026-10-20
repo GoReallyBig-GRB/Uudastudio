@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile record keyed by Google Auth UID",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "photoURL": { "type": "string", "maxLength": 1024 },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "lastActiveAt": { "type": "string", "maxLength": 64 },
+        "blocked": { "type": "boolean" }
+      },
+      "required": ["id", "email", "role", "blocked"]
+    },
+    "CreditLedgerItem": {
+      "title": "CreditLedgerItem",
+      "description": "Append-only credit transaction record. Server-side only mutations.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "delta": { "type": "number" },
+        "reason": { "type": "string", "enum": ["grant", "reserve", "settle", "refund", "purchase"] },
+        "generationId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "delta", "reason", "createdAt"]
+    },
+    "CreditBalance": {
+      "title": "CreditBalance",
+      "description": "Current verified credit balance. Server-side transaction only.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "balance": { "type": "number" },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "balance", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile with permanent Google email and role"
+    },
+    "/users/{userId}/credit_ledger/{ledgerId}": {
+      "schema": { "$ref": "#/entities/CreditLedgerItem" },
+      "description": "Append-only credit audit ledger, strictly server-side writes"
+    },
+    "/users/{userId}/credits/{creditDocId}": {
+      "schema": { "$ref": "#/entities/CreditBalance" },
+      "description": "Current credit balance, strictly server-side transaction writes"
+    }
+  }
+}

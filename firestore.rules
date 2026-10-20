@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // User profiles: users can read their own profile.
+    // Client write permissions: Only self creation of initial profile without role elevation,
+    // and updates of display name / photoURL / lastActiveAt.
+    // EMAIL, ROLE, BLOCKED, and CREDITS cannot be modified by the client.
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && request.resource.data.id == userId
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 256
+        && request.resource.data.role == 'user'
+        && request.resource.data.blocked == false;
+
+      allow update: if isOwner(userId)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.blocked == resource.data.blocked
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'lastActiveAt']);
+
+      allow delete: if false;
+
+      // Credit ledger: READ-ONLY for owner, client writes BLOCKED.
+      // Must be written by server-side Firebase Admin SDK only.
+      match /credit_ledger/{ledgerId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create, update, delete: if false;
+      }
+
+      // Credit balance: READ-ONLY for owner, client writes BLOCKED.
+      // Must be written by server-side Firebase Admin SDK only.
+      match /credits/{creditDocId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create, update, delete: if false;
+      }
+    }
+  }
+}

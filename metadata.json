@@ -1,0 +1,6 @@
+{
+  "name": "Uuda Studio",
+  "description": "Browser-based audio studio for broadcast and podcast producers featuring multi-track timeline editing, input EQ, and mastering.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
