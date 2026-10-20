@@ -82,7 +82,6 @@ const MainStudio: React.FC = () => {
     }
     return 'studio';
   });
-  const [adminCodePreview, setAdminCodePreview] = useState<string | undefined>(undefined);
 
   const [project, setProject] = useState<Project>(DEFAULT_PROJECT);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -1724,12 +1723,11 @@ const MainStudio: React.FC = () => {
         }}
         onSuccessSignIn={(info) => {
           setCurrentView('studio');
-          if (info?.adminCodeSent && info.connectionCodePreview) {
-            setAdminCodePreview(info.connectionCodePreview);
+          if (info?.adminCodeSent) {
             addToast({
               type: 'info',
-              title: 'Admin Verification Code',
-              message: `6-Digit Code: ${info.connectionCodePreview} (Enter to unlock Admin Panel)`,
+              title: 'Admin verification',
+              message: 'A 6-digit code was sent to your email. Enter it to unlock the Admin Panel.',
             });
           }
         }}
@@ -1752,7 +1750,6 @@ const MainStudio: React.FC = () => {
     return (
       <AdminPanel
         onBackToStudio={() => setCurrentView('studio')}
-        initialConnectionCode={adminCodePreview}
       />
     );
   }

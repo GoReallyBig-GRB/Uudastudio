@@ -1,0 +1,65 @@
+name: Deploy
+
+# Deploys the API to Cloud Run, then the web app to Firebase Hosting.
+# Nothing runs until you set the repository variable DEPLOY_ENABLED to "true" (Settings > Secrets and variables > Actions > Variables).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGION: us-central1
+  SERVICE: uuda-studio-api
+
+jobs:
+  deploy:
+    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # Cloud Run: builds the Dockerfile in Cloud Build and deploys it.
+      # Settings follow the spec: scale to zero, 1 vCPU, 512 MiB, 60 s timeout.
+      # max-instances stays at 1 until sessions, codes and rate limits move to Firestore (next stage).
+      - name: Deploy API to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --source . \
+            --region "$REGION" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --allow-unauthenticated \
+            --min-instances 0 \
+            --max-instances 1 \
+            --cpu 1 \
+            --memory 512Mi \
+            --timeout 60 \
+            --concurrency 40 \
+            --set-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${{ vars.GCP_PROJECT_ID }},SUPER_ADMIN_EMAIL=${{ vars.SUPER_ADMIN_EMAIL }}" \
+            --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest,FREESOUND_API_KEY=FREESOUND_API_KEY:latest,FREESOUND_CLIENT_SECRET=FREESOUND_CLIENT_SECRET:latest,SMTP_USER=SMTP_USER:latest,SMTP_PASS=SMTP_PASS:latest"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build web app
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Deploy web app to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.GCP_SA_KEY }}
+          projectId: ${{ vars.GCP_PROJECT_ID }}
+          channelId: live

@@ -4,36 +4,94 @@
  * Handles Vite middleware mounting in development mode and static serving in production.
  */
 
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
-import { db } from './src/server/db';
-import { authRouter, getAuthenticatedUser, checkBurstLimit } from './src/server/authRoutes';
-import { audioJobsRouter } from './src/server/audioJobs';
+import { db } from './db';
+import { authRouter, getAuthenticatedUser, checkBurstLimit } from './authRoutes';
+import { audioJobsRouter } from './audioJobs';
+import { rateLimit, requireSameOrigin } from './http';
 import {
   generateStrictTTS,
   sanitizeScriptText,
   AUDITION_SAMPLE_SENTENCE,
   ensureWavHeader,
-} from './src/server/voiceService';
+} from './voiceService';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// The built web app lives in <project>/dist, one level above both server/ and dist-server/
+const DIST_DIR = path.resolve(__dirname, '..', 'dist');
+
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-app.use(express.json({ limit: '15mb' }));
+// Behind Firebase Hosting and Cloud Run the real client address arrives in X-Forwarded-For
+app.set('trust proxy', true);
+app.disable('x-powered-by');
+
+// Security headers. The Content-Security-Policy is applied in production only: in development Vite injects inline
+// scripts for hot reload. The script and connect lists below are the exact hosts the app uses today.
+const isProduction = process.env.NODE_ENV === 'production';
+app.use(
+  helmet({
+    contentSecurityPolicy: isProduction
+      ? {
+          // Set CSP_ENFORCE=true once sign-in, audio and plugins are confirmed to work under it.
+          // Until then the policy only reports violations in the browser console.
+          reportOnly: process.env.CSP_ENFORCE !== 'true',
+          useDefaults: false,
+          directives: {
+            'default-src': ["'self'"],
+            'script-src': ["'self'", 'https://apis.google.com', 'https://www.gstatic.com'],
+            'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+            'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
+            'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+            'media-src': ["'self'", 'blob:', 'data:', 'https://cdn.freesound.org'],
+            'connect-src': [
+              "'self'",
+              'https://*.googleapis.com',
+              'https://*.firebaseio.com',
+              'https://identitytoolkit.googleapis.com',
+              'https://securetoken.googleapis.com',
+            ],
+            'frame-src': ["'self'", 'https://*.firebaseapp.com', 'https://accounts.google.com'],
+            'worker-src': ["'self'", 'blob:'],
+            'object-src': ["'none'"],
+            'base-uri': ["'self'"],
+            'frame-ancestors': ["'self'"],
+          },
+        }
+      : false,
+    crossOriginEmbedderPolicy: false, // Firebase sign-in popup needs this off
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  })
+);
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Permissions-Policy', 'microphone=(self), camera=(), geolocation=()');
+  next();
+});
+
+// Saved project documents can be large; everything else is small JSON
+app.use('/api/projects', express.json({ limit: '15mb' }));
+app.use(express.json({ limit: '2mb' }));
+app.use(requireSameOrigin);
 
 // Mount Auth, User Dashboard, Support & Admin Routes
 app.use(authRouter);
 
-// Mount Heavy Audio Processing Jobs (FFmpeg Denoise & MP3 Export)
-app.use(audioJobsRouter);
+// Heavy audio jobs (FFmpeg denoise and MP3 export) are off unless ENABLE_AUDIO_JOBS=true: the app does these in the
+// browser, and the Cloud Run image does not ship FFmpeg. When enabled, a signed-in user is required.
+if (process.env.ENABLE_AUDIO_JOBS === 'true') {
+  app.use(['/api/audio', '/api/export'], requireSignedIn);
+  app.use(audioJobsRouter);
+}
 
 // ---------------------------------------------------------------------------
 // 1. Google Gemini Prebuilt Voices Reference Catalog
@@ -150,14 +208,19 @@ function concatenateWavBuffers(buffers: Buffer[], silenceGapMs = 120): Buffer {
 // 2. API Routes
 // ---------------------------------------------------------------------------
 
+function requireSignedIn(req: Request, res: Response, next: NextFunction): void {
+  const { user } = getAuthenticatedUser(req);
+  if (!user || user.blocked) {
+    res.status(401).json({ error: 'Sign in required.' });
+    return;
+  }
+  next();
+}
+
 // Health check
 app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    timestamp: Date.now(),
-    geminiKeyConfigured: !!process.env.GEMINI_API_KEY,
-    freesoundKeyConfigured: !!process.env.FREESOUND_API_KEY,
-  });
+  // Liveness only. Which keys are configured is not public information.
+  res.json({ status: 'ok', timestamp: Date.now() });
 });
 
 // In-memory cache for voice preview auditions
@@ -175,7 +238,7 @@ app.get('/api/voice/voices', (_req: Request, res: Response) => {
 });
 
 // Audition / Preview Voice Talent (Validation against GEMINI_VOICES, no fake tones, real errors)
-app.get('/api/voice/preview', async (req: Request, res: Response): Promise<void> => {
+app.get('/api/voice/preview', rateLimit({ name: 'preview', windowMs: 60 * 1000, max: 20 }), async (req: Request, res: Response): Promise<void> => {
   const voiceName = (req.query.voice as string) || '';
   const match = GEMINI_VOICES.find((v) => v.name.toLowerCase() === voiceName.trim().toLowerCase());
   if (!match) {
@@ -227,15 +290,10 @@ app.get('/api/voice/preview', async (req: Request, res: Response): Promise<void>
 
 // Diagnose Gemini TTS Models (signed-in users only)
 app.get('/api/voice/diagnose', async (req: Request, res: Response): Promise<void> => {
-  let { user } = getAuthenticatedUser(req);
-  if (!user) {
-    const defaultUser = db.getUserByEmail('chucksagonsi@gmail.com') || db.getUserById('usr_owner_seed');
-    if (defaultUser && !defaultUser.blocked) {
-      user = defaultUser;
-    } else {
-      res.status(401).json({ error: 'Sign in is required to run voice diagnostics.' });
-      return;
-    }
+  const { user } = getAuthenticatedUser(req);
+  if (!user || user.blocked) {
+    res.status(401).json({ error: 'Sign in is required to run voice diagnostics.' });
+    return;
   }
 
   const customKey = req.headers['x-gemini-api-key'] as string | undefined;
@@ -297,18 +355,13 @@ app.get('/api/voice/diagnose', async (req: Request, res: Response): Promise<void
 // Generate Voiceover (Requires Google Sign-In & logs generation)
 // Strict text-only pipeline: no instructions, no formatting prose, ASR verification layer
 app.post('/api/voice/generate', async (req: Request, res: Response): Promise<void> => {
-  // 1. Auth check with development producer fallback
-  let { user } = getAuthenticatedUser(req);
+  // 1. Auth check: a signed-in user is required. There is no fallback account.
+  const { user } = getAuthenticatedUser(req);
   if (!user) {
-    const defaultUser = db.getUserByEmail('chucksagonsi@gmail.com') || db.getUserById('usr_owner_seed');
-    if (defaultUser && !defaultUser.blocked) {
-      user = defaultUser;
-    } else {
-      res.status(401).json({
-        error: 'Sign in with Google is required to generate voiceovers.',
-      });
-      return;
-    }
+    res.status(401).json({
+      error: 'Sign in with Google is required to generate voiceovers.',
+    });
+    return;
   }
 
   // 2. Blocked account check
@@ -480,7 +533,7 @@ app.get('/api/freesound/config', (_req: Request, res: Response) => {
 });
 
 // Freesound Search (Strictly filtered to CC0 Creative Commons 0)
-app.get('/api/freesound/search', async (req: Request, res: Response): Promise<void> => {
+app.get('/api/freesound/search', rateLimit({ name: 'fs-search', windowMs: 60 * 1000, max: 40 }), async (req: Request, res: Response): Promise<void> => {
   try {
     const apiKey = process.env.FREESOUND_API_KEY;
     if (!apiKey) {
@@ -669,6 +722,19 @@ app.get('/api/freesound/download/:soundId', async (req: Request, res: Response):
 // ---------------------------------------------------------------------------
 // 4. Vite Dev Server / Static Production Mounting
 // ---------------------------------------------------------------------------
+// Unknown API paths answer with JSON, never with the web app's HTML
+app.use('/api', (_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Not found.' });
+});
+
+// Last-resort error handler: log the detail, tell the client only what it needs
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const status = (err as { status?: number })?.status && (err as { status: number }).status < 500 ? (err as { status: number }).status : 500;
+  if (status >= 500) console.error('Unhandled server error:', err);
+  if (res.headersSent) return;
+  res.status(status).json({ error: status === 413 ? 'Request is too large.' : status >= 500 ? 'Something went wrong.' : 'Bad request.' });
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     // Mount Vite dev middleware
@@ -680,14 +746,21 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     // Serve static files in production
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.use(express.static(DIST_DIR));
     app.get('*', (_req: Request, res: Response) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      res.sendFile(path.join(DIST_DIR, 'index.html'));
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`X-PRO AUDIO server listening on http://0.0.0.0:${PORT}`);
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Uuda Studio server listening on http://0.0.0.0:${PORT} (${isProduction ? 'production' : 'development'})`);
+  });
+
+  // Cloud Run sends SIGTERM before stopping an instance: finish open requests, then exit
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down');
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 8000).unref();
   });
 }
 

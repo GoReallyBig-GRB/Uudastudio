@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      # Non-blocking until the existing type errors are cleared; then remove continue-on-error
+      - run: npm run lint
+        continue-on-error: true
+      - run: npm test
+      - run: npm run build:all

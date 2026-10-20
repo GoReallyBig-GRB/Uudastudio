@@ -5,6 +5,7 @@
  */
 
 import fs from 'fs';
+import crypto from 'crypto';
 import path from 'path';
 
 export interface UserPreferences {
@@ -73,9 +74,20 @@ export interface ServerProject {
 
 export interface AdminCodeEntry {
   email: string;
-  code: string;
+  /** HMAC-SHA256 of the code with a per-code random salt; the code itself is never stored */
+  hash: string;
+  salt: string;
   expires_at: number;
+  attempts: number;
+  locked_until: number;
 }
+
+/** Admin code policy */
+export const ADMIN_CODE_TTL_MS = 10 * 60 * 1000;
+export const ADMIN_CODE_MAX_ATTEMPTS = 5;
+export const ADMIN_CODE_LOCK_MS = 15 * 60 * 1000;
+export const ADMIN_VERIFIED_TTL_MS = 12 * 60 * 60 * 1000;
+export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface DatabaseSchema {
   users: Record<string, UserRecord>;
@@ -83,11 +95,12 @@ interface DatabaseSchema {
   tickets: SupportTicket[];
   projects: ServerProject[];
   adminCodes: Record<string, AdminCodeEntry>;
-  verifiedAdminSessions: string[]; // session tokens that passed connection code check
+  verifiedAdminSessions: Record<string, number>; // session token -> verified-until (epoch ms)
   sessions: Record<string, { userId: string; createdAt: number }>;
 }
 
-const DB_FILE_PATH = path.resolve(process.cwd(), 'data', 'uuda_db.json');
+// Local development store only. Cloud Run's disk is temporary and per-instance; production data moves to Firestore (stage 2).
+const DB_FILE_PATH = path.resolve(process.env.UUDA_DATA_DIR || path.resolve(process.cwd(), 'data'), 'uuda_db.json');
 
 class DatabaseService {
   private data: DatabaseSchema;
@@ -114,7 +127,8 @@ class DatabaseService {
           tickets: parsed.tickets || [],
           projects: parsed.projects || [],
           adminCodes: parsed.adminCodes || {},
-          verifiedAdminSessions: parsed.verifiedAdminSessions || [],
+          // Older files stored an array with no expiry; those verifications are dropped on purpose
+          verifiedAdminSessions: Array.isArray(parsed.verifiedAdminSessions) ? {} : parsed.verifiedAdminSessions || {},
           sessions: parsed.sessions || {},
         };
       }
@@ -128,7 +142,7 @@ class DatabaseService {
       tickets: [],
       projects: [],
       adminCodes: {},
-      verifiedAdminSessions: [],
+      verifiedAdminSessions: {},
       sessions: {},
     };
   }
@@ -164,20 +178,12 @@ class DatabaseService {
         user.role = 'admin';
       }
     }
-
-    const defaultEmail = 'chucksagonsi@gmail.com';
-    if (!this.getUserByEmail(defaultEmail)) {
-      this.createOrUpdateUserOnSignIn({
-        googleId: 'usr_owner_seed',
-        email: defaultEmail,
-        displayName: 'Producer Admin',
-        photoUrl: '',
-      });
-    }
   }
 
   public getAdminAllowlist(): string[] {
-    const envList = process.env.ADMIN_EMAILS || 'chucksagonsi@gmail.com,killdasmoke@gmail.com';
+    // The super-admin comes from configuration; extra admins can be listed in ADMIN_EMAILS (comma separated).
+    const superAdmin = process.env.SUPER_ADMIN_EMAIL || 'killdasmoke@gmail.com';
+    const envList = [superAdmin, process.env.ADMIN_EMAILS || ''].join(',');
     return envList
       .split(',')
       .map((e) => e.trim().toLowerCase())
@@ -299,40 +305,72 @@ class DatabaseService {
   }
 
   // Admin connection codes
+  private hashAdminCode(code: string, salt: string): string {
+    return crypto.createHmac('sha256', salt).update(String(code).trim()).digest('hex');
+  }
+
+  /** Creates a fresh single-use code. The caller must email it; it is never logged or returned by an API route. */
   public createAdminConnectionCode(email: string): string {
     const clean = email.trim().toLowerCase();
-    // 6-digit numeric code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = crypto.randomInt(100000, 1000000).toString();
+    const salt = crypto.randomBytes(16).toString('hex');
+    const previous = this.data.adminCodes[clean];
     this.data.adminCodes[clean] = {
       email: clean,
-      code,
-      expires_at: Date.now() + 30 * 60 * 1000, // 30 minutes
+      hash: this.hashAdminCode(code, salt),
+      salt,
+      expires_at: Date.now() + ADMIN_CODE_TTL_MS,
+      attempts: 0,
+      locked_until: previous && previous.locked_until > Date.now() ? previous.locked_until : 0,
     };
     this.save();
-    console.log(`[AUTH] Admin connection code generated for ${clean}: ${code}`);
     return code;
   }
 
-  public verifyAdminConnectionCode(email: string, code: string, sessionToken: string): boolean {
-    const clean = email.trim().toLowerCase();
-    const entry = this.data.adminCodes[clean];
-    if (!entry) return false;
-    if (Date.now() > entry.expires_at) return false;
-    if (entry.code.trim() === code.trim()) {
-      if (!this.data.verifiedAdminSessions.includes(sessionToken)) {
-        this.data.verifiedAdminSessions.push(sessionToken);
-      }
-      this.save();
-      return true;
-    }
-    return false;
+  /** Seconds until a new code may be requested (one per minute), or 0 */
+  public adminCodeCooldownSeconds(email: string): number {
+    const entry = this.data.adminCodes[email.trim().toLowerCase()];
+    if (!entry) return 0;
+    const issuedAt = entry.expires_at - ADMIN_CODE_TTL_MS;
+    return Math.max(0, Math.ceil((issuedAt + 60 * 1000 - Date.now()) / 1000));
   }
 
-  public verifyAdminSession(sessionToken: string): void {
-    if (!this.data.verifiedAdminSessions.includes(sessionToken)) {
-      this.data.verifiedAdminSessions.push(sessionToken);
-      this.save();
+  public verifyAdminConnectionCode(
+    email: string,
+    code: string,
+    sessionToken: string
+  ): { ok: boolean; reason?: 'locked' | 'invalid' | 'expired'; retryAfterSec?: number } {
+    const clean = email.trim().toLowerCase();
+    const entry = this.data.adminCodes[clean];
+    if (!entry) return { ok: false, reason: 'expired' };
+    const now = Date.now();
+    if (entry.locked_until > now) {
+      return { ok: false, reason: 'locked', retryAfterSec: Math.ceil((entry.locked_until - now) / 1000) };
     }
+    if (now > entry.expires_at) return { ok: false, reason: 'expired' };
+
+    const given = Buffer.from(this.hashAdminCode(code, entry.salt), 'hex');
+    const wanted = Buffer.from(entry.hash, 'hex');
+    const match = given.length === wanted.length && crypto.timingSafeEqual(given, wanted);
+    if (!match) {
+      entry.attempts += 1;
+      let locked = false;
+      if (entry.attempts >= ADMIN_CODE_MAX_ATTEMPTS) {
+        entry.locked_until = now + ADMIN_CODE_LOCK_MS;
+        entry.attempts = 0;
+        locked = true;
+      }
+      this.save();
+      return locked
+        ? { ok: false, reason: 'locked', retryAfterSec: Math.ceil(ADMIN_CODE_LOCK_MS / 1000) }
+        : { ok: false, reason: 'invalid' };
+    }
+
+    // Single use: burn the code, then mark this session as verified for a limited time
+    delete this.data.adminCodes[clean];
+    this.data.verifiedAdminSessions[sessionToken] = now + ADMIN_VERIFIED_TTL_MS;
+    this.save();
+    return { ok: true };
   }
 
   public setSession(token: string, userId: string): void {
@@ -343,17 +381,27 @@ class DatabaseService {
 
   public getSession(token: string): { userId: string; createdAt: number } | null {
     if (!this.data.sessions) this.data.sessions = {};
-    return this.data.sessions[token] || null;
+    const entry = this.data.sessions[token];
+    if (!entry) return null;
+    if (Date.now() - entry.createdAt > SESSION_TTL_MS) {
+      delete this.data.sessions[token];
+      delete this.data.verifiedAdminSessions[token];
+      this.save();
+      return null;
+    }
+    return entry;
   }
 
   public removeSession(token: string): void {
     if (!this.data.sessions) return;
     delete this.data.sessions[token];
+    delete this.data.verifiedAdminSessions[token];
     this.save();
   }
 
   public isAdminSessionVerified(sessionToken: string): boolean {
-    return this.data.verifiedAdminSessions.includes(sessionToken);
+    const until = this.data.verifiedAdminSessions[sessionToken];
+    return typeof until === 'number' && until > Date.now();
   }
 
   // Generations log

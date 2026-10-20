@@ -140,14 +140,15 @@ class AuthService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(profile),
+        body: JSON.stringify({ idToken: token }),
+        credentials: 'same-origin',
       });
 
       if (res.ok) {
         const data = await res.json();
         this.currentUser = data.user;
-        this.volatileToken = data.sessionToken || token;
-        if (data.connectionCodePreview) {
+        this.volatileToken = data.sessionToken || null;
+        if (data.adminCodeSent) {
           this.isAdminVerified = false;
         }
       }
@@ -253,7 +254,6 @@ class AuthService {
     user: UserRecord;
     isNew: boolean;
     adminCodeSent: boolean;
-    connectionCodePreview?: string;
   }> {
     try {
       googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -288,12 +288,9 @@ class AuthService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${idToken}`,
         },
-        body: JSON.stringify({
-          googleId: fbUser.uid,
-          email: fbUser.email || '',
-          displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Producer',
-          photoUrl: fbUser.photoURL || '',
-        }),
+        // The server verifies this token with Firebase and reads the identity from it; nothing else is trusted
+        body: JSON.stringify({ idToken }),
+        credentials: 'same-origin',
       });
 
       const data = await res.json();
@@ -302,7 +299,7 @@ class AuthService {
       }
 
       this.currentUser = data.user;
-      this.volatileToken = data.sessionToken || idToken;
+      this.volatileToken = data.sessionToken || null;
       this.isAdminVerified = false;
       this.notifyAuthChanged();
 
@@ -312,47 +309,11 @@ class AuthService {
         user: data.user,
         isNew: data.isNew,
         adminCodeSent: Boolean(data.adminCodeSent),
-        connectionCodePreview: data.connectionCodePreview,
       };
     } catch (err: unknown) {
       console.error('Firebase Google Sign-In Error:', err);
       throw err;
     }
-  }
-
-  /**
-   * Fallback / Direct Sign-In (for developer testing & environments)
-   */
-  public async signInWithGoogle(payload: {
-    googleId: string;
-    email: string;
-    displayName: string;
-    photoUrl: string;
-  }): Promise<{ user: UserRecord; isNew: boolean; adminCodeSent: boolean; connectionCodePreview?: string }> {
-    const res = await fetch('/api/auth/google', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to sign in with Google');
-    }
-
-    this.volatileToken = data.sessionToken;
-    this.currentUser = data.user;
-    this.isAdminVerified = false;
-    this.notifyAuthChanged();
-
-    this.refreshMe();
-
-    return {
-      user: data.user,
-      isNew: data.isNew,
-      adminCodeSent: Boolean(data.adminCodeSent),
-      connectionCodePreview: data.connectionCodePreview,
-    };
   }
 
   public async refreshMe(): Promise<void> {
@@ -456,7 +417,7 @@ class AuthService {
       throw new Error(data.error || 'Failed to resend connection code');
     }
 
-    return data.previewCode;
+    return data.message || 'A new code was sent to your email.';
   }
 }
 
