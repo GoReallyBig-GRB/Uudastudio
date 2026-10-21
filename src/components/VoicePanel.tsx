@@ -26,6 +26,8 @@ import { audioEngine } from '../audio/engine';
 import { saveAssetToDB } from '../storage/db';
 import { authService } from '../services/authService';
 import { useVoiceSession, CustomPrecept } from '../voice/voiceSession';
+import { useVoiceJob, voiceJob } from '../voice/voiceJob';
+import { VoiceJobBar } from './VoiceJobBar';
 
 export type { CustomPrecept };
 
@@ -87,17 +89,12 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
   const [newPreceptTitle, setNewPreceptTitle] = useState<string>('');
   const [slotNotice, setSlotNotice] = useState<string | null>(null);
 
-  // Audition audio player state
-  const [auditioningVoice, setAuditioningVoice] = useState<string | null>(null);
-  const [isAuditionLoading, setIsAuditionLoading] = useState<boolean>(false);
-  const previewSourceRef = useRef<AudioBufferSourceNode | null>(null);
-
-  // Generation status
-  const [status, setStatus] = useState<'idle' | 'sending' | 'synthesizing' | 'decoding'>('idle');
-  const [progressMsg, setProgressMsg] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const abortControllerRef = useRef<AbortController | null>(null);
+  // Generation, finished voiceover and audition are one shared job (see voice/voiceJob.ts), identical in the modal
+  const job = useVoiceJob();
+  const { status, progressMsg, auditioningVoice, isAuditionLoading } = job;
+  const errorMessage = job.error;
+  const setErrorMessage = (message: string | null) => voiceJob.setError(message);
+  const isBusy = status === 'sending' || status === 'decoding';
 
   // Fetch voice list on mount
   useEffect(() => {
@@ -126,94 +123,18 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
     };
   }, []);
 
-  // Cleanup audio preview on unmount
-  useEffect(() => {
-    return () => {
-      if (previewSourceRef.current) {
-        try {
-          previewSourceRef.current.stop();
-        } catch {}
-        previewSourceRef.current = null;
-      }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
+  const handleAuditionVoice = (voiceName: string) => {
+    void voiceJob.audition(voiceName);
+  };
 
-  const handleAuditionVoice = async (voiceName: string) => {
-    if (auditioningVoice === voiceName) {
-      if (previewSourceRef.current) {
-        try {
-          previewSourceRef.current.stop();
-        } catch {}
-        previewSourceRef.current = null;
-      }
-      setAuditioningVoice(null);
-      setIsAuditionLoading(false);
-      return;
-    }
-
-    if (previewSourceRef.current) {
-      try {
-        previewSourceRef.current.stop();
-      } catch {}
-      previewSourceRef.current = null;
-    }
-
-    setAuditioningVoice(voiceName);
-    setIsAuditionLoading(true);
-
-    const safetyTimer = window.setTimeout(() => {
-      setIsAuditionLoading(false);
-      setAuditioningVoice(null);
-    }, 40000);
-
-    try {
-      const res = await fetch(`/api/voice/preview?voice=${encodeURIComponent(voiceName)}`, {
-        headers: authService.getAuthHeaders(),
-      });
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to load audition sample (${res.status})`);
-      }
-      const data = await res.json();
-      if (!data.audioBase64) {
-        throw new Error('No audio returned for sample.');
-      }
-
-      const binaryStr = atob(data.audioBase64);
-      const len = binaryStr.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-
-      const decodedBuffer = await audioEngine.decodeAudio(bytes.buffer);
-      const ctx = await audioEngine.init();
-
-      const src = ctx.createBufferSource();
-      src.buffer = decodedBuffer;
-      src.connect(ctx.destination);
-
-      src.onended = () => {
-        window.clearTimeout(safetyTimer);
-        setAuditioningVoice(null);
-        setIsAuditionLoading(false);
-      };
-
-      previewSourceRef.current = src;
-      src.start();
-      window.clearTimeout(safetyTimer);
-      setIsAuditionLoading(false);
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      console.warn('Audition error:', msg);
-      setErrorMessage(msg);
-      window.clearTimeout(safetyTimer);
-      setAuditioningVoice(null);
-      setIsAuditionLoading(false);
-    }
+  const handleGenerate = () => {
+    void voiceJob.generate({
+      origin: 'panel',
+      script,
+      voiceName: selectedVoice,
+      modelId: selectedModel,
+      instruction: deliveryInstruction,
+    });
   };
 
   // Precept Slot Handlers
@@ -253,110 +174,6 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
     clearPrecept(index);
     if (savingSlotIndex === index) {
       setSavingSlotIndex(null);
-    }
-  };
-
-  // Generation Handler
-  const handleGenerate = async () => {
-    if (!script.trim() || status !== 'idle') return;
-
-    setErrorMessage(null);
-    setStatus('sending');
-    setProgressMsg('Connecting to Gemini TTS...');
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    try {
-      const response = await fetch('/api/voice/generate', {
-        method: 'POST',
-        headers: authService.getAuthHeaders(),
-        signal: controller.signal,
-        body: JSON.stringify({
-          script: script.trim(),
-          voiceName: selectedVoice,
-          modelId: selectedModel,
-          instruction: deliveryInstruction.trim(),
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        if (response.status === 401) {
-          throw new Error('Sign in with Google is required to generate voiceovers.');
-        }
-        if (response.status === 403) {
-          throw new Error(errorData.error || 'This account has been blocked. Contact support.');
-        }
-        if (response.status === 429) {
-          throw new Error(
-            errorData.error ||
-              'Gemini TTS quota limit reached (429). Please wait a moment and retry.'
-          );
-        }
-        throw new Error(errorData.error || `Voice synthesis failed (${response.status})`);
-      }
-
-      setStatus('decoding');
-      setProgressMsg('Decoding audio to timeline...');
-
-      const result = await response.json();
-      const base64Data = result.audioBase64;
-      if (!base64Data) {
-        throw new Error('Engine returned empty audio payload.');
-      }
-
-      const binaryStr = atob(base64Data);
-      const len = binaryStr.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-
-      const decodedBuffer = await audioEngine.decodeAudio(bytes.buffer);
-      if (!decodedBuffer || decodedBuffer.duration <= 0.2) {
-        throw new Error('The voice engine returned empty audio. Nothing was added to the timeline. Please try again.');
-      }
-
-      const newAssetId = `vo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const voiceMeta: VoiceMetadata = {
-        script: script.trim(),
-        voiceName: selectedVoice,
-        model: selectedModel,
-        deliveryInstruction: deliveryInstruction.trim(),
-      };
-
-      const newAsset: Asset = {
-        id: newAssetId,
-        name: `VO - ${selectedVoice}`,
-        kind: 'voice',
-        buffer: decodedBuffer,
-        sampleRate: decodedBuffer.sampleRate,
-        durationSeconds: decodedBuffer.duration,
-        numberOfChannels: decodedBuffer.numberOfChannels,
-        voiceMetadata: voiceMeta,
-      };
-
-      audioEngine.registerAsset(newAsset);
-      await saveAssetToDB(newAsset);
-
-      // Add to timeline on new top track
-      onAddVoiceTrack(newAsset, voiceMeta);
-
-      setStatus('idle');
-      setProgressMsg('');
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        setStatus('idle');
-        setProgressMsg('');
-        return;
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      setErrorMessage(msg);
-      setStatus('idle');
-      setProgressMsg('');
-    } finally {
-      abortControllerRef.current = null;
     }
   };
 
@@ -702,14 +519,15 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
         </div>
 
         {/* Generate Action Button */}
-        <div className="pt-1">
+        <div className="pt-1 space-y-2">
+          <VoiceJobBar />
           <button
             type="button"
-            disabled={status !== 'idle' || !script.trim()}
+            disabled={isBusy || !script.trim()}
             onClick={handleGenerate}
             className="w-full py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white shadow-[0_0_16px_rgba(0,240,255,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {status !== 'idle' ? (
+            {isBusy ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
                 <span>{progressMsg || 'Generating voiceover...'}</span>

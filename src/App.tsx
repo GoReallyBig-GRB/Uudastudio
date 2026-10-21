@@ -53,6 +53,7 @@ import { UserDashboard } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
 import { VoiceoverModal } from './components/VoiceoverModal';
+import { voiceJob } from './voice/voiceJob';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
 
 const DEFAULT_PROJECT: Project = {
@@ -740,6 +741,14 @@ const MainStudio: React.FC = () => {
       message: `Speech generated with ${voiceMeta.voiceName} (${asset.durationSeconds.toFixed(1)}s) docked on new top track.`,
     });
   };
+
+  // One commit handler for the shared voiceover job. A ref keeps it pointing at the latest handler.
+  const addVoiceTrackRef = useRef(handleAddVoiceTrack);
+  addVoiceTrackRef.current = handleAddVoiceTrack;
+  useEffect(() => {
+    voiceJob.setCommitHandler((asset, meta) => addVoiceTrackRef.current(asset, meta));
+    return () => voiceJob.setCommitHandler(null);
+  }, []);
 
   const handleAddLibraryTrack = (asset: Asset) => {
     // Crucial: Register asset in audioEngine so timeline and playback can access audioBuffer
@@ -2054,7 +2063,6 @@ const MainStudio: React.FC = () => {
       <VoiceoverModal
         isOpen={isVoiceoverModalOpen}
         onClose={() => setIsVoiceoverModalOpen(false)}
-        onAddVoiceTrack={handleAddVoiceTrack}
       />
 
       {/* Expanded Sound Effects & Music Loop Library Workspace Modal */}
