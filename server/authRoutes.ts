@@ -662,7 +662,7 @@ authRouter.post('/api/projects', requireAuth, async (req: Request, res: Response
 authRouter.post('/api/projects/:id/duplicate', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user as UserRecord;
-    const copy = await store.duplicateProject(user.id, String(req.params.i)d);
+    const copy = await store.duplicateProject(user.id, String(req.params.id));
     res.json({ project: copy });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -672,7 +672,7 @@ authRouter.post('/api/projects/:id/duplicate', requireAuth, async (req: Request,
 
 authRouter.delete('/api/projects/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = (req as any).user as UserRecord;
-  const deleted = await store.deleteProject(user.id, String(req.params.i)d);
+  const deleted = await store.deleteProject(user.id, String(req.params.id));
   if (!deleted) {
     res.status(404).json({ error: 'Project not found.' });
     return;
