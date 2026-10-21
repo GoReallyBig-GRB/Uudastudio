@@ -33,19 +33,18 @@ import { AdminOverviewStats, AdminUserRow, SupportTicket } from '../../types';
 
 interface AdminPanelProps {
   onBackToStudio: () => void;
-  initialConnectionCode?: string;
 }
 
 type AdminTab = 'overview' | 'users' | 'support';
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialConnectionCode }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
   const { user, isAdmin, isAdminVerified, verifyAdminCode, resendAdminCode } = useAuth();
 
   // Connection Code Verification State
-  const [codeInputValue, setCodeInputValue] = useState(initialConnectionCode || '');
+  const [codeInputValue, setCodeInputValue] = useState('');
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [codeError, setCodeError] = useState<string | null>(null);
-  const [activeCodePreview, setActiveCodePreview] = useState<string | undefined>(initialConnectionCode);
+  const [codeNotice, setCodeNotice] = useState<string | null>(null);
 
   // Active Admin Tab
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
@@ -148,13 +147,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
 
   const handleResendCode = async () => {
     try {
-      const previewCode = await resendAdminCode();
-      if (previewCode) {
-        setActiveCodePreview(previewCode);
-        setCodeInputValue(previewCode);
-      }
+      setCodeError(null);
+      const message = await resendAdminCode();
+      setCodeNotice(message);
     } catch (err) {
-      console.error(err);
+      setCodeError(err instanceof Error ? err.message : 'Could not send a new code.');
     }
   };
 
@@ -246,16 +243,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
           </div>
 
           <p className="text-xs text-zinc-300 leading-relaxed mb-4">
-            A 6-digit connection code was generated when signing in as{' '}
-            <strong className="text-amber-300 font-mono">{user?.email}</strong>. Enter the code below to unlock the Admin Panel.
+            A 6-digit connection code was sent to{' '}
+            <strong className="text-amber-300 font-mono">{user?.email}</strong>. Check your inbox and enter the code below to unlock the Admin Panel. It expires in 10 minutes.
           </p>
 
-          {activeCodePreview && (
-            <div className="mb-4 p-3 bg-cyan-950/40 border border-cyan-800/60 rounded-lg flex items-center justify-between text-xs text-cyan-300">
-              <span>Connection Code:</span>
-              <span className="font-mono text-base font-bold tracking-widest text-cyan-200">
-                {activeCodePreview}
-              </span>
+          {codeNotice && (
+            <div className="mb-4 p-3 bg-cyan-950/40 border border-cyan-800/60 rounded-lg text-xs text-cyan-300">
+              {codeNotice}
             </div>
           )}
 

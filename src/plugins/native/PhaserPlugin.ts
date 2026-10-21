@@ -4,6 +4,7 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
+import { makeNativeInstance } from './instance';
 import { buildPhaserNode } from '../../audio/effects/dspChain';
 import { PhaserParams } from '../../types';
 
@@ -59,13 +60,14 @@ export class NativePhaserPlugin {
     inputNode.connect(dryNode);
     dryNode.connect(outputNode);
 
-    let activeNode: { input: AudioNode; output: AudioNode } | null = null;
+    let activeNode: { input: AudioNode; output: AudioNode; stop?: () => void } | null = null;
 
     const rebuildGraph = () => {
       if (activeNode) {
         try {
           inputNode.disconnect(activeNode.input);
           activeNode.output.disconnect(wetNode);
+          activeNode.stop?.();
         } catch {}
       }
 
@@ -75,6 +77,7 @@ export class NativePhaserPlugin {
         centerFreqHz: params.centerFreqHz,
         stages: Math.round(params.stages),
         feedback: params.feedback,
+        stereoOffsetDeg: 90,
         dryWet: 1.0,
       };
 
@@ -90,6 +93,7 @@ export class NativePhaserPlugin {
     wetNode.gain.setValueAtTime(params.dryWet, audioCtx.currentTime);
 
     let isBypassed = false;
+    let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
     const setParameter = (paramId: string, value: number) => {
       params[paramId] = value;
@@ -101,7 +105,9 @@ export class NativePhaserPlugin {
           wetNode.gain.setTargetAtTime(value, t, 0.02);
         }
       } else {
-        rebuildGraph();
+        // Rebuilding on every slider tick would click and waste CPU; wait for the value to settle
+        if (rebuildTimer) clearTimeout(rebuildTimer);
+        rebuildTimer = setTimeout(rebuildGraph, 120);
       }
     };
 
@@ -120,12 +126,14 @@ export class NativePhaserPlugin {
     };
 
     const destroy = () => {
+      if (rebuildTimer) clearTimeout(rebuildTimer);
       try {
         inputNode.disconnect();
         dryNode.disconnect();
         wetNode.disconnect();
         outputNode.disconnect();
         if (activeNode) {
+          activeNode.stop?.();
           activeNode.input.disconnect();
           activeNode.output.disconnect();
         }
@@ -134,18 +142,18 @@ export class NativePhaserPlugin {
 
     const getState = async () => ({ ...params });
 
-    return {
+    return makeNativeInstance({
       instanceId,
+      trackId,
       descriptor: PHASER_DESCRIPTOR,
       inputNode,
       outputNode,
-      isBypassed: false,
-      dryWet: params.dryWet,
+      params,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    };
+    });
   }
 }

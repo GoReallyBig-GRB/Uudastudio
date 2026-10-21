@@ -4,6 +4,7 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
+import { makeNativeInstance } from './instance';
 import { buildEqualizerNode } from '../../audio/effects/dspChain';
 import { EqualizerParams } from '../../types';
 
@@ -170,18 +171,18 @@ export class NativeParametricEqPlugin {
 
     const getState = async () => ({ ...params });
 
-    return {
+    return makeNativeInstance({
       instanceId,
+      trackId,
       descriptor: PARAMETRIC_EQ_DESCRIPTOR,
       inputNode,
       outputNode,
-      isBypassed: false,
-      dryWet: 1.0,
+      params,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    };
+    });
   }
 }

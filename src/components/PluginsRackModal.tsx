@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { Track } from '../types';
 import { audioEngine } from '../audio/engine';
-import { pluginManager } from '../plugins/pluginManager';
+import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 import { PluginDescriptor, PluginInstance } from '../plugins/types';
 import {
   NATIVE_STEM_PLUGINS,
@@ -51,8 +51,12 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
   onSelectTrack,
 }) => {
   // Active target track
-  const activeTrackId = selectedTrackId || (tracks.length > 0 ? tracks[0].id : null);
-  const activeTrack = tracks.find((t) => t.id === activeTrackId);
+  // 'Master bus' is a local target, so the app's selected track is left alone
+  const [masterTarget, setMasterTarget] = useState<boolean>(false);
+  const activeTrackId = masterTarget ? MASTER_TRACK_ID : selectedTrackId || (tracks.length > 0 ? tracks[0].id : null);
+  const activeTrack = masterTarget
+    ? ({ name: 'Master Bus (whole mix)' } as { name: string })
+    : tracks.find((t) => t.id === activeTrackId);
 
   // Active instances in selected track
   const [activePlugins, setActivePlugins] = useState<PluginInstance[]>([]);
@@ -60,6 +64,25 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
 
   // Browser category
   const [browserCategory, setBrowserCategory] = useState<'native' | 'third-party'>('native');
+
+  // Native list search and category filter
+  const [pluginSearch, setPluginSearch] = useState<string>('');
+  const [pluginCategory, setPluginCategory] = useState<string>('all');
+  const CATEGORY_LABELS: Record<string, string> = {
+    all: 'All',
+    dynamics: 'Dynamics',
+    eq: 'EQ',
+    spatial: 'Spatial',
+    modulation: 'Modulation',
+    restoration: 'Restoration',
+    'pitch-time': 'Pitch/Time',
+    utility: 'Utility',
+  };
+  const filteredNativePlugins = NATIVE_STEM_PLUGINS.filter((p) => {
+    if (pluginCategory !== 'all' && p.category !== pluginCategory) return false;
+    const q = pluginSearch.trim().toLowerCase();
+    return !q || `${p.name} ${p.description || ''} ${p.category}`.toLowerCase().includes(q);
+  });
 
   // Custom WAM URL input state
   const [customWamUrl, setCustomWamUrl] = useState<string>('');
@@ -238,9 +261,19 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
               <span className="text-xs text-zinc-400 font-medium">Target Track:</span>
               <select
                 value={activeTrackId || ''}
-                onChange={(e) => onSelectTrack(e.target.value)}
+                onChange={(e) => {
+                  if (e.target.value === MASTER_TRACK_ID) {
+                    setMasterTarget(true);
+                  } else {
+                    setMasterTarget(false);
+                    onSelectTrack(e.target.value);
+                  }
+                }}
                 className="bg-transparent text-xs font-bold text-cyan-300 focus:outline-none cursor-pointer"
               >
+                <option value={MASTER_TRACK_ID} className="bg-[#121218] text-zinc-200">
+                  Master Bus (whole mix)
+                </option>
                 {tracks.map((t, idx) => (
                   <option key={t.id} value={t.id} className="bg-[#121218] text-zinc-200">
                     Track {idx + 1}: {t.name}
@@ -342,10 +375,47 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
               </div>
             </div>
 
+            {/* Native list: search, category chips, count */}
+            {browserCategory === 'native' && (
+              <div className="mb-3 space-y-2">
+                <input
+                  type="search"
+                  value={pluginSearch}
+                  onChange={(e) => setPluginSearch(e.target.value)}
+                  placeholder="Search effects (delay, de-esser, filter...)"
+                  className="w-full px-3 py-1.5 bg-[#14141E] border border-zinc-800 rounded-lg text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-hidden focus:border-purple-500"
+                />
+                <div className="flex flex-wrap gap-1">
+                  {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setPluginCategory(key)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors cursor-pointer ${
+                        pluginCategory === key
+                          ? 'bg-purple-600 border-purple-500 text-white'
+                          : 'bg-[#14141E] border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[10px] text-zinc-500">
+                  {filteredNativePlugins.length === NATIVE_STEM_PLUGINS.length
+                    ? `${NATIVE_STEM_PLUGINS.length} native plugins`
+                    : `${filteredNativePlugins.length} of ${NATIVE_STEM_PLUGINS.length} native plugins`}
+                </div>
+              </div>
+            )}
+
             {/* Plugin Cards List */}
             <div className="space-y-2">
               {browserCategory === 'native' ? (
-                NATIVE_STEM_PLUGINS.map((plugin) => (
+                filteredNativePlugins.length === 0 ? (
+                  <div className="text-[11px] text-zinc-500 py-4 text-center">No effects match your search.</div>
+                ) : (
+                filteredNativePlugins.map((plugin) => (
                   <div
                     key={plugin.id}
                     className="p-3 bg-[#14141E] border border-zinc-800/90 hover:border-purple-500/50 rounded-xl transition-all flex flex-col gap-2 group"
@@ -376,6 +446,7 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                     </p>
                   </div>
                 ))
+                )
               ) : (
                 <>
                   {VERIFIED_THIRD_PARTY_PLUGINS.map((plugin) => (

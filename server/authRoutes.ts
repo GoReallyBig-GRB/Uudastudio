@@ -5,7 +5,11 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { db, UserRecord, SupportTicket } from './db';
+import crypto from 'crypto';
+import { db, UserRecord, SupportTicket, SESSION_TTL_MS } from './db';
+import { verifyFirebaseIdToken } from './firebaseAdmin';
+import { adminCodeEmail, sendMail, MailNotConfiguredError } from './mail';
+import { SESSION_COOKIE, parseCookies, setSessionCookie, clearSessionCookie, rateLimit } from './http';
 
 export const authRouter = Router();
 
@@ -34,71 +38,35 @@ export function checkBurstLimit(userId: string, maxPerMinute = 10): { allowed: b
   return { allowed: true };
 }
 
-// Extract authenticated user from request header (supports both session tokens and Firebase ID tokens)
+// Extract the signed-in user. Only server-issued session tokens are accepted: from the __session cookie
+// (browser) or an Authorization: Bearer header carrying the same token. Firebase ID tokens are never accepted
+// here; they are exchanged for a session once, in POST /api/auth/google, after full verification.
 export function getAuthenticatedUser(req: Request): { user: UserRecord | null; sessionToken: string | null } {
+  let token: string | null = null;
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  }
+  if (!token) {
+    token = parseCookies(req.headers.cookie)[SESSION_COOKIE] || null;
+  }
+  if (!token || !token.startsWith('uuda_sess_')) {
     return { user: null, sessionToken: null };
   }
 
-  const token = authHeader.substring(7).trim();
-  const session = sessions.get(token) || db.getSession(token);
-  if (session) {
-    const user = db.getUserById(session.userId);
-    if (user) {
-      // Re-populate in-memory cache if retrieved from db
-      if (!sessions.has(token)) {
-        sessions.set(token, session);
-      }
-      return { user, sessionToken: token };
-    }
+  const session = db.getSession(token);
+  if (!session) {
+    sessions.delete(token);
+    return { user: null, sessionToken: null };
   }
-
-  // Attempt to decode and validate as Firebase ID token (JWT format)
-  try {
-    const parts = token.split('.');
-    if (parts.length === 3) {
-      const base64Url = parts[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const json = Buffer.from(base64, 'base64').toString('utf8');
-      const payload = JSON.parse(json);
-
-      const nowSec = Math.floor(Date.now() / 1000);
-      if (payload.exp && payload.exp < nowSec - 300) {
-        // Expired token
-        return { user: null, sessionToken: null };
-      }
-
-      const uid = (payload.user_id || payload.sub) as string;
-      const email = (payload.email || '') as string;
-      if (uid && email) {
-        const displayName = (payload.name || email.split('@')[0]) as string;
-        const photoUrl = (payload.picture || '') as string;
-
-        const { user } = db.createOrUpdateUserOnSignIn({
-          googleId: uid,
-          email,
-          displayName,
-          photoUrl,
-        });
-
-        sessions.set(token, {
-          userId: user.id,
-          createdAt: Date.now(),
-        });
-
-        if (user.role === 'admin') {
-          db.verifyAdminSession(token);
-        }
-
-        return { user, sessionToken: token };
-      }
-    }
-  } catch {
-    // Not a valid JWT, proceed to return null
+  const user = db.getUserById(session.userId);
+  if (!user) {
+    return { user: null, sessionToken: null };
   }
-
-  return { user: null, sessionToken: null };
+  if (!sessions.has(token)) {
+    sessions.set(token, session);
+  }
+  return { user, sessionToken: token };
 }
 
 // Middleware: Require Signed-In User
@@ -146,69 +114,79 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
 // ---------------------------------------------------------------------------
 // 1. Dual Sign Up / Sign In Route (One page for everyone)
 // ---------------------------------------------------------------------------
-authRouter.post('/api/auth/google', (req: Request, res: Response): void => {
-  try {
-    const { googleId, email, displayName, photoUrl } = req.body;
+authRouter.post(
+  '/api/auth/google',
+  rateLimit({ name: 'signin', windowMs: 60 * 1000, max: 10 }),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { idToken } = req.body || {};
+      if (!idToken || typeof idToken !== 'string' || idToken.length > 4096) {
+        res.status(400).json({ error: 'A Google sign-in token is required.' });
+        return;
+      }
 
-    if (!googleId || typeof googleId !== 'string') {
-      res.status(400).json({ error: 'Valid Google user ID is required.' });
-      return;
-    }
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
-      res.status(400).json({ error: 'Valid email address is required.' });
-      return;
-    }
+      // Identity comes only from the verified token. Anything else in the body is ignored.
+      let identity;
+      try {
+        identity = await verifyFirebaseIdToken(idToken);
+      } catch (err) {
+        console.warn('[AUTH] ID token rejected:', err instanceof Error ? err.message : err);
+        res.status(401).json({ error: 'Google sign-in could not be verified. Please try again.' });
+        return;
+      }
+      if (!identity.emailVerified) {
+        res.status(403).json({ error: 'Your Google email address is not verified.' });
+        return;
+      }
 
-    const cleanEmail = email.trim().toLowerCase();
+      const existing = db.getUserById(identity.uid) || db.getUserByEmail(identity.email);
+      if (existing && existing.blocked) {
+        res.status(403).json({
+          error: 'This account has been blocked. Contact support.',
+          blocked: true,
+        });
+        return;
+      }
 
-    // Check if account is already blocked
-    const existing = db.getUserById(googleId) || db.getUserByEmail(cleanEmail);
-    if (existing && existing.blocked) {
-      res.status(403).json({
-        error: 'This account has been blocked. Contact support.',
-        blocked: true,
+      const { user, isNew } = db.createOrUpdateUserOnSignIn({
+        googleId: identity.uid,
+        email: identity.email,
+        displayName: identity.displayName,
+        photoUrl: identity.photoUrl,
       });
-      return;
+
+      // Opaque, unguessable session token
+      const sessionToken = `uuda_sess_${crypto.randomBytes(32).toString('hex')}`;
+      sessions.set(sessionToken, { userId: user.id, createdAt: Date.now() });
+      db.setSession(sessionToken, user.id);
+      setSessionCookie(res, sessionToken, SESSION_TTL_MS);
+
+      // Admins get a one-time code by email on every sign-in. The code is never put in the response.
+      let adminCodeSent = false;
+      if (user.role === 'admin') {
+        try {
+          const code = db.createAdminConnectionCode(user.email);
+          const mail = adminCodeEmail(code);
+          await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
+          adminCodeSent = true;
+        } catch (mailErr) {
+          console.error('[AUTH] Admin code email failed:', mailErr instanceof Error ? mailErr.message : mailErr);
+        }
+      }
+
+      res.json({
+        user,
+        sessionToken,
+        isNew,
+        adminCodeSent,
+        message: isNew ? 'Welcome to Uuda Studio!' : 'Signed in successfully.',
+      });
+    } catch (err: unknown) {
+      console.error('Google sign in error:', err);
+      res.status(500).json({ error: 'Failed to process Google sign-in.' });
     }
-
-    // Create or update user
-    const { user, isNew } = db.createOrUpdateUserOnSignIn({
-      googleId,
-      email: cleanEmail,
-      displayName: displayName || cleanEmail.split('@')[0],
-      photoUrl: photoUrl || '',
-    });
-
-    // Create session token
-    const sessionToken = `uuda_sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    sessions.set(sessionToken, {
-      userId: user.id,
-      createdAt: Date.now(),
-    });
-    db.setSession(sessionToken, user.id);
-
-    // If admin: generate a connection code every time they sign in!
-    let adminCodeSent = false;
-    let connectionCodePreview: string | undefined = undefined;
-    if (user.role === 'admin') {
-      const code = db.createAdminConnectionCode(user.email);
-      adminCodeSent = true;
-      connectionCodePreview = code;
-    }
-
-    res.json({
-      user,
-      sessionToken,
-      isNew,
-      adminCodeSent,
-      connectionCodePreview,
-      message: isNew ? 'Welcome to Uuda Studio!' : 'Signed in successfully.',
-    });
-  } catch (err: unknown) {
-    console.error('Google sign in error:', err);
-    res.status(500).json({ error: 'Failed to process Google sign-in.' });
   }
-});
+);
 
 // Current User Profile & Unread Notification Check
 authRouter.get('/api/auth/me', (req: Request, res: Response): void => {
@@ -256,11 +234,12 @@ authRouter.put('/api/auth/profile', requireAuth, (req: Request, res: Response): 
 
 // Sign Out
 authRouter.post('/api/auth/signout', (req: Request, res: Response): void => {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7).trim();
-    sessions.delete(token);
+  const { sessionToken } = getAuthenticatedUser(req);
+  if (sessionToken) {
+    sessions.delete(sessionToken);
+    db.removeSession(sessionToken);
   }
+  clearSessionCookie(res);
   res.json({ success: true, message: 'Signed out successfully.' });
 });
 
@@ -337,43 +316,75 @@ authRouter.get('/api/auth/download-data', requireAuth, (req: Request, res: Respo
 // ---------------------------------------------------------------------------
 
 // Verify Admin Connection Code
-authRouter.post('/api/admin/verify-code', (req: Request, res: Response): void => {
-  const { user, sessionToken } = getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin' || !sessionToken) {
-    res.status(403).json({ error: 'Forbidden: Admin access required.' });
-    return;
+authRouter.post(
+  '/api/admin/verify-code',
+  rateLimit({ name: 'admin-verify', windowMs: 60 * 1000, max: 12 }),
+  (req: Request, res: Response): void => {
+    const { user, sessionToken } = getAuthenticatedUser(req);
+    if (!user || user.role !== 'admin' || !sessionToken) {
+      res.status(403).json({ error: 'Forbidden: Admin access required.' });
+      return;
+    }
+
+    const { code } = req.body || {};
+    if (!code || typeof code !== 'string' || !/^\d{6}$/.test(code.trim())) {
+      res.status(400).json({ error: 'Enter the 6-digit code from your email.' });
+      return;
+    }
+
+    const result = db.verifyAdminConnectionCode(user.email, code, sessionToken);
+    if (!result.ok) {
+      if (result.reason === 'locked') {
+        const minutes = Math.max(1, Math.ceil((result.retryAfterSec || 900) / 60));
+        res.status(429).json({
+          error: `Too many wrong codes. Try again in about ${minutes} minute(s).`,
+          retryAfterSec: result.retryAfterSec,
+        });
+        return;
+      }
+      res.status(400).json({
+        error:
+          result.reason === 'expired'
+            ? 'That code has expired. Request a new one.'
+            : 'Invalid code. Please check your email and try again.',
+      });
+      return;
+    }
+
+    res.json({ success: true, message: 'Connection verified. Admin panel unlocked.' });
   }
+);
 
-  const { code } = req.body;
-  if (!code || typeof code !== 'string') {
-    res.status(400).json({ error: 'Connection code is required.' });
-    return;
+// Resend / generate a new connection code (emailed, never returned)
+authRouter.post(
+  '/api/admin/resend-code',
+  rateLimit({ name: 'admin-resend', windowMs: 60 * 60 * 1000, max: 5 }),
+  async (req: Request, res: Response): Promise<void> => {
+    const { user } = getAuthenticatedUser(req);
+    if (!user || user.role !== 'admin') {
+      res.status(403).json({ error: 'Forbidden: Admin access required.' });
+      return;
+    }
+
+    const wait = db.adminCodeCooldownSeconds(user.email);
+    if (wait > 0) {
+      res.status(429).json({ error: `Please wait ${wait} seconds before requesting another code.`, retryAfterSec: wait });
+      return;
+    }
+
+    try {
+      const code = db.createAdminConnectionCode(user.email);
+      const mail = adminCodeEmail(code);
+      await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
+      res.json({ success: true, message: `A new 6-digit code was sent to ${user.email}.` });
+    } catch (err) {
+      console.error('[AUTH] Admin code email failed:', err instanceof Error ? err.message : err);
+      res.status(err instanceof MailNotConfiguredError ? 503 : 500).json({
+        error: 'The code could not be emailed. Check the server email settings.',
+      });
+    }
   }
-
-  const verified = db.verifyAdminConnectionCode(user.email, code, sessionToken);
-  if (!verified) {
-    res.status(400).json({ error: 'Invalid or expired connection code. Please try again or request a new one.' });
-    return;
-  }
-
-  res.json({ success: true, message: 'Connection verified. Admin panel unlocked.' });
-});
-
-// Resend / Generate New Connection Code
-authRouter.post('/api/admin/resend-code', (req: Request, res: Response): void => {
-  const { user } = getAuthenticatedUser(req);
-  if (!user || user.role !== 'admin') {
-    res.status(403).json({ error: 'Forbidden: Admin access required.' });
-    return;
-  }
-
-  const code = db.createAdminConnectionCode(user.email);
-  res.json({
-    success: true,
-    connectionCodePreview: code,
-    message: `A fresh 6-digit connection code has been generated for ${user.email}.`,
-  });
-});
+);
 
 // Admin Overview Analytics
 authRouter.get('/api/admin/overview', requireAdmin, (_req: Request, res: Response): void => {

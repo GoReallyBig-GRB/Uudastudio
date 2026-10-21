@@ -6,12 +6,8 @@
 
 import { PluginDescriptor, PluginInstance, StoredPluginState } from './types';
 import { NATIVE_STEM_PLUGINS, VERIFIED_THIRD_PARTY_PLUGINS, findPluginDescriptor } from './registry';
-import { NativeCompressorPlugin } from './native/CompressorPlugin';
-import { NativeDenoiserPlugin } from './native/DenoiserPlugin';
-import { NativeFourBandEqPlugin } from './native/FourBandEqPlugin';
-import { NativePitchTimePlugin } from './native/PitchTimePlugin';
-import { NativeReverbPlugin } from './native/ReverbPlugin';
 import { loadThirdPartyWamPlugin } from './wamHost';
+import { createNativePlugin } from './nativeFactories';
 
 export class PluginManager {
   private static instance: PluginManager;
@@ -68,20 +64,7 @@ export class PluginManager {
     initialState?: Record<string, unknown>
   ): Promise<PluginInstance> {
     if (descriptor.type === 'native') {
-      switch (descriptor.id) {
-        case 'uuda-native-compressor':
-          return await NativeCompressorPlugin.createInstance(audioCtx, trackId, initialState);
-        case 'uuda-native-denoiser':
-          return await NativeDenoiserPlugin.createInstance(audioCtx, trackId, initialState);
-        case 'uuda-native-eq':
-          return await NativeFourBandEqPlugin.createInstance(audioCtx, trackId, initialState);
-        case 'uuda-native-pitch-time':
-          return await NativePitchTimePlugin.createInstance(audioCtx, trackId, initialState);
-        case 'uuda-native-reverb':
-          return await NativeReverbPlugin.createInstance(audioCtx, trackId, initialState);
-        default:
-          return await NativeCompressorPlugin.createInstance(audioCtx, trackId, initialState);
-      }
+      return await createNativePlugin(descriptor.id, audioCtx, trackId, initialState);
     } else {
       // Third-party WAM 2.0 plugin
       return await loadThirdPartyWamPlugin(audioCtx, trackId, descriptor, initialState);
@@ -317,5 +300,8 @@ export class PluginManager {
     this.notify();
   }
 }
+
+/** Pseudo track id for the master bus chain: effects here process the whole mix after every track is summed */
+export const MASTER_TRACK_ID = '__master__';
 
 export const pluginManager = PluginManager.getInstance();

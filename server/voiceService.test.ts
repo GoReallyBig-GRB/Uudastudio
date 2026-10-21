@@ -129,3 +129,61 @@ describe('Voice Service - TTS Sanitization & Prompt Leakage Elimination', () => 
     expect(normalized.length).toBe(validWav.length);
   });
 });
+
+function sineWav(seconds = 1, sampleRate = 24000): { wav: Buffer; pcm: Buffer } {
+  const n = Math.floor(seconds * sampleRate);
+  const pcm = Buffer.alloc(n * 2);
+  for (let i = 0; i < n; i++) pcm.writeInt16LE(Math.round(8000 * Math.sin((2 * Math.PI * 220 * i) / sampleRate)), i * 2);
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0);
+  h.writeUInt32LE(36 + pcm.length, 4);
+  h.write('WAVEfmt ', 8);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(sampleRate, 24);
+  h.writeUInt32LE(sampleRate * 2, 28);
+  h.writeUInt16LE(2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write('data', 36);
+  h.writeUInt32LE(pcm.length, 40);
+  return { wav: Buffer.concat([h, pcm]), pcm };
+}
+
+describe('WAV handling for Gemini audio', () => {
+  it('wraps headerless PCM in a valid header', () => {
+    const { pcm } = sineWav();
+    const wav = ensureWavHeader(pcm);
+    expect(wav.toString('ascii', 0, 4)).toBe('RIFF');
+    expect(analyzeWav(wav).pcmBytes).toBe(pcm.length);
+  });
+
+  it('repairs placeholder sizes (0 and 0xFFFFFFFF)', () => {
+    const { wav, pcm } = sineWav();
+    const bad = Buffer.from(wav);
+    bad.writeUInt32LE(0xffffffff, 4);
+    bad.writeUInt32LE(0xffffffff, 40);
+    expect(analyzeWav(ensureWavHeader(bad)).pcmBytes).toBe(pcm.length);
+    bad.writeUInt32LE(0, 40);
+    expect(analyzeWav(ensureWavHeader(bad)).pcmBytes).toBe(pcm.length);
+  });
+
+  it('does not play metadata after the audio as sound', () => {
+    const { wav, pcm } = sineWav();
+    const trailer = Buffer.concat([Buffer.from('LIST'), Buffer.from([20, 0, 0, 0]), Buffer.alloc(20, 0x7f)]);
+    expect(analyzeWav(ensureWavHeader(Buffer.concat([wav, trailer]))).pcmBytes).toBe(pcm.length);
+  });
+
+  it('refuses formats it cannot read instead of producing static', () => {
+    const { wav } = sineWav();
+    const floatWav = Buffer.from(wav);
+    floatWav.writeUInt16LE(3, 20); // IEEE float
+    floatWav.writeUInt16LE(32, 34);
+    expect(() => ensureWavHeader(floatWav)).toThrow(/Unsupported WAV/);
+  });
+
+  it('rejects empty and silent audio', () => {
+    expect(() => assertUsableAudio(ensureWavHeader(Buffer.alloc(0)), 'hello there friend')).toThrow(/unusable/);
+    expect(() => assertUsableAudio(ensureWavHeader(Buffer.alloc(48000)), 'hello there friend')).toThrow(/silent/);
+  });
+});

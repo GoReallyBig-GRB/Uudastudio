@@ -6,42 +6,17 @@
  */
 
 import React, { useState } from 'react';
-import { Shield, Sparkles, AlertCircle, ArrowLeft, CheckCircle2, User, Lock } from 'lucide-react';
-import { useAuth } from '../../hooks/useAuth';
+import { Shield, Sparkles, AlertCircle, ArrowLeft, Lock } from 'lucide-react';
 import { authService } from '../../services/authService';
 
 interface SignInPageProps {
   onContinueAsGuest: () => void;
-  onSuccessSignIn: (info?: { adminCodeSent?: boolean; connectionCodePreview?: string }) => void;
+  onSuccessSignIn: (info?: { adminCodeSent?: boolean }) => void;
 }
 
 export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuccessSignIn }) => {
-  const { signInWithGoogle } = useAuth();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isAccountPickerOpen, setIsAccountPickerOpen] = useState(false);
-  const [customEmail, setCustomEmail] = useState('');
-  const [customName, setCustomName] = useState('');
-  const [isCustomMode, setIsCustomMode] = useState(false);
-
-  // Quick Google accounts for streamlined testing & authentication
-  const suggestedAccounts = [
-    {
-      name: 'Chucks Agonsi',
-      email: 'chucksagonsi@gmail.com',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-    },
-    {
-      name: 'Admin Supervisor',
-      email: 'killdasmoke@gmail.com',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
-    },
-    {
-      name: 'Podcast Producer',
-      email: 'producer.podcast@example.com',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80',
-    },
-  ];
 
   const handleFirebaseGoogleSignIn = async () => {
     setIsSigningIn(true);
@@ -52,7 +27,6 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
       setIsSigningIn(false);
       onSuccessSignIn({
         adminCodeSent: res.adminCodeSent,
-        connectionCodePreview: res.connectionCodePreview,
       });
     } catch (err: unknown) {
       setIsSigningIn(false);
@@ -61,40 +35,6 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
         setIsSigningIn(true);
         return;
       }
-      setErrorMessage(msg);
-    }
-  };
-
-  const handleSelectGoogleAccount = async (email: string, name: string, photo: string) => {
-    setIsSigningIn(true);
-    setErrorMessage(null);
-
-    try {
-      // Deterministic stable Google User ID based on email string hash
-      const cleanEmail = email.trim().toLowerCase();
-      let hash = 0;
-      for (let i = 0; i < cleanEmail.length; i++) {
-        hash = (hash << 5) - hash + cleanEmail.charCodeAt(i);
-        hash |= 0;
-      }
-      const googleId = `google_usr_${Math.abs(hash).toString(36)}_${cleanEmail.replace(/[^a-z0-9]/g, '')}`;
-
-      const res = await signInWithGoogle({
-        googleId,
-        email: cleanEmail,
-        displayName: name,
-        photoUrl: photo,
-      });
-
-      setIsSigningIn(false);
-      setIsAccountPickerOpen(false);
-      onSuccessSignIn({
-        adminCodeSent: res.adminCodeSent,
-        connectionCodePreview: res.connectionCodePreview,
-      });
-    } catch (err: unknown) {
-      setIsSigningIn(false);
-      const msg = err instanceof Error ? err.message : String(err);
       setErrorMessage(msg);
     }
   };
@@ -161,7 +101,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
           )}
 
           {/* Primary Action Button: Continue with Google */}
-          {!isAccountPickerOpen ? (
+          {(
             <div className="space-y-4">
               <button
                 type="button"
@@ -191,17 +131,6 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
                 <span>{isSigningIn ? 'Connecting via Firebase...' : 'Continue with Google'}</span>
               </button>
 
-              {/* Developer / Sandbox quick-switch option */}
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => setIsAccountPickerOpen(true)}
-                  className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
-                >
-                  or choose a preset account for testing
-                </button>
-              </div>
-
               {/* Smaller link: Use the editor without an account */}
               <div className="pt-3 text-center">
                 <button
@@ -215,110 +144,6 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
                   Offline recorder, library import & mastering remain free; voice generation requires sign-in.
                 </p>
               </div>
-            </div>
-          ) : (
-            /* Interactive Google Account Chooser */
-            <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
-                <span className="text-xs font-semibold text-zinc-300">Choose a Google Account</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAccountPickerOpen(false);
-                    setIsCustomMode(false);
-                  }}
-                  className="text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer"
-                >
-                  Cancel
-                </button>
-              </div>
-
-              {!isCustomMode ? (
-                <div className="space-y-2">
-                  {suggestedAccounts.map((acc) => (
-                    <button
-                      key={acc.email}
-                      type="button"
-                      disabled={isSigningIn}
-                      onClick={() => handleSelectGoogleAccount(acc.email, acc.name, acc.avatar)}
-                      className="w-full flex items-center gap-3 p-3 rounded-xl bg-zinc-900/80 hover:bg-zinc-800/90 border border-zinc-800 text-left transition-all hover:border-zinc-700 cursor-pointer"
-                    >
-                      <img
-                        src={acc.avatar}
-                        alt={acc.name}
-                        className="w-9 h-9 rounded-full object-cover border border-zinc-700 shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-bold text-white truncate">{acc.name}</div>
-                        <div className="text-[11px] text-zinc-400 truncate">{acc.email}</div>
-                      </div>
-                      <CheckCircle2 className="w-4 h-4 text-zinc-600 group-hover:text-cyan-400" />
-                    </button>
-                  ))}
-
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomMode(true)}
-                    className="w-full flex items-center justify-center gap-2 p-2.5 rounded-lg border border-dashed border-zinc-700/80 hover:border-cyan-500/60 text-xs text-zinc-400 hover:text-cyan-300 transition-colors cursor-pointer"
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    <span>Use another Google account</span>
-                  </button>
-                </div>
-              ) : (
-                /* Custom Google Account Form */
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!customEmail) return;
-                    handleSelectGoogleAccount(
-                      customEmail,
-                      customName || customEmail.split('@')[0],
-                      `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(customEmail)}`
-                    );
-                  }}
-                  className="space-y-3"
-                >
-                  <div>
-                    <label className="block text-[11px] font-medium text-zinc-400 mb-1">Google Email</label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="name@gmail.com"
-                      value={customEmail}
-                      onChange={(e) => setCustomEmail(e.target.value)}
-                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-hidden focus:border-cyan-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-zinc-400 mb-1">Display Name (optional)</label>
-                    <input
-                      type="text"
-                      placeholder="Your name"
-                      value={customName}
-                      onChange={(e) => setCustomName(e.target.value)}
-                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-hidden focus:border-cyan-500"
-                    />
-                  </div>
-
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setIsCustomMode(false)}
-                      className="flex-1 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-xs font-semibold hover:bg-zinc-700 transition-colors cursor-pointer"
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isSigningIn || !customEmail}
-                      className="flex-1 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      {isSigningIn ? 'Signing In...' : 'Continue'}
-                    </button>
-                  </div>
-                </form>
-              )}
             </div>
           )}
 

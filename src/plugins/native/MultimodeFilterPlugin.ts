@@ -5,6 +5,7 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
+import { makeNativeInstance } from './instance';
 
 export const MULTIMODE_FILTER_DESCRIPTOR: PluginDescriptor = {
   id: 'uuda-native-filter',
@@ -201,18 +202,18 @@ export class NativeMultimodeFilterPlugin {
 
     const getState = async () => ({ ...params });
 
-    return {
+    return makeNativeInstance({
       instanceId,
+      trackId,
       descriptor: MULTIMODE_FILTER_DESCRIPTOR,
       inputNode,
       outputNode,
-      isBypassed: false,
-      dryWet: params.dryWet,
+      params,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    };
+    });
   }
 }

@@ -53,6 +53,7 @@ import { UserDashboard } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
 import { VoiceoverModal } from './components/VoiceoverModal';
+import { voiceJob } from './voice/voiceJob';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
 
 const DEFAULT_PROJECT: Project = {
@@ -82,7 +83,6 @@ const MainStudio: React.FC = () => {
     }
     return 'studio';
   });
-  const [adminCodePreview, setAdminCodePreview] = useState<string | undefined>(undefined);
 
   const [project, setProject] = useState<Project>(DEFAULT_PROJECT);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -741,6 +741,14 @@ const MainStudio: React.FC = () => {
       message: `Speech generated with ${voiceMeta.voiceName} (${asset.durationSeconds.toFixed(1)}s) docked on new top track.`,
     });
   };
+
+  // One commit handler for the shared voiceover job. A ref keeps it pointing at the latest handler.
+  const addVoiceTrackRef = useRef(handleAddVoiceTrack);
+  addVoiceTrackRef.current = handleAddVoiceTrack;
+  useEffect(() => {
+    voiceJob.setCommitHandler((asset, meta) => addVoiceTrackRef.current(asset, meta));
+    return () => voiceJob.setCommitHandler(null);
+  }, []);
 
   const handleAddLibraryTrack = (asset: Asset) => {
     // Crucial: Register asset in audioEngine so timeline and playback can access audioBuffer
@@ -1724,12 +1732,11 @@ const MainStudio: React.FC = () => {
         }}
         onSuccessSignIn={(info) => {
           setCurrentView('studio');
-          if (info?.adminCodeSent && info.connectionCodePreview) {
-            setAdminCodePreview(info.connectionCodePreview);
+          if (info?.adminCodeSent) {
             addToast({
               type: 'info',
-              title: 'Admin Verification Code',
-              message: `6-Digit Code: ${info.connectionCodePreview} (Enter to unlock Admin Panel)`,
+              title: 'Admin verification',
+              message: 'A 6-digit code was sent to your email. Enter it to unlock the Admin Panel.',
             });
           }
         }}
@@ -1752,7 +1759,6 @@ const MainStudio: React.FC = () => {
     return (
       <AdminPanel
         onBackToStudio={() => setCurrentView('studio')}
-        initialConnectionCode={adminCodePreview}
       />
     );
   }
@@ -2057,7 +2063,6 @@ const MainStudio: React.FC = () => {
       <VoiceoverModal
         isOpen={isVoiceoverModalOpen}
         onClose={() => setIsVoiceoverModalOpen(false)}
-        onAddVoiceTrack={handleAddVoiceTrack}
       />
 
       {/* Expanded Sound Effects & Music Loop Library Workspace Modal */}
