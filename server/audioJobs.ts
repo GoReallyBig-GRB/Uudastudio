@@ -202,7 +202,7 @@ audioJobsRouter.post('/api/audio/denoise', upload.single('audio'), async (req: R
  * Polls status and metrics for an audio job
  */
 audioJobsRouter.get('/api/audio/jobs/:id', (req: Request, res: Response): void => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const job = activeJobs.get(id);
 
   if (!job) {
@@ -228,7 +228,7 @@ audioJobsRouter.get('/api/audio/jobs/:id', (req: Request, res: Response): void =
  * Streams the processed audio output and deletes it when finished
  */
 audioJobsRouter.get('/api/audio/jobs/:id/download', (req: Request, res: Response): void => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const job = activeJobs.get(id);
 
   if (!job || job.status !== 'completed' || !job.outputPath || !fs.existsSync(job.outputPath)) {
@@ -256,7 +256,7 @@ audioJobsRouter.get('/api/audio/jobs/:id/download', (req: Request, res: Response
  * Cancels a running job and cleans up temp files
  */
 audioJobsRouter.delete('/api/audio/jobs/:id', (req: Request, res: Response): void => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const job = activeJobs.get(id);
 
   if (!job) {
