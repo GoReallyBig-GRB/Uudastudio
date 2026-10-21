@@ -89,9 +89,10 @@ export function rateLimit(options: { name: string; windowMs: number; max: number
 }
 
 // Drop idle buckets so memory stays flat
-setInterval(() => {
+const cleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [key, list] of buckets) {
     if (list.length === 0 || now - list[list.length - 1] > 60 * 60 * 1000) buckets.delete(key);
   }
-}, 10 * 60 * 1000).unref();
+}, 10 * 60 * 1000) as unknown as { unref?: () => void };
+cleanupTimer.unref?.();

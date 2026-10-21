@@ -19,6 +19,7 @@ import {
   sanitizeScriptText,
   AUDITION_SAMPLE_SENTENCE,
   ensureWavHeader,
+  analyzeEnds,
 } from './voiceService';
 
 dotenv.config();
@@ -170,38 +171,24 @@ function concatenateWavBuffers(buffers: Buffer[], silenceGapMs = 120): Buffer {
   if (buffers.length === 0) return Buffer.alloc(0);
   if (buffers.length === 1) return ensureWavHeader(buffers[0]);
 
-  const pcmChunks: Buffer[] = [];
-  let sampleRate = 24000;
-  const numChannels = 1;
+  // Every buffer here already went through ensureWavHeader, so it is a canonical 44-byte-header PCM WAV
+  const sampleRate = buffers[0].readUInt32LE(24) || 24000;
+  const numChannels = buffers[0].readUInt16LE(22) || 1;
   const bitsPerSample = 16;
+  const pcmChunks: Buffer[] = [];
 
   for (let i = 0; i < buffers.length; i++) {
-    const buf = buffers[i];
-    let pcm = buf;
+    pcmChunks.push(buffers[i].subarray(44));
 
-    // Check if buffer starts with RIFF header
-    if (buf.length >= 44 && buf.toString('ascii', 0, 4) === 'RIFF') {
-      let dataOffset = 44;
-      for (let offset = 12; offset < buf.length - 8; offset++) {
-        if (buf.toString('ascii', offset, offset + 4) === 'data') {
-          dataOffset = offset + 8;
-          break;
-        }
-      }
-      pcm = buf.subarray(dataOffset);
-    }
-
-    pcmChunks.push(pcm);
-
-    // Insert short silence between chunks (except after the last chunk)
+    // Short silence between chunks (not after the last one)
     if (i < buffers.length - 1 && silenceGapMs > 0) {
-      const silenceBytes = Math.round((sampleRate * numChannels * (bitsPerSample / 8) * silenceGapMs) / 1000);
-      pcmChunks.push(Buffer.alloc(silenceBytes % 2 === 0 ? silenceBytes : silenceBytes + 1, 0));
+      const frameBytes = numChannels * (bitsPerSample / 8);
+      const frames = Math.round((sampleRate * silenceGapMs) / 1000);
+      pcmChunks.push(Buffer.alloc(frames * frameBytes, 0));
     }
   }
 
-  const totalPcm = Buffer.concat(pcmChunks);
-  return ensureWavHeader(totalPcm, sampleRate, numChannels, bitsPerSample);
+  return ensureWavHeader(Buffer.concat(pcmChunks), sampleRate, numChannels, bitsPerSample);
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +322,8 @@ app.get('/api/voice/diagnose', async (req: Request, res: Response): Promise<void
         ms,
         seconds: Number(result.durationSeconds.toFixed(2)),
         bytes: result.audioBuffer.length,
+        // A tail much louder than the body, or a long tail, points at noise added after the speech
+        ends: analyzeEnds(result.audioBuffer),
       };
     } catch (err: any) {
       const ms = Date.now() - t0;
@@ -412,22 +401,30 @@ app.post('/api/voice/generate', async (req: Request, res: Response): Promise<voi
 
     // Break long scripts into sentence chunks to preserve prosody and respect model limits
     const scriptChunks = splitScriptIntoChunks(script);
-    const wavBuffers: Buffer[] = [];
+    const wavBuffers: Buffer[] = new Array(scriptChunks.length);
+    const startedAt = Date.now();
 
-    // Synthesize each chunk through the strict text-only, payload-guarded pipeline
-    for (let index = 0; index < scriptChunks.length; index++) {
-      const chunkText = scriptChunks[index];
-      const chunkResult = await generateStrictTTS({
-        ai,
-        script: chunkText,
-        voiceName: selectedVoice,
-        modelId: selectedModel,
-        instruction: typeof instruction === 'string' ? instruction.trim() : undefined,
-        maxRetries: 3,
-      });
-
-      wavBuffers.push(chunkResult.audioBuffer);
-    }
+    // Synthesize chunks three at a time, keeping their order. A 25 second voiceover is usually one or two chunks.
+    let nextIndex = 0;
+    const worker = async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= scriptChunks.length) return;
+        const chunkResult = await generateStrictTTS({
+          ai,
+          script: scriptChunks[index],
+          voiceName: selectedVoice,
+          modelId: selectedModel,
+          instruction: typeof instruction === 'string' ? instruction.trim() : undefined,
+          maxRetries: 2,
+        });
+        wavBuffers[index] = chunkResult.audioBuffer;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, scriptChunks.length) }, worker));
+    console.info(
+      `[TTS] ${scriptChunks.length} chunk(s), ${script.length} chars, model ${selectedModel}, voice ${selectedVoice}: ${Date.now() - startedAt} ms`
+    );
 
     const combinedWav = concatenateWavBuffers(wavBuffers);
     const finalBase64 = combinedWav.toString('base64');
@@ -760,7 +757,7 @@ async function startServer() {
   process.on('SIGTERM', () => {
     console.log('SIGTERM received, shutting down');
     server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 8000).unref();
+    (setTimeout(() => process.exit(0), 8000) as unknown as { unref?: () => void }).unref?.();
   });
 }
 

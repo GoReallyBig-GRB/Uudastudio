@@ -134,8 +134,11 @@ export async function transcribeAudioBuffer(
 ): Promise<string> {
   try {
     const base64Audio = audioBuffer.toString('base64');
+    const asrController = new AbortController();
+    const asrTimer = setTimeout(() => asrController.abort(), 20000);
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
+      config: { abortSignal: asrController.signal },
       contents: [
         {
           role: 'user',
@@ -154,6 +157,7 @@ export async function transcribeAudioBuffer(
       ],
     });
 
+    clearTimeout(asrTimer);
     const transcript = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
     return transcript.trim();
   } catch (err) {
@@ -171,6 +175,10 @@ export interface TTSGenerationOptions {
   instruction?: string;
   maxRetries?: number;
   isAudition?: boolean;
+  /** Transcribe the result and check it for spoken instructions. Slow (a second Gemini call per chunk), so off by default. */
+  verify?: boolean;
+  /** Give up on a single Gemini call after this many milliseconds (default 45000) */
+  timeoutMs?: number;
 }
 
 export interface TTSGenerationResult {
@@ -197,12 +205,14 @@ export interface WavInfo {
 export function normalizeRiffWav(buffer: Buffer): Buffer {
   let fmtOffset = -1;
   let dataOffset = -1;
+  let declared = 0;
   for (let o = 12; o + 8 <= buffer.length; ) {
     const id = buffer.toString('ascii', o, o + 4);
     const size = buffer.readUInt32LE(o + 4);
     if (id === 'fmt ') fmtOffset = o + 8;
     if (id === 'data') {
       dataOffset = o + 8;
+      declared = size;
       break;
     }
     const next = o + 8 + size + (size % 2);
@@ -210,11 +220,23 @@ export function normalizeRiffWav(buffer: Buffer): Buffer {
     o = next;
   }
   if (fmtOffset < 0 || dataOffset < 0) return buffer; // not parseable; caller's validation reports it
-  const pcm = buffer.subarray(dataOffset);
+
+  const audioFormat = buffer.readUInt16LE(fmtOffset);
   const channels = buffer.readUInt16LE(fmtOffset + 2);
   const sampleRate = buffer.readUInt32LE(fmtOffset + 4);
   const bits = buffer.readUInt16LE(fmtOffset + 14);
-  return buildWav(pcm.subarray(0, pcm.length - (pcm.length % 2)), sampleRate, channels, bits);
+  // Only 16-bit integer PCM is handled. Anything else would be written out as static, so say so instead.
+  if ((audioFormat !== 1 && audioFormat !== 0xfffe) || bits !== 16) {
+    throw new Error(`Unsupported WAV from Gemini (format ${audioFormat}, ${bits}-bit). Expected 16-bit PCM.`);
+  }
+
+  // Use the declared audio size when it is believable. Placeholder sizes (0 or 0xFFFFFFFF) mean "to the end of the file".
+  // Bytes after the declared audio (metadata chunks) must not be played as sound.
+  const available = buffer.length - dataOffset;
+  const length = declared > 0 && declared !== 0xffffffff && declared <= available ? declared : available;
+  const frame = 2 * Math.max(1, channels);
+  const pcm = buffer.subarray(dataOffset, dataOffset + length - (length % frame));
+  return buildWav(pcm, sampleRate, channels, bits);
 }
 
 function buildWav(pcm: Buffer, sampleRate: number, numChannels: number, bitsPerSample: number): Buffer {
@@ -253,6 +275,24 @@ export function analyzeWav(wav: Buffer): WavInfo {
     pcmBytes: pcm.length,
     durationSeconds: pcm.length / (sampleRate * channels * 2),
     peak: peak / 32768,
+  };
+}
+
+/** Peak level of the first and last 200 ms and the file's own duration; used by the diagnose route to spot noise at the end. */
+export function analyzeEnds(wav: Buffer): { headPeak: number; tailPeak: number; bodyPeak: number } {
+  const info = analyzeWav(wav);
+  const pcm = wav.subarray(44);
+  const frame = 2 * info.channels;
+  const win = Math.min(Math.floor(pcm.length / 3), Math.floor(info.sampleRate * 0.2) * frame);
+  const peakOf = (from: number, to: number) => {
+    let p = 0;
+    for (let i = from; i + 1 < to; i += 2) p = Math.max(p, Math.abs(pcm.readInt16LE(i)));
+    return Number((p / 32768).toFixed(4));
+  };
+  return {
+    headPeak: peakOf(0, win),
+    tailPeak: peakOf(pcm.length - win, pcm.length),
+    bodyPeak: peakOf(win, pcm.length - win),
   };
 }
 
@@ -325,6 +365,8 @@ export async function generateStrictTTS(options: TTSGenerationOptions): Promise<
     instruction,
     maxRetries = 3,
     isAudition = false,
+    verify = process.env.TTS_VERIFY === 'true',
+    timeoutMs = 45000,
   } = options;
 
   const sanitized = sanitizeScriptText(script);
@@ -360,16 +402,30 @@ export async function generateStrictTTS(options: TTSGenerationOptions): Promise<
 
       // STRICT GENERATION PARAMETERS
       // ONLY sanitized text in contents, NO instruction prose, NO formatting text
-      const response = await ai.models.generateContent({
-        model: modelId,
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: sanitized }],
-          },
-        ],
-        config: generationConfig,
-      });
+      // A call that hangs must not hold the whole request: abort it after timeoutMs
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      generationConfig.abortSignal = controller.signal;
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: modelId,
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: sanitized }],
+            },
+          ],
+          config: generationConfig,
+        });
+      } catch (callErr) {
+        if (controller.signal.aborted) {
+          throw new Error(`Gemini did not answer within ${Math.round(timeoutMs / 1000)} seconds.`);
+        }
+        throw callErr;
+      } finally {
+        clearTimeout(timer);
+      }
 
       const candidate = response.candidates?.[0];
       const audioPart = candidate?.content?.parts?.find((p: any) => p?.inlineData?.data);
@@ -389,11 +445,11 @@ export async function generateStrictTTS(options: TTSGenerationOptions): Promise<
       const info = assertUsableAudio(audioBuffer, sanitized);
       const durationSeconds = info.durationSeconds;
 
-      // If this is an audition, return immediately without slow ASR verification
-      if (isAudition) {
+      // Audition, or verification switched off: return now. The extra transcription call roughly doubles the wait.
+      if (isAudition || !verify) {
         return {
           audioBuffer,
-          durationSeconds: Math.max(0.5, durationSeconds),
+          durationSeconds: isAudition ? Math.max(0.5, durationSeconds) : durationSeconds,
           transcript: sanitized,
           attemptsUsed: attempt,
         };

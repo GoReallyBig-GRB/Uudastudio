@@ -4,6 +4,7 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
+import { makeNativeInstance } from './instance';
 
 export const STEREO_WIDENER_DESCRIPTOR: PluginDescriptor = {
   id: 'uuda-native-widener',
@@ -148,18 +149,18 @@ export class NativeStereoWidenerPlugin {
 
     const getState = async () => ({ ...params });
 
-    return {
+    return makeNativeInstance({
       instanceId,
+      trackId,
       descriptor: STEREO_WIDENER_DESCRIPTOR,
       inputNode,
       outputNode,
-      isBypassed: false,
-      dryWet: 1.0,
+      params,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    };
+    });
   }
 }
