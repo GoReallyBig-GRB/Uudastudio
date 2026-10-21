@@ -49,7 +49,7 @@ import { waveformCache } from './waveform/cache';
 import { formatVolumeDb } from './utils/formatters';
 import { useAuth } from './hooks/useAuth';
 import { SignInPage } from './components/auth/SignInPage';
-import { UserDashboard } from './components/dashboard/UserDashboard';
+import { UserDashboard, TabType } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
 import { VoiceoverModal } from './components/VoiceoverModal';
@@ -97,6 +97,7 @@ const MainStudio: React.FC = () => {
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('tracks');
+  const [dashboardTab, setDashboardTab] = useState<TabType | undefined>(undefined);
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState<boolean>(false);
   const [isTimelineControlsCollapsed, setIsTimelineControlsCollapsed] = useState<boolean>(() => {
     try {
@@ -1747,7 +1748,12 @@ const MainStudio: React.FC = () => {
   if (currentView === 'dashboard') {
     return (
       <UserDashboard
-        onBackToStudio={() => setCurrentView('studio')}
+        key={dashboardTab}
+        initialTab={dashboardTab}
+        onBackToStudio={() => {
+          setDashboardTab(undefined);
+          setCurrentView('studio');
+        }}
         onOpenProject={() => {
           setCurrentView('studio');
         }}
@@ -1867,6 +1873,10 @@ const MainStudio: React.FC = () => {
           user={user}
           unreadTicketsCount={unreadTicketsCount}
           onOpenDashboard={() => setCurrentView('dashboard')}
+          onOpenSupport={() => {
+            setDashboardTab('support');
+            setCurrentView('dashboard');
+          }}
           onOpenAdmin={() => setCurrentView('admin')}
           onOpenSignIn={() => setCurrentView('auth')}
           onOpenPlugins={() => setIsPluginsRackModalOpen(true)}

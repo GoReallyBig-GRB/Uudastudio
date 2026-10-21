@@ -41,13 +41,14 @@ import { SupportTicket, UserProjectItem, UsageSummary } from '../../types';
 interface UserDashboardProps {
   onBackToStudio: () => void;
   onOpenProject?: (projectId: string) => void;
+  initialTab?: TabType;
 }
 
-type TabType = 'account' | 'preferences' | 'connections' | 'usage' | 'projects' | 'support' | 'privacy';
+export type TabType = 'account' | 'preferences' | 'connections' | 'usage' | 'projects' | 'support' | 'privacy';
 
-export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, onOpenProject }) => {
+export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, onOpenProject, initialTab }) => {
   const { user, signOut, updateProfile, deleteAccount, refreshUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>('account');
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'account');
 
   // Account State
   const [displayName, setDisplayName] = useState(user?.display_name || '');
