@@ -173,6 +173,7 @@ export function createFirestoreStore(): DataStore {
     },
     isSuperAdminEmail: (e) =>
       (process.env.SUPER_ADMIN_EMAIL || 'killdasmoke@gmail.com').trim().toLowerCase() === e.trim().toLowerCase(),
+    listConfiguredAdmins: () => adminAllowlist(),
     async listAdmins() {
       const q = await admins.get();
       return q.docs.map((d) => d.data() as AdminRecord);

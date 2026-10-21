@@ -46,6 +46,8 @@ export interface DataStore {
   // admins
   isAdminEmail(email: string): Promise<boolean>;
   isSuperAdminEmail(email: string): boolean;
+  /** Admins fixed in configuration (SUPER_ADMIN_EMAIL and ADMIN_EMAILS); they cannot be removed in the app */
+  listConfiguredAdmins(): string[];
   listAdmins(): Promise<AdminRecord[]>;
   addAdmin(email: string, addedBy: string): Promise<AdminRecord>;
   removeAdmin(email: string): Promise<void>;
@@ -111,6 +113,7 @@ function createFileStore(): DataStore {
     deleteUserPermanently: async (id) => d.deleteUserPermanently(id),
     isAdminEmail: async (e) => d.isAdminEmail(e),
     isSuperAdminEmail: (e) => d.isSuperAdminEmail(e),
+    listConfiguredAdmins: () => d.getAdminAllowlist(),
     listAdmins: async () => d.listAdmins(),
     addAdmin: async (e, by) => d.addAdmin(e, by),
     removeAdmin: async (e) => d.removeAdmin(e),

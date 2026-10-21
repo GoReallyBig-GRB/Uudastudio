@@ -467,7 +467,17 @@ authRouter.get('/api/admin/users', requireAdmin, async (req: Request, res: Respo
 authRouter.post('/api/admin/users/:id/block', requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const targetUserId = String(req.params.id);
+    const target = await store.getUserById(targetUserId);
+    if (target && (await store.isAdminEmail(target.email))) {
+      res.status(403).json({ error: 'Administrators cannot be blocked. Remove admin access first.' });
+      return;
+    }
     const updated = await store.toggleUserBlocked(targetUserId);
+    await store.appendAudit({
+      actor_email: ((req as any).user as UserRecord).email,
+      action: updated.blocked ? 'user.block' : 'user.unblock',
+      target: updated.email,
+    });
     res.json({
       success: true,
       user: {
@@ -483,13 +493,18 @@ authRouter.post('/api/admin/users/:id/block', requireAdmin, async (req: Request,
   }
 });
 
+const TICKET_STATUSES: SupportTicket['status'][] = ['Open', 'Resolved', 'Closed', 'Archived'];
+
 // Admin Support Inbox: All Tickets
 authRouter.get('/api/admin/tickets', requireAdmin, async (req: Request, res: Response): Promise<void> => {
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
   let tickets = await store.getAllTickets();
 
-  if (status && ['Open', 'Resolved', 'Closed'].includes(status)) {
+  if (status && TICKET_STATUSES.includes(status as SupportTicket['status'])) {
     tickets = tickets.filter((t) => t.status === status);
+  } else if (status !== 'all') {
+    // Default view hides archived tickets
+    tickets = tickets.filter((t) => t.status !== 'Archived');
   }
 
   res.json({ tickets });
@@ -507,6 +522,11 @@ authRouter.post('/api/admin/tickets/:id/reply', requireAdmin, async (req: Reques
       return;
     }
 
+    if (status !== undefined && !TICKET_STATUSES.includes(status)) {
+      res.status(400).json({ error: 'Unknown ticket status.' });
+      return;
+    }
+
     const updated = await store.addTicketReply(
       ticketId,
       'admin',
@@ -514,12 +534,100 @@ authRouter.post('/api/admin/tickets/:id/reply', requireAdmin, async (req: Reques
       content.trim(),
       status
     );
+    await store.appendAudit({
+      actor_email: adminUser.email,
+      action: 'ticket.reply',
+      target: ticketId,
+      detail: status ? `status: ${status}` : undefined,
+    });
 
     res.json({ ticket: updated, message: 'Reply sent successfully.' });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: msg });
   }
+});
+
+// Admin: change a ticket's status without replying (Open, Resolved, Closed, Archived)
+authRouter.post('/api/admin/tickets/:id/status', requireAdmin, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const status = req.body?.status;
+    if (!TICKET_STATUSES.includes(status)) {
+      res.status(400).json({ error: 'Unknown ticket status.' });
+      return;
+    }
+    const ticketId = String(req.params.id);
+    const updated = await store.setTicketStatus(ticketId, status);
+    await store.appendAudit({
+      actor_email: ((req as any).user as UserRecord).email,
+      action: 'ticket.status',
+      target: ticketId,
+      detail: status,
+    });
+    res.json({ ticket: updated });
+  } catch (err: unknown) {
+    res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// Admin team: only the super admin adds or removes administrators
+authRouter.get('/api/admin/admins', requireAdmin, async (req: Request, res: Response): Promise<void> => {
+  const me = (req as any).user as UserRecord;
+  const stored = await store.listAdmins();
+  const configured = store.listConfiguredAdmins();
+  const storedEmails = new Set(stored.map((a) => a.email));
+  res.json({
+    admins: [
+      ...configured.map((email) => ({
+        email,
+        source: 'configured' as const,
+        super: store.isSuperAdminEmail(email),
+        added_by: '',
+        added_at: '',
+      })),
+      ...stored
+        .filter((a) => !configured.includes(a.email))
+        .map((a) => ({ ...a, source: 'added' as const, super: false })),
+    ].filter((a, i, arr) => arr.findIndex((b) => b.email === a.email) === i && (a.source === 'configured' || storedEmails.has(a.email))),
+    superAdmin: process.env.SUPER_ADMIN_EMAIL || 'killdasmoke@gmail.com',
+    canManage: store.isSuperAdminEmail(me.email),
+  });
+});
+
+authRouter.post('/api/admin/admins', requireAdmin, rateLimit({ name: 'admin-add', windowMs: 60 * 1000, max: 10 }), async (req: Request, res: Response): Promise<void> => {
+  const me = (req as any).user as UserRecord;
+  if (!store.isSuperAdminEmail(me.email)) {
+    res.status(403).json({ error: 'Only the super admin can add administrators.' });
+    return;
+  }
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) {
+    res.status(400).json({ error: 'Enter a valid email address.' });
+    return;
+  }
+  const rec = await store.addAdmin(email, me.email);
+  await store.appendAudit({ actor_email: me.email, action: 'admin.add', target: email });
+  res.json({ admin: rec });
+});
+
+authRouter.delete('/api/admin/admins/:email', requireAdmin, async (req: Request, res: Response): Promise<void> => {
+  const me = (req as any).user as UserRecord;
+  if (!store.isSuperAdminEmail(me.email)) {
+    res.status(403).json({ error: 'Only the super admin can remove administrators.' });
+    return;
+  }
+  const email = decodeURIComponent(String(req.params.email)).trim().toLowerCase();
+  if (store.isSuperAdminEmail(email)) {
+    res.status(400).json({ error: 'The super admin cannot be removed.' });
+    return;
+  }
+  await store.removeAdmin(email);
+  await store.appendAudit({ actor_email: me.email, action: 'admin.remove', target: email });
+  res.json({ success: true });
+});
+
+authRouter.get('/api/admin/audit', requireAdmin, async (_req: Request, res: Response): Promise<void> => {
+  res.json({ entries: await store.listAudit(200) });
 });
 
 // ---------------------------------------------------------------------------
