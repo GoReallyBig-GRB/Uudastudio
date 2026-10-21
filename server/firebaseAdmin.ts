@@ -25,13 +25,13 @@ function resolveProjectId(): string | undefined {
   }
 }
 
-function ensureApp() {
+export function ensureFirebaseApp() {
   if (getApps().length === 0) {
     const projectId = resolveProjectId();
     if (!projectId) {
       throw new Error('Firebase project id is not configured. Set FIREBASE_PROJECT_ID.');
     }
-    initializeApp({ projectId });
+    initializeApp({ projectId, storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app` });
   }
 }
 
@@ -48,7 +48,7 @@ export interface VerifiedIdentity {
  * Throws if the token is missing, forged, expired, for another project, or (optionally) revoked.
  */
 export async function verifyFirebaseIdToken(idToken: string): Promise<VerifiedIdentity> {
-  ensureApp();
+  ensureFirebaseApp();
   const checkRevoked = process.env.FIREBASE_CHECK_REVOKED === 'true';
   const decoded: DecodedIdToken = await getAuth().verifyIdToken(idToken, checkRevoked);
   const email = (decoded.email || '').trim().toLowerCase();

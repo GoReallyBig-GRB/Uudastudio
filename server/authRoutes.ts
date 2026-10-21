@@ -6,7 +6,8 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import { db, UserRecord, SupportTicket, SESSION_TTL_MS } from './db';
+import { UserRecord, SupportTicket, SESSION_TTL_MS } from './db';
+import { store } from './store';
 import { verifyFirebaseIdToken } from './firebaseAdmin';
 import { adminCodeEmail, sendMail, MailNotConfiguredError } from './mail';
 import { SESSION_COOKIE, parseCookies, setSessionCookie, clearSessionCookie, rateLimit } from './http';
@@ -41,7 +42,7 @@ export function checkBurstLimit(userId: string, maxPerMinute = 10): { allowed: b
 // Extract the signed-in user. Only server-issued session tokens are accepted: from the __session cookie
 // (browser) or an Authorization: Bearer header carrying the same token. Firebase ID tokens are never accepted
 // here; they are exchanged for a session once, in POST /api/auth/google, after full verification.
-export function getAuthenticatedUser(req: Request): { user: UserRecord | null; sessionToken: string | null } {
+export async function getAuthenticatedUser(req: Request): Promise<{ user: UserRecord | null; sessionToken: string | null }> {
   let token: string | null = null;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -54,12 +55,11 @@ export function getAuthenticatedUser(req: Request): { user: UserRecord | null; s
     return { user: null, sessionToken: null };
   }
 
-  const session = db.getSession(token);
+  const session = await store.getSession(token);
   if (!session) {
-    sessions.delete(token);
     return { user: null, sessionToken: null };
   }
-  const user = db.getUserById(session.userId);
+  const user = await store.getUserById(session.userId);
   if (!user) {
     return { user: null, sessionToken: null };
   }
@@ -70,8 +70,8 @@ export function getAuthenticatedUser(req: Request): { user: UserRecord | null; s
 }
 
 // Middleware: Require Signed-In User
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  const { user } = getAuthenticatedUser(req);
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const { user } = await getAuthenticatedUser(req);
   if (!user) {
     res.status(401).json({ error: 'Authentication required. Please sign in with Google.' });
     return;
@@ -85,8 +85,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 }
 
 // Middleware: Require Verified Admin
-export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  const { user, sessionToken } = getAuthenticatedUser(req);
+export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const { user, sessionToken } = await getAuthenticatedUser(req);
   if (!user || user.role !== 'admin') {
     res.status(403).json({ error: 'Forbidden: Admin access required.' });
     return;
@@ -97,7 +97,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
   }
 
   // Check connection code verification status for admin session
-  if (!sessionToken || !db.isAdminSessionVerified(sessionToken)) {
+  if (!sessionToken || !await store.isAdminSessionVerified(sessionToken)) {
     res.status(403).json({
       error: 'Admin security verification required. Please enter your connection code.',
       needsVerification: true,
@@ -139,7 +139,7 @@ authRouter.post(
         return;
       }
 
-      const existing = db.getUserById(identity.uid) || db.getUserByEmail(identity.email);
+      const existing = await store.getUserById(identity.uid) || await store.getUserByEmail(identity.email);
       if (existing && existing.blocked) {
         res.status(403).json({
           error: 'This account has been blocked. Contact support.',
@@ -148,7 +148,7 @@ authRouter.post(
         return;
       }
 
-      const { user, isNew } = db.createOrUpdateUserOnSignIn({
+      const { user, isNew } = await store.createOrUpdateUserOnSignIn({
         googleId: identity.uid,
         email: identity.email,
         displayName: identity.displayName,
@@ -158,14 +158,14 @@ authRouter.post(
       // Opaque, unguessable session token
       const sessionToken = `uuda_sess_${crypto.randomBytes(32).toString('hex')}`;
       sessions.set(sessionToken, { userId: user.id, createdAt: Date.now() });
-      db.setSession(sessionToken, user.id);
+      await store.setSession(sessionToken, user.id);
       setSessionCookie(res, sessionToken, SESSION_TTL_MS);
 
       // Admins get a one-time code by email on every sign-in. The code is never put in the response.
       let adminCodeSent = false;
       if (user.role === 'admin') {
         try {
-          const code = db.createAdminConnectionCode(user.email);
+          const code = await store.createAdminConnectionCode(user.email);
           const mail = adminCodeEmail(code);
           await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
           adminCodeSent = true;
@@ -189,18 +189,18 @@ authRouter.post(
 );
 
 // Current User Profile & Unread Notification Check
-authRouter.get('/api/auth/me', (req: Request, res: Response): void => {
-  const { user, sessionToken } = getAuthenticatedUser(req);
+authRouter.get('/api/auth/me', async (req: Request, res: Response): Promise<void> => {
+  const { user, sessionToken } = await getAuthenticatedUser(req);
   if (!user) {
     res.json({ user: null });
     return;
   }
 
   // Count unread admin replies for support badge
-  const userTickets = db.getTicketsForUser(user.id);
+  const userTickets = await store.getTicketsForUser(user.id);
   const unreadCount = userTickets.filter((t) => t.has_unread_admin_reply && t.status !== 'Closed').length;
 
-  const isAdminVerified = sessionToken ? db.isAdminSessionVerified(sessionToken) : false;
+  const isAdminVerified = sessionToken ? await store.isAdminSessionVerified(sessionToken) : false;
 
   res.json({
     user,
@@ -210,7 +210,7 @@ authRouter.get('/api/auth/me', (req: Request, res: Response): void => {
 });
 
 // Update Profile (Strict Permanent Email Protection)
-authRouter.put('/api/auth/profile', requireAuth, (req: Request, res: Response): void => {
+authRouter.put('/api/auth/profile', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user as UserRecord;
 
@@ -223,7 +223,7 @@ authRouter.put('/api/auth/profile', requireAuth, (req: Request, res: Response): 
     }
 
     const { display_name, preferences } = req.body;
-    const updated = db.updateUserProfile(user.id, { display_name, preferences });
+    const updated = await store.updateUserProfile(user.id, { display_name, preferences });
 
     res.json({ user: updated, message: 'Profile updated successfully.' });
   } catch (err: unknown) {
@@ -233,18 +233,18 @@ authRouter.put('/api/auth/profile', requireAuth, (req: Request, res: Response): 
 });
 
 // Sign Out
-authRouter.post('/api/auth/signout', (req: Request, res: Response): void => {
-  const { sessionToken } = getAuthenticatedUser(req);
+authRouter.post('/api/auth/signout', async (req: Request, res: Response): Promise<void> => {
+  const { sessionToken } = await getAuthenticatedUser(req);
   if (sessionToken) {
     sessions.delete(sessionToken);
-    db.removeSession(sessionToken);
+    await store.removeSession(sessionToken);
   }
   clearSessionCookie(res);
   res.json({ success: true, message: 'Signed out successfully.' });
 });
 
 // Delete Account (Permanent Deletion)
-authRouter.delete('/api/auth/account', requireAuth, (req: Request, res: Response): void => {
+authRouter.delete('/api/auth/account', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user as UserRecord;
     const { confirmText } = req.body;
@@ -254,13 +254,12 @@ authRouter.delete('/api/auth/account', requireAuth, (req: Request, res: Response
       return;
     }
 
-    db.deleteUserPermanently(user.id);
+    await store.deleteUserPermanently(user.id);
 
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7).trim();
-      sessions.delete(token);
-    }
+      }
 
     res.json({
       success: true,
@@ -272,12 +271,12 @@ authRouter.delete('/api/auth/account', requireAuth, (req: Request, res: Response
 });
 
 // Download My Data (GDPR / Privacy Export)
-authRouter.get('/api/auth/download-data', requireAuth, (req: Request, res: Response): void => {
+authRouter.get('/api/auth/download-data', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user as UserRecord;
-    const generations = db.getGenerationsForUser(user.id);
-    const tickets = db.getTicketsForUser(user.id);
-    const projects = db.getProjectsForUser(user.id);
+    const generations = await store.getGenerationsForUser(user.id);
+    const tickets = await store.getTicketsForUser(user.id);
+    const projects = await store.getProjectsForUser(user.id);
 
     const exportPackage = {
       export_date: new Date().toISOString(),
@@ -319,8 +318,8 @@ authRouter.get('/api/auth/download-data', requireAuth, (req: Request, res: Respo
 authRouter.post(
   '/api/admin/verify-code',
   rateLimit({ name: 'admin-verify', windowMs: 60 * 1000, max: 12 }),
-  (req: Request, res: Response): void => {
-    const { user, sessionToken } = getAuthenticatedUser(req);
+  async (req: Request, res: Response): Promise<void> => {
+    const { user, sessionToken } = await getAuthenticatedUser(req);
     if (!user || user.role !== 'admin' || !sessionToken) {
       res.status(403).json({ error: 'Forbidden: Admin access required.' });
       return;
@@ -332,7 +331,7 @@ authRouter.post(
       return;
     }
 
-    const result = db.verifyAdminConnectionCode(user.email, code, sessionToken);
+    const result = await store.verifyAdminConnectionCode(user.email, code, sessionToken);
     if (!result.ok) {
       if (result.reason === 'locked') {
         const minutes = Math.max(1, Math.ceil((result.retryAfterSec || 900) / 60));
@@ -360,20 +359,20 @@ authRouter.post(
   '/api/admin/resend-code',
   rateLimit({ name: 'admin-resend', windowMs: 60 * 60 * 1000, max: 5 }),
   async (req: Request, res: Response): Promise<void> => {
-    const { user } = getAuthenticatedUser(req);
+    const { user } = await getAuthenticatedUser(req);
     if (!user || user.role !== 'admin') {
       res.status(403).json({ error: 'Forbidden: Admin access required.' });
       return;
     }
 
-    const wait = db.adminCodeCooldownSeconds(user.email);
+    const wait = await store.adminCodeCooldownSeconds(user.email);
     if (wait > 0) {
       res.status(429).json({ error: `Please wait ${wait} seconds before requesting another code.`, retryAfterSec: wait });
       return;
     }
 
     try {
-      const code = db.createAdminConnectionCode(user.email);
+      const code = await store.createAdminConnectionCode(user.email);
       const mail = adminCodeEmail(code);
       await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
       res.json({ success: true, message: `A new 6-digit code was sent to ${user.email}.` });
@@ -387,9 +386,9 @@ authRouter.post(
 );
 
 // Admin Overview Analytics
-authRouter.get('/api/admin/overview', requireAdmin, (_req: Request, res: Response): void => {
-  const users = db.getAllUsers();
-  const generations = db.getAllGenerations();
+authRouter.get('/api/admin/overview', requireAdmin, async (_req: Request, res: Response): Promise<void> => {
+  const users = await store.getAllUsers();
+  const generations = await store.getAllGenerations();
   const now = Date.now();
   const oneDayAgo = now - 24 * 60 * 60 * 1000;
 
@@ -427,16 +426,15 @@ authRouter.get('/api/admin/overview', requireAdmin, (_req: Request, res: Respons
 });
 
 // Admin Users Table
-authRouter.get('/api/admin/users', requireAdmin, (req: Request, res: Response): void => {
-  const allUsers = db.getAllUsers();
-  const generations = db.getAllGenerations();
-  const projects = db.getAllTickets(); // will map with project counts
+authRouter.get('/api/admin/users', requireAdmin, async (req: Request, res: Response): Promise<void> => {
+  const allUsers = await store.getAllUsers();
+  const generations = await store.getAllGenerations();
+  const projectCounts = await store.countProjectsByUser();
 
   const search = typeof req.query.search === 'string' ? req.query.search.toLowerCase() : '';
 
   const mapped = allUsers.map((u) => {
     const userGens = generations.filter((g) => g.user_id === u.id);
-    const userProjects = db.getProjectsForUser(u.id);
 
     return {
       id: u.id,
@@ -449,7 +447,7 @@ authRouter.get('/api/admin/users', requireAdmin, (req: Request, res: Response): 
       blocked: u.blocked,
       voice_generations_count: userGens.length,
       characters_generated: userGens.reduce((sum, g) => sum + (g.characters || 0), 0),
-      projects_count: userProjects.length,
+      projects_count: projectCounts[u.id] || 0,
     };
   });
 
@@ -466,10 +464,10 @@ authRouter.get('/api/admin/users', requireAdmin, (req: Request, res: Response): 
 });
 
 // Admin User Block / Unblock Action (Only write action permitted)
-authRouter.post('/api/admin/users/:id/block', requireAdmin, (req: Request, res: Response): void => {
+authRouter.post('/api/admin/users/:id/block', requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const targetUserId = req.params.id;
-    const updated = db.toggleUserBlocked(targetUserId);
+    const updated = await store.toggleUserBlocked(targetUserId);
     res.json({
       success: true,
       user: {
@@ -486,9 +484,9 @@ authRouter.post('/api/admin/users/:id/block', requireAdmin, (req: Request, res: 
 });
 
 // Admin Support Inbox: All Tickets
-authRouter.get('/api/admin/tickets', requireAdmin, (req: Request, res: Response): void => {
+authRouter.get('/api/admin/tickets', requireAdmin, async (req: Request, res: Response): Promise<void> => {
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
-  let tickets = db.getAllTickets();
+  let tickets = await store.getAllTickets();
 
   if (status && ['Open', 'Resolved', 'Closed'].includes(status)) {
     tickets = tickets.filter((t) => t.status === status);
@@ -498,7 +496,7 @@ authRouter.get('/api/admin/tickets', requireAdmin, (req: Request, res: Response)
 });
 
 // Admin Reply to Ticket & Status Update
-authRouter.post('/api/admin/tickets/:id/reply', requireAdmin, (req: Request, res: Response): void => {
+authRouter.post('/api/admin/tickets/:id/reply', requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const ticketId = req.params.id;
     const { content, status } = req.body;
@@ -509,7 +507,7 @@ authRouter.post('/api/admin/tickets/:id/reply', requireAdmin, (req: Request, res
       return;
     }
 
-    const updated = db.addTicketReply(
+    const updated = await store.addTicketReply(
       ticketId,
       'admin',
       adminUser.display_name || 'Admin Support',
@@ -529,14 +527,14 @@ authRouter.post('/api/admin/tickets/:id/reply', requireAdmin, (req: Request, res
 // ---------------------------------------------------------------------------
 
 // List User's Own Tickets
-authRouter.get('/api/tickets/my', requireAuth, (req: Request, res: Response): void => {
+authRouter.get('/api/tickets/my', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = (req as any).user as UserRecord;
-  const tickets = db.getTicketsForUser(user.id);
+  const tickets = await store.getTicketsForUser(user.id);
   res.json({ tickets });
 });
 
 // Create Support Ticket
-authRouter.post('/api/tickets', requireAuth, (req: Request, res: Response): void => {
+authRouter.post('/api/tickets', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user as UserRecord;
     const { title, type, initialMessage } = req.body;
@@ -564,7 +562,7 @@ authRouter.post('/api/tickets', requireAuth, (req: Request, res: Response): void
       return;
     }
 
-    const ticket = db.createTicket(
+    const ticket = await store.createTicket(
       user.id,
       user.email,
       user.display_name,
@@ -580,13 +578,13 @@ authRouter.post('/api/tickets', requireAuth, (req: Request, res: Response): void
 });
 
 // Reply to Own Ticket
-authRouter.post('/api/tickets/:id/reply', requireAuth, (req: Request, res: Response): void => {
+authRouter.post('/api/tickets/:id/reply', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user as UserRecord;
     const ticketId = req.params.id;
     const { content } = req.body;
 
-    const ticket = db.getTicketById(ticketId);
+    const ticket = await store.getTicketById(ticketId);
     if (!ticket || ticket.user_id !== user.id) {
       res.status(404).json({ error: 'Ticket not found.' });
       return;
@@ -602,7 +600,7 @@ authRouter.post('/api/tickets/:id/reply', requireAuth, (req: Request, res: Respo
       return;
     }
 
-    const updated = db.addTicketReply(
+    const updated = await store.addTicketReply(
       ticketId,
       'user',
       user.display_name,
@@ -617,9 +615,9 @@ authRouter.post('/api/tickets/:id/reply', requireAuth, (req: Request, res: Respo
 });
 
 // Mark Ticket As Read
-authRouter.post('/api/tickets/:id/mark-read', requireAuth, (req: Request, res: Response): void => {
+authRouter.post('/api/tickets/:id/mark-read', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = (req as any).user as UserRecord;
-  db.markTicketAsRead(req.params.id, user.id);
+  await store.markTicketAsRead(req.params.id, user.id);
   res.json({ success: true });
 });
 
@@ -627,13 +625,24 @@ authRouter.post('/api/tickets/:id/mark-read', requireAuth, (req: Request, res: R
 // 4. Projects (User-Facing)
 // ---------------------------------------------------------------------------
 
-authRouter.get('/api/projects', requireAuth, (req: Request, res: Response): void => {
+authRouter.get('/api/projects', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = (req as any).user as UserRecord;
-  const projects = db.getProjectsForUser(user.id);
+  // The list carries details only; a project's contents are fetched one at a time (they can be several MB)
+  const projects = (await store.getProjectsForUser(user.id)).map(({ data: _data, ...details }) => details);
   res.json({ projects });
 });
 
-authRouter.post('/api/projects', requireAuth, (req: Request, res: Response): void => {
+authRouter.get('/api/projects/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const user = (req as any).user as UserRecord;
+  const project = await store.getProject(user.id, String(req.params.id));
+  if (!project) {
+    res.status(404).json({ error: 'Project not found.' });
+    return;
+  }
+  res.json({ project });
+});
+
+authRouter.post('/api/projects', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user as UserRecord;
     const { id, name, data } = req.body;
@@ -643,17 +652,17 @@ authRouter.post('/api/projects', requireAuth, (req: Request, res: Response): voi
       return;
     }
 
-    const project = db.saveProject(user.id, id, name, data);
+    const project = await store.saveProject(user.id, id, name, data);
     res.json({ project });
   } catch (err: unknown) {
     res.status(500).json({ error: 'Failed to save project.' });
   }
 });
 
-authRouter.post('/api/projects/:id/duplicate', requireAuth, (req: Request, res: Response): void => {
+authRouter.post('/api/projects/:id/duplicate', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user as UserRecord;
-    const copy = db.duplicateProject(user.id, req.params.id);
+    const copy = await store.duplicateProject(user.id, req.params.id);
     res.json({ project: copy });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -661,9 +670,9 @@ authRouter.post('/api/projects/:id/duplicate', requireAuth, (req: Request, res: 
   }
 });
 
-authRouter.delete('/api/projects/:id', requireAuth, (req: Request, res: Response): void => {
+authRouter.delete('/api/projects/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = (req as any).user as UserRecord;
-  const deleted = db.deleteProject(user.id, req.params.id);
+  const deleted = await store.deleteProject(user.id, req.params.id);
   if (!deleted) {
     res.status(404).json({ error: 'Project not found.' });
     return;
@@ -672,9 +681,9 @@ authRouter.delete('/api/projects/:id', requireAuth, (req: Request, res: Response
 });
 
 // Usage Summary for User Dashboard
-authRouter.get('/api/usage/my', requireAuth, (req: Request, res: Response): void => {
+authRouter.get('/api/usage/my', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = (req as any).user as UserRecord;
-  const userGens = db.getGenerationsForUser(user.id);
+  const userGens = await store.getGenerationsForUser(user.id);
 
   const now = new Date();
   const currentMonth = now.getMonth();

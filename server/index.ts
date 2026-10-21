@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
-import { db } from './db';
+import { store, initStore } from './store';
 import { authRouter, getAuthenticatedUser, checkBurstLimit } from './authRoutes';
 import { audioJobsRouter } from './audioJobs';
 import { rateLimit, requireSameOrigin } from './http';
@@ -195,8 +195,8 @@ function concatenateWavBuffers(buffers: Buffer[], silenceGapMs = 120): Buffer {
 // 2. API Routes
 // ---------------------------------------------------------------------------
 
-function requireSignedIn(req: Request, res: Response, next: NextFunction): void {
-  const { user } = getAuthenticatedUser(req);
+async function requireSignedIn(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const { user } = await getAuthenticatedUser(req);
   if (!user || user.blocked) {
     res.status(401).json({ error: 'Sign in required.' });
     return;
@@ -277,7 +277,7 @@ app.get('/api/voice/preview', rateLimit({ name: 'preview', windowMs: 60 * 1000, 
 
 // Diagnose Gemini TTS Models (signed-in users only)
 app.get('/api/voice/diagnose', async (req: Request, res: Response): Promise<void> => {
-  const { user } = getAuthenticatedUser(req);
+  const { user } = await getAuthenticatedUser(req);
   if (!user || user.blocked) {
     res.status(401).json({ error: 'Sign in is required to run voice diagnostics.' });
     return;
@@ -345,7 +345,7 @@ app.get('/api/voice/diagnose', async (req: Request, res: Response): Promise<void
 // Strict text-only pipeline: no instructions, no formatting prose, ASR verification layer
 app.post('/api/voice/generate', async (req: Request, res: Response): Promise<void> => {
   // 1. Auth check: a signed-in user is required. There is no fallback account.
-  const { user } = getAuthenticatedUser(req);
+  const { user } = await getAuthenticatedUser(req);
   if (!user) {
     res.status(401).json({
       error: 'Sign in with Google is required to generate voiceovers.',
@@ -434,7 +434,7 @@ app.post('/api/voice/generate', async (req: Request, res: Response): Promise<voi
     const durationEstimate = pcmBytes / (24000 * 2);
 
     // Log successful generation
-    db.logGeneration({
+    await store.logGeneration({
       user_id: user.id,
       user_email: user.email,
       kind: 'voice',
@@ -459,7 +459,7 @@ app.post('/api/voice/generate', async (req: Request, res: Response): Promise<voi
 
     // Detect 429 Rate Limit / Free Quota Exhaustion
     if (errMsg.includes('429') || errMsg.toLowerCase().includes('resource has been exhausted') || errMsg.toLowerCase().includes('quota')) {
-      db.logGeneration({
+      await store.logGeneration({
         user_id: user.id,
         user_email: user.email,
         kind: 'voice',
@@ -480,7 +480,7 @@ app.post('/api/voice/generate', async (req: Request, res: Response): Promise<voi
 
     // Detect Invalid / Missing Key
     if (errMsg.toLowerCase().includes('api_key') || errMsg.toLowerCase().includes('unauthenticated') || errMsg.toLowerCase().includes('permission denied')) {
-      db.logGeneration({
+      await store.logGeneration({
         user_id: user.id,
         user_email: user.email,
         kind: 'voice',
@@ -497,7 +497,7 @@ app.post('/api/voice/generate', async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    db.logGeneration({
+    await store.logGeneration({
       user_id: user.id,
       user_email: user.email,
       kind: 'voice',
@@ -733,6 +733,7 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 async function startServer() {
+  await initStore();
   if (process.env.NODE_ENV !== 'production') {
     // Mount Vite dev middleware
     const { createServer: createViteServer } = await import('vite');
@@ -744,7 +745,7 @@ async function startServer() {
   } else {
     // Serve static files in production
     app.use(express.static(DIST_DIR));
-    app.get('*', (_req: Request, res: Response) => {
+    app.get('/{*splat}', (_req: Request, res: Response) => {
       res.sendFile(path.join(DIST_DIR, 'index.html'));
     });
   }

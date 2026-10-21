@@ -55,11 +55,26 @@ export interface SupportTicket {
   user_name: string;
   title: string;
   type: 'AI generation issue' | 'Account issue' | 'Workspace failure' | 'Technical issue' | 'Performance issue';
-  status: 'Open' | 'Resolved' | 'Closed';
+  status: 'Open' | 'Resolved' | 'Closed' | 'Archived';
   created_at: string;
   updated_at: string;
   has_unread_admin_reply: boolean;
   messages: TicketMessage[];
+}
+
+export interface AdminRecord {
+  email: string;
+  added_by: string;
+  added_at: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  at: string;
+  actor_email: string;
+  action: string; // e.g. 'user.block', 'ticket.reply', 'admin.add'
+  target: string; // user id, ticket id or email
+  detail?: string;
 }
 
 export interface ServerProject {
@@ -97,6 +112,8 @@ interface DatabaseSchema {
   adminCodes: Record<string, AdminCodeEntry>;
   verifiedAdminSessions: Record<string, number>; // session token -> verified-until (epoch ms)
   sessions: Record<string, { userId: string; createdAt: number }>;
+  admins: Record<string, AdminRecord>;
+  audit: AuditEntry[];
 }
 
 // Local development store only. Cloud Run's disk is temporary and per-instance; production data moves to Firestore (stage 2).
@@ -130,6 +147,8 @@ class DatabaseService {
           // Older files stored an array with no expiry; those verifications are dropped on purpose
           verifiedAdminSessions: Array.isArray(parsed.verifiedAdminSessions) ? {} : parsed.verifiedAdminSessions || {},
           sessions: parsed.sessions || {},
+          admins: parsed.admins || {},
+          audit: parsed.audit || [],
         };
       }
     } catch (err) {
@@ -144,6 +163,8 @@ class DatabaseService {
       adminCodes: {},
       verifiedAdminSessions: {},
       sessions: {},
+      admins: {},
+      audit: [],
     };
   }
 
@@ -192,7 +213,52 @@ class DatabaseService {
 
   public isAdminEmail(email: string): boolean {
     const clean = email.trim().toLowerCase();
-    return this.getAdminAllowlist().includes(clean);
+    return this.getAdminAllowlist().includes(clean) || !!this.data.admins[clean];
+  }
+
+  public isSuperAdminEmail(email: string): boolean {
+    return (process.env.SUPER_ADMIN_EMAIL || 'killdasmoke@gmail.com').trim().toLowerCase() === email.trim().toLowerCase();
+  }
+
+  public listAdmins(): AdminRecord[] {
+    return Object.values(this.data.admins);
+  }
+
+  public addAdmin(email: string, addedBy: string): AdminRecord {
+    const clean = email.trim().toLowerCase();
+    const rec: AdminRecord = { email: clean, added_by: addedBy, added_at: new Date().toISOString() };
+    this.data.admins[clean] = rec;
+    const user = this.getUserByEmail(clean);
+    if (user) user.role = 'admin';
+    this.save();
+    return rec;
+  }
+
+  public removeAdmin(email: string): void {
+    const clean = email.trim().toLowerCase();
+    delete this.data.admins[clean];
+    const user = this.getUserByEmail(clean);
+    if (user && !this.getAdminAllowlist().includes(clean)) user.role = 'user';
+    this.save();
+  }
+
+  public appendAudit(entry: Omit<AuditEntry, 'id' | 'at'>): void {
+    this.data.audit.push({ id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, at: new Date().toISOString(), ...entry });
+    if (this.data.audit.length > 5000) this.data.audit.splice(0, this.data.audit.length - 5000);
+    this.save();
+  }
+
+  public listAudit(limit = 200): AuditEntry[] {
+    return this.data.audit.slice(-limit).reverse();
+  }
+
+  public setTicketStatus(ticketId: string, status: SupportTicket['status']): SupportTicket {
+    const ticket = this.getTicketById(ticketId);
+    if (!ticket) throw new Error('Ticket not found');
+    ticket.status = status;
+    ticket.updated_at = new Date().toISOString();
+    this.save();
+    return ticket;
   }
 
   // User management
@@ -483,7 +549,7 @@ class DatabaseService {
   ): SupportTicket {
     const ticket = this.getTicketById(ticketId);
     if (!ticket) throw new Error('Ticket not found');
-    if (ticket.status === 'Closed' && sender === 'user') {
+    if ((ticket.status === 'Closed' || ticket.status === 'Archived') && sender === 'user') {
       throw new Error('This ticket is closed and read-only');
     }
 
@@ -580,3 +646,4 @@ class DatabaseService {
 }
 
 export const db = new DatabaseService();
+export type FileDatabase = DatabaseService;
