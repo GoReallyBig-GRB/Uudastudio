@@ -5,7 +5,7 @@
  */
 
 import { Project, Track, Clip, Asset } from '../types';
-import { pluginManager } from '../plugins/pluginManager';
+import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 
 export interface MeterData {
   peak: number; // 0 to 1+
@@ -30,6 +30,8 @@ export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private duckingGain: GainNode | null = null;
+  /** Entry point of the master plugin chain (ducking -> masterFxIn -> master plugins -> compressor) */
+  private masterFxIn: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
   private limiter: DynamicsCompressorNode | null = null;
   private masterAnalyser: AnalyserNode | null = null;
@@ -118,9 +120,19 @@ export class AudioEngine {
   }
 
   public rewireTrackPlugins(trackId: string): void {
+    if (trackId === MASTER_TRACK_ID) {
+      this.rewireMasterPlugins();
+      return;
+    }
     const nodes = this.trackNodes.get(trackId);
     if (!nodes) return;
     pluginManager.connectPluginChain(trackId, nodes.gainNode, nodes.panNode as unknown as AudioNode);
+  }
+
+  /** Master bus effects: the whole mix passes through them before the compressor and limiter */
+  public rewireMasterPlugins(): void {
+    if (!this.masterFxIn || !this.compressor) return;
+    pluginManager.connectPluginChain(MASTER_TRACK_ID, this.masterFxIn, this.compressor);
   }
 
   public async init(): Promise<AudioContext> {
@@ -276,7 +288,10 @@ export class AudioEngine {
 
     // Connect chain: Track -> MasterGain -> DuckingGain -> Compressor -> Limiter -> Splitter & Analyser -> Destination
     this.masterGain.connect(this.duckingGain);
-    this.duckingGain.connect(this.compressor);
+    this.masterFxIn = this.ctx.createGain();
+    this.duckingGain.connect(this.masterFxIn);
+    this.masterFxIn.connect(this.compressor);
+    this.rewireMasterPlugins();
     this.compressor.connect(this.limiter);
     this.limiter.connect(this.masterAnalyser);
     this.limiter.connect(this.masterSplitter);

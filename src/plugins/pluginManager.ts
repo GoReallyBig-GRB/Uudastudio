@@ -301,4 +301,7 @@ export class PluginManager {
   }
 }
 
+/** Pseudo track id for the master bus chain: effects here process the whole mix after every track is summed */
+export const MASTER_TRACK_ID = '__master__';
+
 export const pluginManager = PluginManager.getInstance();

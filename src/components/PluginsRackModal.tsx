@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { Track } from '../types';
 import { audioEngine } from '../audio/engine';
-import { pluginManager } from '../plugins/pluginManager';
+import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 import { PluginDescriptor, PluginInstance } from '../plugins/types';
 import {
   NATIVE_STEM_PLUGINS,
@@ -51,8 +51,12 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
   onSelectTrack,
 }) => {
   // Active target track
-  const activeTrackId = selectedTrackId || (tracks.length > 0 ? tracks[0].id : null);
-  const activeTrack = tracks.find((t) => t.id === activeTrackId);
+  // 'Master bus' is a local target, so the app's selected track is left alone
+  const [masterTarget, setMasterTarget] = useState<boolean>(false);
+  const activeTrackId = masterTarget ? MASTER_TRACK_ID : selectedTrackId || (tracks.length > 0 ? tracks[0].id : null);
+  const activeTrack = masterTarget
+    ? ({ name: 'Master Bus (whole mix)' } as { name: string })
+    : tracks.find((t) => t.id === activeTrackId);
 
   // Active instances in selected track
   const [activePlugins, setActivePlugins] = useState<PluginInstance[]>([]);
@@ -257,9 +261,19 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
               <span className="text-xs text-zinc-400 font-medium">Target Track:</span>
               <select
                 value={activeTrackId || ''}
-                onChange={(e) => onSelectTrack(e.target.value)}
+                onChange={(e) => {
+                  if (e.target.value === MASTER_TRACK_ID) {
+                    setMasterTarget(true);
+                  } else {
+                    setMasterTarget(false);
+                    onSelectTrack(e.target.value);
+                  }
+                }}
                 className="bg-transparent text-xs font-bold text-cyan-300 focus:outline-none cursor-pointer"
               >
+                <option value={MASTER_TRACK_ID} className="bg-[#121218] text-zinc-200">
+                  Master Bus (whole mix)
+                </option>
                 {tracks.map((t, idx) => (
                   <option key={t.id} value={t.id} className="bg-[#121218] text-zinc-200">
                     Track {idx + 1}: {t.name}
