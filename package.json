@@ -19,7 +19,7 @@
     "@breezystack/lamejs": "^1.2.7",
     "@google/genai": "^2.4.0",
     "dotenv": "^17.2.3",
-    "express": "^4.21.2",
+    "express": "^5.1.0",
     "firebase": "^13.0.0",
     "firebase-admin": "^13.0.0",
     "helmet": "^8.0.0",
@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "@types/express": "^4.17.21",
+    "@types/express": "^5.0.3",
     "@types/multer": "^2.3.0",
     "@types/node": "^22.14.0",
     "@types/nodemailer": "^6.4.17",

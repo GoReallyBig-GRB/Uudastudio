@@ -46,8 +46,8 @@ interface HeaderProps {
   pixelsPerSecond?: number;
   canUndo: boolean;
   canRedo: boolean;
-  activeSidebarTab?: 'tracks' | 'voice' | 'library';
-  onSelectSidebarTab?: (tab: 'tracks' | 'voice' | 'library') => void;
+  activeSidebarTab?: 'tracks' | 'voice' | 'library' | 'messages';
+  onSelectSidebarTab?: (tab: 'tracks' | 'voice' | 'library' | 'messages') => void;
   onOpenExport: () => void;
   onPlay: () => void;
   onPause: () => void;

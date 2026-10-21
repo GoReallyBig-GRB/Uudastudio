@@ -41,13 +41,14 @@ import { SupportTicket, UserProjectItem, UsageSummary } from '../../types';
 interface UserDashboardProps {
   onBackToStudio: () => void;
   onOpenProject?: (projectId: string) => void;
+  initialTab?: TabType;
 }
 
-type TabType = 'account' | 'preferences' | 'connections' | 'usage' | 'projects' | 'support' | 'privacy';
+export type TabType = 'account' | 'preferences' | 'connections' | 'usage' | 'projects' | 'support' | 'privacy';
 
-export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, onOpenProject }) => {
+export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, onOpenProject, initialTab }) => {
   const { user, signOut, updateProfile, deleteAccount, refreshUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>('account');
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'account');
 
   // Account State
   const [displayName, setDisplayName] = useState(user?.display_name || '');
@@ -985,7 +986,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
                   {/* Thread Reply Bar (Disabled if Closed) */}
                   <div className="p-3 border-t border-zinc-800 bg-[#121216] shrink-0">
-                    {activeTicket.status === 'Closed' ? (
+                    {activeTicket.status === 'Closed' || activeTicket.status === 'Archived' ? (
                       <div className="text-center text-xs text-zinc-500 py-1 flex items-center justify-center gap-1.5">
                         <Lock className="w-3.5 h-3.5" />
                         <span>This ticket is closed and read-only.</span>
