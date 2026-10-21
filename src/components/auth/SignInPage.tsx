@@ -5,8 +5,8 @@
  * Signed-out fallback: 'Use the editor without an account'.
  */
 
-import React, { useState } from 'react';
-import { Shield, Sparkles, AlertCircle, ArrowLeft, Lock } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Shield, Sparkles, AlertCircle, ArrowLeft, Lock, FlaskConical } from 'lucide-react';
 import { authService } from '../../services/authService';
 
 interface SignInPageProps {
@@ -14,9 +14,51 @@ interface SignInPageProps {
   onSuccessSignIn: (info?: { adminCodeSent?: boolean }) => void;
 }
 
+// Plain-language messages for the Firebase errors that actually come up when the popup cannot work
+function describeSignInError(err: unknown): string {
+  const code = typeof err === 'object' && err && 'code' in err ? String((err as { code: unknown }).code) : '';
+  switch (code) {
+    case 'auth/unauthorized-domain':
+      return 'This address is not an authorized Firebase domain. Add it under Firebase Console, Authentication, Settings, Authorized domains.';
+    case 'auth/operation-not-allowed':
+      return 'Google sign-in is switched off for this Firebase project. Enable it under Authentication, Sign-in method.';
+    case 'auth/network-request-failed':
+      return 'The network request to Google failed. Check the connection and try again.';
+    case 'auth/internal-error':
+      return 'Google sign-in failed inside the browser. If this page is in a preview frame, open the app in its own tab and try again.';
+    default:
+      return err instanceof Error ? err.message : String(err);
+  }
+}
+
 export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuccessSignIn }) => {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // True only when the server has DEV_AUTH_BYPASS switched on (testing builds)
+  const [devLoginAvailable, setDevLoginAvailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    authService.isDevLoginAvailable().then((ok) => {
+      if (!cancelled) setDevLoginAvailable(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleDevSignIn = async () => {
+    setIsSigningIn(true);
+    setErrorMessage(null);
+    try {
+      await authService.signInAsDevTester();
+      setIsSigningIn(false);
+      onSuccessSignIn({ adminCodeSent: false });
+    } catch (err: unknown) {
+      setIsSigningIn(false);
+      setErrorMessage(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const handleFirebaseGoogleSignIn = async () => {
     setIsSigningIn(true);
@@ -35,7 +77,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
         setIsSigningIn(true);
         return;
       }
-      setErrorMessage(msg);
+      setErrorMessage(describeSignInError(err));
     }
   };
 
@@ -130,6 +172,24 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
                 </svg>
                 <span>{isSigningIn ? 'Connecting via Firebase...' : 'Continue with Google'}</span>
               </button>
+
+              {/* Testing only: shown when the server has DEV_AUTH_BYPASS on. Signs in a non-admin tester account. */}
+              {devLoginAvailable && (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3">
+                  <button
+                    type="button"
+                    onClick={handleDevSignIn}
+                    disabled={isSigningIn}
+                    className="w-full h-10 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <FlaskConical className="w-4 h-4" />
+                    <span>Developer sign-in (testing only)</span>
+                  </button>
+                  <p className="text-[11px] text-amber-200/80 mt-2 leading-snug">
+                    Signs in as a non-admin test account. Shown only because this server has testing sign-in switched on.
+                  </p>
+                </div>
+              )}
 
               {/* Smaller link: Use the editor without an account */}
               <div className="pt-3 text-center">

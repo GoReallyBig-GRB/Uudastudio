@@ -34,6 +34,81 @@ class AuthService {
 
   constructor() {
     this.setupFirebaseObserver();
+    if (this.hasDevSessionFlag()) {
+      void this.restoreDevSession();
+    }
+  }
+
+  // Testing-only sign-in (see DEV_AUTH_BYPASS on the server). The flag lives in sessionStorage so a reload keeps the
+  // testing session; the session itself is the server's httpOnly cookie, never a token in storage.
+  private hasDevSessionFlag(): boolean {
+    try {
+      return typeof window !== 'undefined' && window.sessionStorage.getItem('uuda_dev_session') === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private setDevSessionFlag(on: boolean) {
+    try {
+      if (on) window.sessionStorage.setItem('uuda_dev_session', '1');
+      else window.sessionStorage.removeItem('uuda_dev_session');
+    } catch {
+      /* storage unavailable: the testing session just will not survive a reload */
+    }
+  }
+
+  private async restoreDevSession(): Promise<void> {
+    try {
+      const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+      const data = res.ok ? await res.json() : null;
+      if (data && data.user) {
+        this.currentUser = data.user;
+        this.unreadTicketsCount = data.unreadTicketsCount || 0;
+        this.isAdminVerified = Boolean(data.isAdminVerified);
+      } else {
+        this.setDevSessionFlag(false);
+      }
+    } catch {
+      /* server unreachable: stay signed out */
+    } finally {
+      this.isInitializing = false;
+      this.notifyAuthChanged();
+    }
+  }
+
+  /** True when the server has the testing sign-in switched on. */
+  public async isDevLoginAvailable(): Promise<boolean> {
+    try {
+      const res = await fetch('/api/auth/dev-status', { credentials: 'same-origin' });
+      if (!res.ok) return false;
+      const data = await res.json();
+      return Boolean(data.enabled);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Testing-only: signs in the non-admin tester account when the server allows it. */
+  public async signInAsDevTester(): Promise<{ user: UserRecord; isNew: boolean; adminCodeSent: boolean }> {
+    const res = await fetch('/api/auth/dev-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      credentials: 'same-origin',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'The testing sign-in is not available on this server.');
+    }
+    this.setDevSessionFlag(true);
+    this.currentUser = data.user;
+    this.volatileToken = data.sessionToken || null;
+    this.isAdminVerified = false;
+    this.isInitializing = false;
+    this.notifyAuthChanged();
+    void this.refreshMe();
+    return { user: data.user, isNew: Boolean(data.isNew), adminCodeSent: false };
   }
 
   /**
@@ -66,6 +141,12 @@ class AuthService {
           this.notifyAuthChanged();
         }
       } else {
+        // A testing session has no Firebase user by design; do not wipe it here (restoreDevSession owns that state)
+        if (this.hasDevSessionFlag()) {
+          this.isInitializing = false;
+          this.notifyAuthChanged();
+          return;
+        }
         // Complete memory cleanup on sign-out
         this.volatileToken = null;
         this.volatileGeminiKey = null;
@@ -336,6 +417,8 @@ class AuthService {
 
   // Sign out: tears down Firebase session and thoroughly purges memory credentials
   public async signOut(): Promise<void> {
+    // Clear the testing flag first so the Firebase observer treats this as a normal sign-out
+    this.setDevSessionFlag(false);
     try {
       await fbSignOut(auth);
       await fetch('/api/auth/signout', {
