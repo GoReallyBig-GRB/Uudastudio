@@ -466,7 +466,7 @@ authRouter.get('/api/admin/users', requireAdmin, async (req: Request, res: Respo
 // Admin User Block / Unblock Action (Only write action permitted)
 authRouter.post('/api/admin/users/:id/block', requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
-    const targetUserId = req.params.id;
+    const targetUserId = String(req.params.id);
     const updated = await store.toggleUserBlocked(targetUserId);
     res.json({
       success: true,
@@ -498,7 +498,7 @@ authRouter.get('/api/admin/tickets', requireAdmin, async (req: Request, res: Res
 // Admin Reply to Ticket & Status Update
 authRouter.post('/api/admin/tickets/:id/reply', requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
-    const ticketId = req.params.id;
+    const ticketId = String(req.params.id);
     const { content, status } = req.body;
     const adminUser = (req as any).user as UserRecord;
 
@@ -581,7 +581,7 @@ authRouter.post('/api/tickets', requireAuth, async (req: Request, res: Response)
 authRouter.post('/api/tickets/:id/reply', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user as UserRecord;
-    const ticketId = req.params.id;
+    const ticketId = String(req.params.id);
     const { content } = req.body;
 
     const ticket = await store.getTicketById(ticketId);
@@ -617,7 +617,7 @@ authRouter.post('/api/tickets/:id/reply', requireAuth, async (req: Request, res:
 // Mark Ticket As Read
 authRouter.post('/api/tickets/:id/mark-read', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = (req as any).user as UserRecord;
-  await store.markTicketAsRead(req.params.id, user.id);
+  await store.markTicketAsRead(String(req.params.id), user.id);
   res.json({ success: true });
 });
 
@@ -662,7 +662,7 @@ authRouter.post('/api/projects', requireAuth, async (req: Request, res: Response
 authRouter.post('/api/projects/:id/duplicate', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user as UserRecord;
-    const copy = await store.duplicateProject(user.id, req.params.id);
+    const copy = await store.duplicateProject(user.id, String(req.params.i)d);
     res.json({ project: copy });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -672,7 +672,7 @@ authRouter.post('/api/projects/:id/duplicate', requireAuth, async (req: Request,
 
 authRouter.delete('/api/projects/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = (req as any).user as UserRecord;
-  const deleted = await store.deleteProject(user.id, req.params.id);
+  const deleted = await store.deleteProject(user.id, String(req.params.i)d);
   if (!deleted) {
     res.status(404).json({ error: 'Project not found.' });
     return;
