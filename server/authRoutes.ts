@@ -188,6 +188,85 @@ authRouter.post(
   }
 );
 
+// ---------------------------------------------------------------------------
+// Testing-only sign-in (DEV_AUTH_BYPASS)
+// Lets a developer reach the studio when Google sign-in cannot work (for example inside a preview frame).
+// Rules, all enforced here and not in the browser:
+//   - Off unless DEV_AUTH_BYPASS=true, and always off when NODE_ENV=production.
+//   - Read on every request, because dotenv loads after this module is evaluated.
+//   - Signs in a fixed, non-admin tester account. It never grants admin and never skips the admin code.
+// ---------------------------------------------------------------------------
+const DEV_TESTER = {
+  googleId: 'dev-tester',
+  email: 'dev-tester@uuda.local',
+  displayName: 'Dev Tester',
+};
+
+function devBypassEnabled(): boolean {
+  return process.env.DEV_AUTH_BYPASS === 'true' && process.env.NODE_ENV !== 'production';
+}
+
+let devBypassWarned = false;
+function warnDevBypassOnce(): void {
+  if (devBypassWarned) return;
+  devBypassWarned = true;
+  if (process.env.DEV_AUTH_BYPASS === 'true' && process.env.NODE_ENV === 'production') {
+    console.error('[AUTH] DEV_AUTH_BYPASS is set but ignored because NODE_ENV=production.');
+  } else if (devBypassEnabled()) {
+    console.warn('[AUTH] DEV_AUTH_BYPASS is ON: anyone who can reach this server can sign in as a non-admin tester.');
+  }
+}
+
+authRouter.get('/api/auth/dev-status', (_req: Request, res: Response): void => {
+  warnDevBypassOnce();
+  res.json({ enabled: devBypassEnabled() });
+});
+
+authRouter.post(
+  '/api/auth/dev-login',
+  rateLimit({ name: 'dev-login', windowMs: 60 * 1000, max: 10 }),
+  async (_req: Request, res: Response): Promise<void> => {
+    if (!devBypassEnabled()) {
+      res.status(404).json({ error: 'Not found.' });
+      return;
+    }
+    try {
+      // The tester must never be an admin, whatever the admin list says
+      if (await store.isAdminEmail(DEV_TESTER.email)) {
+        res.status(403).json({ error: 'The test account cannot be an admin.' });
+        return;
+      }
+
+      const { user, isNew } = await store.createOrUpdateUserOnSignIn({
+        googleId: DEV_TESTER.googleId,
+        email: DEV_TESTER.email,
+        displayName: DEV_TESTER.displayName,
+        photoUrl: '',
+      });
+      if (user.blocked) {
+        res.status(403).json({ error: 'This account has been blocked. Contact support.', blocked: true });
+        return;
+      }
+
+      const sessionToken = `uuda_sess_${crypto.randomBytes(32).toString('hex')}`;
+      sessions.set(sessionToken, { userId: user.id, createdAt: Date.now() });
+      await store.setSession(sessionToken, user.id);
+      setSessionCookie(res, sessionToken, SESSION_TTL_MS);
+
+      res.json({
+        user,
+        sessionToken,
+        isNew,
+        adminCodeSent: false,
+        message: 'Signed in with the testing account.',
+      });
+    } catch (err: unknown) {
+      console.error('Dev sign in error:', err);
+      res.status(500).json({ error: 'Failed to start the testing session.' });
+    }
+  }
+);
+
 // Current User Profile & Unread Notification Check
 authRouter.get('/api/auth/me', async (req: Request, res: Response): Promise<void> => {
   const { user, sessionToken } = await getAuthenticatedUser(req);
