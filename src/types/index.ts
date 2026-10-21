@@ -295,7 +295,7 @@ export interface SupportTicket {
   user_name: string;
   title: string;
   type: 'AI generation issue' | 'Account issue' | 'Workspace failure' | 'Technical issue' | 'Performance issue';
-  status: 'Open' | 'Resolved' | 'Closed';
+  status: 'Open' | 'Resolved' | 'Closed' | 'Archived';
   created_at: string;
   updated_at: string;
   has_unread_admin_reply: boolean;

@@ -26,7 +26,9 @@ import {
   KeyRound,
   CheckCircle2,
   AlertTriangle,
+  UserCog,
 } from 'lucide-react';
+import { AdminTeam } from './AdminTeam';
 import { useAuth } from '../../hooks/useAuth';
 import { authService } from '../../services/authService';
 import { AdminOverviewStats, AdminUserRow, SupportTicket } from '../../types';
@@ -35,7 +37,7 @@ interface AdminPanelProps {
   onBackToStudio: () => void;
 }
 
-type AdminTab = 'overview' | 'users' | 'support';
+type AdminTab = 'overview' | 'users' | 'support' | 'team';
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
   const { user, isAdmin, isAdminVerified, verifyAdminCode, resendAdminCode } = useAuth();
@@ -63,7 +65,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
 
   // Support Inbox Data
   const [ticketsList, setTicketsList] = useState<SupportTicket[]>([]);
-  const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'Resolved' | 'Closed'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'Resolved' | 'Closed' | 'Archived'>('All');
   const [activeTicket, setActiveTicket] = useState<SupportTicket | null>(null);
   const [replyMessage, setReplyMessage] = useState('');
   const [replyStatus, setReplyStatus] = useState<SupportTicket['status']>('Resolved');
@@ -397,11 +399,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
               </span>
             )}
           </button>
+
+          <button
+            onClick={() => setActiveTab('team')}
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+              activeTab === 'team'
+                ? 'bg-amber-500/15 text-amber-300 font-semibold border border-amber-500/30'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            }`}
+          >
+            <UserCog className="w-4 h-4 shrink-0" />
+            <span>Admin Team & Activity</span>
+          </button>
         </nav>
 
         {/* Viewport Detail Content */}
         <main className="flex-1 bg-[#101015] p-8 overflow-y-auto">
           {/* TAB 1: Overview */}
+          {activeTab === 'team' && <AdminTeam />}
+
           {activeTab === 'overview' && (
             <div className="max-w-4xl space-y-6">
               <div className="flex items-center justify-between">
@@ -607,7 +623,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
                   <p className="text-xs text-zinc-400 mt-1">Review inquiries, respond to tickets, and update resolution statuses.</p>
                 </div>
                 <div className="flex items-center gap-1.5 bg-[#14141A] p-1 rounded-lg border border-zinc-800 text-xs">
-                  {(['All', 'Open', 'Resolved', 'Closed'] as const).map((s) => (
+                  {(['All', 'Open', 'Resolved', 'Closed', 'Archived'] as const).map((s) => (
                     <button
                       key={s}
                       onClick={() => setStatusFilter(s)}
@@ -650,6 +666,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
                         <option value="Open">Open</option>
                         <option value="Resolved">Resolved</option>
                         <option value="Closed">Closed</option>
+                        <option value="Archived">Archived</option>
                       </select>
                     </div>
                   </div>
