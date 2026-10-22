@@ -3,7 +3,7 @@
  * Top time ruler header (340px) + time marker lane with interactive playhead scrubbing.
  */
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatTimecode } from '../utils/formatters';
 
@@ -13,7 +13,6 @@ interface TimelineRulerProps {
   playheadSeconds: number;
   scrollLeft: number;
   onSeek: (seconds: number) => void;
-  timelineWidth: number;
   isControlsCollapsed?: boolean;
   onToggleCollapseControls?: () => void;
 }
@@ -24,12 +23,28 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   playheadSeconds,
   scrollLeft,
   onSeek,
-  timelineWidth,
   isControlsCollapsed = false,
   onToggleCollapseControls,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(1);
   const isScrubbingRef = useRef<boolean>(false);
+
+  // Keep the canvas's intrinsic coordinate space equal to the visible ruler lane.
+  // A project-sized canvas stretched into this viewport scales every tick and the playhead.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const width = Math.max(1, Math.round(entries[0]?.contentRect.width ?? viewport.clientWidth));
+      setViewportWidth((current) => current === width ? current : width);
+    });
+
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
 
   // Determine tick spacing based on zoom level (pixelsPerSecond)
   let majorStepSec = 1;
@@ -148,7 +163,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
 
       ctx.shadowBlur = 0;
     }
-  }, [pixelsPerSecond, totalDurationSeconds, playheadSeconds, scrollLeft, timelineWidth, majorStepSec, minorTicks]);
+  }, [pixelsPerSecond, totalDurationSeconds, playheadSeconds, scrollLeft, viewportWidth, majorStepSec, minorTicks]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
@@ -216,10 +231,10 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       )}
 
       {/* Ruler canvas */}
-      <div className="flex-1 overflow-hidden relative cursor-ew-resize">
+      <div ref={viewportRef} className="flex-1 overflow-hidden relative cursor-ew-resize">
         <canvas
           ref={canvasRef}
-          width={Math.max(100, timelineWidth)}
+          width={viewportWidth}
           height={28}
           onPointerDown={handlePointerDown}
           className="w-full h-full block"
