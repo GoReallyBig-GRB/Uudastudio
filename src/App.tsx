@@ -52,6 +52,8 @@ import { SignInPage } from './components/auth/SignInPage';
 import { UserDashboard, TabType } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
+import { pluginManager } from './plugins/pluginManager';
+import { withPluginStates, restorePluginStates, hasSavedPlugins } from './plugins/projectPlugins';
 import { VoiceoverModal } from './components/VoiceoverModal';
 import { voiceJob } from './voice/voiceJob';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
@@ -277,6 +279,13 @@ const MainStudio: React.FC = () => {
           updateHistoryFlags();
           setLastSavedAt(new Date());
 
+          // Rebuild the saved plugin chains in the background (the audio context may wait for the first click)
+          if (hasSavedPlugins(savedProject)) {
+            restorePluginStates(audioEngine.init(), savedProject).catch((err) =>
+              console.warn('Could not restore plugin chains:', err)
+            );
+          }
+
           if (savedProject.tracks.length > 0) {
             addToast({
               type: 'info',
@@ -307,7 +316,7 @@ const MainStudio: React.FC = () => {
     const timer = setInterval(async () => {
       try {
         setIsAutosaving(true);
-        await saveProjectToDB(project);
+        await saveProjectToDB(await withPluginStates(project));
         setLastSavedAt(new Date());
       } catch {
         // Autosave error handled silently or quietly
@@ -380,6 +389,7 @@ const MainStudio: React.FC = () => {
     }
     audioEngine.seek(0);
     setPlayheadSeconds(0);
+    pluginManager.clearAll();
     const blankProject: Project = {
       id: `project-${Date.now()}`,
       name: 'Untitled Project',
@@ -412,10 +422,12 @@ const MainStudio: React.FC = () => {
     }
   }, [project.tracks.length, createBlankProject, addToast]);
 
-  const handleSaveProjectToFile = useCallback(() => {
+  const handleSaveProjectToFile = useCallback(async () => {
     try {
+      // Include the plugin chains so a reopened file sounds the same
+      const fullProject = await withPluginStates(project);
       const projectData = {
-        ...project,
+        ...fullProject,
         savedAt: new Date().toISOString(),
         version: '1.0',
       };
@@ -444,8 +456,8 @@ const MainStudio: React.FC = () => {
     }
   }, [project, addToast]);
 
-  const handleSaveAndNewProject = useCallback(() => {
-    handleSaveProjectToFile();
+  const handleSaveAndNewProject = useCallback(async () => {
+    await handleSaveProjectToFile();
     createBlankProject();
     setIsNewProjectModalOpen(false);
     addToast({
@@ -511,7 +523,13 @@ const MainStudio: React.FC = () => {
         },
         updatedAt: Date.now(),
       };
+      pluginManager.clearAll();
       setProjectWithHistory(loadedProject);
+      if (hasSavedPlugins(loadedProject)) {
+        restorePluginStates(audioEngine.init(), loadedProject).catch((err) =>
+          console.warn('Could not restore plugin chains:', err)
+        );
+      }
       setSelectedTrackId(loadedProject.tracks[0]?.id || null);
       setSelectedClipIds(new Set());
       addToast({
@@ -850,6 +868,7 @@ const MainStudio: React.FC = () => {
   };
 
   const handleDeleteTrack = (trackId: string) => {
+    pluginManager.clearTrack(trackId);
     setProjectWithHistory((prev) => ({
       ...prev,
       tracks: prev.tracks.filter((t) => t.id !== trackId),
@@ -1519,6 +1538,7 @@ const MainStudio: React.FC = () => {
     audioEngine.seek(0);
     setPlayheadSeconds(0);
     await clearAllProjectData().catch(() => {});
+    pluginManager.clearAll();
     const freshProject: Project = {
       id: `project-${Date.now()}`,
       name: 'Untitled Project',
@@ -1554,9 +1574,9 @@ const MainStudio: React.FC = () => {
     }
   }, [project.tracks.length, handleExecuteResetSession, addToast]);
 
-  const handleSaveAndResetSession = useCallback(() => {
-    handleSaveProjectToFile();
-    handleExecuteResetSession();
+  const handleSaveAndResetSession = useCallback(async () => {
+    await handleSaveProjectToFile();
+    await handleExecuteResetSession();
     addToast({
       type: 'success',
       title: 'Project Saved & Session Reset',

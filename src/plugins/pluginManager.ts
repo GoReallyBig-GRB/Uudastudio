@@ -290,6 +290,16 @@ export class PluginManager {
     this.notify();
   }
 
+  /** Destroys every plugin on one track (used when the track itself is deleted) */
+  public clearTrack(trackId: string): void {
+    const instances = this.trackPlugins.get(trackId);
+    if (!instances) return;
+    for (const p of instances) p.destroy();
+    this.trackPlugins.delete(trackId);
+    this.rebuildTrackAudioGraph(trackId);
+    this.notify();
+  }
+
   public clearAll(): void {
     for (const instances of this.trackPlugins.values()) {
       for (const p of instances) {

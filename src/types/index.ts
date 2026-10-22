@@ -165,6 +165,8 @@ export interface Project {
   tracks: Track[];
   sampleRate: number;
   settings: ProjectSettings;
+  /** Master bus (whole mix) plugin chain, saved with the project. Track chains live on Track.plugins. */
+  masterPlugins?: import('../plugins/types').StoredPluginState[];
   updatedAt?: number;
 }
 

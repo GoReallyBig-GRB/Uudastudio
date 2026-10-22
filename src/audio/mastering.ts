@@ -13,7 +13,7 @@
 import { Mp3Encoder } from '@breezystack/lamejs';
 import { Project } from '../types';
 import { audioEngine } from './engine';
-import { pluginManager } from '../plugins/pluginManager';
+import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 
 export type MasteringProfileType = 'podcast' | 'broadcast' | 'music' | 'custom' | 'bypass';
 export type BroadcastPreset = 'ebu_r128' | 'atsc_a85' | 'hot_commercial';
@@ -346,6 +346,36 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
 }
 
 /**
+ * Builds the active (non-bypassed) plugins of one chain inside an offline context and wires them in series after
+ * `source`. Returns the last node. A plugin that fails to load is skipped, so one bad module never blocks an export.
+ * chainId is a track id or MASTER_TRACK_ID.
+ */
+export async function appendOfflinePlugins(
+  offlineCtx: OfflineAudioContext,
+  chainId: string,
+  source: AudioNode
+): Promise<AudioNode> {
+  let output: AudioNode = source;
+  for (const plugin of pluginManager.getPluginsForTrack(chainId)) {
+    if (plugin.isBypassed) continue;
+    try {
+      const offlineInst = await pluginManager.instantiatePlugin(
+        offlineCtx,
+        chainId,
+        plugin.descriptor,
+        await plugin.getState()
+      );
+      offlineInst.dryWet = plugin.dryWet;
+      output.connect(offlineInst.inputNode);
+      output = offlineInst.outputNode;
+    } catch (err) {
+      console.warn(`Plugin ${plugin.descriptor.name} fallback to pass-through in offline export:`, err);
+    }
+  }
+  return output;
+}
+
+/**
  * Offline render with OfflineAudioContext honouring:
  * - All tracks (respects mute, solo, track volume, track pan)
  * - All clips (respects clip gain, start position, offset, duration, fade-in, fade-out, fade-shape)
@@ -387,6 +417,12 @@ export async function renderProjectOffline(
   masterNode.gain.setValueAtTime(masterFaderGain, 0);
   masterNode.connect(offlineCtx.destination);
 
+  // Master bus effects (whole-mix chain): every track sums into masterBusIn, passes through the chain, then the fader.
+  // This mirrors the live engine, so an exported file matches what you hear.
+  const masterBusIn = offlineCtx.createGain();
+  const masterBusOut = await appendOfflinePlugins(offlineCtx, MASTER_TRACK_ID, masterBusIn);
+  masterBusOut.connect(masterNode);
+
   let processedClips = 0;
   const totalClipsCount = project.tracks.reduce((acc, t) => acc + t.clips.length, 0);
 
@@ -404,27 +440,9 @@ export async function renderProjectOffline(
     trackGain.connect(trackPan);
 
     // Route track effect plugins in offline context with graceful fallback
-    let trackOutput: AudioNode = trackPan;
-    const trackPlugins = pluginManager.getPluginsForTrack(track.id);
+    const trackOutput = await appendOfflinePlugins(offlineCtx, track.id, trackPan);
 
-    for (const plugin of trackPlugins) {
-      if (plugin.isBypassed) continue;
-      try {
-        const offlineInst = await pluginManager.instantiatePlugin(
-          offlineCtx,
-          track.id,
-          plugin.descriptor,
-          await plugin.getState()
-        );
-        offlineInst.dryWet = plugin.dryWet;
-        trackOutput.connect(offlineInst.inputNode);
-        trackOutput = offlineInst.outputNode;
-      } catch (err) {
-        console.warn(`Plugin ${plugin.descriptor.name} fallback to pass-through in offline export:`, err);
-      }
-    }
-
-    trackOutput.connect(masterNode);
+    trackOutput.connect(masterBusIn);
 
     for (const clip of track.clips) {
       if (clip.muted) continue;
