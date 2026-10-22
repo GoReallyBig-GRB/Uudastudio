@@ -921,7 +921,6 @@ export const Timeline: React.FC<TimelineProps> = ({
         playheadSeconds={playheadSeconds}
         scrollLeft={scrollLeft}
         onSeek={onSeek}
-        timelineWidth={timelineWidth}
         isControlsCollapsed={isControlsCollapsed}
         onToggleCollapseControls={handleToggleControls}
       />
