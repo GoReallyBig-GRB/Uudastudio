@@ -138,6 +138,8 @@ export interface ClipVersion {
 export interface Track {
   id: string;
   name: string;
+  /** True once the user typed a name. Until then "Track N" follows the track's position in the list. */
+  customName?: boolean;
   clips: Clip[];
   volume: number; // 0.0 to 1.5, default 1.0
   pan: number; // -1.0 to 1.0, default 0.0
