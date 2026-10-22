@@ -14,7 +14,7 @@
     "dev:cloudflare": "wrangler dev",
     "deploy:cloudflare": "wrangler deploy",
     "clean": "rm -rf dist dist-server",
-    "lint": "tsc --noEmit",
+    "lint": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.worker.json --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
