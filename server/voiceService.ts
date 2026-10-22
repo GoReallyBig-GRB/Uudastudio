@@ -50,6 +50,62 @@ export function sanitizeScriptText(raw: string): string {
     .trim();
 }
 
+export interface ParsedVoiceInput {
+  cleanScript: string;
+  directorNotes: string;
+}
+
+/**
+ * Strips enclosing quotes if present (e.g. "text" or 'text')
+ */
+export function unwrapQuotes(str: string): string {
+  const s = str.trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    return s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+/**
+ * Parses [Script] and [Instruction] inputs adhering to the architectural rule:
+ * 1. Parse the [Instruction] to initialize the director's notes (adjusting warmth, accent, pace, pitch, texture).
+ * 2. Apply these stylistic boundaries to the audio synthesis engine via speechMetadata.style.
+ * 3. Read ONLY the text inside the [Script] field without spoken instructions, headers, or quotes.
+ */
+export function parseScriptAndInstruction(rawScript: string, explicitInstruction?: string): ParsedVoiceInput {
+  const raw = (rawScript || '').trim();
+  let scriptPart = raw;
+  let instructionPart = (explicitInstruction || '').trim();
+
+  const hasScriptHeader = /(?:^|\n)\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:/i.test(raw);
+  const hasInstructionHeader = /(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:/i.test(raw);
+
+  if (hasScriptHeader || hasInstructionHeader) {
+    const scriptMatch = raw.match(/(?:^|\n)\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:\s*([\s\S]*?)(?=(?:\n\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:)|$)/i);
+    const instructionMatch = raw.match(/(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:\s*([\s\S]*?)(?=(?:\n\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:)|$)/i);
+
+    if (scriptMatch && scriptMatch[1]) {
+      scriptPart = unwrapQuotes(scriptMatch[1]);
+    } else if (hasInstructionHeader && !hasScriptHeader) {
+      scriptPart = raw.replace(/(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:[\s\S]*$/i, '').trim();
+    }
+
+    if (instructionMatch && instructionMatch[1]) {
+      const extractedInstr = unwrapQuotes(instructionMatch[1]);
+      instructionPart = instructionPart
+        ? `${instructionPart}; ${extractedInstr}`
+        : extractedInstr;
+    }
+  } else {
+    scriptPart = unwrapQuotes(scriptPart);
+  }
+
+  return {
+    cleanScript: sanitizeScriptText(scriptPart),
+    directorNotes: sanitizeScriptText(instructionPart),
+  };
+}
+
 /**
  * Normalizes text for Word Error Rate (WER) comparison
  */
@@ -369,7 +425,9 @@ export async function generateStrictTTS(options: TTSGenerationOptions): Promise<
     timeoutMs = 45000,
   } = options;
 
-  const sanitized = sanitizeScriptText(script);
+  // Step 1: Parse [Instruction] first to initialize voice profile and isolate clean script text
+  const { cleanScript, directorNotes } = parseScriptAndInstruction(script, instruction);
+  const sanitized = cleanScript;
   if (!sanitized) {
     throw new Error('Script text is empty after sanitization.');
   }
@@ -394,14 +452,18 @@ export async function generateStrictTTS(options: TTSGenerationOptions): Promise<
         },
       };
 
-      // If user provided a delivery instruction, pass via systemInstruction to guide delivery tone
-      // Only send the systemInstruction on the first attempt (attempt === 1), so if the model rejects it, retries run without it
-      if (instruction && instruction.trim() && !isAudition && attempt === 1) {
-        generationConfig.systemInstruction = `You are a professional voiceover artist. Deliver the speech strictly following this direction: ${instruction.trim()}. Do NOT speak these instructions aloud. Speak ONLY the exact user script.`;
+      // STRICT GENERATION PARAMETERS
+      // Gemini TTS models (gemini-3.8-flash-tts and gemini-3.8-flash-lite-tts) do NOT support
+      // systemInstruction in config (which triggers: 400 Developer instruction is not enabled for this model).
+      // Step 2: Apply director's notes to the audio synthesis engine via speechMetadata.style.
+      // Step 3: Read ONLY the text inside the [Script] field, with zero instruction leakage.
+      const userPart: Record<string, any> = { text: sanitized };
+      if (directorNotes && !isAudition && attempt === 1) {
+        userPart.speechMetadata = {
+          style: directorNotes,
+        };
       }
 
-      // STRICT GENERATION PARAMETERS
-      // ONLY sanitized text in contents, NO instruction prose, NO formatting text
       // A call that hangs must not hold the whole request: abort it after timeoutMs
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -413,7 +475,7 @@ export async function generateStrictTTS(options: TTSGenerationOptions): Promise<
           contents: [
             {
               role: 'user',
-              parts: [{ text: sanitized }],
+              parts: [userPart],
             },
           ],
           config: generationConfig,

@@ -12,7 +12,7 @@
 import crypto from 'crypto';
 import { getFirestore, Firestore, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
-import { ensureFirebaseApp } from './firebaseAdmin';
+import { ensureFirebaseApp, resolveFirebaseConfig } from './firebaseAdmin';
 import type { DataStore } from './store';
 import {
   UserRecord,
@@ -43,8 +43,9 @@ function adminAllowlist(): string[] {
 }
 
 export function createFirestoreStore(): DataStore {
-  ensureFirebaseApp();
-  const fs: Firestore = getFirestore();
+  const app = ensureFirebaseApp();
+  const config = resolveFirebaseConfig();
+  const fs: Firestore = config.databaseId ? getFirestore(app, config.databaseId) : getFirestore(app);
   const bucket = () => getStorage().bucket();
   const objectPath = (uid: string, id: string) => `projects/${uid}/${id}.json`;
 

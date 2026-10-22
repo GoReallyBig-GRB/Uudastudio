@@ -17,6 +17,7 @@ import { rateLimit, requireSameOrigin } from './http';
 import {
   generateStrictTTS,
   sanitizeScriptText,
+  parseScriptAndInstruction,
   AUDITION_SAMPLE_SENTENCE,
   ensureWavHeader,
   analyzeEnds,
@@ -381,6 +382,20 @@ app.post('/api/voice/generate', async (req: Request, res: Response): Promise<voi
     return;
   }
 
+  // Parse [Script] and [Instruction] inputs strictly:
+  // Step 1: Parse [Instruction] first to initialize voice profile
+  // Step 2: Apply stylistic boundaries to audio synthesis engine
+  // Step 3: Read ONLY the text inside [Script] field
+  const { cleanScript, directorNotes } = parseScriptAndInstruction(
+    script,
+    typeof instruction === 'string' ? instruction : undefined
+  );
+
+  if (!cleanScript) {
+    res.status(400).json({ error: 'Script text is empty after parsing [Script] input.' });
+    return;
+  }
+
   // 4. Check for user-provided own Gemini API Key (never logged or saved on server)
   const customKey = req.headers['x-gemini-api-key'] as string | undefined;
   const usedOwnKey = Boolean(customKey && customKey.trim().length > 10);
@@ -399,8 +414,8 @@ app.post('/api/voice/generate', async (req: Request, res: Response): Promise<voi
   try {
     const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
 
-    // Break long scripts into sentence chunks to preserve prosody and respect model limits
-    const scriptChunks = splitScriptIntoChunks(script);
+    // Break clean script into sentence chunks to preserve prosody and respect model limits
+    const scriptChunks = splitScriptIntoChunks(cleanScript);
     const wavBuffers: Buffer[] = new Array(scriptChunks.length);
     const startedAt = Date.now();
 
@@ -415,7 +430,7 @@ app.post('/api/voice/generate', async (req: Request, res: Response): Promise<voi
           script: scriptChunks[index],
           voiceName: selectedVoice,
           modelId: selectedModel,
-          instruction: typeof instruction === 'string' ? instruction.trim() : undefined,
+          instruction: directorNotes,
           maxRetries: 2,
         });
         wavBuffers[index] = chunkResult.audioBuffer;
@@ -423,7 +438,7 @@ app.post('/api/voice/generate', async (req: Request, res: Response): Promise<voi
     };
     await Promise.all(Array.from({ length: Math.min(3, scriptChunks.length) }, worker));
     console.info(
-      `[TTS] ${scriptChunks.length} chunk(s), ${script.length} chars, model ${selectedModel}, voice ${selectedVoice}: ${Date.now() - startedAt} ms`
+      `[TTS] ${scriptChunks.length} chunk(s), ${cleanScript.length} chars, model ${selectedModel}, voice ${selectedVoice}: ${Date.now() - startedAt} ms`
     );
 
     const combinedWav = concatenateWavBuffers(wavBuffers);
@@ -439,7 +454,7 @@ app.post('/api/voice/generate', async (req: Request, res: Response): Promise<voi
       user_email: user.email,
       kind: 'voice',
       model: selectedModel,
-      characters: script.length,
+      characters: cleanScript.length,
       status: 'succeeded',
       error_code: null,
       used_own_key: usedOwnKey,

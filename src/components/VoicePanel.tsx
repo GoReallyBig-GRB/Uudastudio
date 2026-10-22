@@ -26,7 +26,7 @@ import { audioEngine } from '../audio/engine';
 import { saveAssetToDB } from '../storage/db';
 import { authService } from '../services/authService';
 import { useVoiceSession, CustomPrecept } from '../voice/voiceSession';
-import { useVoiceJob, voiceJob } from '../voice/voiceJob';
+import { useVoiceJob, voiceJob, parseScriptAndInstructionClient } from '../voice/voiceJob';
 import { VoiceJobBar } from './VoiceJobBar';
 
 export type { CustomPrecept };
@@ -352,7 +352,7 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
           <div className="flex justify-between items-center mb-1">
             <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider flex items-center gap-1">
               <FileText className="w-3 h-3 text-cyan-400" />
-              <span>Script</span>
+              <span>### [Script] — Spoken Text</span>
             </label>
             <span className="text-[10px] text-zinc-500 font-mono">
               {wordCount} words • ~{estimatedSeconds}s
@@ -360,9 +360,23 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
           </div>
           <textarea
             value={script}
-            onChange={(e) => setScript(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (
+                /(?:^|\n)\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:/i.test(val) ||
+                /(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:/i.test(val)
+              ) {
+                const parsed = parseScriptAndInstructionClient(val, deliveryInstruction);
+                setScript(parsed.cleanScript);
+                if (parsed.directorNotes) {
+                  setDeliveryInstruction(parsed.directorNotes);
+                }
+              } else {
+                setScript(val);
+              }
+            }}
             rows={3}
-            placeholder="Type or paste voiceover script..."
+            placeholder="The actual text you must speak (or format as ### [Script]: &quot;...&quot; and ### [Instruction]: &quot;...&quot;)"
             className="w-full bg-[#09090d] border border-zinc-700/80 rounded-lg p-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-cyan-500 leading-relaxed font-sans resize-none"
           />
         </div>
@@ -372,7 +386,7 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
           <div className="flex justify-between items-center mb-1">
             <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-cyan-400" />
-              <span>Instruction</span>
+              <span>### [Instruction] — Director's Notes</span>
             </label>
             {deliveryInstruction && (
               <button
@@ -384,11 +398,14 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
               </button>
             )}
           </div>
+          <p className="text-[10px] text-zinc-500 mb-1 leading-snug">
+            Controls pitch, pacing, voice texture, tone, emotion & accent. Never read aloud.
+          </p>
           <textarea
             value={deliveryInstruction}
             onChange={(e) => setDeliveryInstruction(e.target.value)}
             rows={2}
-            placeholder="Eg: professional radio broadcast style with energetic stinger delivery"
+            placeholder="Directives on HOW to speak it (e.g. tone, emotion, pace, accent, pitch, texture)"
             className="w-full bg-[#09090d] border border-zinc-700/80 rounded-lg p-2 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-cyan-500 leading-snug font-sans resize-none"
           />
         </div>

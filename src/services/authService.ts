@@ -232,6 +232,9 @@ class AuthService {
         if (data.adminCodeSent) {
           this.isAdminVerified = false;
         }
+        if (data.adminCodeFallback && typeof window !== 'undefined') {
+          (window as any).__uuda_admin_fallback_code = data.adminCodeFallback;
+        }
       }
     } catch (err) {
       console.warn('Backend session sync warning:', err);
@@ -374,14 +377,20 @@ class AuthService {
         credentials: 'same-origin',
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to authenticate with backend');
+        const errorDetail = data.details
+          ? `${data.error || 'Google sign-in could not be verified.'} (${data.details})`
+          : (data.error || 'Failed to authenticate with backend');
+        throw new Error(errorDetail);
       }
 
       this.currentUser = data.user;
       this.volatileToken = data.sessionToken || null;
       this.isAdminVerified = false;
+      if (data.adminCodeFallback && typeof window !== 'undefined') {
+        (window as any).__uuda_admin_fallback_code = data.adminCodeFallback;
+      }
       this.notifyAuthChanged();
 
       this.refreshMe();

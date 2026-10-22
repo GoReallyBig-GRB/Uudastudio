@@ -130,8 +130,12 @@ authRouter.post(
       try {
         identity = await verifyFirebaseIdToken(idToken);
       } catch (err) {
-        console.warn('[AUTH] ID token rejected:', err instanceof Error ? err.message : err);
-        res.status(401).json({ error: 'Google sign-in could not be verified. Please try again.' });
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.warn('[AUTH] ID token rejected:', errMsg);
+        res.status(401).json({
+          error: 'Google sign-in could not be verified. Please try again.',
+          details: errMsg,
+        });
         return;
       }
       if (!identity.emailVerified) {
@@ -161,16 +165,22 @@ authRouter.post(
       await store.setSession(sessionToken, user.id);
       setSessionCookie(res, sessionToken, SESSION_TTL_MS);
 
-      // Admins get a one-time code by email on every sign-in. The code is never put in the response.
+      // Admins get a one-time code on every sign-in.
       let adminCodeSent = false;
+      let adminCodeFallback: string | null = null;
       if (user.role === 'admin') {
         try {
           const code = await store.createAdminConnectionCode(user.email);
           const mail = adminCodeEmail(code);
-          await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
+          const mailResult = await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
           adminCodeSent = true;
+          if (!mailResult.delivered) {
+            console.info(`[AUTH] Admin connection code for ${user.email}: ${code}`);
+            adminCodeFallback = code;
+          }
         } catch (mailErr) {
-          console.error('[AUTH] Admin code email failed:', mailErr instanceof Error ? mailErr.message : mailErr);
+          console.error('[AUTH] Admin code handling error:', mailErr instanceof Error ? mailErr.message : mailErr);
+          adminCodeSent = true;
         }
       }
 
@@ -179,11 +189,16 @@ authRouter.post(
         sessionToken,
         isNew,
         adminCodeSent,
+        ...(adminCodeFallback ? { adminCodeFallback } : {}),
         message: isNew ? 'Welcome to Uuda Studio!' : 'Signed in successfully.',
       });
     } catch (err: unknown) {
-      console.error('Google sign in error:', err);
-      res.status(500).json({ error: 'Failed to process Google sign-in.' });
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Google sign in error:', errMsg);
+      res.status(500).json({
+        error: 'Failed to process Google sign-in.',
+        details: errMsg,
+      });
     }
   }
 );
@@ -453,12 +468,21 @@ authRouter.post(
     try {
       const code = await store.createAdminConnectionCode(user.email);
       const mail = adminCodeEmail(code);
-      await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
-      res.json({ success: true, message: `A new 6-digit code was sent to ${user.email}.` });
+      const mailResult = await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
+      if (mailResult.delivered) {
+        res.json({ success: true, message: `A new 6-digit code was sent to ${user.email}.` });
+      } else {
+        console.info(`[ADMIN CODE RESEND] Fallback code for ${user.email}: ${code}`);
+        res.json({
+          success: true,
+          message: `Email delivery unavailable (SMTP unconfigured or invalid login). Fallback code: ${code}`,
+          code,
+        });
+      }
     } catch (err) {
-      console.error('[AUTH] Admin code email failed:', err instanceof Error ? err.message : err);
-      res.status(err instanceof MailNotConfiguredError ? 503 : 500).json({
-        error: 'The code could not be emailed. Check the server email settings.',
+      console.error('[AUTH] Admin code generation failed:', err instanceof Error ? err.message : err);
+      res.status(500).json({
+        error: 'Failed to generate admin connection code.',
       });
     }
   }

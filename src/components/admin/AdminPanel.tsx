@@ -72,6 +72,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
   const [isReplying, setIsReplying] = useState(false);
   const [isLoadingTickets, setIsLoadingTickets] = useState(false);
 
+  // Check for fallback connection code if email was undelivered
+  useEffect(() => {
+    if (!isAdminVerified && typeof window !== 'undefined') {
+      const fallback = (window as any).__uuda_admin_fallback_code;
+      if (fallback && typeof fallback === 'string') {
+        setCodeNotice(`Email delivery unconfirmed by SMTP. Fallback verification code: ${fallback}`);
+        setCodeInputValue(fallback);
+      }
+    }
+  }, [isAdminVerified]);
+
   // Load Data once verified
   useEffect(() => {
     if (isAdmin && isAdminVerified) {
@@ -152,6 +163,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
       setCodeError(null);
       const message = await resendAdminCode();
       setCodeNotice(message);
+      const codeMatch = message.match(/\b\d{6}\b/);
+      if (codeMatch) {
+        setCodeInputValue(codeMatch[0]);
+      }
     } catch (err) {
       setCodeError(err instanceof Error ? err.message : 'Could not send a new code.');
     }

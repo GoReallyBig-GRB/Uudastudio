@@ -54,6 +54,52 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
+export function parseScriptAndInstructionClient(
+  rawScript: string,
+  explicitInstruction?: string
+): { cleanScript: string; directorNotes: string } {
+  const raw = (rawScript || '').trim();
+  let scriptPart = raw;
+  let instructionPart = (explicitInstruction || '').trim();
+
+  const hasScriptHeader = /(?:^|\n)\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:/i.test(raw);
+  const hasInstructionHeader = /(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:/i.test(raw);
+
+  if (hasScriptHeader || hasInstructionHeader) {
+    const scriptMatch = raw.match(
+      /(?:^|\n)\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:\s*([\s\S]*?)(?=(?:\n\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:)|$)/i
+    );
+    const instructionMatch = raw.match(
+      /(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:\s*([\s\S]*?)(?=(?:\n\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:)|$)/i
+    );
+
+    const unquote = (s: string) => {
+      const t = s.trim();
+      return (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))
+        ? t.slice(1, -1).trim()
+        : t;
+    };
+
+    if (scriptMatch && scriptMatch[1]) {
+      scriptPart = unquote(scriptMatch[1]);
+    } else if (hasInstructionHeader && !hasScriptHeader) {
+      scriptPart = raw.replace(/(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:[\s\S]*$/i, '').trim();
+    }
+
+    if (instructionMatch && instructionMatch[1]) {
+      const extracted = unquote(instructionMatch[1]);
+      instructionPart = instructionPart ? `${instructionPart}; ${extracted}` : extracted;
+    }
+  } else {
+    const t = scriptPart.trim();
+    if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+      scriptPart = t.slice(1, -1).trim();
+    }
+  }
+
+  return { cleanScript: scriptPart.trim(), directorNotes: instructionPart.trim() };
+}
+
 class VoiceJobStore {
   private state: VoiceJobState = {
     status: 'idle',
@@ -106,8 +152,8 @@ class VoiceJobStore {
   // Generation
   // ---------------------------------------------------------------------------
   async generate(req: GenerateRequest): Promise<void> {
-    const script = req.script.trim();
-    if (!script || this.isBusy()) return;
+    const { cleanScript, directorNotes } = parseScriptAndInstructionClient(req.script, req.instruction);
+    if (!cleanScript || this.isBusy()) return;
 
     this.stopGenerated();
     this.set({
@@ -136,10 +182,10 @@ class VoiceJobStore {
         credentials: 'same-origin',
         signal: controller.signal,
         body: JSON.stringify({
-          script,
+          script: cleanScript,
           voiceName: req.voiceName,
           modelId: req.modelId,
-          instruction: req.instruction.trim(),
+          instruction: directorNotes,
         }),
       });
 
@@ -163,10 +209,10 @@ class VoiceJobStore {
       }
 
       const meta: VoiceMetadata = {
-        script,
+        script: cleanScript,
         voiceName: req.voiceName,
         model: req.modelId,
-        deliveryInstruction: req.instruction.trim(),
+        deliveryInstruction: directorNotes,
       };
       const asset: Asset = {
         id: `vo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,

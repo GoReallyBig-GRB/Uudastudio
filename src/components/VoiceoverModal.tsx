@@ -34,7 +34,7 @@ import { audioEngine } from '../audio/engine';
 import { saveAssetToDB } from '../storage/db';
 import { authService } from '../services/authService';
 import { useVoiceSession, CustomPrecept } from '../voice/voiceSession';
-import { useVoiceJob, voiceJob } from '../voice/voiceJob';
+import { useVoiceJob, voiceJob, parseScriptAndInstructionClient } from '../voice/voiceJob';
 
 interface VoiceItem {
   name: string;
@@ -262,7 +262,7 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-cyan-400" />
                   <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-                    Script Text
+                    ### [Script] — Spoken Audio Content
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-xs">
@@ -293,8 +293,22 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
 
               <textarea
                 value={script}
-                onChange={(e) => setScript(e.target.value)}
-                placeholder="Type or paste your broadcast voiceover script here..."
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (
+                    /(?:^|\n)\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:/i.test(val) ||
+                    /(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:/i.test(val)
+                  ) {
+                    const parsed = parseScriptAndInstructionClient(val, deliveryInstruction);
+                    setScript(parsed.cleanScript);
+                    if (parsed.directorNotes) {
+                      setDeliveryInstruction(parsed.directorNotes);
+                    }
+                  } else {
+                    setScript(val);
+                  }
+                }}
+                placeholder="The actual text you must speak (e.g. paste your script or format as ### [Script]: &quot;...&quot; and ### [Instruction]: &quot;...&quot;)"
                 className="flex-1 w-full min-h-[160px] bg-[#0A0A0E] border border-zinc-700/80 rounded-xl p-4 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-cyan-500 leading-relaxed font-sans resize-none transition-colors"
               />
             </div>
@@ -305,7 +319,7 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-amber-400" />
                   <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-                    Director's Delivery Instruction
+                    ### [Instruction] — Director's Voice Engine Directives
                   </span>
                 </div>
                 {deliveryInstruction && (
@@ -318,11 +332,14 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                   </button>
                 )}
               </div>
+              <p className="text-[11px] text-zinc-500 mb-1.5 leading-relaxed">
+                Directives on HOW to speak it (tone, emotion, pace, accent, pitch, texture). Applied strictly as voice profile boundaries — never read aloud.
+              </p>
               <textarea
                 value={deliveryInstruction}
                 onChange={(e) => setDeliveryInstruction(e.target.value)}
                 rows={2}
-                placeholder="Eg: professional radio broadcast style with energetic stinger delivery"
+                placeholder="Directives on HOW to speak it (e.g., tone, emotion, pace, accent, warmth, texture)"
                 className="w-full bg-[#0A0A0E] border border-zinc-700/80 rounded-xl p-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-400 leading-relaxed font-sans resize-none transition-colors"
               />
             </div>

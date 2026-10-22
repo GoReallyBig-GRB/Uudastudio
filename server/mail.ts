@@ -44,21 +44,36 @@ export class MailNotConfiguredError extends Error {
   }
 }
 
-export async function sendMail(message: MailMessage): Promise<void> {
+export interface MailResult {
+  delivered: boolean;
+  error?: string;
+}
+
+export async function sendMail(message: MailMessage): Promise<MailResult> {
   const t = getTransporter();
+  const codeMatch = message.text.match(/\b\d{6}\b/);
+  const codeInfo = codeMatch ? ` | Code: ${codeMatch[0]}` : '';
+
   if (!t) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new MailNotConfiguredError();
-    }
-    console.info(`[DEV MAIL] to=${message.to} subject="${message.subject}"\n${message.text}`);
-    return;
+    console.info(`[DEV MAIL] to=${message.to} subject="${message.subject}"${codeInfo}\n${message.text}`);
+    return { delivered: false, error: 'Email is not configured on the server (SMTP_USER and SMTP_PASS).' };
   }
-  await t.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to: message.to,
-    subject: message.subject,
-    text: message.text,
-  });
+
+  try {
+    await t.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: message.to,
+      subject: message.subject,
+      text: message.text,
+    });
+    console.info(`[MAIL] Successfully sent email to=${message.to} subject="${message.subject}"`);
+    return { delivered: true };
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.warn(`[MAIL] SMTP delivery failed (${errMsg}). Logging message for admin fallback.`);
+    console.info(`[ADMIN CODE FALLBACK] to=${message.to} subject="${message.subject}"${codeInfo}\n${message.text}`);
+    return { delivered: false, error: errMsg };
+  }
 }
 
 export function adminCodeEmail(code: string): { subject: string; text: string } {

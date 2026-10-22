@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   sanitizeScriptText,
+  parseScriptAndInstruction,
+  unwrapQuotes,
   assertPayloadStrictEquality,
   computeWordErrorRate,
   checkForBannedPhrases,
@@ -87,6 +89,39 @@ describe('Voice Service - TTS Sanitization & Prompt Leakage Elimination', () => 
     for (const banned of BANNED_INSTRUCTION_PHRASES) {
       expect(sanitized.toLowerCase()).not.toContain(banned);
     }
+  });
+
+  it('strictly parses [Script] and [Instruction] inputs without prompt leakage', () => {
+    // Standard format specified by user
+    const formattedInput = `### [Script]: "The actual text you must speak."
+### [Instruction]: "Directives on HOW to speak it (e.g., tone, emotion, pace, accent)."`;
+
+    const parsed = parseScriptAndInstruction(formattedInput);
+    expect(parsed.cleanScript).toBe('The actual text you must speak.');
+    expect(parsed.directorNotes).toBe('Directives on HOW to speak it (e.g., tone, emotion, pace, accent).');
+
+    // Banned phrases check: clean script must NOT contain instruction directives
+    expect(checkForBannedPhrases(parsed.cleanScript, 'The actual text you must speak.')).toBeNull();
+    expect(parsed.cleanScript.toLowerCase()).not.toContain('instruction');
+    expect(parsed.cleanScript.toLowerCase()).not.toContain('directives');
+
+    // Reverse order: [Instruction] first, then [Script]
+    const reversed = `### [Instruction]: "Warm, calm, British accent, slow measured pace"
+### [Script]: "Welcome to the evening broadcast."`;
+    const parsedReversed = parseScriptAndInstruction(reversed);
+    expect(parsedReversed.cleanScript).toBe('Welcome to the evening broadcast.');
+    expect(parsedReversed.directorNotes).toBe('Warm, calm, British accent, slow measured pace');
+
+    // Plain script with explicit instruction argument
+    const plainScript = 'Live from the newsroom, this is the top of the hour.';
+    const explicitNotes = 'Authoritative news anchor delivery';
+    const parsedPlain = parseScriptAndInstruction(plainScript, explicitNotes);
+    expect(parsedPlain.cleanScript).toBe(plainScript);
+    expect(parsedPlain.directorNotes).toBe(explicitNotes);
+
+    // Unwrapping quotes
+    expect(unwrapQuotes('"Quoted script"')).toBe('Quoted script');
+    expect(unwrapQuotes("'Single quoted script'")).toBe('Single quoted script');
   });
 
   it('(d) analyzes and normalizes WAV headers and catches silent or empty audio', () => {

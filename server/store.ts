@@ -155,14 +155,36 @@ export async function initStore(): Promise<DataStore> {
   if (instance) return instance;
   const wanted = process.env.DATA_BACKEND || (process.env.K_SERVICE ? 'firestore' : 'file');
   if (wanted === 'firestore') {
-    const { createFirestoreStore } = await import('./firestoreStore');
-    instance = createFirestoreStore();
-  } else {
-    if (process.env.NODE_ENV === 'production') {
-      console.warn('[store] Using the local file store in production. Data is lost when the instance restarts.');
+    try {
+      const { createFirestoreStore } = await import('./firestoreStore');
+      const storeCandidate = createFirestoreStore();
+
+      // Probe Firestore admin permissions with a timeout
+      const { ensureFirebaseApp, resolveFirebaseConfig } = await import('./firebaseAdmin');
+      const { getFirestore } = await import('firebase-admin/firestore');
+      const app = ensureFirebaseApp();
+      const config = resolveFirebaseConfig();
+      const fs = config.databaseId ? getFirestore(app, config.databaseId) : getFirestore(app);
+
+      const probePromise = fs.collection('_probe').limit(1).get();
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore probe timeout')), 2500)
+      );
+      await Promise.race([probePromise, timeoutPromise]);
+
+      instance = storeCandidate;
+      console.info(`[store] backend: firestore (${config.databaseId || 'default'})`);
+      return instance;
+    } catch (probeErr: unknown) {
+      const msg = probeErr instanceof Error ? probeErr.message : String(probeErr);
+      console.warn(`[store] Firestore is not accessible from server runtime (${msg}). Falling back to file store.`);
     }
-    instance = createFileStore();
   }
+
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('[store] Using the local file store in production. Data is kept in atomic JSON store.');
+  }
+  instance = createFileStore();
   console.info(`[store] backend: ${instance.backend}`);
   return instance;
 }
