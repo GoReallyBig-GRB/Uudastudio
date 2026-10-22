@@ -10,16 +10,19 @@ import { PluginInstance } from '../../plugins/types';
 import { pluginManager } from '../../plugins/pluginManager';
 import { getPluginPresets } from '../../plugins/presets';
 import { PluginPanel } from './PluginPanel';
+import { PreviewButton } from './PreviewButton';
+import { Project } from '../../types';
 
 interface PluginPopoutProps {
   instance: PluginInstance;
   trackId: string;
   /** Name of the track (or "Master Bus") the plugin sits on */
   trackLabel: string;
+  project: Project;
   onClose: () => void;
 }
 
-export const PluginPopout: React.FC<PluginPopoutProps> = ({ instance, trackId, trackLabel, onClose }) => {
+export const PluginPopout: React.FC<PluginPopoutProps> = ({ instance, trackId, trackLabel, project, onClose }) => {
   const descriptor = instance.descriptor;
   const isNative = descriptor.type === 'native';
   const [, setTick] = useState(0);
@@ -78,6 +81,7 @@ export const PluginPopout: React.FC<PluginPopoutProps> = ({ instance, trackId, t
             </div>
             <p className="text-[11px] text-zinc-500 truncate">{trackLabel}</p>
           </div>
+          <PreviewButton project={project} targetId={trackId} />
           <button
             type="button"
             onClick={onClose}

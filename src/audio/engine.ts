@@ -26,6 +26,9 @@ export interface MasterLiveMetering {
   clip: boolean;
 }
 
+/** Longest stretch the rack preview loops */
+const PREVIEW_MAX_SECONDS = 20;
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -68,6 +71,12 @@ export class AudioEngine {
     source: AudioBufferSourceNode;
     gainNode: GainNode;
   }> = [];
+
+  // Rack preview: plays one track (or the whole mix) in isolation, looping, without touching the timeline transport
+  private previewTargetId: string | null = null;
+  private previewRange: { start: number; end: number } | null = null;
+  private previewProject: Project | null = null;
+  private previewSaved: { playhead: number; end: number } | null = null;
 
   // Playback state
   private isPlaying: boolean = false;
@@ -344,6 +353,15 @@ export class AudioEngine {
     return await ctx.decodeAudioData(copy);
   }
 
+  /** Gain a track should have right now, honouring mute/solo and an active rack preview */
+  private effectiveVolume(track: Track, anySolo: boolean): number {
+    if (this.previewTargetId && this.previewTargetId !== MASTER_TRACK_ID) {
+      return track.id === this.previewTargetId ? track.volume : 0;
+    }
+    if (anySolo) return !track.solo || track.muted ? 0 : track.volume;
+    return track.muted ? 0 : track.volume;
+  }
+
   /**
    * Syncs track nodes with the project state
    */
@@ -387,17 +405,7 @@ export class AudioEngine {
         this.trackNodes.set(track.id, nodes);
       }
 
-      // Calculate effective volume based on Mute and Solo
-      let effectiveVolume = track.volume;
-      if (anySolo) {
-        if (!track.solo || track.muted) {
-          effectiveVolume = 0;
-        }
-      } else {
-        if (track.muted) {
-          effectiveVolume = 0;
-        }
-      }
+      const effectiveVolume = this.effectiveVolume(track, anySolo);
 
       // Smooth volume transition to prevent clicks
       const now = this.ctx.currentTime;
@@ -420,16 +428,7 @@ export class AudioEngine {
     const nodes = this.trackNodes.get(track.id);
     if (!nodes) return;
 
-    let effectiveVolume = track.volume;
-    if (anySolo) {
-      if (!track.solo || track.muted) {
-        effectiveVolume = 0;
-      }
-    } else {
-      if (track.muted) {
-        effectiveVolume = 0;
-      }
-    }
+    const effectiveVolume = this.effectiveVolume(track, anySolo);
 
     const now = this.ctx.currentTime;
     nodes.gainNode.gain.cancelScheduledValues(now);
@@ -447,6 +446,11 @@ export class AudioEngine {
    * Enforces projectEnd constraint: stopping at the end of content.
    */
   public async play(project: Project, startPositionSeconds?: number): Promise<void> {
+    if (this.previewTargetId) this.endPreview();
+    await this.playInternal(project, startPositionSeconds);
+  }
+
+  private async playInternal(project: Project, startPositionSeconds?: number): Promise<void> {
     const ctx = await this.init();
     if (this.isPlaying) {
       this.stop();
@@ -462,11 +466,13 @@ export class AudioEngine {
         if (end > maxEnd) maxEnd = end;
       }
     }
-    this.projectEndSeconds = maxEnd;
+    this.projectEndSeconds = this.previewRange ? this.previewRange.end : maxEnd;
 
     let fromTime = typeof startPositionSeconds === 'number' ? startPositionSeconds : this.playheadSeconds;
     // Pressing Play when playhead is at the end restarts from 0
-    if (this.projectEndSeconds > 0 && fromTime >= this.projectEndSeconds - 0.01) {
+    if (this.previewRange) {
+      fromTime = this.previewRange.start;
+    } else if (this.projectEndSeconds > 0 && fromTime >= this.projectEndSeconds - 0.01) {
       fromTime = 0;
     }
 
@@ -487,7 +493,8 @@ export class AudioEngine {
 
     // Precise stop scheduled on the AudioContext clock
     this.clearScheduledStop();
-    if (this.projectEndSeconds > 0) {
+    // Previews loop from the animation-frame loop instead of a one-shot stop timer
+    if (this.projectEndSeconds > 0 && !this.previewRange) {
       const durationUntilEnd = Math.max(0, this.projectEndSeconds - this.playheadSeconds);
       this.scheduledStopTimer = setTimeout(() => {
         if (this.isPlaying) {
@@ -619,6 +626,10 @@ export class AudioEngine {
   }
 
   public pause(): void {
+    if (this.previewTargetId) {
+      this.endPreview();
+      return;
+    }
     if (!this.isPlaying) return;
     this.clearScheduledStop();
     this.updateCurrentPosition();
@@ -628,6 +639,10 @@ export class AudioEngine {
   }
 
   public stop(): void {
+    if (this.previewTargetId) {
+      this.endPreview();
+      return;
+    }
     this.clearScheduledStop();
     this.stopSources();
     this.isPlaying = false;
@@ -639,6 +654,7 @@ export class AudioEngine {
   }
 
   public seek(toSeconds: number, project?: Project): void {
+    if (this.previewTargetId) this.endPreview();
     this.clearScheduledStop();
     const wasPlaying = this.isPlaying;
     if (this.isPlaying) {
@@ -696,6 +712,18 @@ export class AudioEngine {
     const loop = () => {
       if (this.isPlaying) {
         const t = this.updateCurrentPosition();
+        if (this.previewRange && this.previewProject) {
+          if (t >= this.previewRange.end) {
+            // Loop the preview window
+            const project = this.previewProject;
+            this.stopSources();
+            this.isPlaying = false;
+            void this.playInternal(project, this.previewRange.start);
+          } else {
+            this.animFrameId = requestAnimationFrame(loop);
+          }
+          return;
+        }
         if (this.projectEndSeconds > 0 && t >= this.projectEndSeconds) {
           this.stopSources();
           this.isPlaying = false;
@@ -920,6 +948,88 @@ export class AudioEngine {
       gainReductionDb: Math.round(gr * 10) / 10,
       clip: maxPeak >= 0.99,
     };
+  }
+
+  /** Which target the rack preview is playing (a track id or MASTER_TRACK_ID), or null */
+  public getPreviewTarget(): string | null {
+    return this.previewTargetId;
+  }
+
+  /**
+   * Rack preview: loops up to PREVIEW_MAX_SECONDS of the target's own audio through its plugin chain.
+   * A track target is heard alone (even if muted or not soloed); MASTER_TRACK_ID plays the whole mix.
+   * The timeline playhead and transport are left alone and restored afterwards.
+   */
+  public async startPreview(project: Project, targetId: string): Promise<{ ok: boolean; reason?: string }> {
+    const tracks = targetId === MASTER_TRACK_ID ? project.tracks : project.tracks.filter(t => t.id === targetId);
+    let start = Infinity;
+    let end = 0;
+    for (const track of tracks) {
+      for (const clip of track.clips) {
+        if (clip.muted) continue;
+        const asset = this.assets.get(clip.assetId);
+        if (!asset || !asset.buffer) continue;
+        start = Math.min(start, clip.startSeconds);
+        end = Math.max(end, clip.startSeconds + clip.durationSeconds);
+      }
+    }
+    if (!isFinite(start) || end <= start) {
+      return { ok: false, reason: targetId === MASTER_TRACK_ID ? 'The timeline has no audio to preview.' : 'This track has no audio to preview.' };
+    }
+
+    if (this.previewTargetId) {
+      this.endPreview();
+    } else if (this.isPlaying) {
+      // Timeline is playing: pause it where it is and let the app's transport catch up
+      this.pause();
+      if (this.onPlaybackEndedCallback) this.onPlaybackEndedCallback();
+    }
+
+    // Start from the playhead when it sits inside the audio, otherwise from where the audio begins
+    const head = this.playheadSeconds;
+    const from = head >= start && head < end - 0.05 ? head : start;
+    this.previewSaved = { playhead: this.playheadSeconds, end: this.projectEndSeconds };
+    this.previewTargetId = targetId;
+    this.previewProject = project;
+    this.previewRange = { start: from, end: Math.min(end, from + PREVIEW_MAX_SECONDS) };
+    this.emitPreviewChanged();
+    try {
+      await this.playInternal(project, from);
+    } catch (err) {
+      this.endPreview();
+      return { ok: false, reason: 'Audio could not be started.' };
+    }
+    return { ok: true };
+  }
+
+  public stopPreview(): void {
+    this.endPreview();
+  }
+
+  private endPreview(): void {
+    if (!this.previewTargetId) return;
+    const project = this.previewProject;
+    const saved = this.previewSaved;
+    this.clearScheduledStop();
+    this.stopSources();
+    this.isPlaying = false;
+    this.stopPlaybackLoop();
+    this.previewTargetId = null;
+    this.previewRange = null;
+    this.previewProject = null;
+    this.previewSaved = null;
+    if (saved) {
+      this.playheadSeconds = saved.playhead;
+      this.projectEndSeconds = saved.end;
+    }
+    if (project) this.syncTracks(project.tracks); // put the track faders back
+    this.emitPreviewChanged();
+  }
+
+  private emitPreviewChanged(): void {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('uuda:preview-changed', { detail: { target: this.previewTargetId } }));
+    }
   }
 
   public destroy(): void {
