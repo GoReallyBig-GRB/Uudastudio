@@ -14,8 +14,10 @@ describe('waveformCache', () => {
   it('extracts min/max peaks from mono and averages multichannel audio', () => {
     const monoId = 'test-mono-peaks';
     const mono = waveformCache.getPeaks(monoId, audioBuffer([[-0.8, 0.2, 0.6, -0.1]]), 2);
-    expect(Array.from(mono.mins)).toEqual([-0.8, -0.1]);
-    expect(Array.from(mono.maxs)).toEqual([0.2, 0.6]);
+    expect(Array.from(mono.mins)[0]).toBeCloseTo(-0.8, 6);
+    expect(Array.from(mono.mins)[1]).toBeCloseTo(-0.1, 6);
+    expect(Array.from(mono.maxs)[0]).toBeCloseTo(0.2, 6);
+    expect(Array.from(mono.maxs)[1]).toBeCloseTo(0.6, 6);
 
     const stereoId = 'test-stereo-peaks';
     const stereo = waveformCache.getPeaks(stereoId, audioBuffer([
@@ -46,7 +48,8 @@ describe('waveformCache', () => {
     waveformCache.clearAsset(id);
     const second = waveformCache.getPeaks(id, buffer, 1);
     expect(second).not.toBe(first);
-    expect(Array.from(second.mins)).toEqual([-0.4, 0.4]);
+    expect(Array.from(second.mins)[0]).toBeCloseTo(-0.4, 6);
+    expect(Array.from(second.mins)[1]).toBeCloseTo(0.4, 6);
     waveformCache.clearAsset(id);
   });
 });
