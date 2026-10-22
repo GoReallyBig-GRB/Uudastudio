@@ -17,7 +17,15 @@ interface SignInPageProps {
 // Plain-language messages for the Firebase errors that actually come up when the popup cannot work
 function describeSignInError(err: unknown): string {
   const code = typeof err === 'object' && err && 'code' in err ? String((err as { code: unknown }).code) : '';
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('PERMISSION_DENIED') || msg.includes('7 PERMISSION_DENIED')) {
+    return 'Database permissions notice during sign-in. The server has safely fallen back to local storage—please try signing in again.';
+  }
   switch (code) {
+    case 'auth/popup-blocked':
+      return 'The sign-in popup was blocked by your browser or preview iframe. Please allow popups or use Developer Sign-In below.';
+    case 'auth/popup-closed-by-user':
+      return 'The sign-in popup was closed before completing authentication.';
     case 'auth/unauthorized-domain':
       return 'This address is not an authorized Firebase domain. Add it under Firebase Console, Authentication, Settings, Authorized domains.';
     case 'auth/operation-not-allowed':
@@ -25,9 +33,9 @@ function describeSignInError(err: unknown): string {
     case 'auth/network-request-failed':
       return 'The network request to Google failed. Check the connection and try again.';
     case 'auth/internal-error':
-      return 'Google sign-in failed inside the browser. If this page is in a preview frame, open the app in its own tab and try again.';
+      return 'Google sign-in failed inside the browser. If inside a preview iframe, please use Developer Sign-In below.';
     default:
-      return err instanceof Error ? err.message : String(err);
+      return msg;
   }
 }
 
@@ -92,8 +100,8 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
           <div>
             <div className="flex items-center gap-2">
               <span className="font-black text-lg tracking-wider text-white">UUDA</span>
-              <span className="text-[10px] uppercase font-bold tracking-widest text-cyan-400 bg-cyan-950/60 border border-cyan-500/30 px-1.5 py-0.5 rounded-sm">
-                PRO
+              <span className="text-[11px] uppercase font-bold tracking-widest text-cyan-400">
+                STUDIO
               </span>
             </div>
             <p className="text-[11px] text-zinc-500">Browser-Based Audio Studio for Broadcast & Podcasts</p>
@@ -121,7 +129,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-zinc-900 border border-zinc-700/60 mb-4 shadow-inner">
               <Sparkles className="w-6 h-6 text-cyan-400" />
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Sign in to UUDA PRO</h1>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Sign in to Uuda Studio</h1>
             <p className="text-sm text-zinc-400 mt-2">
               New or returning? <span className="text-zinc-200 font-medium">Continue with Google</span>
             </p>

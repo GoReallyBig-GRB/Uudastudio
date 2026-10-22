@@ -492,7 +492,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
             <div className="max-w-2xl space-y-6">
               <div>
                 <h2 className="text-xl font-bold text-white tracking-tight">Account Details</h2>
-                <p className="text-xs text-zinc-400 mt-1">Manage your identity and profile within UUDA PRO.</p>
+                <p className="text-xs text-zinc-400 mt-1">Manage your identity and profile within Uuda Studio.</p>
               </div>
 
               {accountSuccessMsg && (

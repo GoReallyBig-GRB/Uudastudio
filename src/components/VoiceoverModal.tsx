@@ -44,7 +44,7 @@ interface VoiceItem {
 }
 
 const EXTENDED_GEMINI_VOICES: VoiceItem[] = [
-  // Female voices
+  // Female voices (13)
   { name: 'Zephyr', gender: 'Female', descriptor: 'Bright, upbeat & clear', tags: ['Commercial', 'Promo', 'Upbeat'] },
   { name: 'Kore', gender: 'Female', descriptor: 'Calm, balanced & articulate', tags: ['Narrator', 'Podcast', 'Calm'] },
   { name: 'Aoede', gender: 'Female', descriptor: 'Expressive & melodic', tags: ['Creative', 'Dramatic', 'Melodic'] },
@@ -59,18 +59,24 @@ const EXTENDED_GEMINI_VOICES: VoiceItem[] = [
   { name: 'Vindemiatrix', gender: 'Female', descriptor: 'Polished & broadcast-ready', tags: ['Radio Imaging', 'Broadcast', 'Polished'] },
   { name: 'Sulafat', gender: 'Female', descriptor: 'Airy & friendly', tags: ['Commercial', 'Light', 'Friendly'] },
 
-  // Male voices
+  // Male voices (17)
   { name: 'Puck', gender: 'Male', descriptor: 'Playful, engaging & dynamic', tags: ['Promo', 'Stinger', 'Dynamic'] },
   { name: 'Fenrir', gender: 'Male', descriptor: 'Authoritative & resonant', tags: ['Movie Trailer', 'Broadcast', 'Resonant'] },
   { name: 'Charon', gender: 'Male', descriptor: 'Informative & professional broadcaster', tags: ['News', 'Radio Imaging', 'Informative'] },
-  { name: 'Enceladus', gender: 'Male', descriptor: 'Warm, grounded & friendly', tags: ['Podcast Host', 'Warm', 'Friendly'] },
-  { name: 'Iapetus', gender: 'Male', descriptor: 'Classic radio announcer & trailer', tags: ['Radio ID', 'Classic', 'Deep'] },
-  { name: 'Orus', gender: 'Male', descriptor: 'Deep, resonant & dramatic', tags: ['Dramatic', 'Trailer', 'Low Pitch'] },
-  { name: 'Alcor', gender: 'Male', descriptor: 'Youthful & energetic delivery', tags: ['Commercial', 'Energetic', 'Modern'] },
-  { name: 'Caph', gender: 'Male', descriptor: 'Calm, measured & technical', tags: ['Explainer', 'Tech', 'Articulate'] },
-  { name: 'Mira', gender: 'Male', descriptor: 'Inspiring & motivational storyteller', tags: ['Inspirational', 'Story', 'Warm'] },
-  { name: 'Schedar', gender: 'Male', descriptor: 'Commanding, firm & punchy', tags: ['Urgent', 'Imaging', 'Commanding'] },
-  { name: 'Tegmine', gender: 'Male', descriptor: 'Crisp & neutral corporate', tags: ['Corporate', 'Clear', 'Neutral'] },
+  { name: 'Orus', gender: 'Male', descriptor: 'Deep & resonant', tags: ['Dramatic', 'Trailer', 'Low Pitch'] },
+  { name: 'Enceladus', gender: 'Male', descriptor: 'Warm, relatable & conversational', tags: ['Podcast Host', 'Warm', 'Friendly'] },
+  { name: 'Iapetus', gender: 'Male', descriptor: 'Classic radio announcer', tags: ['Radio ID', 'Classic', 'Deep'] },
+  { name: 'Umbriel', gender: 'Male', descriptor: 'Grave & dramatic', tags: ['Documentary', 'Dramatic', 'Serious'] },
+  { name: 'Algieba', gender: 'Male', descriptor: 'Bright & charismatic', tags: ['Commercial', 'Upbeat', 'Charismatic'] },
+  { name: 'Algenib', gender: 'Male', descriptor: 'Bold & persuasive', tags: ['Advertising', 'Bold', 'Persuasive'] },
+  { name: 'Rasalgethi', gender: 'Male', descriptor: 'Documentary & narrator style', tags: ['Documentary', 'Narrator', 'Steady'] },
+  { name: 'Alnilam', gender: 'Male', descriptor: 'Smooth & measured', tags: ['Technical', 'Smooth', 'Measured'] },
+  { name: 'Schedar', gender: 'Male', descriptor: 'Commanding & cinematic', tags: ['Urgent', 'Imaging', 'Commanding'] },
+  { name: 'Pulcherrima', gender: 'Male', descriptor: 'Rich & warm baritone', tags: ['Podcast', 'Warm Baritone', 'Deep'] },
+  { name: 'Achird', gender: 'Male', descriptor: 'Casual & friendly', tags: ['Interview', 'Casual', 'Friendly'] },
+  { name: 'Zubenelgenubi', gender: 'Male', descriptor: 'Steady & informative', tags: ['News', 'Informative', 'Steady'] },
+  { name: 'Sadachbia', gender: 'Male', descriptor: 'Clear & articulate', tags: ['Explainer', 'Corporate', 'Articulate'] },
+  { name: 'Sadaltager', gender: 'Male', descriptor: 'Measured & reflective', tags: ['Storyteller', 'Reflective', 'Calm'] },
 ];
 
 
@@ -107,6 +113,14 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
   const [savingSlotIndex, setSavingSlotIndex] = useState<number | null>(null);
   const [newPreceptTitle, setNewPreceptTitle] = useState<string>('');
   const [slotNotice, setSlotNotice] = useState<string | null>(null);
+
+  // Ensure selectedVoice is always a valid voice from the verified lineup
+  useEffect(() => {
+    const isValid = EXTENDED_GEMINI_VOICES.some((v) => v.name === selectedVoice);
+    if (!isValid) {
+      setSelectedVoice('Zephyr');
+    }
+  }, [selectedVoice, setSelectedVoice]);
 
   // Generation, finished voiceover and audition are one shared job (voice/voiceJob.ts), identical to the sidebar
   const job = useVoiceJob();

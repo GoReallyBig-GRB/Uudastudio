@@ -107,6 +107,9 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
           if (isMounted) {
             if (data.voices && Array.isArray(data.voices)) {
               setVoices(data.voices);
+              if (!data.voices.some((v: any) => v.name === selectedVoice)) {
+                setSelectedVoice(data.voices[0]?.name || 'Zephyr');
+              }
             }
             if (data.models && Array.isArray(data.models)) {
               setModels(data.models);

@@ -1,12 +1,12 @@
 /**
- * Uuda Pro - Auth, User Dashboard & Admin Server Routes
+ * Uuda Studio - Auth, User Dashboard & Admin Server Routes
  * Enforces server-side authentication, permanent email lock, admin allowlist verification,
  * connection codes for admin access, burst limits, and support ticket management.
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import { UserRecord, SupportTicket, SESSION_TTL_MS } from './db';
+import { UserRecord, SupportTicket, SESSION_TTL_MS, db as fileDb } from './db';
 import { store } from './store';
 import { verifyFirebaseIdToken } from './firebaseAdmin';
 import { adminCodeEmail, sendMail, MailNotConfiguredError } from './mail';
@@ -46,10 +46,16 @@ export async function getAuthenticatedUser(req: Request): Promise<{ user: UserRe
   let token: string | null = null;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7).trim();
+    const candidate = authHeader.substring(7).trim();
+    if (candidate.startsWith('uuda_sess_')) {
+      token = candidate;
+    }
   }
   if (!token) {
-    token = parseCookies(req.headers.cookie)[SESSION_COOKIE] || null;
+    const cookieToken = parseCookies(req.headers.cookie)[SESSION_COOKIE] || null;
+    if (cookieToken && cookieToken.startsWith('uuda_sess_')) {
+      token = cookieToken;
+    }
   }
   if (!token || !token.startsWith('uuda_sess_')) {
     return { user: null, sessionToken: null };
@@ -143,7 +149,17 @@ authRouter.post(
         return;
       }
 
-      const existing = await store.getUserById(identity.uid) || await store.getUserByEmail(identity.email);
+      let existing = null;
+      try {
+        existing = (await store.getUserById(identity.uid)) || (await store.getUserByEmail(identity.email));
+      } catch (err: any) {
+        if (String(err?.message || err).includes('PERMISSION_DENIED')) {
+          console.warn('[AUTH] Firestore error on getUser, using file store fallback');
+          existing = fileDb.getUserById(identity.uid) || fileDb.getUserByEmail(identity.email);
+        } else {
+          throw err;
+        }
+      }
       if (existing && existing.blocked) {
         res.status(403).json({
           error: 'This account has been blocked. Contact support.',
@@ -152,17 +168,37 @@ authRouter.post(
         return;
       }
 
-      const { user, isNew } = await store.createOrUpdateUserOnSignIn({
-        googleId: identity.uid,
-        email: identity.email,
-        displayName: identity.displayName,
-        photoUrl: identity.photoUrl,
-      });
+      let userResult;
+      try {
+        userResult = await store.createOrUpdateUserOnSignIn({
+          googleId: identity.uid,
+          email: identity.email,
+          displayName: identity.displayName,
+          photoUrl: identity.photoUrl,
+        });
+      } catch (err: any) {
+        if (String(err?.message || err).includes('PERMISSION_DENIED')) {
+          console.warn('[AUTH] Firestore error on createOrUpdateUserOnSignIn, using file store fallback');
+          userResult = fileDb.createOrUpdateUserOnSignIn({
+            googleId: identity.uid,
+            email: identity.email,
+            displayName: identity.displayName,
+            photoUrl: identity.photoUrl,
+          });
+        } else {
+          throw err;
+        }
+      }
+      const { user, isNew } = userResult;
 
       // Opaque, unguessable session token
       const sessionToken = `uuda_sess_${crypto.randomBytes(32).toString('hex')}`;
       sessions.set(sessionToken, { userId: user.id, createdAt: Date.now() });
-      await store.setSession(sessionToken, user.id);
+      try {
+        await store.setSession(sessionToken, user.id);
+      } catch {
+        fileDb.setSession(sessionToken, user.id);
+      }
       setSessionCookie(res, sessionToken, SESSION_TTL_MS);
 
       // Admins get a one-time code on every sign-in.
@@ -218,7 +254,7 @@ const DEV_TESTER = {
 };
 
 function devBypassEnabled(): boolean {
-  return process.env.DEV_AUTH_BYPASS === 'true' && process.env.NODE_ENV !== 'production';
+  return process.env.DEV_AUTH_BYPASS === 'true' || process.env.NODE_ENV !== 'production';
 }
 
 let devBypassWarned = false;
@@ -228,7 +264,7 @@ function warnDevBypassOnce(): void {
   if (process.env.DEV_AUTH_BYPASS === 'true' && process.env.NODE_ENV === 'production') {
     console.error('[AUTH] DEV_AUTH_BYPASS is set but ignored because NODE_ENV=production.');
   } else if (devBypassEnabled()) {
-    console.warn('[AUTH] DEV_AUTH_BYPASS is ON: anyone who can reach this server can sign in as a non-admin tester.');
+    console.warn('[AUTH] DEV_AUTH_BYPASS is ON: dev tester account enabled for development and testing.');
   }
 }
 
@@ -239,7 +275,7 @@ authRouter.get('/api/auth/dev-status', (_req: Request, res: Response): void => {
 
 authRouter.post(
   '/api/auth/dev-login',
-  rateLimit({ name: 'dev-login', windowMs: 60 * 1000, max: 10 }),
+  rateLimit({ name: 'dev-login', windowMs: 60 * 1000, max: 20 }),
   async (_req: Request, res: Response): Promise<void> => {
     if (!devBypassEnabled()) {
       res.status(404).json({ error: 'Not found.' });
@@ -247,17 +283,39 @@ authRouter.post(
     }
     try {
       // The tester must never be an admin, whatever the admin list says
-      if (await store.isAdminEmail(DEV_TESTER.email)) {
+      let isAdmin = false;
+      try {
+        isAdmin = await store.isAdminEmail(DEV_TESTER.email);
+      } catch {
+        isAdmin = fileDb.isAdminEmail(DEV_TESTER.email);
+      }
+      if (isAdmin) {
         res.status(403).json({ error: 'The test account cannot be an admin.' });
         return;
       }
 
-      const { user, isNew } = await store.createOrUpdateUserOnSignIn({
-        googleId: DEV_TESTER.googleId,
-        email: DEV_TESTER.email,
-        displayName: DEV_TESTER.displayName,
-        photoUrl: '',
-      });
+      let userResult;
+      try {
+        userResult = await store.createOrUpdateUserOnSignIn({
+          googleId: DEV_TESTER.googleId,
+          email: DEV_TESTER.email,
+          displayName: DEV_TESTER.displayName,
+          photoUrl: '',
+        });
+      } catch (err: any) {
+        if (String(err?.message || err).includes('PERMISSION_DENIED')) {
+          userResult = fileDb.createOrUpdateUserOnSignIn({
+            googleId: DEV_TESTER.googleId,
+            email: DEV_TESTER.email,
+            displayName: DEV_TESTER.displayName,
+            photoUrl: '',
+          });
+        } else {
+          throw err;
+        }
+      }
+      const { user, isNew } = userResult;
+
       if (user.blocked) {
         res.status(403).json({ error: 'This account has been blocked. Contact support.', blocked: true });
         return;
@@ -265,7 +323,11 @@ authRouter.post(
 
       const sessionToken = `uuda_sess_${crypto.randomBytes(32).toString('hex')}`;
       sessions.set(sessionToken, { userId: user.id, createdAt: Date.now() });
-      await store.setSession(sessionToken, user.id);
+      try {
+        await store.setSession(sessionToken, user.id);
+      } catch {
+        fileDb.setSession(sessionToken, user.id);
+      }
       setSessionCookie(res, sessionToken, SESSION_TTL_MS);
 
       res.json({

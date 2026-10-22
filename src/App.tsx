@@ -489,7 +489,7 @@ const MainStudio: React.FC = () => {
       const text = await file.text();
       const parsed = JSON.parse(text) as Project;
       if (!parsed || !Array.isArray(parsed.tracks)) {
-        throw new Error('Selected file is not a valid UUDA Pro project file.');
+        throw new Error('Selected file is not a valid Uuda Studio project file.');
       }
       if (isPlaying) {
         audioEngine.pause();

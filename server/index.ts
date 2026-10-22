@@ -8,6 +8,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import { store, initStore } from './store';
@@ -211,8 +212,34 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
-// In-memory cache for voice preview auditions
+// Disk-backed cache for voice preview auditions
+const PREVIEW_CACHE_DIR = path.resolve(__dirname, '..', '.cache', 'voice_previews');
+try {
+  fs.mkdirSync(PREVIEW_CACHE_DIR, { recursive: true });
+} catch {
+  /* ignore */
+}
+
 const voicePreviewCache = new Map<string, string>();
+try {
+  if (fs.existsSync(PREVIEW_CACHE_DIR)) {
+    const files = fs.readdirSync(PREVIEW_CACHE_DIR);
+    for (const file of files) {
+      if (file.endsWith('.b64')) {
+        const vName = file.replace(/\.b64$/, '');
+        const data = fs.readFileSync(path.join(PREVIEW_CACHE_DIR, file), 'utf8');
+        if (data && data.length > 100) {
+          voicePreviewCache.set(vName, data.trim());
+        }
+      }
+    }
+    if (voicePreviewCache.size > 0) {
+      console.info(`[voice] Loaded ${voicePreviewCache.size} cached voice previews from disk.`);
+    }
+  }
+} catch (cacheErr) {
+  console.warn('[voice] Notice reading preview cache disk:', cacheErr);
+}
 
 // List verified Gemini voices
 app.get('/api/voice/voices', (_req: Request, res: Response) => {
@@ -225,8 +252,8 @@ app.get('/api/voice/voices', (_req: Request, res: Response) => {
   });
 });
 
-// Audition / Preview Voice Talent (Validation against GEMINI_VOICES, no fake tones, real errors)
-app.get('/api/voice/preview', rateLimit({ name: 'preview', windowMs: 60 * 1000, max: 20 }), async (req: Request, res: Response): Promise<void> => {
+// Audition / Preview Voice Talent (Validation against GEMINI_VOICES, fast disk/RAM cache, real TTS fallback)
+app.get('/api/voice/preview', rateLimit({ name: 'preview', windowMs: 60 * 1000, max: 120 }), async (req: Request, res: Response): Promise<void> => {
   const voiceName = (req.query.voice as string) || '';
   const match = GEMINI_VOICES.find((v) => v.name.toLowerCase() === voiceName.trim().toLowerCase());
   if (!match) {
@@ -256,17 +283,37 @@ app.get('/api/voice/preview', rateLimit({ name: 'preview', windowMs: 60 * 1000, 
 
   try {
     const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
-    const auditionResult = await generateStrictTTS({
-      ai,
-      script: AUDITION_SAMPLE_SENTENCE,
-      voiceName: verifiedVoiceName,
-      modelId: 'gemini-3.8-flash-lite-tts',
-      isAudition: true,
-    });
+    let auditionResult;
+    try {
+      auditionResult = await generateStrictTTS({
+        ai,
+        script: AUDITION_SAMPLE_SENTENCE,
+        voiceName: verifiedVoiceName,
+        modelId: 'gemini-3.8-flash-lite-tts',
+        isAudition: true,
+        timeoutMs: 15000,
+      });
+    } catch (liteErr: any) {
+      // If lite model hit a rate limit or timeout, fallback to flash model
+      console.warn(`[voice] Audition lite model retry with flash for ${verifiedVoiceName}:`, liteErr?.message || liteErr);
+      auditionResult = await generateStrictTTS({
+        ai,
+        script: AUDITION_SAMPLE_SENTENCE,
+        voiceName: verifiedVoiceName,
+        modelId: 'gemini-3.8-flash-tts',
+        isAudition: true,
+        timeoutMs: 25000,
+      });
+    }
 
     const audioBase64 = auditionResult.audioBuffer.toString('base64');
     if (!usedOwnKey) {
       voicePreviewCache.set(verifiedVoiceName, audioBase64);
+      try {
+        fs.writeFileSync(path.join(PREVIEW_CACHE_DIR, `${verifiedVoiceName}.b64`), audioBase64, 'utf8');
+      } catch {
+        /* ignore disk cache write failure */
+      }
     }
     res.json({ voiceName: verifiedVoiceName, audioBase64 });
   } catch (err: any) {

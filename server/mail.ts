@@ -24,17 +24,54 @@ export interface MailMessage {
 
 let transporter: nodemailer.Transporter | null = null;
 
+function resolveSmtpConfig(user: string, pass: string): nodemailer.TransportOptions {
+  const customHost = process.env.SMTP_HOST;
+  if (customHost) {
+    const port = Number(process.env.SMTP_PORT || (process.env.SMTP_SECURE === 'false' ? 587 : 465));
+    const secure = process.env.SMTP_SECURE !== undefined ? process.env.SMTP_SECURE === 'true' : port === 465;
+    return {
+      host: customHost,
+      port,
+      secure,
+      auth: { user, pass },
+    } as any;
+  }
+
+  const domain = user.split('@')[1]?.toLowerCase();
+  if (domain === 'goreallybig.com' || domain === 'foundermail.mx') {
+    return {
+      host: 'smtp.foundermail.mx',
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: process.env.SMTP_SECURE === 'true', // false for port 587 STARTTLS
+      auth: { user, pass },
+    } as any;
+  }
+
+  if (domain === 'gmail.com' || domain === 'googlemail.com') {
+    return {
+      host: 'smtp.gmail.com',
+      port: Number(process.env.SMTP_PORT || 465),
+      secure: (process.env.SMTP_SECURE ?? 'true') !== 'false',
+      auth: { user, pass },
+    } as any;
+  }
+
+  return {
+    host: 'smtp.foundermail.mx',
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: { user, pass },
+  } as any;
+}
+
 function getTransporter(): nodemailer.Transporter | null {
   if (transporter) return transporter;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   if (!user || !pass) return null;
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: Number(process.env.SMTP_PORT || 465),
-    secure: (process.env.SMTP_SECURE ?? 'true') !== 'false',
-    auth: { user, pass },
-  });
+
+  const config = resolveSmtpConfig(user, pass);
+  transporter = nodemailer.createTransport(config);
   return transporter;
 }
 
@@ -60,8 +97,9 @@ export async function sendMail(message: MailMessage): Promise<MailResult> {
   }
 
   try {
+    const fromAddress = process.env.SMTP_FROM || `Uuda Studio <${process.env.SMTP_USER}>`;
     await t.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      from: fromAddress,
       to: message.to,
       subject: message.subject,
       text: message.text,
@@ -70,7 +108,7 @@ export async function sendMail(message: MailMessage): Promise<MailResult> {
     return { delivered: true };
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.warn(`[MAIL] SMTP delivery failed (${errMsg}). Logging message for admin fallback.`);
+    console.info(`[MAIL] Notice: Email delivery fallback (${errMsg}). Logging message for admin code.`);
     console.info(`[ADMIN CODE FALLBACK] to=${message.to} subject="${message.subject}"${codeInfo}\n${message.text}`);
     return { delivered: false, error: errMsg };
   }
