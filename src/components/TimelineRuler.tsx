@@ -6,6 +6,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatTimecode } from '../utils/formatters';
+import { timeToViewportX, viewportXToTime } from '../utils/timelineCoordinates';
 
 interface TimelineRulerProps {
   pixelsPerSecond: number;
@@ -106,7 +107,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
 
     for (let t = firstMajor; t <= lastMajor; t += majorStepSec) {
       if (t < 0) continue;
-      const x = Math.round(t * pixelsPerSecond - scrollLeft);
+      const x = Math.round(timeToViewportX(t, pixelsPerSecond, scrollLeft));
 
       // Major tick mark (distinguishable, clean 1px line)
       ctx.strokeStyle = '#52525b';
@@ -126,7 +127,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       const minorStep = majorStepSec / minorTicks;
       for (let m = 1; m < minorTicks; m++) {
         const minorTime = t + m * minorStep;
-        const mx = Math.round(minorTime * pixelsPerSecond - scrollLeft);
+        const mx = Math.round(timeToViewportX(minorTime, pixelsPerSecond, scrollLeft));
         if (mx >= 0 && mx <= width) {
           ctx.strokeStyle = '#3f3f46';
           ctx.beginPath();
@@ -138,7 +139,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     }
 
     // Playhead marker on the ruler
-    const playheadX = playheadSeconds * pixelsPerSecond - scrollLeft;
+    const playheadX = timeToViewportX(playheadSeconds, pixelsPerSecond, scrollLeft);
     if (playheadX >= -10 && playheadX <= width + 10) {
       // Glow
       ctx.shadowColor = '#00F0FF';
@@ -170,13 +171,13 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     isScrubbingRef.current = true;
     const rect = e.currentTarget.getBoundingClientRect();
     const pixelX = e.clientX - rect.left;
-    const time = Math.max(0, (pixelX + scrollLeft) / pixelsPerSecond);
+    const time = viewportXToTime(pixelX, pixelsPerSecond, scrollLeft);
     onSeek(time);
 
     const onPointerMove = (moveEv: PointerEvent) => {
       if (!isScrubbingRef.current) return;
       const movePixelX = moveEv.clientX - rect.left;
-      const moveTime = Math.max(0, (movePixelX + scrollLeft) / pixelsPerSecond);
+      const moveTime = viewportXToTime(movePixelX, pixelsPerSecond, scrollLeft);
       onSeek(moveTime);
     };
 
