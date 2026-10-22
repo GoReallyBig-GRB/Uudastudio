@@ -220,9 +220,9 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md select-none animate-in fade-in duration-200">
-      <div className="w-full max-w-6xl h-[92vh] bg-[#0E0E14] border border-zinc-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100">
+      <div className="w-full max-w-6xl h-[calc(100dvh-1.5rem)] md:h-[92dvh] bg-[#0E0E14] border border-zinc-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100">
         {/* Workspace Top Header */}
-        <div className="h-14 px-6 border-b border-zinc-800 flex items-center justify-between bg-[#12121A] shrink-0">
+        <div className="h-14 px-3 sm:px-6 border-b border-zinc-800 flex items-center justify-between bg-[#12121A] shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-indigo-600 flex items-center justify-center text-white shadow-[0_0_15px_rgba(0,240,255,0.35)]">
               <Mic className="w-4 h-4" />

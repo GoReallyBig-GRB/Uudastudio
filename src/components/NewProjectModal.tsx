@@ -25,8 +25,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 select-none animate-in fade-in duration-100">
-      <div className="w-full max-w-md bg-[#121218] border border-zinc-700/80 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col text-xs text-zinc-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-2 sm:p-4 select-none animate-in fade-in duration-100">
+      <div className="w-full max-w-md max-h-[calc(100dvh-1rem)] overflow-y-auto bg-[#121218] border border-zinc-700/80 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col text-xs text-zinc-200">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 bg-[#161622]">
           <div className="flex items-center gap-2">
