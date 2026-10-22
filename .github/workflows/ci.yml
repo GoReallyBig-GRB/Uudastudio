@@ -22,11 +22,16 @@ jobs:
         with:
           node-version: 22
 
+      - name: Verify Node.js and npm
+        run: |
+          node --version
+          npm --version
+
       - name: Install dependencies
         run: npm install --include=dev --no-audit --no-fund
 
-      - name: Verify TypeScript installation
-        run: npx --no-install tsc --version
+      - name: Verify React and TypeScript installation
+        run: npm ls --depth=0 react react-dom typescript
 
       - name: Type-check
         run: npm run lint
