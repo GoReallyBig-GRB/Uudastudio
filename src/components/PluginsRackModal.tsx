@@ -28,7 +28,7 @@ import {
   AlertTriangle,
   Maximize2,
 } from 'lucide-react';
-import { Track } from '../types';
+import { Track, Project } from '../types';
 import { audioEngine } from '../audio/engine';
 import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 import { PluginDescriptor, PluginInstance } from '../plugins/types';
@@ -40,11 +40,14 @@ import {
 import { getTrackLabel } from '../utils/tracks';
 import { PluginPanel } from './plugins/PluginPanel';
 import { PluginPopout } from './plugins/PluginPopout';
+import { PreviewButton } from './plugins/PreviewButton';
 
 interface PluginsRackModalProps {
   isOpen: boolean;
   onClose: () => void;
   tracks: Track[];
+  /** Whole project, so Preview can play the target on its own */
+  project: Project;
   selectedTrackId: string | null;
   onSelectTrack: (trackId: string) => void;
 }
@@ -64,12 +67,22 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
   isOpen,
   onClose,
   tracks,
+  project,
   selectedTrackId,
   onSelectTrack,
 }) => {
   // 'Master bus' is a local target, so the app's selected track is left alone
   const [masterTarget, setMasterTarget] = useState<boolean>(false);
   const activeTrackId = masterTarget ? MASTER_TRACK_ID : selectedTrackId || (tracks.length > 0 ? tracks[0].id : null);
+  // A preview belongs to one target: switching target or closing the rack ends it
+  useEffect(() => {
+    const playing = audioEngine.getPreviewTarget();
+    if (playing && playing !== activeTrackId) audioEngine.stopPreview();
+  }, [activeTrackId]);
+  useEffect(() => {
+    if (!isOpen) audioEngine.stopPreview();
+    return () => audioEngine.stopPreview();
+  }, [isOpen]);
   const activeIndex = tracks.findIndex((t) => t.id === activeTrackId);
   const activeLabel = masterTarget
     ? 'Master Bus'
@@ -257,6 +270,7 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                 ))}
               </select>
             </label>
+            <PreviewButton project={project} targetId={activeTrackId} />
             <button type="button" onClick={onClose} title="Close" aria-label="Close" className={iconBtn}>
               <X className="w-5 h-5" />
             </button>
@@ -658,6 +672,7 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
           instance={popoutPlugin}
           trackId={activeTrackId}
           trackLabel={activeLabel}
+          project={project}
           onClose={() => setPopoutId(null)}
         />
       )}

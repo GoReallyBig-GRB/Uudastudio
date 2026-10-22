@@ -2117,6 +2117,7 @@ const MainStudio: React.FC = () => {
         isOpen={isPluginsRackModalOpen}
         onClose={() => setIsPluginsRackModalOpen(false)}
         tracks={project.tracks}
+        project={project}
         selectedTrackId={selectedTrackId}
         onSelectTrack={(id) => setSelectedTrackId(id)}
       />
