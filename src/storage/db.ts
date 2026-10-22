@@ -134,8 +134,6 @@ export async function loadAllAssetsFromDB(engine: AudioEngine): Promise<Asset[]>
   });
 }
 
-export const MAX_SESSION_AGE_MS = 5 * 60 * 1000; // 5 minutes
-
 export async function saveProjectToDB(project: Project): Promise<void> {
   const db = await openDB();
   const projectWithTimestamp = {
@@ -153,33 +151,14 @@ export async function saveProjectToDB(project: Project): Promise<void> {
 export async function loadProjectFromDB(): Promise<Project | null> {
   try {
     const db = await openDB();
-    return new Promise((resolve, reject) => {
+    return await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_PROJECT, 'readonly');
       const req = tx.objectStore(STORE_PROJECT).get(PROJECT_KEY);
-      req.onsuccess = async () => {
-        const stored = req.result as (Project & { updatedAt?: number }) | undefined;
-        if (!stored) {
-          resolve(null);
-          return;
-        }
-
-        const now = Date.now();
-        const savedAt = stored.updatedAt || 0;
-        const ageMs = now - savedAt;
-
-        // The app should only load with work done within the last 5 minutes before shutdown
-        if (ageMs > MAX_SESSION_AGE_MS) {
-          // Stale session older than 5 minutes: clear and return null
-          try {
-            await clearAllProjectData();
-          } catch {
-            // ignore cleanup failure
-          }
-          resolve(null);
-          return;
-        }
-
-        resolve(stored);
+      req.onsuccess = () => {
+        const stored = req.result as Project | undefined;
+        // Never discard recoverable project data solely because it is older than
+        // an arbitrary session-age threshold. Recovery is user work, not a cache.
+        resolve(stored ?? null);
       };
       req.onerror = () => reject(req.error);
     });
