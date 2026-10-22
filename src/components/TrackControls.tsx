@@ -12,6 +12,7 @@ import { Track } from '../types';
 import { audioEngine } from '../audio/engine';
 import { pluginManager } from '../plugins/pluginManager';
 import { formatVolumeDb, formatPan } from '../utils/formatters';
+import { getTrackLabel, renameUpdate } from '../utils/tracks';
 
 interface TrackControlsProps {
   track: Track;
@@ -36,8 +37,9 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
   onMoveTrack,
   isCollapsed = false,
 }) => {
+  const label = getTrackLabel(track, index);
   const [isEditingName, setIsEditingName] = useState(false);
-  const [nameValue, setNameValue] = useState(track.name);
+  const [nameValue, setNameValue] = useState(label);
   const meterCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Live count of active plugins on this track
@@ -54,10 +56,10 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
     return unsub;
   }, [track.id]);
 
-  // Synchronize local input if track.name changes from undo/redo
+  // Keep the input in step when the label changes (undo/redo, or the track moved and "Track N" renumbered)
   useEffect(() => {
-    setNameValue(track.name);
-  }, [track.name]);
+    setNameValue(label);
+  }, [label]);
 
   // Live VU meter drawing loop
   useEffect(() => {
@@ -116,12 +118,13 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
 
   const handleNameSubmit = () => {
     setIsEditingName(false);
-    const trimmed = nameValue.trim();
-    if (trimmed && trimmed !== track.name) {
-      onUpdateTrack(track.id, { name: trimmed });
-    } else {
-      setNameValue(track.name);
+    const typed = nameValue.trim();
+    // Unchanged keeps an automatic label automatic; blank returns to the automatic "Track N" label
+    if (typed === label) {
+      setNameValue(label);
+      return;
     }
+    onUpdateTrack(track.id, renameUpdate(typed));
   };
 
   if (isCollapsed) {
@@ -136,7 +139,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
             ? 'bg-[#181824] shadow-[inset_3px_0_0_#00F0FF]'
             : 'bg-[#121216] hover:bg-[#15151c]'
         }`}
-        title={`Track ${index + 1}: ${track.name} (Click to select)`}
+        title={`${label} (click to select)`}
       >
         <span className="w-5 h-4 rounded-xs bg-zinc-800 text-[9px] font-mono font-bold text-zinc-300 flex items-center justify-center">
           {index + 1}
@@ -243,7 +246,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleNameSubmit();
                 if (e.key === 'Escape') {
-                  setNameValue(track.name);
+                  setNameValue(label);
                   setIsEditingName(false);
                 }
               }}
@@ -255,7 +258,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
               title="Double-click to rename"
               className="text-xs font-semibold text-zinc-200 truncate cursor-text hover:text-cyan-300 transition-colors"
             >
-              {track.name}
+              {label}
             </span>
           )}
         </div>
