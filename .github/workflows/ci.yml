@@ -23,7 +23,10 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --include=dev --no-audit --no-fund
+
+      - name: Verify TypeScript installation
+        run: npx --no-install tsc --version
 
       - name: Type-check
         run: npm run lint
