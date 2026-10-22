@@ -37,6 +37,8 @@ interface LeftSidebarProps {
   onDeleteTrack: (trackId: string) => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
   onAddTrack: () => void;
+  onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
+  onRemoveEmptyTracks: () => void;
   // VoicePanel props
   onAddVoiceTrack: (asset: Asset, metadata: VoiceMetadata) => void;
   existingVoiceMetadata?: VoiceMetadata | null;
@@ -64,6 +66,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onDeleteTrack,
   onMoveTrack,
   onAddTrack,
+  onUpdateTrack,
+  onRemoveEmptyTracks,
   onAddVoiceTrack,
   existingVoiceMetadata,
   onAddLibraryTrack,
@@ -229,6 +233,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               onDeleteTrack={onDeleteTrack}
               onMoveTrack={onMoveTrack}
               onAddTrack={onAddTrack}
+              onUpdateTrack={onUpdateTrack}
+              onRemoveEmptyTracks={onRemoveEmptyTracks}
             />
           )}
 

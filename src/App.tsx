@@ -883,6 +883,35 @@ const MainStudio: React.FC = () => {
     });
   };
 
+  // Removes every empty lane that carries no effects (one undo step brings them back)
+  const handleRemoveEmptyTracks = () => {
+    const removable = project.tracks.filter(
+      (t) => t.clips.length === 0 && pluginManager.getPluginsForTrack(t.id).length === 0
+    );
+    if (removable.length === 0) return;
+    const ids = new Set(removable.map((t) => t.id));
+    setProjectWithHistory((prev) => ({
+      ...prev,
+      tracks: prev.tracks.filter((t) => !ids.has(t.id)),
+    }));
+    if (selectedTrackId && ids.has(selectedTrackId)) setSelectedTrackId(null);
+    addToast({
+      type: 'info',
+      title: removable.length === 1 ? 'Empty track removed' : `${removable.length} empty tracks removed`,
+      message: 'Press Ctrl+Z to bring them back.',
+    });
+  };
+
+  // Called by the timeline when a drag emptied lanes that were never touched and removed them
+  const handleTracksAutoRemoved = (ids: string[]) => {
+    if (selectedTrackId && ids.includes(selectedTrackId)) setSelectedTrackId(null);
+    addToast({
+      type: 'info',
+      title: ids.length === 1 ? 'Empty track removed' : `${ids.length} empty tracks removed`,
+      message: 'The lane was left empty by the move. Press Ctrl+Z to undo.',
+    });
+  };
+
   const handleMoveTrack = (trackId: string, direction: 'up' | 'down') => {
     setProjectWithHistory((prev) => {
       const idx = prev.tracks.findIndex((t) => t.id === trackId);
@@ -1908,6 +1937,8 @@ const MainStudio: React.FC = () => {
           onDeleteTrack={handleDeleteTrack}
           onMoveTrack={handleMoveTrack}
           onAddTrack={handleAddEmptyTrack}
+          onUpdateTrack={handleUpdateTrack}
+          onRemoveEmptyTracks={handleRemoveEmptyTracks}
           onAddVoiceTrack={handleAddVoiceTrack}
           onAddLibraryTrack={handleAddLibraryTrack}
         />
@@ -1958,6 +1989,7 @@ const MainStudio: React.FC = () => {
               onDeleteTrack={handleDeleteTrack}
               onMoveTrack={handleMoveTrack}
               onUpdateProject={(p) => setProjectWithHistory(p)}
+              onTracksAutoRemoved={handleTracksAutoRemoved}
               onSeek={handleSeek}
               onSplitClip={handleSplitClip}
               onDeleteClip={handleDeleteClip}

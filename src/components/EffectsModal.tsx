@@ -41,6 +41,7 @@ import {
 } from '../audio/effects/dspChain';
 import { audioEngine } from '../audio/engine';
 import { formatTimecode } from '../utils/formatters';
+import { getTrackLabel } from '../utils/tracks';
 
 interface EffectsModalProps {
   isOpen: boolean;
@@ -201,10 +202,10 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   // List all available clips in project
   const allClips = useMemo(() => {
     const list: { trackId: string; trackName: string; clip: Clip; asset: Asset | null }[] = [];
-    for (const track of project.tracks) {
+    for (const [trackIndex, track] of project.tracks.entries()) {
       for (const c of track.clips) {
         const ast = audioEngine.getAsset(c.assetId) || null;
-        list.push({ trackId: track.id, trackName: track.name, clip: c, asset: ast });
+        list.push({ trackId: track.id, trackName: getTrackLabel(track, trackIndex), clip: c, asset: ast });
       }
     }
     return list;
