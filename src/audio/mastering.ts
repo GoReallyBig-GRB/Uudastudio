@@ -194,6 +194,44 @@ export function calculateTruePeak(channelData: Float32Array): number {
   return peak;
 }
 
+async function calculateTruePeakAsync(channelData: Float32Array, onProgress?: (progress: ExportProgress) => void): Promise<number> {
+  let peak = 0;
+  const len = channelData.length;
+
+  for (let i = 0; i < len; i++) {
+    if ((i + 1) % 8192 === 0) {
+      onProgress?.({ stage: 'mastering', percent: 62, message: 'Measuring true peak...' });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    const s0 = channelData[Math.max(0, i - 1)];
+    const s1 = channelData[i];
+    const s2 = channelData[Math.min(len - 1, i + 1)];
+    const s3 = channelData[Math.min(len - 1, i + 2)];
+
+    const abs1 = Math.abs(s1);
+    if (abs1 > peak) peak = abs1;
+
+    // 4x sub-sample points: t = 0.25, 0.5, 0.75
+    for (let sub = 1; sub <= 3; sub++) {
+      const t = sub * 0.25;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      // Hermite cubic polynomial
+      const inter = 0.5 * (
+        (2 * s1) +
+        (-s0 + s2) * t +
+        (2 * s0 - 5 * s1 + 4 * s2 - s3) * t2 +
+        (-s0 + 3 * s1 - 3 * s2 + s3) * t3
+      );
+      const absInter = Math.abs(inter);
+      if (absInter > peak) peak = absInter;
+    }
+  }
+
+  return peak;
+}
+
+
 /**
  * Full ITU-R BS.1770-4 / EBU R128 Loudness Measurement:
  * Stage 1: High shelf filter (+4dB @ 1500Hz)
@@ -345,6 +383,160 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
     durationSeconds: Math.round((length / sampleRate) * 10) / 10,
   };
 }
+
+export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (progress: ExportProgress) => void, progressStart = 60, progressEnd = 70): Promise<LoudnessStats> {
+  const numChannels = buffer.numberOfChannels;
+  const length = buffer.length;
+  const sampleRate = buffer.sampleRate;
+
+  if (length === 0) {
+    return { integratedLUFS: -70, truePeakDbTP: -70, rmsDb: -70, loudnessRangeLU: 0, durationSeconds: 0 };
+  }
+
+  const channelData: Float32Array[] = [];
+  let maxTruePeakLinear = 0;
+  let totalSumSq = 0;
+
+  for (let c = 0; c < numChannels; c++) {
+    const data = buffer.getChannelData(c);
+    channelData.push(data);
+    const tp = await calculateTruePeakAsync(data, onProgress);
+    if (tp > maxTruePeakLinear) maxTruePeakLinear = tp;
+
+    for (let i = 0; i < length; i++) {
+      if ((i + 1) % 262144 === 0) {
+        const ratio = (i + 1) / Math.max(1, length);
+        onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + ratio * (progressEnd - progressStart)), message: 'Analyzing loudness in yielding blocks...' });
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+      totalSumSq += data[i] * data[i];
+    }
+  }
+
+  const rms = Math.sqrt(totalSumSq / (length * numChannels || 1));
+  const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -70;
+  const truePeakDbTP = maxTruePeakLinear > 0 ? 20 * Math.log10(maxTruePeakLinear) : -70;
+
+  // K-Weighting Biquad Coefficients (ITU-R BS.1770-4 for 48kHz; normalized)
+  const a1_hs = -1.69065929318241;
+  const a2_hs = 0.73248077421585;
+  const b0_hs = 1.53512485958697;
+  const b1_hs = -2.69169618940638;
+  const b2_hs = 1.19839281085285;
+
+  const a1_hp = -1.99004745483398;
+  const a2_hp = 0.99007225036621;
+  const b0_hp = 1.0;
+  const b1_hp = -2.0;
+  const b2_hp = 1.0;
+
+  const filteredChannels: Float32Array[] = [];
+
+  for (let c = 0; c < numChannels; c++) {
+    const input = channelData[c];
+    const filtered = new Float32Array(length);
+
+    let x1_hs = 0, x2_hs = 0, y1_hs = 0, y2_hs = 0;
+    let x1_hp = 0, x2_hp = 0, y1_hp = 0, y2_hp = 0;
+
+    for (let i = 0; i < length; i++) {
+      const x = input[i];
+
+      // Stage 1: High shelf filter
+      const y_hs = b0_hs * x + b1_hs * x1_hs + b2_hs * x2_hs - a1_hs * y1_hs - a2_hs * y2_hs;
+      x2_hs = x1_hs;
+      x1_hs = x;
+      y2_hs = y1_hs;
+      y1_hs = y_hs;
+
+      // Stage 2: High pass RLB filter
+      const y_hp = b0_hp * y_hs + b1_hp * x1_hp + b2_hp * x2_hp - a1_hp * y1_hp - a2_hp * y2_hp;
+      x2_hp = x1_hp;
+      x1_hp = y_hs;
+      y2_hp = y1_hp;
+      y1_hp = y_hp;
+
+      filtered[i] = y_hp;
+    }
+
+    filteredChannels.push(filtered);
+  }
+
+  // 400ms blocks with 100ms hop size (75% overlap)
+  const blockSize = Math.floor(0.4 * sampleRate);
+  const hopSize = Math.floor(0.1 * sampleRate);
+  const numBlocks = Math.floor((length - blockSize) / hopSize);
+
+  const blockPowers: number[] = [];
+  const shortTermPowers: number[] = [];
+
+  for (let b = 0; b < numBlocks; b++) {
+    if (b > 0 && b % 64 === 0) {
+      const ratio = b / Math.max(1, numBlocks);
+      onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + ratio * (progressEnd - progressStart)), message: 'Applying loudness gating...' });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    const start = b * hopSize;
+    let blockSum = 0;
+
+    for (let c = 0; c < numChannels; c++) {
+      const data = filteredChannels[c];
+      let sum = 0;
+      for (let i = 0; i < blockSize; i++) {
+        const val = data[start + i];
+        sum += val * val;
+      }
+      blockSum += (sum / blockSize);
+    }
+
+    const blockLoudness = -0.691 + 10 * Math.log10(Math.max(1e-12, blockSum));
+    // Absolute threshold gating at -70 LKFS
+    if (blockLoudness > -70) {
+      blockPowers.push(blockSum);
+      shortTermPowers.push(blockLoudness);
+    }
+  }
+
+  let integratedLUFS = -70;
+
+  if (blockPowers.length > 0) {
+    // Relative gate: -10 LU below un-gated mean
+    const avgPower = blockPowers.reduce((a, b) => a + b, 0) / blockPowers.length;
+    const gammaA = -0.691 + 10 * Math.log10(Math.max(1e-12, avgPower)) - 10;
+
+    const gatedPowers = blockPowers.filter((p) => {
+      const lkfs = -0.691 + 10 * Math.log10(Math.max(1e-12, p));
+      return lkfs > gammaA;
+    });
+
+    if (gatedPowers.length > 0) {
+      const finalPower = gatedPowers.reduce((a, b) => a + b, 0) / gatedPowers.length;
+      integratedLUFS = -0.691 + 10 * Math.log10(Math.max(1e-12, finalPower));
+    } else {
+      integratedLUFS = -0.691 + 10 * Math.log10(Math.max(1e-12, avgPower));
+    }
+  } else {
+    integratedLUFS = Math.max(-70, rmsDb - 3.0);
+  }
+
+  // Loudness Range (LRA) calculation across short term powers
+  let loudnessRangeLU = 0;
+  if (shortTermPowers.length >= 10) {
+    const sorted = [...shortTermPowers].sort((a, b) => a - b);
+    const p10 = sorted[Math.floor(sorted.length * 0.1)];
+    const p95 = sorted[Math.floor(sorted.length * 0.95)];
+    loudnessRangeLU = Math.max(0, Math.round((p95 - p10) * 10) / 10);
+  }
+
+  return {
+    integratedLUFS: Math.round(integratedLUFS * 10) / 10,
+    truePeakDbTP: Math.round(truePeakDbTP * 10) / 10,
+    rmsDb: Math.round(rmsDb * 10) / 10,
+    loudnessRangeLU,
+    durationSeconds: Math.round((length / sampleRate) * 10) / 10,
+  };
+}
+
 
 /**
  * Builds the active (non-bypassed) plugins of one chain inside an offline context and wires them in series after
@@ -558,7 +750,7 @@ export async function measureAndApplyMastering(
   const ceilingDbTP = customCeilingDbTP ?? profile.ceilingDbTP;
 
   onProgress?.({ stage: 'mastering', percent: 65, message: 'Measuring initial mix loudness...' });
-  const preStats = measureLoudness(inputBuffer);
+  const preStats = await measureLoudnessAsync(inputBuffer, onProgress, 60, 69);
 
   // Compute required gain
   let gainAdjustmentDb = 0;
@@ -583,7 +775,7 @@ export async function measureAndApplyMastering(
   );
 
   onProgress?.({ stage: 'mastering', percent: 85, message: 'Verifying post-mastering compliance...' });
-  const postStats = measureLoudness(masteredBuffer);
+  const postStats = await measureLoudnessAsync(masteredBuffer, onProgress, 85, 92);
 
   const passedLoudness = Math.abs(postStats.integratedLUFS - targetLufs) <= 1.0;
   const passedTruePeak = postStats.truePeakDbTP <= (ceilingDbTP + 0.1);
