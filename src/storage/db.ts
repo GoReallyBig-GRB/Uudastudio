@@ -198,55 +198,52 @@ export async function saveProjectToDB(project: Project): Promise<void> {
 }
 
 export async function loadProjectFromDB(): Promise<Project | null> {
-  try {
-    const db = await openDB();
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_PROJECT, 'readonly');
-      const store = tx.objectStore(STORE_PROJECT);
-      const currentKey = getCurrentProjectKey();
-      const req = store.get(currentKey);
-      req.onsuccess = () => {
-        const current = req.result as (Project & { updatedAt?: number }) | undefined;
-        if (current) {
-          void validateSessionProject(db, currentKey, current).then(resolve, reject);
-          return;
-        }
-        // Migrate the old shared key once per tab. Explicit new-tab sessions set this
-        // marker already, so they can never fall back into another tab's legacy project.
-        let alreadyMigrated = false;
-        try { alreadyMigrated = window.sessionStorage.getItem(LEGACY_MIGRATION_FLAG) === 'true'; } catch {}
-        if (alreadyMigrated) {
+  const db = await openDB();
+  return await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_PROJECT, 'readonly');
+    const store = tx.objectStore(STORE_PROJECT);
+    const currentKey = getCurrentProjectKey();
+    const req = store.get(currentKey);
+    req.onsuccess = () => {
+      const current = req.result as (Project & { updatedAt?: number }) | undefined;
+      if (current) {
+        void validateSessionProject(db, currentKey, current).then(resolve, reject);
+        return;
+      }
+      // Migrate the old shared key once per tab. Explicit new-tab sessions set this
+      // marker already, so they can never fall back into another tab's legacy project.
+      let alreadyMigrated = false;
+      try { alreadyMigrated = window.sessionStorage.getItem(LEGACY_MIGRATION_FLAG) === 'true'; } catch {}
+      if (alreadyMigrated) {
+        resolve(null);
+        return;
+      }
+      const legacyReq = store.get(LEGACY_PROJECT_KEY);
+      legacyReq.onsuccess = () => {
+        const legacy = legacyReq.result as (Project & { updatedAt?: number }) | undefined;
+        if (!legacy) {
           resolve(null);
           return;
         }
-        const legacyReq = store.get(LEGACY_PROJECT_KEY);
-        legacyReq.onsuccess = () => {
-          const legacy = legacyReq.result as (Project & { updatedAt?: number }) | undefined;
-          if (!legacy) {
+        void validateSessionProject(db, LEGACY_PROJECT_KEY, legacy).then(async (valid) => {
+          if (!valid) {
             resolve(null);
             return;
           }
-          void validateSessionProject(db, LEGACY_PROJECT_KEY, legacy).then(async (valid) => {
-            if (!valid) {
-              resolve(null);
-              return;
-            }
-            try {
-              await saveProjectToDB(valid);
-              window.sessionStorage.setItem(LEGACY_MIGRATION_FLAG, 'true');
-            } catch {
-              // The compatibility read still works for this page if migration storage fails.
-            }
-            resolve(valid);
-          }, reject);
-        };
-        legacyReq.onerror = () => reject(legacyReq.error);
+          try {
+            await saveProjectToDB(valid);
+            window.sessionStorage.setItem(LEGACY_MIGRATION_FLAG, 'true');
+          } catch {
+            // The compatibility read still works for this page if migration storage fails.
+          }
+          resolve(valid);
+        }, reject);
       };
-      req.onerror = () => reject(req.error);
-    });
-  } catch {
-    return null;
-  }
+      legacyReq.onerror = () => reject(legacyReq.error);
+    };
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 async function validateSessionProject(
