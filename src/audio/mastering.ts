@@ -407,8 +407,8 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
 
     for (let i = 0; i < length; i++) {
       if ((i + 1) % 262144 === 0) {
-        const ratio = (i + 1) / Math.max(1, length);
-        onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + ratio * (progressEnd - progressStart)), message: 'Analyzing loudness in yielding blocks...' });
+        const ratio = (c * length + i + 1) / Math.max(1, length * numChannels);
+        onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + (0.2 + ratio * 0.2) * (progressEnd - progressStart)), message: 'Analyzing loudness in yielding blocks...' });
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
       totalSumSq += data[i] * data[i];
@@ -442,6 +442,11 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
     let x1_hp = 0, x2_hp = 0, y1_hp = 0, y2_hp = 0;
 
     for (let i = 0; i < length; i++) {
+      if ((i + 1) % 262144 === 0) {
+        const ratio = (c * length + i + 1) / Math.max(1, length * numChannels);
+        onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + (0.4 + ratio * 0.3) * (progressEnd - progressStart)), message: 'Applying K-weighting in yielding blocks...' });
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
       const x = input[i];
 
       // Stage 1: High shelf filter
@@ -475,7 +480,7 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
   for (let b = 0; b < numBlocks; b++) {
     if (b > 0 && b % 64 === 0) {
       const ratio = b / Math.max(1, numBlocks);
-      onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + ratio * (progressEnd - progressStart)), message: 'Applying loudness gating...' });
+      onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + (0.7 + ratio * 0.3) * (progressEnd - progressStart)), message: 'Applying loudness gating...' });
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
     const start = b * hopSize;
