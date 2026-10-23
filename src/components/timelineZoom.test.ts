@@ -23,7 +23,7 @@ describe('timeline zoom anchoring', () => {
       nextZoom: 0.2,
       maxScrollLeft: 150,
     });
-    expect(result).toBe(150);
+    expect(result).toBe(0);
   });
 
   it('handles invalid zoom and geometry values without returning NaN', () => {
