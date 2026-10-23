@@ -233,8 +233,32 @@ export async function calculateTruePeakAsync(
   const [w10, w11, w12, w13] = interpolationWeights[1];
   const [w20, w21, w22, w23] = interpolationWeights[2];
 
-  for (let i = 0; i < len; i++) {
-    const processed = i + 1;
+  for (let blockStart = 0; blockStart < len; blockStart += yieldBlockSamples) {
+    const blockEnd = Math.min(len, blockStart + yieldBlockSamples);
+    for (let i = blockStart; i < blockEnd; i++) {
+      const s0 = channelData[i > 0 ? i - 1 : 0];
+      const s1 = channelData[i];
+      const s2 = channelData[i + 1 < len ? i + 1 : len - 1];
+      const s3 = channelData[i + 2 < len ? i + 2 : len - 1];
+
+      const abs1 = Math.abs(s1);
+      if (abs1 > peak) peak = abs1;
+
+      // 4x Hermite interpolation with precomputed coefficients and no allocations.
+      const inter1 = w00 * s0 + w01 * s1 + w02 * s2 + w03 * s3;
+      const absInter1 = Math.abs(inter1);
+      if (absInter1 > peak) peak = absInter1;
+
+      const inter2 = w10 * s0 + w11 * s1 + w12 * s2 + w13 * s3;
+      const absInter2 = Math.abs(inter2);
+      if (absInter2 > peak) peak = absInter2;
+
+      const inter3 = w20 * s0 + w21 * s1 + w22 * s2 + w23 * s3;
+      const absInter3 = Math.abs(inter3);
+      if (absInter3 > peak) peak = absInter3;
+    }
+
+    const processed = blockEnd;
     if (processed % reportBlockSamples === 0 || processed === len) {
       const ratio = processed / Math.max(1, len);
       onProgress?.({
@@ -243,31 +267,9 @@ export async function calculateTruePeakAsync(
         message: 'Measuring true peak...',
       });
     }
-    if (processed % yieldBlockSamples === 0) {
+    // Yield between bounded blocks so input, paint and progress updates can run.
+    if (processed < len) {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    }
-    const s0 = channelData[Math.max(0, i - 1)];
-    const s1 = channelData[i];
-    const s2 = channelData[Math.min(len - 1, i + 1)];
-    const s3 = channelData[Math.min(len - 1, i + 2)];
-
-    const abs1 = Math.abs(s1);
-    if (abs1 > peak) peak = abs1;
-
-    // 4x sub-sample points: t = 0.25, 0.5, 0.75
-    for (let sub = 1; sub <= 3; sub++) {
-      const t = sub * 0.25;
-      const t2 = t * t;
-      const t3 = t2 * t;
-      // Hermite cubic polynomial
-      const inter = 0.5 * (
-        (2 * s1) +
-        (-s0 + s2) * t +
-        (2 * s0 - 5 * s1 + 4 * s2 - s3) * t2 +
-        (-s0 + 3 * s1 - 3 * s2 + s3) * t3
-      );
-      const absInter = Math.abs(inter);
-      if (absInter > peak) peak = absInter;
     }
   }
 
