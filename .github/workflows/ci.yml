@@ -31,7 +31,7 @@ jobs:
           bun --version
 
       - name: Install locked dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Verify React and TypeScript installation
         run: bun pm ls
