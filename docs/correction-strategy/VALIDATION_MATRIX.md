@@ -173,3 +173,5 @@ Run `npm run lint`, `npm test`, and `npm run build` in the normal dependency-com
 The checked items above describe added test coverage, not a claim that CI has passed for the latest commit. Browser and IndexedDB transaction acceptance remains open.
 
 - [ ] Browser quota/permission failure check: verify a persistent warning appears once during a failure streak and clears its latch after a successful autosave.
+
+- [ ] IndexedDB restore failure check: force a read/open failure and verify the app warns, pauses autosave, and does not overwrite an existing recovery snapshot with the blank fallback.
