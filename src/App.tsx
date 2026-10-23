@@ -712,7 +712,7 @@ const MainStudio: React.FC = () => {
       }
       const candidates: ProjectDirectoryFileHandle[] = [];
       for await (const entry of directory.values()) {
-        if (entry.kind === 'file' && /\.uuda$/i.test(entry.name)) candidates.push(entry as ProjectDirectoryFileHandle);
+        if (entry.kind === 'file' && /\.uuda$/i.test(entry.name)) candidates.push(entry as unknown as ProjectDirectoryFileHandle);
       }
       candidates.sort((a, b) => a.name.localeCompare(b.name));
       if (candidates.length === 0) {
