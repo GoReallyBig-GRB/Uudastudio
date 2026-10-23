@@ -790,8 +790,27 @@ export async function renderProjectOffline(
     window.dispatchEvent(new CustomEvent('uuda:export-skipped-plugins', { detail: { plugins: skippedPlugins } }));
   }
 
-  onProgress?.({ stage: 'rendering', percent: 40, message: 'Rendering offline audio graph...' });
-  const renderedBuffer = await offlineCtx.startRendering();
+  // OfflineAudioContext does not expose exact render progress. Keep the stage honest
+  // while giving long exports a visible elapsed-time heartbeat instead of appearing frozen.
+  onProgress?.({ stage: 'rendering', percent: 40, message: 'Rendering offline audio graph; exact progress unavailable...' });
+  const renderStartedAt = Date.now();
+  const renderHeartbeat = setInterval(() => {
+    const elapsedSeconds = Math.max(1, Math.floor((Date.now() - renderStartedAt) / 1000));
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    onProgress?.({
+      stage: 'rendering',
+      percent: 40,
+      message: `Rendering offline audio graph... elapsed ${minutes > 0 ? `${minutes}m ` : ''}${seconds}s (exact progress unavailable)`,
+    });
+  }, 2000);
+
+  let renderedBuffer: AudioBuffer;
+  try {
+    renderedBuffer = await offlineCtx.startRendering();
+  } finally {
+    clearInterval(renderHeartbeat);
+  }
   onProgress?.({ stage: 'rendering', percent: 60, message: 'Mixdown complete.' });
 
   return renderedBuffer;
