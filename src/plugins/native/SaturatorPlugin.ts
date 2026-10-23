@@ -4,7 +4,6 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
-import { makeNativeInstance } from './instance';
 
 export const SATURATOR_DESCRIPTOR: PluginDescriptor = {
   id: 'uuda-native-saturator',
@@ -153,18 +152,18 @@ export class NativeSaturatorPlugin {
 
     const getState = async () => ({ ...params });
 
-    return makeNativeInstance({
+    return {
       instanceId,
-      trackId,
       descriptor: SATURATOR_DESCRIPTOR,
       inputNode,
       outputNode,
-      params,
+      isBypassed: false,
+      dryWet: params.dryWet,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    });
+    };
   }
 }

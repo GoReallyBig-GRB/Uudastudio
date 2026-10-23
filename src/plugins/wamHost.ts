@@ -118,7 +118,6 @@ export async function loadThirdPartyWamPlugin(
       inputNode,
       outputNode,
       fallbackNode,
-      initialState,
       err instanceof Error ? err.message : String(err)
     );
   }
@@ -339,36 +338,12 @@ function createFallbackInstance(
   inputNode: AudioNode,
   outputNode: AudioNode,
   fallbackGain: GainNode,
-  initialState: Record<string, unknown> | undefined,
   errorMsg: string
 ): PluginInstance {
-  const fallbackState: Record<string, number> = {};
-  for (const [pid, value] of Object.entries(initialState ?? {})) {
-    if (typeof value === 'number') fallbackState[pid] = value;
-  }
-  for (const [pid, def] of Object.entries(descriptor.parameters)) {
-    if (fallbackState[pid] === undefined) {
-      fallbackState[pid] = def.defaultValue;
-    }
-  }
-
-  const getParameter = (paramId: string) => fallbackState[paramId] ?? 0;
-  const setParameter = (paramId: string, value: number) => {
-    fallbackState[paramId] = value;
-  };
-
-  const getState = async () => ({ ...fallbackState, fallback: true, missing: true });
-  const setState = async (state: Record<string, unknown>) => {
-    for (const [k, v] of Object.entries(state)) {
-      if (typeof v === 'number') fallbackState[k] = v;
-    }
-  };
-
   return {
     instanceId,
     trackId,
     descriptor,
-    missing: true,
     isBypassed: true,
     dryWet: 1.0,
     audioNode: outputNode,
@@ -381,10 +356,10 @@ function createFallbackInstance(
         outputNode.disconnect();
       } catch {}
     },
-    getState,
-    setState,
-    setParameter,
-    getParameter,
+    getState: async () => ({ bypassed: true, fallback: true }),
+    setState: async () => {},
+    setParameter: () => {},
+    getParameter: () => 0,
     renderGUI: async (container: HTMLElement) => {
       container.innerHTML = `
         <div class="p-3 rounded-lg bg-amber-950/30 border border-amber-800 text-xs text-amber-200">

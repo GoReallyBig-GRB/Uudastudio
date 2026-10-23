@@ -4,7 +4,6 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
-import { makeNativeInstance } from './instance';
 import { buildChorusNode } from '../../audio/effects/dspChain';
 import { ChorusParams } from '../../types';
 
@@ -56,14 +55,13 @@ export class NativeChorusPlugin {
     inputNode.connect(dryNode);
     dryNode.connect(outputNode);
 
-    let activeNode: { input: AudioNode; output: AudioNode; stop?: () => void } | null = null;
+    let activeNode: { input: AudioNode; output: AudioNode } | null = null;
 
     const rebuildGraph = () => {
       if (activeNode) {
         try {
           inputNode.disconnect(activeNode.input);
           activeNode.output.disconnect(wetNode);
-          activeNode.stop?.();
         } catch {}
       }
 
@@ -71,8 +69,6 @@ export class NativeChorusPlugin {
         rateHz: params.rateHz,
         depthMs: params.depthMs,
         voices: params.voices,
-        stereoSpread: 0.6,
-        feedback: 0.1,
         dryWet: 1.0,
       };
 
@@ -88,7 +84,6 @@ export class NativeChorusPlugin {
     wetNode.gain.setValueAtTime(params.dryWet, audioCtx.currentTime);
 
     let isBypassed = false;
-    let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
     const setParameter = (paramId: string, value: number) => {
       params[paramId] = value;
@@ -100,9 +95,7 @@ export class NativeChorusPlugin {
           wetNode.gain.setTargetAtTime(value, t, 0.02);
         }
       } else {
-        // Rebuilding on every slider tick would click and waste CPU; wait for the value to settle
-        if (rebuildTimer) clearTimeout(rebuildTimer);
-        rebuildTimer = setTimeout(rebuildGraph, 120);
+        rebuildGraph();
       }
     };
 
@@ -121,14 +114,12 @@ export class NativeChorusPlugin {
     };
 
     const destroy = () => {
-      if (rebuildTimer) clearTimeout(rebuildTimer);
       try {
         inputNode.disconnect();
         dryNode.disconnect();
         wetNode.disconnect();
         outputNode.disconnect();
         if (activeNode) {
-          activeNode.stop?.();
           activeNode.input.disconnect();
           activeNode.output.disconnect();
         }
@@ -137,18 +128,18 @@ export class NativeChorusPlugin {
 
     const getState = async () => ({ ...params });
 
-    return makeNativeInstance({
+    return {
       instanceId,
-      trackId,
       descriptor: CHORUS_DESCRIPTOR,
       inputNode,
       outputNode,
-      params,
+      isBypassed: false,
+      dryWet: params.dryWet,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    });
+    };
   }
 }

@@ -4,7 +4,6 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
-import { makeNativeInstance } from './instance';
 
 export const AUTO_PAN_DESCRIPTOR: PluginDescriptor = {
   id: 'uuda-native-autopan',
@@ -149,18 +148,18 @@ export class NativeAutoPanPlugin {
 
     const getState = async () => ({ ...params });
 
-    return makeNativeInstance({
+    return {
       instanceId,
-      trackId,
       descriptor: AUTO_PAN_DESCRIPTOR,
       inputNode,
       outputNode,
-      params,
+      isBypassed: false,
+      dryWet: 1.0,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    });
+    };
   }
 }

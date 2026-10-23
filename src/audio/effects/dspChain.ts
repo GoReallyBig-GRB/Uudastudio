@@ -227,7 +227,6 @@ export function buildChorusNode(ctx: BaseAudioContext, params: ChorusParams) {
   const depthSec = Math.max(0.001, Math.min(0.02, (params.depthMs || 6) / 1000));
   const baseDelaySec = 0.015;
 
-  const lfos: OscillatorNode[] = [];
   for (let i = 0; i < numVoices; i++) {
     const delay = ctx.createDelay(0.05);
     delay.delayTime.setValueAtTime(baseDelaySec, ctx.currentTime);
@@ -247,12 +246,10 @@ export function buildChorusNode(ctx: BaseAudioContext, params: ChorusParams) {
     delay.connect(wetGain);
 
     lfo.start();
-    lfos.push(lfo);
   }
 
   wetGain.connect(output);
-  // stop() ends the modulators so a replaced effect does not keep running in the background
-  return { input, output, stop: () => lfos.forEach((o) => { try { o.stop(); } catch { /* already stopped */ } }) };
+  return { input, output };
 }
 
 /**
@@ -300,7 +297,7 @@ export function buildFlangerNode(ctx: BaseAudioContext, params: FlangerParams) {
   wetGain.connect(output);
 
   lfo.start();
-  return { input, output, stop: () => { try { lfo.stop(); } catch { /* already stopped */ } } };
+  return { input, output };
 }
 
 /**
@@ -357,7 +354,7 @@ export function buildPhaserNode(ctx: BaseAudioContext, params: PhaserParams) {
   wetGain.connect(output);
 
   lfo.start();
-  return { input, output, stop: () => { try { lfo.stop(); } catch { /* already stopped */ } } };
+  return { input, output };
 }
 
 /**

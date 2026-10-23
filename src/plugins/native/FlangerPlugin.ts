@@ -4,7 +4,6 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
-import { makeNativeInstance } from './instance';
 import { buildFlangerNode } from '../../audio/effects/dspChain';
 import { FlangerParams } from '../../types';
 
@@ -58,14 +57,13 @@ export class NativeFlangerPlugin {
     inputNode.connect(dryNode);
     dryNode.connect(outputNode);
 
-    let activeNode: { input: AudioNode; output: AudioNode; stop?: () => void } | null = null;
+    let activeNode: { input: AudioNode; output: AudioNode } | null = null;
 
     const rebuildGraph = () => {
       if (activeNode) {
         try {
           inputNode.disconnect(activeNode.input);
           activeNode.output.disconnect(wetNode);
-          activeNode.stop?.();
         } catch {}
       }
 
@@ -74,7 +72,6 @@ export class NativeFlangerPlugin {
         depthMs: params.depthMs,
         delayMs: params.delayMs,
         feedback: params.feedback,
-        stereoPhaseDeg: 90,
         dryWet: 1.0,
       };
 
@@ -90,7 +87,6 @@ export class NativeFlangerPlugin {
     wetNode.gain.setValueAtTime(params.dryWet, audioCtx.currentTime);
 
     let isBypassed = false;
-    let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
     const setParameter = (paramId: string, value: number) => {
       params[paramId] = value;
@@ -102,9 +98,7 @@ export class NativeFlangerPlugin {
           wetNode.gain.setTargetAtTime(value, t, 0.02);
         }
       } else {
-        // Rebuilding on every slider tick would click and waste CPU; wait for the value to settle
-        if (rebuildTimer) clearTimeout(rebuildTimer);
-        rebuildTimer = setTimeout(rebuildGraph, 120);
+        rebuildGraph();
       }
     };
 
@@ -123,14 +117,12 @@ export class NativeFlangerPlugin {
     };
 
     const destroy = () => {
-      if (rebuildTimer) clearTimeout(rebuildTimer);
       try {
         inputNode.disconnect();
         dryNode.disconnect();
         wetNode.disconnect();
         outputNode.disconnect();
         if (activeNode) {
-          activeNode.stop?.();
           activeNode.input.disconnect();
           activeNode.output.disconnect();
         }
@@ -139,18 +131,18 @@ export class NativeFlangerPlugin {
 
     const getState = async () => ({ ...params });
 
-    return makeNativeInstance({
+    return {
       instanceId,
-      trackId,
       descriptor: FLANGER_DESCRIPTOR,
       inputNode,
       outputNode,
-      params,
+      isBypassed: false,
+      dryWet: params.dryWet,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    });
+    };
   }
 }

@@ -4,7 +4,6 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
-import { makeNativeInstance } from './instance';
 
 export const LIMITER_DESCRIPTOR: PluginDescriptor = {
   id: 'uuda-native-limiter',
@@ -116,21 +115,23 @@ export class NativeLimiterPlugin {
       } catch {}
     };
 
-    // Only settings are saved; the live gain reduction is a meter, not a setting
-    const getState = async () => ({ ...params });
+    const getState = async () => ({
+      ...params,
+      reduction: Math.abs(limiterNode.reduction || 0),
+    });
 
-    return makeNativeInstance({
+    return {
       instanceId,
-      trackId,
       descriptor: LIMITER_DESCRIPTOR,
       inputNode,
       outputNode,
-      params,
+      isBypassed: false,
+      dryWet: 1.0,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    });
+    };
   }
 }

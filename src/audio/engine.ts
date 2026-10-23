@@ -5,8 +5,7 @@
  */
 
 import { Project, Track, Clip, Asset } from '../types';
-import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
-import { buildDuckCurve, duckCurveKey, scheduleDuckCurve, clearDuck, normalizeDucking } from './ducking';
+import { pluginManager } from '../plugins/pluginManager';
 
 export interface MeterData {
   peak: number; // 0 to 1+
@@ -27,15 +26,10 @@ export interface MasterLiveMetering {
   clip: boolean;
 }
 
-/** Longest stretch the rack preview loops */
-const PREVIEW_MAX_SECONDS = 20;
-
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private duckingGain: GainNode | null = null;
-  /** Entry point of the master plugin chain (ducking -> masterFxIn -> master plugins -> compressor) */
-  private masterFxIn: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
   private limiter: DynamicsCompressorNode | null = null;
   private masterAnalyser: AnalyserNode | null = null;
@@ -65,14 +59,7 @@ export class AudioEngine {
     gainNode: GainNode;
     panNode: StereoPannerNode;
     analyserNode: AnalyserNode;
-    /** Automatic ducking under other tracks (unity unless the track has it switched on) */
-    duckNode: GainNode;
   }> = new Map();
-
-  /** Duck curves already worked out, by track, so playing again does not re-measure the audio */
-  private duckCache: Map<string, { key: string; curve: Float32Array | null }> = new Map();
-  /** Curve key each track currently has scheduled, so a live refresh only touches tracks that changed */
-  private duckApplied: Map<string, string> = new Map();
 
   // Active playing source nodes & clip gain nodes to stop on pause/seek
   private activeSources: Array<{
@@ -80,14 +67,10 @@ export class AudioEngine {
     gainNode: GainNode;
   }> = [];
 
-  // Rack preview: plays one track (or the whole mix) in isolation, looping, without touching the timeline transport
-  private previewTargetId: string | null = null;
-  private previewRange: { start: number; end: number } | null = null;
-  private previewProject: Project | null = null;
-  private previewSaved: { playhead: number; end: number } | null = null;
-
   // Playback state
   private isPlaying: boolean = false;
+  private playbackRequestId: number = 0;
+  private isStartingPlayback: boolean = false;
   private playheadSeconds: number = 0;
   private playStartTimeCtx: number = 0;
   private playheadStartOffset: number = 0;
@@ -137,19 +120,9 @@ export class AudioEngine {
   }
 
   public rewireTrackPlugins(trackId: string): void {
-    if (trackId === MASTER_TRACK_ID) {
-      this.rewireMasterPlugins();
-      return;
-    }
     const nodes = this.trackNodes.get(trackId);
     if (!nodes) return;
     pluginManager.connectPluginChain(trackId, nodes.gainNode, nodes.panNode as unknown as AudioNode);
-  }
-
-  /** Master bus effects: the whole mix passes through them before the compressor and limiter */
-  public rewireMasterPlugins(): void {
-    if (!this.masterFxIn || !this.compressor) return;
-    pluginManager.connectPluginChain(MASTER_TRACK_ID, this.masterFxIn, this.compressor);
   }
 
   public async init(): Promise<AudioContext> {
@@ -305,10 +278,7 @@ export class AudioEngine {
 
     // Connect chain: Track -> MasterGain -> DuckingGain -> Compressor -> Limiter -> Splitter & Analyser -> Destination
     this.masterGain.connect(this.duckingGain);
-    this.masterFxIn = this.ctx.createGain();
-    this.duckingGain.connect(this.masterFxIn);
-    this.masterFxIn.connect(this.compressor);
-    this.rewireMasterPlugins();
+    this.duckingGain.connect(this.compressor);
     this.compressor.connect(this.limiter);
     this.limiter.connect(this.masterAnalyser);
     this.limiter.connect(this.masterSplitter);
@@ -361,15 +331,6 @@ export class AudioEngine {
     return await ctx.decodeAudioData(copy);
   }
 
-  /** Gain a track should have right now, honouring mute/solo and an active rack preview */
-  private effectiveVolume(track: Track, anySolo: boolean): number {
-    if (this.previewTargetId && this.previewTargetId !== MASTER_TRACK_ID) {
-      return track.id === this.previewTargetId ? track.volume : 0;
-    }
-    if (anySolo) return !track.solo || track.muted ? 0 : track.volume;
-    return track.muted ? 0 : track.volume;
-  }
-
   /**
    * Syncs track nodes with the project state
    */
@@ -385,7 +346,6 @@ export class AudioEngine {
           nodes.gainNode.disconnect();
           nodes.panNode.disconnect();
           nodes.analyserNode.disconnect();
-          nodes.duckNode.disconnect();
         } catch {
           // ignore disconnect errors
         }
@@ -405,19 +365,26 @@ export class AudioEngine {
         analyserNode.fftSize = 512;
         analyserNode.smoothingTimeConstant = 0.7;
 
-        const duckNode = this.ctx.createGain();
-
-        // Path: Track Sources -> GainNode -> Plugins -> PanNode -> DuckNode -> AnalyserNode -> MasterGain
+        // Path: Track Sources -> GainNode -> Plugins -> PanNode -> AnalyserNode -> MasterGain
         pluginManager.connectPluginChain(track.id, gainNode, panNode as unknown as AudioNode);
-        (panNode as unknown as AudioNode).connect(duckNode);
-        duckNode.connect(analyserNode);
+        (panNode as unknown as AudioNode).connect(analyserNode);
         analyserNode.connect(this.masterGain);
 
-        nodes = { gainNode, panNode, analyserNode, duckNode };
+        nodes = { gainNode, panNode, analyserNode };
         this.trackNodes.set(track.id, nodes);
       }
 
-      const effectiveVolume = this.effectiveVolume(track, anySolo);
+      // Calculate effective volume based on Mute and Solo
+      let effectiveVolume = track.volume;
+      if (anySolo) {
+        if (!track.solo || track.muted) {
+          effectiveVolume = 0;
+        }
+      } else {
+        if (track.muted) {
+          effectiveVolume = 0;
+        }
+      }
 
       // Smooth volume transition to prevent clicks
       const now = this.ctx.currentTime;
@@ -440,7 +407,16 @@ export class AudioEngine {
     const nodes = this.trackNodes.get(track.id);
     if (!nodes) return;
 
-    const effectiveVolume = this.effectiveVolume(track, anySolo);
+    let effectiveVolume = track.volume;
+    if (anySolo) {
+      if (!track.solo || track.muted) {
+        effectiveVolume = 0;
+      }
+    } else {
+      if (track.muted) {
+        effectiveVolume = 0;
+      }
+    }
 
     const now = this.ctx.currentTime;
     nodes.gainNode.gain.cancelScheduledValues(now);
@@ -453,66 +429,29 @@ export class AudioEngine {
     }
   }
 
-  private getChannelsForDuck = (assetId: string): { channels: Float32Array[]; sampleRate: number } | null => {
-    const buf = this.assets.get(assetId)?.buffer;
-    if (!buf || typeof buf.getChannelData !== 'function') return null;
-    const channels: Float32Array[] = [];
-    for (let c = 0; c < buf.numberOfChannels; c++) channels.push(buf.getChannelData(c));
-    return { channels, sampleRate: buf.sampleRate };
-  };
-
-  /** Applies each ducking track's gain curve from the given project time */
-  private scheduleDucking(project: Project, fromSeconds: number, onlyChanged = false): void {
-    if (!this.ctx) return;
-    const now = this.ctx.currentTime;
-    for (const track of project.tracks) {
-      const nodes = this.trackNodes.get(track.id);
-      if (!nodes) continue;
-      if (!normalizeDucking(track.ducking).enabled) {
-        if (!onlyChanged || this.duckApplied.has(track.id)) clearDuck(nodes.duckNode.gain, now);
-        this.duckApplied.delete(track.id);
-        this.duckCache.delete(track.id);
-        continue;
-      }
-      const key = duckCurveKey(project, track);
-      if (onlyChanged && this.duckApplied.get(track.id) === key) continue;
-      this.duckApplied.set(track.id, key);
-      let entry = this.duckCache.get(track.id);
-      if (!entry || entry.key !== key) {
-        entry = { key, curve: buildDuckCurve(project, track, this.getChannelsForDuck) };
-        this.duckCache.set(track.id, entry);
-      }
-      if (entry.curve) scheduleDuckCurve(nodes.duckNode.gain, entry.curve, fromSeconds, now);
-      else clearDuck(nodes.duckNode.gain, now);
-    }
-  }
-
-  private clearAllDucks(): void {
-    if (!this.ctx) return;
-    const now = this.ctx.currentTime;
-    for (const nodes of this.trackNodes.values()) clearDuck(nodes.duckNode.gain, now);
-    this.duckApplied.clear();
-  }
-
-  /** Call after ducking settings or source clips change: re-applies the curves from the current position */
-  public refreshDucking(project: Project): void {
-    if (!this.ctx || !this.isPlaying) return;
-    this.scheduleDucking(project, this.updateCurrentPosition(), true);
-  }
-
   /**
    * Start playback from given or current position.
    * Enforces projectEnd constraint: stopping at the end of content.
    */
   public async play(project: Project, startPositionSeconds?: number): Promise<void> {
-    if (this.previewTargetId) this.endPreview();
-    await this.playInternal(project, startPositionSeconds);
-  }
-
-  private async playInternal(project: Project, startPositionSeconds?: number): Promise<void> {
-    const ctx = await this.init();
+    const requestId = ++this.playbackRequestId;
+    this.isStartingPlayback = true;
+    let ctx: AudioContext;
+    try {
+      ctx = await this.init();
+    } catch (error) {
+      if (requestId === this.playbackRequestId) this.isStartingPlayback = false;
+      throw error;
+    }
+    // A newer seek/pause/stop/play request supersedes this pending start.
+    if (requestId !== this.playbackRequestId) return;
+    this.isStartingPlayback = false;
     if (this.isPlaying) {
-      this.stop();
+      this.clearScheduledStop();
+      this.updateCurrentPosition();
+      this.stopSources();
+      this.isPlaying = false;
+      this.stopPlaybackLoop();
     }
 
     this.syncTracks(project.tracks);
@@ -525,13 +464,11 @@ export class AudioEngine {
         if (end > maxEnd) maxEnd = end;
       }
     }
-    this.projectEndSeconds = this.previewRange ? this.previewRange.end : maxEnd;
+    this.projectEndSeconds = maxEnd;
 
     let fromTime = typeof startPositionSeconds === 'number' ? startPositionSeconds : this.playheadSeconds;
     // Pressing Play when playhead is at the end restarts from 0
-    if (this.previewRange) {
-      fromTime = this.previewRange.start;
-    } else if (this.projectEndSeconds > 0 && fromTime >= this.projectEndSeconds - 0.01) {
+    if (this.projectEndSeconds > 0 && fromTime >= this.projectEndSeconds - 0.01) {
       fromTime = 0;
     }
 
@@ -539,8 +476,6 @@ export class AudioEngine {
     this.playStartTimeCtx = ctx.currentTime;
     this.playheadStartOffset = this.playheadSeconds;
     this.isPlaying = true;
-
-    this.scheduleDucking(project, fromTime);
 
     // Schedule all active clips in all tracks
     for (const track of project.tracks) {
@@ -554,8 +489,7 @@ export class AudioEngine {
 
     // Precise stop scheduled on the AudioContext clock
     this.clearScheduledStop();
-    // Previews loop from the animation-frame loop instead of a one-shot stop timer
-    if (this.projectEndSeconds > 0 && !this.previewRange) {
+    if (this.projectEndSeconds > 0) {
       const durationUntilEnd = Math.max(0, this.projectEndSeconds - this.playheadSeconds);
       this.scheduledStopTimer = setTimeout(() => {
         if (this.isPlaying) {
@@ -687,10 +621,8 @@ export class AudioEngine {
   }
 
   public pause(): void {
-    if (this.previewTargetId) {
-      this.endPreview();
-      return;
-    }
+    this.playbackRequestId++;
+    this.isStartingPlayback = false;
     if (!this.isPlaying) return;
     this.clearScheduledStop();
     this.updateCurrentPosition();
@@ -700,10 +632,8 @@ export class AudioEngine {
   }
 
   public stop(): void {
-    if (this.previewTargetId) {
-      this.endPreview();
-      return;
-    }
+    this.playbackRequestId++;
+    this.isStartingPlayback = false;
     this.clearScheduledStop();
     this.stopSources();
     this.isPlaying = false;
@@ -715,28 +645,38 @@ export class AudioEngine {
   }
 
   public seek(toSeconds: number, project?: Project): void {
-    if (this.previewTargetId) this.endPreview();
+    const wasPlaying = this.isPlaying || this.isStartingPlayback;
+    // Invalidate any play() still waiting for AudioContext initialization.
+    this.playbackRequestId++;
+    this.isStartingPlayback = false;
     this.clearScheduledStop();
-    const wasPlaying = this.isPlaying;
-    if (this.isPlaying) {
-      this.stopSources();
+    if (this.isPlaying) this.updateCurrentPosition();
+    this.stopSources();
+    this.isPlaying = false;
+    this.stopPlaybackLoop();
+
+    if (project) {
+      let projectEnd = 0;
+      for (const track of project.tracks) {
+        for (const clip of track.clips) {
+          projectEnd = Math.max(projectEnd, clip.startSeconds + clip.durationSeconds);
+        }
+      }
+      this.projectEndSeconds = projectEnd;
     }
+
     const clamped = this.projectEndSeconds > 0
       ? Math.min(Math.max(0, toSeconds), this.projectEndSeconds)
       : Math.max(0, toSeconds);
     this.playheadSeconds = clamped;
-    if (this.onTimeUpdateCallback) {
-      this.onTimeUpdateCallback(this.playheadSeconds);
-    }
+    if (this.onTimeUpdateCallback) this.onTimeUpdateCallback(clamped);
 
-    if (wasPlaying && project) {
-      this.play(project, this.playheadSeconds);
-    }
+    // Each scrub replaces the previous scheduled restart; play() guards async races.
+    if (wasPlaying && project) void this.play(project, clamped);
   }
 
   private stopSources(): void {
     this.clearScheduledStop();
-    this.clearAllDucks();
     for (const item of this.activeSources) {
       try {
         item.gainNode.gain.cancelScheduledValues(0);
@@ -774,18 +714,6 @@ export class AudioEngine {
     const loop = () => {
       if (this.isPlaying) {
         const t = this.updateCurrentPosition();
-        if (this.previewRange && this.previewProject) {
-          if (t >= this.previewRange.end) {
-            // Loop the preview window
-            const project = this.previewProject;
-            this.stopSources();
-            this.isPlaying = false;
-            void this.playInternal(project, this.previewRange.start);
-          } else {
-            this.animFrameId = requestAnimationFrame(loop);
-          }
-          return;
-        }
         if (this.projectEndSeconds > 0 && t >= this.projectEndSeconds) {
           this.stopSources();
           this.isPlaying = false;
@@ -1010,88 +938,6 @@ export class AudioEngine {
       gainReductionDb: Math.round(gr * 10) / 10,
       clip: maxPeak >= 0.99,
     };
-  }
-
-  /** Which target the rack preview is playing (a track id or MASTER_TRACK_ID), or null */
-  public getPreviewTarget(): string | null {
-    return this.previewTargetId;
-  }
-
-  /**
-   * Rack preview: loops up to PREVIEW_MAX_SECONDS of the target's own audio through its plugin chain.
-   * A track target is heard alone (even if muted or not soloed); MASTER_TRACK_ID plays the whole mix.
-   * The timeline playhead and transport are left alone and restored afterwards.
-   */
-  public async startPreview(project: Project, targetId: string): Promise<{ ok: boolean; reason?: string }> {
-    const tracks = targetId === MASTER_TRACK_ID ? project.tracks : project.tracks.filter(t => t.id === targetId);
-    let start = Infinity;
-    let end = 0;
-    for (const track of tracks) {
-      for (const clip of track.clips) {
-        if (clip.muted) continue;
-        const asset = this.assets.get(clip.assetId);
-        if (!asset || !asset.buffer) continue;
-        start = Math.min(start, clip.startSeconds);
-        end = Math.max(end, clip.startSeconds + clip.durationSeconds);
-      }
-    }
-    if (!isFinite(start) || end <= start) {
-      return { ok: false, reason: targetId === MASTER_TRACK_ID ? 'The timeline has no audio to preview.' : 'This track has no audio to preview.' };
-    }
-
-    if (this.previewTargetId) {
-      this.endPreview();
-    } else if (this.isPlaying) {
-      // Timeline is playing: pause it where it is and let the app's transport catch up
-      this.pause();
-      if (this.onPlaybackEndedCallback) this.onPlaybackEndedCallback();
-    }
-
-    // Start from the playhead when it sits inside the audio, otherwise from where the audio begins
-    const head = this.playheadSeconds;
-    const from = head >= start && head < end - 0.05 ? head : start;
-    this.previewSaved = { playhead: this.playheadSeconds, end: this.projectEndSeconds };
-    this.previewTargetId = targetId;
-    this.previewProject = project;
-    this.previewRange = { start: from, end: Math.min(end, from + PREVIEW_MAX_SECONDS) };
-    this.emitPreviewChanged();
-    try {
-      await this.playInternal(project, from);
-    } catch (err) {
-      this.endPreview();
-      return { ok: false, reason: 'Audio could not be started.' };
-    }
-    return { ok: true };
-  }
-
-  public stopPreview(): void {
-    this.endPreview();
-  }
-
-  private endPreview(): void {
-    if (!this.previewTargetId) return;
-    const project = this.previewProject;
-    const saved = this.previewSaved;
-    this.clearScheduledStop();
-    this.stopSources();
-    this.isPlaying = false;
-    this.stopPlaybackLoop();
-    this.previewTargetId = null;
-    this.previewRange = null;
-    this.previewProject = null;
-    this.previewSaved = null;
-    if (saved) {
-      this.playheadSeconds = saved.playhead;
-      this.projectEndSeconds = saved.end;
-    }
-    if (project) this.syncTracks(project.tracks); // put the track faders back
-    this.emitPreviewChanged();
-  }
-
-  private emitPreviewChanged(): void {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('uuda:preview-changed', { detail: { target: this.previewTargetId } }));
-    }
   }
 
   public destroy(): void {

@@ -5,7 +5,6 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
-import { makeNativeInstance } from './instance';
 
 export const NOISE_GATE_DESCRIPTOR: PluginDescriptor = {
   id: 'uuda-native-gate',
@@ -146,18 +145,18 @@ export class NativeNoiseGatePlugin {
 
     const getState = async () => ({ ...params });
 
-    return makeNativeInstance({
+    return {
       instanceId,
-      trackId,
       descriptor: NOISE_GATE_DESCRIPTOR,
       inputNode,
       outputNode,
-      params,
+      isBypassed: false,
+      dryWet: 1.0,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    });
+    };
   }
 }

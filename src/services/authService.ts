@@ -34,81 +34,6 @@ class AuthService {
 
   constructor() {
     this.setupFirebaseObserver();
-    if (this.hasDevSessionFlag()) {
-      void this.restoreDevSession();
-    }
-  }
-
-  // Testing-only sign-in (see DEV_AUTH_BYPASS on the server). The flag lives in sessionStorage so a reload keeps the
-  // testing session; the session itself is the server's httpOnly cookie, never a token in storage.
-  private hasDevSessionFlag(): boolean {
-    try {
-      return typeof window !== 'undefined' && window.sessionStorage.getItem('uuda_dev_session') === '1';
-    } catch {
-      return false;
-    }
-  }
-
-  private setDevSessionFlag(on: boolean) {
-    try {
-      if (on) window.sessionStorage.setItem('uuda_dev_session', '1');
-      else window.sessionStorage.removeItem('uuda_dev_session');
-    } catch {
-      /* storage unavailable: the testing session just will not survive a reload */
-    }
-  }
-
-  private async restoreDevSession(): Promise<void> {
-    try {
-      const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
-      const data = res.ok ? await res.json() : null;
-      if (data && data.user) {
-        this.currentUser = data.user;
-        this.unreadTicketsCount = data.unreadTicketsCount || 0;
-        this.isAdminVerified = Boolean(data.isAdminVerified);
-      } else {
-        this.setDevSessionFlag(false);
-      }
-    } catch {
-      /* server unreachable: stay signed out */
-    } finally {
-      this.isInitializing = false;
-      this.notifyAuthChanged();
-    }
-  }
-
-  /** True when the server has the testing sign-in switched on. */
-  public async isDevLoginAvailable(): Promise<boolean> {
-    try {
-      const res = await fetch('/api/auth/dev-status', { credentials: 'same-origin' });
-      if (!res.ok) return false;
-      const data = await res.json();
-      return Boolean(data.enabled);
-    } catch {
-      return false;
-    }
-  }
-
-  /** Testing-only: signs in the non-admin tester account when the server allows it. */
-  public async signInAsDevTester(): Promise<{ user: UserRecord; isNew: boolean; adminCodeSent: boolean }> {
-    const res = await fetch('/api/auth/dev-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-      credentials: 'same-origin',
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.error || 'The testing sign-in is not available on this server.');
-    }
-    this.setDevSessionFlag(true);
-    this.currentUser = data.user;
-    this.volatileToken = data.sessionToken || null;
-    this.isAdminVerified = false;
-    this.isInitializing = false;
-    this.notifyAuthChanged();
-    void this.refreshMe();
-    return { user: data.user, isNew: Boolean(data.isNew), adminCodeSent: false };
   }
 
   /**
@@ -141,12 +66,6 @@ class AuthService {
           this.notifyAuthChanged();
         }
       } else {
-        // A testing session has no Firebase user by design; do not wipe it here (restoreDevSession owns that state)
-        if (this.hasDevSessionFlag()) {
-          this.isInitializing = false;
-          this.notifyAuthChanged();
-          return;
-        }
         // Complete memory cleanup on sign-out
         this.volatileToken = null;
         this.volatileGeminiKey = null;
@@ -221,19 +140,15 @@ class AuthService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ idToken: token }),
-        credentials: 'same-origin',
+        body: JSON.stringify(profile),
       });
 
       if (res.ok) {
         const data = await res.json();
         this.currentUser = data.user;
-        this.volatileToken = data.sessionToken || null;
-        if (data.adminCodeSent) {
+        this.volatileToken = data.sessionToken || token;
+        if (data.connectionCodePreview) {
           this.isAdminVerified = false;
-        }
-        if (data.adminCodeFallback && typeof window !== 'undefined') {
-          (window as any).__uuda_admin_fallback_code = data.adminCodeFallback;
         }
       }
     } catch (err) {
@@ -338,6 +253,7 @@ class AuthService {
     user: UserRecord;
     isNew: boolean;
     adminCodeSent: boolean;
+    connectionCodePreview?: string;
   }> {
     try {
       googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -372,25 +288,22 @@ class AuthService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${idToken}`,
         },
-        // The server verifies this token with Firebase and reads the identity from it; nothing else is trusted
-        body: JSON.stringify({ idToken }),
-        credentials: 'same-origin',
+        body: JSON.stringify({
+          googleId: fbUser.uid,
+          email: fbUser.email || '',
+          displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Producer',
+          photoUrl: fbUser.photoURL || '',
+        }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json();
       if (!res.ok) {
-        const errorDetail = data.details
-          ? `${data.error || 'Google sign-in could not be verified.'} (${data.details})`
-          : (data.error || 'Failed to authenticate with backend');
-        throw new Error(errorDetail);
+        throw new Error(data.error || 'Failed to authenticate with backend');
       }
 
       this.currentUser = data.user;
-      this.volatileToken = data.sessionToken || null;
+      this.volatileToken = data.sessionToken || idToken;
       this.isAdminVerified = false;
-      if (data.adminCodeFallback && typeof window !== 'undefined') {
-        (window as any).__uuda_admin_fallback_code = data.adminCodeFallback;
-      }
       this.notifyAuthChanged();
 
       this.refreshMe();
@@ -399,11 +312,47 @@ class AuthService {
         user: data.user,
         isNew: data.isNew,
         adminCodeSent: Boolean(data.adminCodeSent),
+        connectionCodePreview: data.connectionCodePreview,
       };
     } catch (err: unknown) {
       console.error('Firebase Google Sign-In Error:', err);
       throw err;
     }
+  }
+
+  /**
+   * Fallback / Direct Sign-In (for developer testing & environments)
+   */
+  public async signInWithGoogle(payload: {
+    googleId: string;
+    email: string;
+    displayName: string;
+    photoUrl: string;
+  }): Promise<{ user: UserRecord; isNew: boolean; adminCodeSent: boolean; connectionCodePreview?: string }> {
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to sign in with Google');
+    }
+
+    this.volatileToken = data.sessionToken;
+    this.currentUser = data.user;
+    this.isAdminVerified = false;
+    this.notifyAuthChanged();
+
+    this.refreshMe();
+
+    return {
+      user: data.user,
+      isNew: data.isNew,
+      adminCodeSent: Boolean(data.adminCodeSent),
+      connectionCodePreview: data.connectionCodePreview,
+    };
   }
 
   public async refreshMe(): Promise<void> {
@@ -426,8 +375,6 @@ class AuthService {
 
   // Sign out: tears down Firebase session and thoroughly purges memory credentials
   public async signOut(): Promise<void> {
-    // Clear the testing flag first so the Firebase observer treats this as a normal sign-out
-    this.setDevSessionFlag(false);
     try {
       await fbSignOut(auth);
       await fetch('/api/auth/signout', {
@@ -509,7 +456,7 @@ class AuthService {
       throw new Error(data.error || 'Failed to resend connection code');
     }
 
-    return data.message || 'A new code was sent to your email.';
+    return data.previewCode;
   }
 }
 

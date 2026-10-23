@@ -1,14 +1,11 @@
 /**
- * Uuda Studio - Audio Plugins Rack
- * Effect chains for each track and for the master bus (the whole mix), built from Native plugins and verified
- * Web Audio Modules (WAM 2.0).
- *
- * Chain list: reorder, bypass, one Mix control, show/hide the inline controls (eye), pop out into a full modal.
- * Layout: library on the left and chain on the right from md up; one pane at a time below that.
- * Look: solid surfaces, 1px borders, small radii. No blur and no glow.
+ * Uuda Studio - Audio Plugins Framework & Effects Rack Modal
+ * Comprehensive effects rack for Native Stems and verified Web Audio Modules (WAM 2.0).
+ * Features categorized plugin browser, per-track effect chain reordering,
+ * bypass toggles, dry/wet sliders, custom GUIs, and auto-generated generic parameter editors.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Sliders,
@@ -26,89 +23,43 @@ import {
   Eye,
   EyeOff,
   AlertTriangle,
-  Maximize2,
+  RotateCcw,
 } from 'lucide-react';
-import { Track, Project } from '../types';
+import { Track } from '../types';
 import { audioEngine } from '../audio/engine';
-import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
+import { pluginManager } from '../plugins/pluginManager';
 import { PluginDescriptor, PluginInstance } from '../plugins/types';
 import {
   NATIVE_STEM_PLUGINS,
   VERIFIED_THIRD_PARTY_PLUGINS,
   isModuleOriginWhitelisted,
 } from '../plugins/registry';
-import { getTrackLabel } from '../utils/tracks';
-import { PluginPanel } from './plugins/PluginPanel';
-import { PluginPopout } from './plugins/PluginPopout';
-import { PreviewButton } from './plugins/PreviewButton';
-import { DuckingPanel } from './plugins/DuckingPanel';
-import { normalizeDucking } from '../audio/ducking';
 
 interface PluginsRackModalProps {
   isOpen: boolean;
   onClose: () => void;
   tracks: Track[];
-  /** Whole project, so Preview can play the target on its own */
-  project: Project;
   selectedTrackId: string | null;
   onSelectTrack: (trackId: string) => void;
-  onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
 }
-
-const CATEGORY_LABELS: Record<string, string> = {
-  all: 'All',
-  dynamics: 'Dynamics',
-  eq: 'EQ',
-  spatial: 'Spatial',
-  modulation: 'Modulation',
-  restoration: 'Restoration',
-  'pitch-time': 'Pitch',
-  utility: 'Utility',
-};
 
 export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
   isOpen,
   onClose,
   tracks,
-  project,
   selectedTrackId,
   onSelectTrack,
-  onUpdateTrack,
 }) => {
-  // 'Master bus' is a local target, so the app's selected track is left alone
-  const [masterTarget, setMasterTarget] = useState<boolean>(false);
-  const activeTrackId = masterTarget ? MASTER_TRACK_ID : selectedTrackId || (tracks.length > 0 ? tracks[0].id : null);
-  // A preview belongs to one target: switching target or closing the rack ends it
-  useEffect(() => {
-    const playing = audioEngine.getPreviewTarget();
-    if (playing && playing !== activeTrackId) audioEngine.stopPreview();
-  }, [activeTrackId]);
-  useEffect(() => {
-    if (!isOpen) audioEngine.stopPreview();
-    return () => audioEngine.stopPreview();
-  }, [isOpen]);
-  const activeIndex = tracks.findIndex((t) => t.id === activeTrackId);
-  const activeLabel = masterTarget
-    ? 'Master Bus'
-    : activeIndex >= 0
-      ? getTrackLabel(tracks[activeIndex], activeIndex)
-      : 'No track';
+  // Active target track
+  const activeTrackId = selectedTrackId || (tracks.length > 0 ? tracks[0].id : null);
+  const activeTrack = tracks.find((t) => t.id === activeTrackId);
 
+  // Active instances in selected track
   const [activePlugins, setActivePlugins] = useState<PluginInstance[]>([]);
-  const [openPanels, setOpenPanels] = useState<Record<string, boolean>>({});
-  const [popoutId, setPopoutId] = useState<string | null>(null);
+  const [expandedGuis, setExpandedGuis] = useState<Record<string, boolean>>({});
 
-  // Small screens show one pane at a time
-  const [pane, setPane] = useState<'library' | 'chain'>('chain');
-
+  // Browser category
   const [browserCategory, setBrowserCategory] = useState<'native' | 'third-party'>('native');
-  const [pluginSearch, setPluginSearch] = useState<string>('');
-  const [pluginCategory, setPluginCategory] = useState<string>('all');
-  const filteredNativePlugins = NATIVE_STEM_PLUGINS.filter((p) => {
-    if (pluginCategory !== 'all' && p.category !== pluginCategory) return false;
-    const q = pluginSearch.trim().toLowerCase();
-    return !q || `${p.name} ${p.description || ''} ${p.category}`.toLowerCase().includes(q);
-  });
 
   // Custom WAM URL input state
   const [customWamUrl, setCustomWamUrl] = useState<string>('');
@@ -117,28 +68,48 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
   const [showCustomConfirm, setShowCustomConfirm] = useState<boolean>(false);
   const [pendingCustomDescriptor, setPendingCustomDescriptor] = useState<PluginDescriptor | null>(null);
 
-  // Follow the chain on the active target
+  // GUI Mount containers map: instanceId -> HTMLDivElement
+  const guiContainersRef = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Subscribe to PluginManager changes
   useEffect(() => {
     const update = () => {
-      setActivePlugins(activeTrackId ? [...pluginManager.getPluginsForTrack(activeTrackId)] : []);
+      if (activeTrackId) {
+        const list = pluginManager.getPluginsForTrack(activeTrackId);
+        setActivePlugins([...list]);
+      } else {
+        setActivePlugins([]);
+      }
     };
+
     update();
-    return pluginManager.subscribe(update);
+    const unsubscribe = pluginManager.subscribe(update);
+    return () => {
+      unsubscribe();
+    };
   }, [activeTrackId]);
 
-  // Close the pop-out when the target changes or its plugin is removed
+  // Mount GUIs when expanded
   useEffect(() => {
-    if (popoutId && !activePlugins.some((p) => p.instanceId === popoutId)) setPopoutId(null);
-  }, [activePlugins, popoutId]);
+    activePlugins.forEach((instance) => {
+      const isExpanded = expandedGuis[instance.instanceId];
+      const container = guiContainersRef.current.get(instance.instanceId);
+
+      if (isExpanded && container && instance.renderGUI && container.children.length === 0) {
+        instance.renderGUI(container).catch((err) => {
+          console.warn('Failed to render custom GUI for plugin:', err);
+        });
+      }
+    });
+  }, [activePlugins, expandedGuis]);
 
   if (!isOpen) return null;
 
-  const showChain = () => setPane('chain');
-
+  // Add Plugin to Track
   const handleAddPlugin = async (descriptor: PluginDescriptor) => {
     if (!activeTrackId) return;
 
-    // Third-party modules from outside the verified list need an explicit OK
+    // Security check: If third-party and not from verified whitelist origin, prompt confirmation
     if (descriptor.type === 'third-party-wam' && descriptor.moduleUrl) {
       if (!isModuleOriginWhitelisted(descriptor.moduleUrl)) {
         setPendingCustomDescriptor(descriptor);
@@ -150,20 +121,21 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
     try {
       const ctx = await audioEngine.init();
       const instance = await pluginManager.addPluginToTrack(ctx, activeTrackId, descriptor);
-      setOpenPanels((prev) => ({ ...prev, [instance.instanceId]: true }));
-      showChain();
+      // Auto-expand GUI
+      setExpandedGuis((prev) => ({ ...prev, [instance.instanceId]: true }));
     } catch (err) {
       console.error('Failed to add plugin:', err);
     }
   };
 
+  // Add Custom WAM URL
   const handleAddCustomWam = (e: React.FormEvent) => {
     e.preventDefault();
     setCustomUrlError(null);
 
     const url = customWamUrl.trim();
     if (!url || (!url.startsWith('https://') && !url.startsWith('http://localhost'))) {
-      setCustomUrlError('Use a secure HTTPS module URL, or localhost for testing.');
+      setCustomUrlError('Please provide a secure HTTPS module URL or localhost testing URL.');
       return;
     }
 
@@ -192,33 +164,35 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
     try {
       const ctx = await audioEngine.init();
       const instance = await pluginManager.addPluginToTrack(ctx, activeTrackId, pendingCustomDescriptor);
-      setOpenPanels((prev) => ({ ...prev, [instance.instanceId]: true }));
+      setExpandedGuis((prev) => ({ ...prev, [instance.instanceId]: true }));
       setCustomWamUrl('');
       setCustomWamName('');
       setShowCustomConfirm(false);
       setPendingCustomDescriptor(null);
-      showChain();
     } catch (err) {
       setCustomUrlError(err instanceof Error ? err.message : String(err));
       setShowCustomConfirm(false);
     }
   };
 
+  // Toggle Bypass
   const handleToggleBypass = (instance: PluginInstance) => {
     if (!activeTrackId) return;
     pluginManager.setPluginBypass(activeTrackId, instance.instanceId, !instance.isBypassed);
   };
 
+  // Remove Plugin
   const handleRemovePlugin = (instanceId: string) => {
     if (!activeTrackId) return;
     pluginManager.removePluginFromTrack(activeTrackId, instanceId);
-    setOpenPanels((prev) => {
+    setExpandedGuis((prev) => {
       const next = { ...prev };
       delete next[instanceId];
       return next;
     });
   };
 
+  // Reorder
   const handleMoveUp = (index: number) => {
     if (!activeTrackId || index <= 0) return;
     pluginManager.reorderTrackPlugins(activeTrackId, index, index - 1);
@@ -229,87 +203,80 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
     pluginManager.reorderTrackPlugins(activeTrackId, index, index + 1);
   };
 
-  const popoutPlugin = popoutId ? activePlugins.find((p) => p.instanceId === popoutId) : undefined;
-
-  const iconBtn =
-    'p-1.5 rounded-sm text-zinc-400 hover:text-white hover:bg-zinc-800 cursor-pointer disabled:opacity-25 disabled:cursor-default';
+  // Toggle GUI View
+  const handleToggleGui = (instanceId: string) => {
+    setExpandedGuis((prev) => ({ ...prev, [instanceId]: !prev[instanceId] }));
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 select-none">
-      <div className="w-full max-w-6xl h-[calc(100dvh-1rem)] sm:h-[90vh] bg-[#0F0F16] border border-zinc-700 rounded-lg flex flex-col overflow-hidden text-zinc-100">
-        {/* Header */}
-        <div className="px-3 sm:px-5 py-2.5 border-b border-zinc-800 flex flex-wrap items-center gap-x-4 gap-y-2 bg-[#13131D] shrink-0">
-          <div className="flex items-center gap-3 min-w-0 flex-1 basis-56">
-            <div className="w-8 h-8 rounded-sm bg-purple-500/15 border border-purple-500/40 flex items-center justify-center text-purple-300 shrink-0">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md select-none animate-in fade-in duration-200">
+      <div className="w-full max-w-6xl h-[90vh] bg-[#0F0F16] border border-zinc-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100">
+        {/* Top Header */}
+        <div className="h-14 px-6 border-b border-zinc-800 flex items-center justify-between bg-[#13131D] shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]">
               <Sparkles className="w-4 h-4" />
             </div>
-            <div className="min-w-0">
-              <h1 className="text-sm font-black uppercase tracking-wide text-white truncate">Plugin Rack</h1>
-              <p className="hidden sm:block text-[11px] text-zinc-500 truncate">Effect chains for tracks and the master bus</p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-sm font-black uppercase tracking-wider text-white">
+                  Audio Plugins & Effects Rack
+                </h1>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-950/80 text-purple-300 font-mono font-semibold border border-purple-800/80">
+                  WAM 2.0 & Native DSP
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                Modular track audio processing with zero-latency high-frequency automation
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 min-w-0 flex-1 basis-56 justify-end">
-            <label className="flex items-center gap-2 min-w-0 flex-1 max-w-xs bg-[#09090D] border border-zinc-700 rounded-sm px-2.5 py-1.5">
-              <span className="text-[11px] text-zinc-400 shrink-0">Target</span>
+          {/* Track Target Selector */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-[#09090D] border border-zinc-700/80 rounded-lg px-3 py-1.5">
+              <span className="text-xs text-zinc-400 font-medium">Target Track:</span>
               <select
                 value={activeTrackId || ''}
-                onChange={(e) => {
-                  if (e.target.value === MASTER_TRACK_ID) {
-                    setMasterTarget(true);
-                  } else {
-                    setMasterTarget(false);
-                    onSelectTrack(e.target.value);
-                  }
-                }}
-                className="min-w-0 flex-1 bg-transparent text-xs font-bold text-cyan-300 focus:outline-none cursor-pointer truncate"
+                onChange={(e) => onSelectTrack(e.target.value)}
+                className="bg-transparent text-xs font-bold text-cyan-300 focus:outline-none cursor-pointer"
               >
-                <option value={MASTER_TRACK_ID} className="bg-[#121218] text-zinc-200">
-                  Master Bus (whole mix)
-                </option>
                 {tracks.map((t, idx) => (
                   <option key={t.id} value={t.id} className="bg-[#121218] text-zinc-200">
-                    {getTrackLabel(t, idx)}
+                    Track {idx + 1}: {t.name}
                   </option>
                 ))}
               </select>
-            </label>
-            <PreviewButton project={project} targetId={activeTrackId} />
-            <button type="button" onClick={onClose} title="Close" aria-label="Close" className={iconBtn}>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="text-zinc-400 hover:text-white p-1.5 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
+              title="Close Rack"
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Pane switch (small screens only) */}
-        <div className="md:hidden grid grid-cols-2 p-1 gap-1 bg-[#0D0D14] border-b border-zinc-800 shrink-0">
-          {(['chain', 'library'] as const).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setPane(p)}
-              className={`py-1.5 rounded-sm text-xs font-bold cursor-pointer ${
-                pane === p ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              {p === 'chain' ? `Chain (${activePlugins.length})` : 'Library'}
-            </button>
-          ))}
-        </div>
-
-        {/* Third-party authorisation */}
+        {/* Security Warning Modal for Custom Untrusted Modules */}
         {showCustomConfirm && pendingCustomDescriptor && (
-          <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-[#161622] border border-amber-500/60 rounded-lg p-5 space-y-3">
+          <div className="fixed inset-0 z-60 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-[#161622] border border-amber-500/60 rounded-xl p-5 shadow-2xl space-y-3">
               <div className="flex items-center gap-2.5 text-amber-400">
                 <AlertTriangle className="w-5 h-5 shrink-0" />
-                <h3 className="text-sm font-bold uppercase tracking-wide">Load external module?</h3>
+                <h3 className="text-sm font-bold uppercase tracking-wider">
+                  Third-Party Plugin Authorization
+                </h3>
               </div>
-              <code className="block p-2 bg-black/60 rounded-sm text-[11px] font-mono text-cyan-300 break-all border border-zinc-800">
-                {pendingCustomDescriptor.moduleUrl}
-              </code>
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                You are loading an external Web Audio Module from:
+                <code className="block mt-1 p-2 bg-black/60 rounded text-[11px] font-mono text-cyan-300 break-all border border-zinc-800">
+                  {pendingCustomDescriptor.moduleUrl}
+                </code>
+              </p>
               <p className="text-[11px] text-zinc-400 leading-relaxed">
-                It runs in a sandboxed audio worklet. Only load modules from authors you trust.
+                Uuda Studio executes audio modules in a sandboxed AudioWorklet scope with volatile credential isolation. Ensure you trust the author of this module.
               </p>
               <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
                 <button
@@ -318,175 +285,163 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                     setShowCustomConfirm(false);
                     setPendingCustomDescriptor(null);
                   }}
-                  className="px-3 py-1.5 rounded-sm text-xs text-zinc-400 hover:bg-zinc-800 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:bg-zinc-800 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmAddCustom}
-                  className="px-4 py-1.5 rounded-sm bg-amber-500 text-black font-bold text-xs hover:bg-amber-400 cursor-pointer"
+                  className="px-4 py-1.5 rounded-lg bg-amber-500 text-black font-bold text-xs hover:bg-amber-400 cursor-pointer shadow-md"
                 >
-                  Load
+                  Authorize & Load Plugin
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Body */}
-        <div className="flex-1 flex min-h-0 overflow-hidden md:divide-x divide-zinc-800">
-          {/* Library */}
-          <div
-            className={`${pane === 'library' ? 'flex' : 'hidden'} md:flex w-full md:w-[340px] lg:w-[380px] flex-col bg-[#0D0D14] shrink-0 p-3 sm:p-4 overflow-y-auto gap-3`}
-          >
-            <span className="text-xs font-bold uppercase tracking-wide text-zinc-300 flex items-center gap-1.5">
-              <Layers className="w-4 h-4 text-purple-400" />
-              Library
-            </span>
+        {/* Multi-Pane Body */}
+        <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden divide-y md:divide-y-0 md:divide-x divide-zinc-800">
+          {/* Left Column: Categorized Available Effects Browser */}
+          <div className="w-full md:w-[380px] flex flex-col bg-[#0D0D14] shrink-0 p-4 overflow-y-auto space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-purple-400" />
+                  <span>Available Effects Library</span>
+                </span>
+              </div>
 
-            <div className="grid grid-cols-2 p-1 gap-1 bg-[#14141E] border border-zinc-800 rounded-md">
-              <button
-                type="button"
-                onClick={() => setBrowserCategory('native')}
-                className={`py-1.5 rounded-sm text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
-                  browserCategory === 'native' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Cpu className="w-3.5 h-3.5" />
-                Native
-              </button>
-              <button
-                type="button"
-                onClick={() => setBrowserCategory('third-party')}
-                className={`py-1.5 rounded-sm text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
-                  browserCategory === 'third-party' ? 'bg-cyan-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Globe className="w-3.5 h-3.5" />
-                WAM
-              </button>
+              {/* Category Filter Tabs: Native Stems vs Verified Third-Party */}
+              <div className="grid grid-cols-2 p-1 bg-[#14141E] border border-zinc-800 rounded-xl mb-3">
+                <button
+                  type="button"
+                  onClick={() => setBrowserCategory('native')}
+                  className={`py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    browserCategory === 'native'
+                      ? 'bg-purple-600 text-white shadow-xs'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Cpu className="w-3.5 h-3.5" />
+                  <span>Native Stems</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBrowserCategory('third-party')}
+                  className={`py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    browserCategory === 'third-party'
+                      ? 'bg-cyan-600 text-white shadow-xs'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>Verified WAM</span>
+                </button>
+              </div>
             </div>
 
-            {browserCategory === 'native' && (
-              <div className="space-y-2">
-                <input
-                  type="search"
-                  value={pluginSearch}
-                  onChange={(e) => setPluginSearch(e.target.value)}
-                  placeholder="Search effects"
-                  className="w-full px-3 py-1.5 bg-[#14141E] border border-zinc-800 rounded-sm text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500"
-                />
-                <div className="flex flex-wrap gap-1">
-                  {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setPluginCategory(key)}
-                      className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold border cursor-pointer ${
-                        pluginCategory === key
-                          ? 'bg-purple-600 border-purple-500 text-white'
-                          : 'bg-[#14141E] border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div className="text-[10px] text-zinc-500">
-                  {filteredNativePlugins.length === NATIVE_STEM_PLUGINS.length
-                    ? `${NATIVE_STEM_PLUGINS.length} plugins`
-                    : `${filteredNativePlugins.length} of ${NATIVE_STEM_PLUGINS.length}`}
-                </div>
-              </div>
-            )}
-
+            {/* Plugin Cards List */}
             <div className="space-y-2">
               {browserCategory === 'native' ? (
-                filteredNativePlugins.length === 0 ? (
-                  <div className="text-[11px] text-zinc-500 py-4 text-center">No match.</div>
-                ) : (
-                  filteredNativePlugins.map((plugin) => (
-                    <div
-                      key={plugin.id}
-                      className="p-3 bg-[#14141E] border border-zinc-800 hover:border-purple-500/60 rounded-md flex flex-col gap-1.5"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <span className="text-xs font-bold text-zinc-100 block truncate">{plugin.name}</span>
-                          <span className="text-[10px] text-zinc-500 capitalize">
-                            {CATEGORY_LABELS[plugin.category] || plugin.category}
+                NATIVE_STEM_PLUGINS.map((plugin) => (
+                  <div
+                    key={plugin.id}
+                    className="p-3 bg-[#14141E] border border-zinc-800/90 hover:border-purple-500/50 rounded-xl transition-all flex flex-col gap-2 group"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-zinc-100 group-hover:text-purple-300 transition-colors">
+                            {plugin.name}
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-950/80 text-purple-300 border border-purple-800/60 font-mono font-semibold">
+                            v{plugin.version}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleAddPlugin(plugin)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-sm bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold cursor-pointer shrink-0"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          Add
-                        </button>
+                        <span className="text-[10px] text-zinc-500 block">{plugin.vendor}</span>
                       </div>
-                      <p className="text-[11px] text-zinc-400 leading-snug line-clamp-2">{plugin.description}</p>
+                      <button
+                        type="button"
+                        onClick={() => handleAddPlugin(plugin)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold transition-colors cursor-pointer shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add</span>
+                      </button>
                     </div>
-                  ))
-                )
+                    <p className="text-[11px] text-zinc-400 leading-snug">
+                      {plugin.description}
+                    </p>
+                  </div>
+                ))
               ) : (
                 <>
                   {VERIFIED_THIRD_PARTY_PLUGINS.map((plugin) => (
                     <div
                       key={plugin.id}
-                      className="p-3 bg-[#14141E] border border-zinc-800 hover:border-cyan-500/60 rounded-md flex flex-col gap-1.5"
+                      className="p-3 bg-[#14141E] border border-zinc-800/90 hover:border-cyan-500/50 rounded-xl transition-all flex flex-col gap-2 group"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <span className="text-xs font-bold text-zinc-100 block truncate">{plugin.name}</span>
-                          <span className="text-[10px] text-cyan-400 flex items-center gap-1">
-                            <ShieldCheck className="w-3 h-3" />
-                            Verified
-                          </span>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-zinc-100 group-hover:text-cyan-300 transition-colors">
+                              {plugin.name}
+                            </span>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/60 font-mono font-semibold flex items-center gap-0.5">
+                              <ShieldCheck className="w-3 h-3 text-cyan-400" />
+                              <span>Verified</span>
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-zinc-500 block">{plugin.vendor} • v{plugin.version}</span>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleAddPlugin(plugin)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-sm bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold cursor-pointer shrink-0"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold transition-colors cursor-pointer shrink-0"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          Add
+                          <span>Add</span>
                         </button>
                       </div>
-                      <p className="text-[11px] text-zinc-400 leading-snug line-clamp-2">{plugin.description}</p>
+                      <p className="text-[11px] text-zinc-400 leading-snug">
+                        {plugin.description}
+                      </p>
                     </div>
                   ))}
 
+                  {/* Add Custom WAM URL Form */}
                   <form
                     onSubmit={handleAddCustomWam}
-                    className="p-3 bg-[#111119] border border-dashed border-zinc-700 rounded-md space-y-2"
+                    className="p-3 bg-[#111119] border border-dashed border-zinc-800 rounded-xl space-y-2 mt-2"
                   >
                     <span className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
                       <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
-                      Load external WAM
+                      <span>Load External WAM 2.0 Module</span>
                     </span>
                     <input
                       type="url"
                       value={customWamUrl}
                       onChange={(e) => setCustomWamUrl(e.target.value)}
-                      placeholder="https://example.org/plugin/index.js"
-                      className="w-full bg-[#09090D] border border-zinc-800 rounded-sm px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500 font-mono"
+                      placeholder="https://example.org/my-plugin/index.js"
+                      className="w-full bg-[#09090D] border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500 font-mono"
                     />
                     <input
                       type="text"
                       value={customWamName}
                       onChange={(e) => setCustomWamName(e.target.value)}
-                      placeholder="Name (optional)"
-                      className="w-full bg-[#09090D] border border-zinc-800 rounded-sm px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500"
+                      placeholder="Plugin Name (optional)"
+                      className="w-full bg-[#09090D] border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500"
                     />
-                    {customUrlError && <p className="text-[10px] text-rose-400">{customUrlError}</p>}
+                    {customUrlError && (
+                      <p className="text-[10px] text-rose-400">{customUrlError}</p>
+                    )}
                     <button
                       type="submit"
-                      className="w-full py-1.5 rounded-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs cursor-pointer"
+                      className="w-full py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs transition-colors cursor-pointer"
                     >
-                      Import
+                      + Import WAM Module
                     </button>
                   </form>
                 </>
@@ -494,72 +449,66 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
             </div>
           </div>
 
-          {/* Chain */}
-          <div
-            className={`${pane === 'chain' ? 'flex' : 'hidden'} md:flex flex-1 min-w-0 flex-col bg-[#111118] p-3 sm:p-5 overflow-y-auto gap-3`}
-          >
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-              <h2 className="text-xs font-black uppercase tracking-wide text-zinc-200 flex items-center gap-2 min-w-0">
-                <Sliders className="w-4 h-4 text-cyan-400 shrink-0" />
-                <span className="truncate">Chain: {activeLabel}</span>
-              </h2>
-              <span className="text-[11px] text-zinc-500 font-mono">
-                {activePlugins.length} {activePlugins.length === 1 ? 'plugin' : 'plugins'}
+          {/* Right Column: Ordered Track Effects Rack */}
+          <div className="flex-1 flex flex-col bg-[#111118] p-5 overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xs font-black uppercase tracking-wider text-zinc-200 flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-cyan-400" />
+                  <span>
+                    Active Effect Chain • {activeTrack ? activeTrack.name : 'Select Track'}
+                  </span>
+                </h2>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Audio flows top-to-bottom through each inserted effect. Reorder or bypass modules in real time.
+                </p>
+              </div>
+
+              <span className="text-xs text-zinc-400 font-mono">
+                {activePlugins.length} {activePlugins.length === 1 ? 'Plugin' : 'Plugins'} Active
               </span>
             </div>
 
-            {!masterTarget && activeIndex >= 0 && (
-              <DuckingPanel
-                track={tracks[activeIndex]}
-                tracks={tracks}
-                onChange={(u) =>
-                  onUpdateTrack(tracks[activeIndex].id, { ducking: normalizeDucking({ ...tracks[activeIndex].ducking, ...u }) })
-                }
-              />
-            )}
-
+            {/* Empty Chain State */}
             {activePlugins.length === 0 ? (
-              <div className="flex-1 min-h-[220px] border border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center p-6 text-center gap-3">
-                <Sliders className="w-7 h-7 text-zinc-600" />
-                <div>
-                  <h3 className="text-sm font-bold text-zinc-300">Chain is empty</h3>
-                  <p className="text-xs text-zinc-500 mt-1">Add a plugin from the library.</p>
+              <div className="flex-1 min-h-[300px] border-2 border-dashed border-zinc-800 rounded-2xl flex flex-col items-center justify-center p-8 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-zinc-800/80 flex items-center justify-center text-zinc-500">
+                  <Sliders className="w-6 h-6 stroke-[1.5]" />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPane('library')}
-                  className="md:hidden px-3 py-1.5 rounded-sm bg-purple-600 text-white text-xs font-bold cursor-pointer"
-                >
-                  Open library
-                </button>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-300">Effects Rack Empty</h3>
+                  <p className="text-xs text-zinc-500 max-w-sm mt-1">
+                    Select any Native Stem or Verified Web Audio Module from the library on the left to insert it into this track's signal chain.
+                  </p>
+                </div>
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {activePlugins.map((plugin, index) => {
+                  const isExpanded = !!expandedGuis[plugin.instanceId];
                   const descriptor = plugin.descriptor;
                   const isNative = descriptor.type === 'native';
-                  const hasMix = 'dryWet' in descriptor.parameters;
-                  const ownsGui = descriptor.type === 'third-party-wam' && descriptor.hasCustomGui && !!plugin.renderGUI;
-                  const panelOpen = !!openPanels[plugin.instanceId];
-                  const isMissing = !!plugin.missing;
 
                   return (
                     <div
                       key={plugin.instanceId}
-                      className={`rounded-md border overflow-hidden ${
-                        plugin.isBypassed ? 'bg-[#14141c] border-zinc-800 opacity-70' : 'bg-[#151522] border-zinc-700'
+                      className={`rounded-2xl border transition-all overflow-hidden ${
+                        plugin.isBypassed
+                          ? 'bg-[#14141c]/60 border-zinc-800 opacity-60'
+                          : 'bg-[#151522] border-zinc-700/80 shadow-lg'
                       }`}
                     >
-                      {/* Row */}
-                      <div className="p-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 bg-[#181826]">
-                        <div className="flex items-center gap-2 min-w-0 flex-1 basis-44">
-                          <div className="flex flex-col shrink-0">
+                      {/* Rack Unit Control Strip Header */}
+                      <div className="p-3.5 flex items-center justify-between gap-3 bg-[#181826] border-b border-zinc-800">
+                        {/* Left: Reorder buttons & Plugin info */}
+                        <div className="flex items-center gap-3">
+                          {/* Reorder Buttons */}
+                          <div className="flex flex-col gap-0.5 shrink-0">
                             <button
                               type="button"
                               disabled={index === 0}
                               onClick={() => handleMoveUp(index)}
-                              title="Move up"
-                              aria-label="Move up"
+                              title="Move plugin earlier in chain"
                               className="text-zinc-500 hover:text-zinc-200 disabled:opacity-20 cursor-pointer"
                             >
                               <ChevronUp className="w-3.5 h-3.5" />
@@ -568,121 +517,180 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                               type="button"
                               disabled={index === activePlugins.length - 1}
                               onClick={() => handleMoveDown(index)}
-                              title="Move down"
-                              aria-label="Move down"
+                              title="Move plugin later in chain"
                               className="text-zinc-500 hover:text-zinc-200 disabled:opacity-20 cursor-pointer"
                             >
                               <ChevronDown className="w-3.5 h-3.5" />
                             </button>
                           </div>
-                          <span className="w-5 h-5 rounded-sm bg-zinc-800 flex items-center justify-center font-mono text-[10px] font-bold text-zinc-300 shrink-0">
+
+                          {/* Index Badge */}
+                          <span className="w-5 h-5 rounded-md bg-zinc-800 flex items-center justify-center font-mono text-[10px] font-bold text-zinc-300">
                             {index + 1}
                           </span>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-xs font-bold text-zinc-100 truncate">{descriptor.name}</span>
-                              {isMissing ? (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded-sm font-mono font-bold shrink-0 bg-amber-500/20 text-amber-300">
-                                  Missing
-                                </span>
-                              ) : (
-                                <span
-                                  className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-sm font-mono font-bold shrink-0 ${
-                                    isNative ? 'bg-purple-500/15 text-purple-300' : 'bg-cyan-500/15 text-cyan-300'
-                                  }`}
-                                >
-                                  {isNative ? 'Native' : 'WAM'}
-                                </span>
-                              )}
+
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-zinc-100">
+                                {descriptor.name}
+                              </span>
+                              <span
+                                className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold border ${
+                                  isNative
+                                    ? 'bg-purple-950/80 text-purple-300 border-purple-800/80'
+                                    : 'bg-cyan-950/80 text-cyan-300 border-cyan-800/80'
+                                }`}
+                              >
+                                {isNative ? 'Native Stem' : 'WAM 2.0'}
+                              </span>
                             </div>
-                            <span className={`text-[10px] truncate block ${isMissing ? 'text-amber-400' : 'text-zinc-500'}`}>
-                              {isMissing ? `${plugin.missingReason || 'Not available'} Audio passes through; settings are kept.` : descriptor.vendor}
+                            <span className="text-[10px] text-zinc-500">
+                              {descriptor.vendor} • v{descriptor.version}
                             </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 ml-auto">
-                          {hasMix && (
-                            <label className="flex items-center gap-2 bg-[#0C0C12] border border-zinc-800 rounded-sm px-2 py-1">
-                              <span className="text-[10px] text-zinc-400 font-semibold uppercase">Mix</span>
-                              <input
-                                type="range"
-                                aria-label="Mix"
-                                min={0}
-                                max={1}
-                                step={0.01}
-                                value={plugin.dryWet}
-                                onChange={(e) => {
-                                  if (activeTrackId) {
-                                    pluginManager.setPluginDryWet(activeTrackId, plugin.instanceId, parseFloat(e.target.value));
-                                  }
-                                }}
-                                className="w-16 sm:w-20 h-1.5 bg-zinc-700 rounded-sm accent-cyan-400 cursor-pointer"
-                              />
-                              <span className="text-[10px] font-mono text-cyan-300 font-bold w-8 text-right">
-                                {Math.round(plugin.dryWet * 100)}%
-                              </span>
-                            </label>
-                          )}
+                        {/* Right: Inline Controls (Bypass, Dry/Wet, GUI Toggle, Remove) */}
+                        <div className="flex items-center gap-3">
+                          {/* Dry / Wet Mix Slider */}
+                          <div className="flex items-center gap-2 bg-[#0C0C12] border border-zinc-800 rounded-lg px-2.5 py-1">
+                            <span className="text-[10px] text-zinc-400 font-semibold uppercase">Mix:</span>
+                            <input
+                              type="range"
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              defaultValue={plugin.dryWet ?? 1.0}
+                              onInput={(e) => {
+                                const val = parseFloat((e.target as HTMLInputElement).value);
+                                if (activeTrackId) {
+                                  pluginManager.setPluginDryWet(activeTrackId, plugin.instanceId, val);
+                                }
+                              }}
+                              className="w-20 accent-cyan-400 cursor-pointer h-1.5 bg-zinc-700 rounded-lg"
+                            />
+                            <span className="text-[10px] font-mono text-cyan-400 font-bold min-w-[28px] text-right">
+                              {Math.round((plugin.dryWet ?? 1.0) * 100)}%
+                            </span>
+                          </div>
 
-                          {!isMissing && (
+                          {/* Bypass Switch */}
                           <button
                             type="button"
                             onClick={() => handleToggleBypass(plugin)}
-                            title={plugin.isBypassed ? 'Bypassed. Click to engage' : 'Active. Click to bypass'}
-                            aria-pressed={!plugin.isBypassed}
-                            className={`flex items-center gap-1.5 px-2 py-1 rounded-sm text-[11px] font-bold border cursor-pointer ${
+                            title={plugin.isBypassed ? 'Unbypass Plugin (Engage)' : 'Bypass Plugin'}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
                               plugin.isBypassed
                                 ? 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
-                                : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/50'
+                                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.25)]'
                             }`}
                           >
                             <Power className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">{plugin.isBypassed ? 'Off' : 'On'}</span>
+                            <span>{plugin.isBypassed ? 'Bypassed' : 'Active'}</span>
                           </button>
-                          )}
 
-                          {!isMissing && (
+                          {/* GUI View Toggle */}
                           <button
                             type="button"
-                            onClick={() => setOpenPanels((prev) => ({ ...prev, [plugin.instanceId]: !prev[plugin.instanceId] }))}
-                            title={panelOpen ? 'Hide controls' : 'Show controls'}
-                            aria-label={panelOpen ? 'Hide controls' : 'Show controls'}
-                            aria-pressed={panelOpen}
-                            className={`${iconBtn} ${panelOpen ? 'bg-purple-500/20 text-purple-200' : ''}`}
+                            onClick={() => handleToggleGui(plugin.instanceId)}
+                            title={isExpanded ? 'Hide Interface' : 'Show Interface'}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                              isExpanded
+                                ? 'bg-purple-950/60 border-purple-500/60 text-purple-200'
+                                : 'bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-white'
+                            }`}
                           >
-                            {panelOpen ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            {isExpanded ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            <span>{isExpanded ? 'Hide GUI' : 'GUI'}</span>
                           </button>
-                          )}
 
-                          {!ownsGui && !isMissing && (
-                            <button
-                              type="button"
-                              onClick={() => setPopoutId(plugin.instanceId)}
-                              title="Open in a window"
-                              aria-label="Open in a window"
-                              className={iconBtn}
-                            >
-                              <Maximize2 className="w-4 h-4" />
-                            </button>
-                          )}
-
+                          {/* Remove Plugin Button */}
                           <button
                             type="button"
                             onClick={() => handleRemovePlugin(plugin.instanceId)}
-                            title="Remove"
-                            aria-label="Remove"
-                            className={`${iconBtn} hover:text-rose-400`}
+                            title="Remove plugin from track"
+                            className="text-zinc-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
 
-                      {/* Inline controls (eye) */}
-                      {panelOpen && (
-                        <div className="p-3 bg-[#111119] border-t border-zinc-800">
-                          <PluginPanel instance={plugin} trackId={activeTrackId || ''} showPresets showMix={false} />
+                      {/* Expandable Plugin Interface Panel */}
+                      {isExpanded && (
+                        <div className="p-4 bg-[#111119] border-t border-zinc-800/80">
+                          {/* If custom GUI available, container mounted here */}
+                          <div
+                            ref={(el) => {
+                              if (el) {
+                                guiContainersRef.current.set(plugin.instanceId, el);
+                              } else {
+                                guiContainersRef.current.delete(plugin.instanceId);
+                              }
+                            }}
+                          />
+
+                          {/* Auto-generated Generic Editor for plugins without custom GUI */}
+                          {(!descriptor.hasCustomGui || !plugin.renderGUI) && (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between text-xs font-bold text-zinc-400 uppercase tracking-wider pb-2 border-b border-zinc-800">
+                                <span>Parameter Automation Controls</span>
+                                <span className="text-[10px] font-mono text-cyan-400">
+                                  Direct AudioNode Automation
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                {Object.entries(descriptor.parameters).map(([paramId, def]) => {
+                                  const currentVal = plugin.getParameter ? plugin.getParameter(paramId) : def.defaultValue;
+                                  return (
+                                    <div
+                                      key={paramId}
+                                      className="p-3 bg-[#161622] rounded-xl border border-zinc-800 flex flex-col gap-1.5"
+                                    >
+                                      <div className="flex items-center justify-between text-xs">
+                                        <span className="font-semibold text-zinc-300">
+                                          {def.label || def.name || paramId}
+                                        </span>
+                                        <span
+                                          id={`val-disp-${plugin.instanceId}-${paramId}`}
+                                          className="font-mono text-cyan-400 font-bold"
+                                        >
+                                          {currentVal}
+                                          {def.unit || ''}
+                                        </span>
+                                      </div>
+                                      <input
+                                        type="range"
+                                        min={def.min}
+                                        max={def.max}
+                                        step={def.step || (def.max - def.min) / 100}
+                                        defaultValue={currentVal}
+                                        onInput={(e) => {
+                                          const val = parseFloat((e.target as HTMLInputElement).value);
+                                          // Direct high-frequency automation without React re-render
+                                          if (activeTrackId) {
+                                            pluginManager.setParameterDirect(
+                                              activeTrackId,
+                                              plugin.instanceId,
+                                              paramId,
+                                              val
+                                            );
+                                          }
+                                          const disp = document.getElementById(
+                                            `val-disp-${plugin.instanceId}-${paramId}`
+                                          );
+                                          if (disp) {
+                                            disp.innerText = `${val}${def.unit || ''}`;
+                                          }
+                                        }}
+                                        className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-zinc-700 rounded-lg mt-1"
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -693,16 +701,6 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
           </div>
         </div>
       </div>
-
-      {popoutPlugin && activeTrackId && (
-        <PluginPopout
-          instance={popoutPlugin}
-          trackId={activeTrackId}
-          trackLabel={activeLabel}
-          project={project}
-          onClose={() => setPopoutId(null)}
-        />
-      )}
     </div>
   );
 };

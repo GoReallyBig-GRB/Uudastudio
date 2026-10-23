@@ -41,14 +41,13 @@ import { SupportTicket, UserProjectItem, UsageSummary } from '../../types';
 interface UserDashboardProps {
   onBackToStudio: () => void;
   onOpenProject?: (projectId: string) => void;
-  initialTab?: TabType;
 }
 
-export type TabType = 'account' | 'preferences' | 'connections' | 'usage' | 'projects' | 'support' | 'privacy';
+type TabType = 'account' | 'preferences' | 'connections' | 'usage' | 'projects' | 'support' | 'privacy';
 
-export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, onOpenProject, initialTab }) => {
+export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, onOpenProject }) => {
   const { user, signOut, updateProfile, deleteAccount, refreshUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'account');
+  const [activeTab, setActiveTab] = useState<TabType>('account');
 
   // Account State
   const [displayName, setDisplayName] = useState(user?.display_name || '');
@@ -492,7 +491,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
             <div className="max-w-2xl space-y-6">
               <div>
                 <h2 className="text-xl font-bold text-white tracking-tight">Account Details</h2>
-                <p className="text-xs text-zinc-400 mt-1">Manage your identity and profile within Uuda Studio.</p>
+                <p className="text-xs text-zinc-400 mt-1">Manage your identity and profile within UUDA PRO.</p>
               </div>
 
               {accountSuccessMsg && (
@@ -986,7 +985,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
                   {/* Thread Reply Bar (Disabled if Closed) */}
                   <div className="p-3 border-t border-zinc-800 bg-[#121216] shrink-0">
-                    {activeTicket.status === 'Closed' || activeTicket.status === 'Archived' ? (
+                    {activeTicket.status === 'Closed' ? (
                       <div className="text-center text-xs text-zinc-500 py-1 flex items-center justify-center gap-1.5">
                         <Lock className="w-3.5 h-3.5" />
                         <span>This ticket is closed and read-only.</span>

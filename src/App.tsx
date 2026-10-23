@@ -46,18 +46,41 @@ import { processCompression } from './audio/dsp/compressor';
 import { processBasicDenoise } from './audio/dsp/denoiser';
 import { processPitchShift, processTimeStretch } from './audio/dsp/wsola';
 import { waveformCache } from './waveform/cache';
+import { decodeProjectFile, encodeProjectFile } from './storage/projectFile';
+import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { formatVolumeDb } from './utils/formatters';
 import { useAuth } from './hooks/useAuth';
 import { SignInPage } from './components/auth/SignInPage';
-import { UserDashboard, TabType } from './components/dashboard/UserDashboard';
+import { UserDashboard } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
-import { pluginManager } from './plugins/pluginManager';
-import { withPluginStates, restorePluginStates, hasSavedPlugins, isRestoringPlugins } from './plugins/projectPlugins';
-import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
 import { VoiceoverModal } from './components/VoiceoverModal';
-import { voiceJob } from './voice/voiceJob';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
+
+
+interface ProjectFileWritable {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
+}
+interface ProjectFileHandle {
+  name?: string;
+  createWritable(): Promise<ProjectFileWritable>;
+}
+interface WindowWithProjectFilePicker extends Window {
+  showSaveFilePicker?: (options: {
+    suggestedName: string;
+    types: Array<{ description: string; accept: Record<string, string[]> }>;
+  }) => Promise<ProjectFileHandle>;
+}
+
+function collectReferencedAssetIdsForUi(project: Project): Set<string> {
+  const ids = new Set<string>();
+  for (const track of project.tracks) for (const clip of track.clips) {
+    if (clip.assetId) ids.add(clip.assetId);
+    for (const version of clip.versionHistory || []) if (version.assetId) ids.add(version.assetId);
+  }
+  return ids;
+}
 
 const DEFAULT_PROJECT: Project = {
   id: 'project-default',
@@ -74,7 +97,7 @@ const DEFAULT_PROJECT: Project = {
 };
 
 const MainStudio: React.FC = () => {
-  const { addToast } = useToast();
+  const { addToast, removeToast } = useToast();
   const { user, isAdmin, unreadTicketsCount } = useAuth();
 
   const [currentView, setCurrentView] = useState<'studio' | 'auth' | 'dashboard' | 'admin'>(() => {
@@ -86,11 +109,23 @@ const MainStudio: React.FC = () => {
     }
     return 'studio';
   });
+  const [adminCodePreview, setAdminCodePreview] = useState<string | undefined>(undefined);
 
   const [project, setProject] = useState<Project>(DEFAULT_PROJECT);
+  // Audio IDs remain here until their IndexedDB write succeeds. Autosave omits only
+  // clips whose audio is not durable, avoiding saved projects with dangling asset refs.
+  const unsavedAssetIdsRef = useRef<Set<string>>(new Set());
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
+  // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
+  // cadence; committing every tick rerenders the entire studio tree and its expensive timeline.
+  const playheadSecondsRef = useRef<number>(0);
+  const lastPlayheadRenderAtRef = useRef<number>(0);
+  const projectFileHandleRef = useRef<ProjectFileHandle | null>(null);
+  const projectRootDirectoryRef = useRef<ProjectDirectoryHandle | null>(null);
+  const [projectRootDirectoryName, setProjectRootDirectoryName] = useState<string | null>(null);
   const [pixelsPerSecond, setPixelsPerSecond] = useState<number>(60);
+  const [timelineViewportWidth, setTimelineViewportWidth] = useState<number>(1200);
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set());
   const [clipboardClip, setClipboardClip] = useState<Clip | null>(null);
@@ -100,7 +135,6 @@ const MainStudio: React.FC = () => {
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('tracks');
-  const [dashboardTab, setDashboardTab] = useState<TabType | undefined>(undefined);
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState<boolean>(false);
   const [isTimelineControlsCollapsed, setIsTimelineControlsCollapsed] = useState<boolean>(() => {
     try {
@@ -230,6 +264,31 @@ const MainStudio: React.FC = () => {
   }, [project, updateHistoryFlags]);
 
   // Update project with undo history recording
+  useEffect(() => {
+    let active = true;
+    void loadProjectRootDirectory().then((directory) => {
+      if (!active || !directory) return;
+      projectRootDirectoryRef.current = directory;
+      setProjectRootDirectoryName(directory.name);
+    });
+    return () => { active = false; };
+  }, []);
+
+  const handleChooseProjectRoot = useCallback(async () => {
+    try {
+      const directory = await chooseProjectRootDirectory();
+      projectRootDirectoryRef.current = directory;
+      projectFileHandleRef.current = null;
+      setProjectRootDirectoryName(directory.name);
+      addToast({ type: 'success', title: 'Project Folder Selected', message: `Project files will use “${directory.name}” as the default folder. Existing saved file handles still take priority until Save As or a folder save.` });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      addToast({ type: 'error', title: 'Folder Selection Failed', message: err instanceof Error ? err.message : 'Could not select a project folder.' });
+    }
+  }, [addToast]);
+
+
+
   const setProjectWithHistory = useCallback(
     (newProjectOrFn: Project | ((prev: Project) => Project), skipHistory = false) => {
       setProject((prev) => {
@@ -242,84 +301,6 @@ const MainStudio: React.FC = () => {
     },
     []
   );
-
-  // The export passes unavailable plugins through; say which ones, so a missing effect is never a surprise
-  useEffect(() => {
-    const onSkipped = (e: Event) => {
-      const list = (e as CustomEvent).detail?.plugins as Array<{ name: string; reason: string }> | undefined;
-      if (!list || list.length === 0) return;
-      const names = Array.from(new Set(list.map((p) => p.name))).join(', ');
-      addToast({
-        type: 'warning',
-        title: 'Export skipped some plugins',
-        message: `${names} could not be applied, so the audio passes through unchanged.`,
-      });
-    };
-    window.addEventListener('uuda:export-skipped-plugins', onSkipped);
-    return () => window.removeEventListener('uuda:export-skipped-plugins', onSkipped);
-  }, [addToast]);
-
-  // Plugin chains in undo/redo: edits are written into the project (one history step per burst of edits)
-  const projectRef = useRef<Project>(project);
-  useEffect(() => {
-    projectRef.current = project;
-  }, [project]);
-  const applyingPluginsRef = useRef<boolean>(false);
-  const pluginCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const commitPluginEdits = useCallback(async () => {
-    if (applyingPluginsRef.current || isRestoringPlugins()) return;
-    const live = await collectLive(projectRef.current);
-    if (applyingPluginsRef.current || isRestoringPlugins()) return;
-    setProjectWithHistory((prev) => {
-      const next = attachLive(prev, live);
-      return pluginSignature(next) === pluginSignature(prev) ? prev : next;
-    });
-  }, [setProjectWithHistory]);
-
-  /** Records any pending plugin edit right now (before undo, before deleting a track) */
-  const flushPluginEdits = useCallback(async () => {
-    if (pluginCommitTimerRef.current) {
-      clearTimeout(pluginCommitTimerRef.current);
-      pluginCommitTimerRef.current = null;
-    }
-    await commitPluginEdits();
-  }, [commitPluginEdits]);
-
-  useEffect(() => {
-    const unsubscribe = pluginManager.subscribeEdits(() => {
-      if (applyingPluginsRef.current || isRestoringPlugins()) return;
-      if (pluginCommitTimerRef.current) clearTimeout(pluginCommitTimerRef.current);
-      // A knob drag is many edits; wait for it to settle so it is one undo step
-      pluginCommitTimerRef.current = setTimeout(() => {
-        pluginCommitTimerRef.current = null;
-        void commitPluginEdits();
-      }, 350);
-    });
-    return () => {
-      unsubscribe();
-      if (pluginCommitTimerRef.current) clearTimeout(pluginCommitTimerRef.current);
-    };
-  }, [commitPluginEdits]);
-
-  /** After undo/redo: make the live chains match the snapshot, without adding a history step of their own */
-  const syncPluginsToSnapshot = useCallback(async (snapshot: Project) => {
-    applyingPluginsRef.current = true;
-    try {
-      const rebuilt = await applySnapshot(audioEngine.init(), snapshot);
-      if (rebuilt) {
-        // Rebuilt chains can differ in tiny ways (clamped values): rebase quietly so redo is not lost
-        const live = await collectLive(projectRef.current);
-        const rebased = attachLive(projectRef.current, live);
-        historyManagerRef.current.setPresent(rebased);
-        setProject(rebased);
-      }
-    } catch (err) {
-      console.warn('Could not rebuild plugin chains after undo/redo:', err);
-    } finally {
-      applyingPluginsRef.current = false;
-    }
-  }, []);
 
   // 1. Restore project and stored assets from IndexedDB on initial mount
   useEffect(() => {
@@ -358,13 +339,6 @@ const MainStudio: React.FC = () => {
           updateHistoryFlags();
           setLastSavedAt(new Date());
 
-          // Rebuild the saved plugin chains in the background (the audio context may wait for the first click)
-          if (hasSavedPlugins(savedProject)) {
-            restorePluginStates(audioEngine.init(), savedProject).catch((err) =>
-              console.warn('Could not restore plugin chains:', err)
-            );
-          }
-
           if (savedProject.tracks.length > 0) {
             addToast({
               type: 'info',
@@ -395,7 +369,14 @@ const MainStudio: React.FC = () => {
     const timer = setInterval(async () => {
       try {
         setIsAutosaving(true);
-        await saveProjectToDB(await withPluginStates(project));
+        const unsavedAssetIds = unsavedAssetIdsRef.current;
+        const safeTracks = project.tracks
+          .map((track) => ({
+            ...track,
+            clips: track.clips.filter((clip) => !unsavedAssetIds.has(clip.assetId)),
+          }))
+          .filter((track, index) => track.clips.length > 0 || project.tracks[index].clips.length === 0);
+        await saveProjectToDB({ ...project, tracks: safeTracks });
         setLastSavedAt(new Date());
       } catch {
         // Autosave error handled silently or quietly
@@ -410,7 +391,15 @@ const MainStudio: React.FC = () => {
   // 3. Connect audio engine time update & playback ended listeners
   useEffect(() => {
     audioEngine.setOnTimeUpdate((time) => {
-      setPlayheadSeconds(time);
+      playheadSecondsRef.current = time;
+      const now = performance.now();
+      const playbackIsActive = audioEngine.getIsPlaying();
+      // While playing, refresh React-owned labels at most 10 times per second. Seek, stop,
+      // and playback-end notifications still update immediately for exact user-visible state.
+      if (!playbackIsActive || now - lastPlayheadRenderAtRef.current >= 100) {
+        lastPlayheadRenderAtRef.current = now;
+        setPlayheadSeconds(time);
+      }
     });
     audioEngine.setOnPlaybackEnded(() => {
       setIsPlaying(false);
@@ -420,14 +409,12 @@ const MainStudio: React.FC = () => {
   // Sync track gain and pan nodes with audio engine when project tracks change
   useEffect(() => {
     audioEngine.syncTracks(project.tracks);
-    // Ducking settings or source clips may have changed mid-playback: re-apply only the curves that did
-    audioEngine.refreshDucking(project);
-  }, [project]);
+  }, [project.tracks]);
 
   // 4. Playback Handlers
   const handlePlay = async () => {
     try {
-      await audioEngine.play(project, playheadSeconds);
+      await audioEngine.play(project, playheadSecondsRef.current);
       setIsPlaying(true);
     } catch (err) {
       addToast({
@@ -440,12 +427,16 @@ const MainStudio: React.FC = () => {
 
   const handlePause = () => {
     audioEngine.pause();
+    const stoppedAt = audioEngine.getCurrentTime();
+    playheadSecondsRef.current = stoppedAt;
+    setPlayheadSeconds(stoppedAt);
     setIsPlaying(false);
   };
 
   const handleStop = () => {
     audioEngine.stop();
     setIsPlaying(false);
+    playheadSecondsRef.current = 0;
     setPlayheadSeconds(0);
   };
 
@@ -455,6 +446,7 @@ const MainStudio: React.FC = () => {
       setIsPlaying(false);
     }
     audioEngine.seek(0);
+    playheadSecondsRef.current = 0;
     setPlayheadSeconds(0);
     addToast({
       type: 'info',
@@ -464,13 +456,14 @@ const MainStudio: React.FC = () => {
   }, [isPlaying, addToast]);
 
   const createBlankProject = useCallback(() => {
+    projectFileHandleRef.current = null;
     if (isPlaying) {
       audioEngine.pause();
       setIsPlaying(false);
     }
     audioEngine.seek(0);
+    playheadSecondsRef.current = 0;
     setPlayheadSeconds(0);
-    pluginManager.clearAll();
     const blankProject: Project = {
       id: `project-${Date.now()}`,
       name: 'Untitled Project',
@@ -503,42 +496,82 @@ const MainStudio: React.FC = () => {
     }
   }, [project.tracks.length, createBlankProject, addToast]);
 
-  const handleSaveProjectToFile = useCallback(async () => {
+  const handleSaveProjectToFile = useCallback(async (forceSaveAs = false): Promise<boolean> => {
     try {
-      // Include the plugin chains so a reopened file sounds the same
-      const fullProject = await withPluginStates(project);
-      const projectData = {
-        ...fullProject,
-        savedAt: new Date().toISOString(),
-        version: '1.0',
-      };
-      const jsonString = JSON.stringify(projectData, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      const fileName = `${project.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Session'}.uuda.json`;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      addToast({
-        type: 'success',
-        title: 'Project Saved to Computer',
-        message: `Downloaded "${fileName}" successfully.`,
-      });
+      // The .uuda file is the portable project backup: project JSON plus every referenced
+      // audio asset in a single binary container. IndexedDB remains the recovery autosave.
+      const blob = encodeProjectFile(project, (assetId) => audioEngine.getAsset(assetId));
+      const fileName = `${project.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Session'}.uuda`;
+      const pickerWindow = window as WindowWithProjectFilePicker;
+      let fileHandle = !forceSaveAs ? projectFileHandleRef.current : null;
+
+      // If a root folder is configured, create/update the project's .uuda file there
+      // before falling back to the single-file Save As picker.
+      if (!fileHandle && !forceSaveAs && projectRootDirectoryRef.current) {
+        const directory = projectRootDirectoryRef.current;
+        if (await ensureProjectDirectoryPermission(directory)) {
+          fileHandle = await directory.getFileHandle(fileName, { create: true }) as unknown as ProjectFileHandle;
+        }
+      }
+
+      if (!fileHandle && pickerWindow.showSaveFilePicker) {
+        try {
+          fileHandle = await pickerWindow.showSaveFilePicker({
+            suggestedName: fileName,
+            types: [{ description: 'Uuda Studio project', accept: { 'application/vnd.uuda.project': ['.uuda'] } }],
+          });
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') return false;
+          throw err;
+        }
+      }
+
+      if (fileHandle) {
+        const writable = await fileHandle.createWritable();
+        try {
+          await writable.write(blob);
+          await writable.close();
+        } catch (err) {
+          try { await writable.close(); } catch { /* preserve original write error */ }
+          throw err;
+        }
+        projectFileHandleRef.current = fileHandle;
+        addToast({
+          type: 'success',
+          title: 'Project Saved to Computer',
+          message: `Saved self-contained project "${fileHandle.name || fileName}".`,
+        });
+      } else {
+        // Non-Chromium fallback: downloads remain the supported save mechanism.
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        projectFileHandleRef.current = null;
+        addToast({
+          type: 'success',
+          title: 'Project Saved to Computer',
+          message: `Downloaded self-contained project "${fileName}".`,
+        });
+      }
+      return true;
     } catch (err) {
       addToast({
         type: 'error',
         title: 'Save Failed',
         message: err instanceof Error ? err.message : 'Could not export project file.',
       });
+      return false;
     }
   }, [project, addToast]);
 
   const handleSaveAndNewProject = useCallback(async () => {
-    await handleSaveProjectToFile();
+    const saved = await handleSaveProjectToFile();
+    if (!saved) return;
     createBlankProject();
     setIsNewProjectModalOpen(false);
     addToast({
@@ -579,17 +612,24 @@ const MainStudio: React.FC = () => {
 
   const handleOpenProjectFromFile = useCallback(async (file: File) => {
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text) as Project;
+      const context = await audioEngine.init();
+      const decoded = await decodeProjectFile(file, context);
+      projectFileHandleRef.current = null;
+      const parsed = decoded.project;
+      // A missing asset in the opened container must not accidentally bind to an old
+      // in-memory asset with the same ID from the previously open project.
+      for (const missingId of decoded.missingAssetIds) audioEngine.unregisterAsset(missingId);
       if (!parsed || !Array.isArray(parsed.tracks)) {
-        throw new Error('Selected file is not a valid Uuda Studio project file.');
+        throw new Error('Selected file is not a valid UUDA project file.');
       }
       if (isPlaying) {
         audioEngine.pause();
         setIsPlaying(false);
       }
       audioEngine.seek(0);
+      playheadSecondsRef.current = 0;
       setPlayheadSeconds(0);
+
       const loadedProject: Project = {
         ...parsed,
         id: parsed.id || `project-${Date.now()}`,
@@ -604,60 +644,135 @@ const MainStudio: React.FC = () => {
         },
         updatedAt: Date.now(),
       };
-      pluginManager.clearAll();
-      setProjectWithHistory(loadedProject);
-      if (hasSavedPlugins(loadedProject)) {
-        restorePluginStates(audioEngine.init(), loadedProject).catch((err) =>
-          console.warn('Could not restore plugin chains:', err)
-        );
+
+      const failedPersistenceAssetIds: string[] = [];
+      for (const asset of decoded.assets) {
+        audioEngine.registerAsset(asset);
+        unsavedAssetIdsRef.current.add(asset.id);
+        try {
+          await saveAssetToDB(asset);
+          unsavedAssetIdsRef.current.delete(asset.id);
+        } catch {
+          failedPersistenceAssetIds.push(asset.id);
+          // The imported file remains playable in memory; keep it excluded from autosave
+          // until IndexedDB persistence succeeds, and tell the user below.
+        }
       }
+
+      setProjectWithHistory(loadedProject);
       setSelectedTrackId(loadedProject.tracks[0]?.id || null);
       setSelectedClipIds(new Set());
-      addToast({
-        type: 'success',
-        title: 'Project Loaded from Computer',
-        message: `"${loadedProject.name}" restored with ${loadedProject.tracks.length} tracks.`,
-      });
+
+      const missingInMemory = [...collectReferencedAssetIdsForUi(loadedProject)].filter((id) => !audioEngine.getAsset(id));
+      const missingFromFile = [...new Set([...decoded.missingAssetIds, ...missingInMemory])];
+      if (missingFromFile.length > 0) {
+        addToast({
+          type: 'warning',
+          title: 'Project Opened with Missing Audio',
+          message: `${missingFromFile.length} referenced audio asset(s) could not be restored. The project timeline opened; affected clips may be silent.`,
+          duration: 0,
+        });
+      } else if (failedPersistenceAssetIds.length > 0) {
+        addToast({
+          type: 'warning',
+          title: 'Project Opened; Local Recovery Incomplete',
+          message: `${failedPersistenceAssetIds.length} audio asset(s) could not be saved to IndexedDB. The project is playable now; keep the .uuda file as your recovery copy.`,
+          duration: 0,
+        });
+      } else {
+        addToast({
+          type: 'success',
+          title: 'Project Loaded from Computer',
+          message: `"${loadedProject.name}" restored with ${loadedProject.tracks.length} tracks and ${decoded.assets.length} audio assets.`,
+        });
+      }
+      return true;
     } catch (err) {
       addToast({
         type: 'error',
         title: 'Open Project Failed',
-        message: err instanceof Error ? err.message : 'Failed to parse project file.',
+        message: err instanceof Error ? err.message : 'Failed to read project file.',
       });
+      return false;
     }
   }, [isPlaying, addToast, setProjectWithHistory]);
 
-  const handleSeek = (seconds: number) => {
-    let projectEnd = 0;
-    for (const track of project.tracks) {
-      for (const clip of track.clips) {
-        const end = clip.startSeconds + clip.durationSeconds;
-        if (end > projectEnd) projectEnd = end;
-      }
-    }
-    const clamped = projectEnd > 0 ? Math.min(Math.max(0, seconds), projectEnd) : Math.max(0, seconds);
-    setPlayheadSeconds(clamped);
-    audioEngine.seek(clamped, isPlaying ? project : undefined);
-  };
 
-  // 5. File Import: Decode audio & insert NEW track at index 0 (top)
+  const handleOpenProjectFromRoot = useCallback(async () => {
+    try {
+      let directory = projectRootDirectoryRef.current;
+      if (!directory) {
+        addToast({ type: 'info', title: 'Choose a Project Folder First', message: 'Select a root folder before opening a project from it.' });
+        return;
+      }
+      if (!(await ensureProjectDirectoryPermission(directory))) {
+        directory = await chooseProjectRootDirectory();
+        projectRootDirectoryRef.current = directory;
+        setProjectRootDirectoryName(directory.name);
+      }
+      const candidates: ProjectDirectoryFileHandle[] = [];
+      for await (const entry of directory.values()) {
+        if (entry.kind === 'file' && /\.uuda$/i.test(entry.name)) candidates.push(entry as ProjectDirectoryFileHandle);
+      }
+      candidates.sort((a, b) => a.name.localeCompare(b.name));
+      if (candidates.length === 0) {
+        addToast({ type: 'info', title: 'No Uuda Projects Found', message: `No .uuda files were found in “${directory.name}”.` });
+        return;
+      }
+      const listing = candidates.map((entry, index) => `${index + 1}. ${entry.name}`).join('\n');
+      const choice = window.prompt(`Open a project from “${directory.name}” by number:\n\n${listing}\n\nEnter a number (Cancel to keep the current project):`);
+      if (choice === null) return;
+      const index = Number.parseInt(choice, 10) - 1;
+      if (!Number.isInteger(index) || index < 0 || index >= candidates.length) {
+        addToast({ type: 'error', title: 'Invalid Project Selection', message: 'Enter one of the project numbers shown.' });
+        return;
+      }
+      const handle = candidates[index];
+      const file = await handle.getFile();
+      const opened = await handleOpenProjectFromFile(file);
+      if (opened) projectFileHandleRef.current = handle as unknown as ProjectFileHandle;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      addToast({ type: 'error', title: 'Could Not Open From Folder', message: err instanceof Error ? err.message : 'Could not read a project from the selected folder.' });
+    }
+  }, [addToast, handleOpenProjectFromFile]);
+  // Project shortcuts follow the PRD: Ctrl/Cmd+S saves, Shift adds Save As, and O opens.
+  useEffect(() => {
+    const handleProjectShortcuts = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || currentView !== 'studio') return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+      const key = event.key.toLowerCase();
+      if (key === 's') {
+        event.preventDefault();
+        void handleSaveProjectToFile(event.shiftKey);
+      } else if (key === 'o') {
+        event.preventDefault();
+        window.dispatchEvent(new Event('uuda:open-project-picker'));
+      }
+    };
+    window.addEventListener('keydown', handleProjectShortcuts);
+    return () => window.removeEventListener('keydown', handleProjectShortcuts);
+  }, [currentView, handleSaveProjectToFile]);
+
+  // 5. File Import: make decoded audio available immediately, then persist it locally.
   const handleImportFiles = async (files: FileList) => {
     if (files.length === 0) return;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const toastId = addToast({
+      const decodeToastId = addToast({
         type: 'info',
         title: 'Decoding Audio...',
         message: `Processing ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`,
         duration: 0,
       });
+      let persistenceToastId: string | null = null;
+      let trackAdded = false;
 
       try {
-        // Real Web Audio decode
         const audioBuffer = await audioEngine.decodeAudioFile(file);
         const assetId = `asset-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-
         const asset: Asset = {
           id: assetId,
           name: file.name,
@@ -668,20 +783,17 @@ const MainStudio: React.FC = () => {
           numberOfChannels: audioBuffer.numberOfChannels,
         };
 
-        // Register in engine and persist to IndexedDB
         audioEngine.registerAsset(asset);
-        await saveAssetToDB(asset);
+        unsavedAssetIdsRef.current.add(assetId);
 
-        // Create new track & clip placed at index 0 (top)
         const trackId = `track-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
         const clipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-
         const newClip: Clip = {
           id: clipId,
-          trackId: trackId,
+          trackId,
           assetId: asset.id,
           name: file.name.replace(/\.[^/.]+$/, ''),
-          startSeconds: 0, // float, placed at beginning
+          startSeconds: 0,
           offsetSeconds: 0,
           durationSeconds: audioBuffer.duration,
           gain: 1.0,
@@ -689,7 +801,6 @@ const MainStudio: React.FC = () => {
           fadeOutSeconds: 0,
           fadeShape: 'linear',
         };
-
         const newTrack: Track = {
           id: trackId,
           name: file.name.replace(/\.[^/.]+$/, ''),
@@ -700,26 +811,45 @@ const MainStudio: React.FC = () => {
           solo: false,
         };
 
-        // Insert at index 0 (top of tracks array as per FR-2.1)
-        setProjectWithHistory((prev) => ({
-          ...prev,
-          tracks: [newTrack, ...prev.tracks],
-        }));
-
+        // The track becomes usable after decode; IndexedDB durability is a separate state.
+        setProjectWithHistory((prev) => ({ ...prev, tracks: [newTrack, ...prev.tracks] }));
         setSelectedTrackId(trackId);
         setSelectedClipIds(new Set([clipId]));
+        trackAdded = true;
+        removeToast(decodeToastId);
 
+        persistenceToastId = addToast({
+          type: 'info',
+          title: 'Saving Local Audio...',
+          message: `${file.name} is playable; keeping a local recovery copy.`,
+          duration: 0,
+        });
+
+        // Yield a task so React can paint the newly added track before storage work begins.
+        // A timer is used instead of requestAnimationFrame because background tabs may suspend RAF.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        await saveAssetToDB(asset);
+        unsavedAssetIdsRef.current.delete(assetId);
+        removeToast(persistenceToastId);
+        persistenceToastId = null;
         addToast({
           type: 'success',
-          title: 'Audio Imported',
-          message: `${file.name} (${audioBuffer.duration.toFixed(2)}s) added to top track.`,
+          title: 'Audio Imported and Saved',
+          message: `${file.name} (${audioBuffer.duration.toFixed(2)}s) is ready and stored locally.`,
         });
       } catch (err) {
+        removeToast(decodeToastId);
+        if (persistenceToastId) removeToast(persistenceToastId);
         addToast({
-          type: 'error',
-          title: 'Decode Failed',
-          message: `${file.name}: ${err instanceof Error ? err.message : 'Unsupported or corrupted audio format.'}`,
+          type: trackAdded ? 'warning' : 'error',
+          title: trackAdded ? 'Audio Playable, Local Save Failed' : 'Decode Failed',
+          message: trackAdded
+            ? `${file.name} is currently playable but will not survive a reload until saved. ${err instanceof Error ? err.message : 'IndexedDB storage failed.'}`
+            : `${file.name}: ${err instanceof Error ? err.message : 'Unsupported or corrupted audio format.'}`,
         });
+      } finally {
+        removeToast(decodeToastId);
+        if (persistenceToastId) removeToast(persistenceToastId);
       }
     }
   };
@@ -842,14 +972,6 @@ const MainStudio: React.FC = () => {
     });
   };
 
-  // One commit handler for the shared voiceover job. A ref keeps it pointing at the latest handler.
-  const addVoiceTrackRef = useRef(handleAddVoiceTrack);
-  addVoiceTrackRef.current = handleAddVoiceTrack;
-  useEffect(() => {
-    voiceJob.setCommitHandler((asset, meta) => addVoiceTrackRef.current(asset, meta));
-    return () => voiceJob.setCommitHandler(null);
-  }, []);
-
   const handleAddLibraryTrack = (asset: Asset) => {
     // Crucial: Register asset in audioEngine so timeline and playback can access audioBuffer
     audioEngine.registerAsset(asset);
@@ -948,10 +1070,7 @@ const MainStudio: React.FC = () => {
     }));
   };
 
-  const handleDeleteTrack = async (trackId: string) => {
-    // Record the track's chain in history first, so undoing the delete brings its plugins back
-    await flushPluginEdits();
-    pluginManager.clearTrack(trackId);
+  const handleDeleteTrack = (trackId: string) => {
     setProjectWithHistory((prev) => ({
       ...prev,
       tracks: prev.tracks.filter((t) => t.id !== trackId),
@@ -963,35 +1082,6 @@ const MainStudio: React.FC = () => {
       type: 'info',
       title: 'Track Deleted',
       message: 'Track removed from session.',
-    });
-  };
-
-  // Removes every empty lane that carries no effects (one undo step brings them back)
-  const handleRemoveEmptyTracks = () => {
-    const removable = project.tracks.filter(
-      (t) => t.clips.length === 0 && pluginManager.getPluginsForTrack(t.id).length === 0
-    );
-    if (removable.length === 0) return;
-    const ids = new Set(removable.map((t) => t.id));
-    setProjectWithHistory((prev) => ({
-      ...prev,
-      tracks: prev.tracks.filter((t) => !ids.has(t.id)),
-    }));
-    if (selectedTrackId && ids.has(selectedTrackId)) setSelectedTrackId(null);
-    addToast({
-      type: 'info',
-      title: removable.length === 1 ? 'Empty track removed' : `${removable.length} empty tracks removed`,
-      message: 'Press Ctrl+Z to bring them back.',
-    });
-  };
-
-  // Called by the timeline when a drag emptied lanes that were never touched and removed them
-  const handleTracksAutoRemoved = (ids: string[]) => {
-    if (selectedTrackId && ids.includes(selectedTrackId)) setSelectedTrackId(null);
-    addToast({
-      type: 'info',
-      title: ids.length === 1 ? 'Empty track removed' : `${ids.length} empty tracks removed`,
-      message: 'The lane was left empty by the move. Press Ctrl+Z to undo.',
     });
   };
 
@@ -1095,7 +1185,7 @@ const MainStudio: React.FC = () => {
 
     const pasteTime = targetTimeSeconds !== undefined
       ? Math.max(0, targetTimeSeconds)
-      : Math.max(0, playheadSeconds);
+      : Math.max(0, playheadSecondsRef.current);
 
     const newClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 
@@ -1184,8 +1274,8 @@ const MainStudio: React.FC = () => {
     if (
       !targetClip ||
       !targetTrack ||
-      playheadSeconds <= targetClip.startSeconds ||
-      playheadSeconds >= targetClip.startSeconds + targetClip.durationSeconds
+      playheadSecondsRef.current <= targetClip.startSeconds ||
+      playheadSecondsRef.current >= targetClip.startSeconds + targetClip.durationSeconds
     ) {
       addToast({
         type: 'warning',
@@ -1198,7 +1288,7 @@ const MainStudio: React.FC = () => {
     // Exact sample frame cut: frame = floor(timeSeconds * sampleRate)
     const asset = audioEngine.getAsset(targetClip.assetId);
     const sampleRate = asset ? asset.sampleRate : project.sampleRate;
-    const relativeSeconds = playheadSeconds - targetClip.startSeconds;
+    const relativeSeconds = playheadSecondsRef.current - targetClip.startSeconds;
     const splitFrame = Math.floor(relativeSeconds * sampleRate);
     const leftDuration = splitFrame / sampleRate;
     const rightDuration = targetClip.durationSeconds - leftDuration;
@@ -1251,7 +1341,7 @@ const MainStudio: React.FC = () => {
     addToast({
       type: 'success',
       title: 'Clip Split',
-      message: `Cut at frame ${splitFrame} (${playheadSeconds.toFixed(4)}s). Both pieces share buffer.`,
+      message: `Cut at frame ${splitFrame} (${playheadSecondsRef.current.toFixed(4)}s). Both pieces share buffer.`,
     });
   };
 
@@ -1610,25 +1700,19 @@ const MainStudio: React.FC = () => {
   };
 
   // 8. Undo / Redo
-  const handleUndo = async () => {
-    await flushPluginEdits();
+  const handleUndo = () => {
     const previous = historyManagerRef.current.undo();
     if (previous) {
       setProject(previous);
-      projectRef.current = previous;
-      void syncPluginsToSnapshot(previous);
       updateHistoryFlags();
       addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
     }
   };
 
-  const handleRedo = async () => {
-    await flushPluginEdits();
+  const handleRedo = () => {
     const next = historyManagerRef.current.redo();
     if (next) {
       setProject(next);
-      projectRef.current = next;
-      void syncPluginsToSnapshot(next);
       updateHistoryFlags();
       addToast({ type: 'info', title: 'Redo', message: 'Reapplied change.' });
     }
@@ -1640,23 +1724,27 @@ const MainStudio: React.FC = () => {
   };
 
   const handleZoomOut = () => {
-    setPixelsPerSecond((prev) => Math.max(10, prev / 1.3));
+    setPixelsPerSecond((prev) => Math.max(0.1, prev / 1.3));
   };
 
   const handleZoomFit = () => {
-    setPixelsPerSecond(60);
+    const controlsWidth = isTimelineControlsCollapsed ? 32 : 272;
+    const usableWidth = Math.max(100, timelineViewportWidth - controlsWidth - 32);
+    const duration = Math.max(60, totalDurationSeconds) + 15;
+    setPixelsPerSecond(Math.max(0.1, Math.min(1000, usableWidth / duration)));
   };
 
   // 10. Clear Session & Workspace Reset Handlers
   const handleExecuteResetSession = useCallback(async () => {
+    projectFileHandleRef.current = null;
     if (isPlaying) {
       audioEngine.pause();
       setIsPlaying(false);
     }
     audioEngine.seek(0);
+    playheadSecondsRef.current = 0;
     setPlayheadSeconds(0);
     await clearAllProjectData().catch(() => {});
-    pluginManager.clearAll();
     const freshProject: Project = {
       id: `project-${Date.now()}`,
       name: 'Untitled Project',
@@ -1693,12 +1781,13 @@ const MainStudio: React.FC = () => {
   }, [project.tracks.length, handleExecuteResetSession, addToast]);
 
   const handleSaveAndResetSession = useCallback(async () => {
-    await handleSaveProjectToFile();
+    const saved = await handleSaveProjectToFile();
+    if (!saved) return;
     await handleExecuteResetSession();
     addToast({
       type: 'success',
       title: 'Project Saved & Session Reset',
-      message: 'Active work downloaded and fresh timeline initialized.',
+      message: 'Active project saved and fresh timeline initialized.',
     });
   }, [handleSaveProjectToFile, handleExecuteResetSession, addToast]);
 
@@ -1849,7 +1938,7 @@ const MainStudio: React.FC = () => {
         if (e.deltaY < 0) {
           setPixelsPerSecond((prev) => Math.min(1000, prev * 1.15));
         } else {
-          setPixelsPerSecond((prev) => Math.max(10, prev / 1.15));
+          setPixelsPerSecond((prev) => Math.max(0.1, prev / 1.15));
         }
       }
     };
@@ -1871,11 +1960,12 @@ const MainStudio: React.FC = () => {
         }}
         onSuccessSignIn={(info) => {
           setCurrentView('studio');
-          if (info?.adminCodeSent) {
+          if (info?.adminCodeSent && info.connectionCodePreview) {
+            setAdminCodePreview(info.connectionCodePreview);
             addToast({
               type: 'info',
-              title: 'Admin verification',
-              message: 'A 6-digit code was sent to your email. Enter it to unlock the Admin Panel.',
+              title: 'Admin Verification Code',
+              message: `6-Digit Code: ${info.connectionCodePreview} (Enter to unlock Admin Panel)`,
             });
           }
         }}
@@ -1886,12 +1976,7 @@ const MainStudio: React.FC = () => {
   if (currentView === 'dashboard') {
     return (
       <UserDashboard
-        key={dashboardTab}
-        initialTab={dashboardTab}
-        onBackToStudio={() => {
-          setDashboardTab(undefined);
-          setCurrentView('studio');
-        }}
+        onBackToStudio={() => setCurrentView('studio')}
         onOpenProject={() => {
           setCurrentView('studio');
         }}
@@ -1903,6 +1988,7 @@ const MainStudio: React.FC = () => {
     return (
       <AdminPanel
         onBackToStudio={() => setCurrentView('studio')}
+        initialConnectionCode={adminCodePreview}
       />
     );
   }
@@ -1922,7 +2008,11 @@ const MainStudio: React.FC = () => {
         onNewProject={handleNewProject}
         onSaveAndNewProject={handleSaveAndNewProject}
         onOpenNewProjectInTab={handleOpenNewProjectInTab}
-        onSaveProjectToFile={handleSaveProjectToFile}
+        onSaveProjectToFile={() => { void handleSaveProjectToFile(false); }}
+        onSaveProjectAs={() => { void handleSaveProjectToFile(true); }}
+        onChooseProjectRoot={() => void handleChooseProjectRoot()}
+        onOpenProjectFromRoot={() => void handleOpenProjectFromRoot()}
+        projectRootDirectoryName={projectRootDirectoryName}
         onOpenProjectFromFile={handleOpenProjectFromFile}
         onOpenRecord={() => setIsRecordModalOpen(true)}
         onUndo={handleUndo}
@@ -2011,10 +2101,6 @@ const MainStudio: React.FC = () => {
           user={user}
           unreadTicketsCount={unreadTicketsCount}
           onOpenDashboard={() => setCurrentView('dashboard')}
-          onOpenSupport={() => {
-            setDashboardTab('support');
-            setCurrentView('dashboard');
-          }}
           onOpenAdmin={() => setCurrentView('admin')}
           onOpenSignIn={() => setCurrentView('auth')}
           onOpenPlugins={() => setIsPluginsRackModalOpen(true)}
@@ -2026,8 +2112,6 @@ const MainStudio: React.FC = () => {
           onDeleteTrack={handleDeleteTrack}
           onMoveTrack={handleMoveTrack}
           onAddTrack={handleAddEmptyTrack}
-          onUpdateTrack={handleUpdateTrack}
-          onRemoveEmptyTracks={handleRemoveEmptyTracks}
           onAddVoiceTrack={handleAddVoiceTrack}
           onAddLibraryTrack={handleAddLibraryTrack}
         />
@@ -2068,6 +2152,7 @@ const MainStudio: React.FC = () => {
               project={project}
               playheadSeconds={playheadSeconds}
               pixelsPerSecond={pixelsPerSecond}
+              onViewportWidthChange={setTimelineViewportWidth}
               selectedTrackId={selectedTrackId}
               selectedClipIds={selectedClipIds}
               isControlsCollapsed={isTimelineControlsCollapsed}
@@ -2078,7 +2163,6 @@ const MainStudio: React.FC = () => {
               onDeleteTrack={handleDeleteTrack}
               onMoveTrack={handleMoveTrack}
               onUpdateProject={(p) => setProjectWithHistory(p)}
-              onTracksAutoRemoved={handleTracksAutoRemoved}
               onSeek={handleSeek}
               onSplitClip={handleSplitClip}
               onDeleteClip={handleDeleteClip}
@@ -2206,16 +2290,15 @@ const MainStudio: React.FC = () => {
         isOpen={isPluginsRackModalOpen}
         onClose={() => setIsPluginsRackModalOpen(false)}
         tracks={project.tracks}
-        project={project}
         selectedTrackId={selectedTrackId}
         onSelectTrack={(id) => setSelectedTrackId(id)}
-        onUpdateTrack={handleUpdateTrack}
       />
 
       {/* Expanded Multi-Pane Broadcast Voiceover Studio Workspace Modal */}
       <VoiceoverModal
         isOpen={isVoiceoverModalOpen}
         onClose={() => setIsVoiceoverModalOpen(false)}
+        onAddVoiceTrack={handleAddVoiceTrack}
       />
 
       {/* Expanded Sound Effects & Music Loop Library Workspace Modal */}
