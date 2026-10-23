@@ -972,7 +972,30 @@ export async function applyMasteringChain(
   lastNode.connect(offlineCtx.destination);
   sourceNode.start(0);
 
-  const renderedIntermediate = await offlineCtx.startRendering();
+  // OfflineAudioContext has no standard sample-progress callback. Keep the user informed
+  // during long renders without inventing a percentage that could falsely imply completion.
+  onProgress?.({
+    stage: 'mastering',
+    percent: 75,
+    message: 'Rendering offline effects; this browser does not expose exact render progress...',
+  });
+  const renderStartedAt = Date.now();
+  const renderHeartbeat = setInterval(() => {
+    const elapsedSeconds = Math.max(1, Math.floor((Date.now() - renderStartedAt) / 1000));
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    onProgress?.({
+      stage: 'mastering',
+      percent: 75,
+      message: `Rendering offline effects... elapsed ${minutes > 0 ? `${minutes}m ` : ''}${seconds}s (exact progress unavailable)`,
+    });
+  }, 2000);
+  let renderedIntermediate: AudioBuffer;
+  try {
+    renderedIntermediate = await offlineCtx.startRendering();
+  } finally {
+    clearInterval(renderHeartbeat);
+  }
 
   // 4. Brickwall True Peak Limiter with Lookahead & Soft-Knee Ceiling
   // Enforces true-peak <= ceilingDbTP (e.g. -1.0 dBTP = 0.89125 linear)
