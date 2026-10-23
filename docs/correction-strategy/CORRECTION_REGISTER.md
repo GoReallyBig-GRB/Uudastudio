@@ -155,3 +155,11 @@ Working branch: `correction/open-partial-tasks` (based on main at `51df2b8241a85
 ### Branch implementation scope
 
 Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV output byte-for-byte with the synchronous encoder at 16- and 24-bit depth, validate RIFF/data lengths, exercise progress monotonicity, and reject unsupported channel counts and RIFF-size overflow before sample access. This is a regression-test addition, not proof that tests have run in this environment. Continue with `npm run lint`, `npm test`, and `npm run build` in a dependency-complete checkout, then record results and browser evidence in the validation matrix.
+
+
+## Continued correction work — 2026-10-23 (session recovery safety)
+
+- **Orphan cleanup:** `cleanupOrphanedAssets` now checks project snapshot timestamps and removes expired per-tab snapshots before building the referenced-audio set. This closes a cleanup gap where stale snapshots could pin orphaned audio indefinitely. Active snapshots still protect their referenced audio; recently written assets retain the 24-hour grace period.
+- **Autosave:** the interval now reads the latest project ref instead of closing over each render's project, skips overlapping writes, and excludes unsaved assets from both active clips and clip-version history. This avoids stale queued snapshots and dangling historical audio references when IndexedDB persistence fails.
+- **Regression coverage:** `src/storage/db.test.ts` covers per-tab storage keys and the shared snapshot-expiry rule. These tests exercise the pure expiry contract, not a real IndexedDB transaction.
+- **Acceptance status:** implementation and unit coverage added; the branch CI run and browser tests must pass before considering this correction verified. Multi-tab recovery, quota failure, and suspended-tab behavior remain browser/runtime checks.
