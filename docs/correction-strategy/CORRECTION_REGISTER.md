@@ -179,3 +179,13 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **Open-project loss prevention:** opening another `.uuda`/legacy project now asks before replacing the current workspace when it differs from the last portable save. Cancel leaves the current project intact.
 
 - **Undo history isolation:** creating a blank project or opening a portable project now resets the undo/redo history to that project's initial state rather than appending the new project to the previous project's history.
+
+
+## Browser feedback follow-up — 2026-10-23
+
+- **Mastering progress/responsiveness:** true-peak analysis now yields every 65,536 samples instead of every 8,192 and reports advancing fractional progress across the analysis window rather than remaining at 62%. Added a regression test for advancing progress on a long sample buffer.
+- **Waveform zoom safety:** when zooming in on a long source without a finer cached peak level, reuse the nearest cached coarser envelope rather than synchronously rescanning the entire audio buffer on the UI thread. This prioritizes a visible, interactive waveform; high-zoom detail may be coarser until an asynchronous finer-level renderer is implemented.
+- **TTS resilience:** a generated voiceover becomes available immediately after decode. IndexedDB persistence runs in the background and reports failure without discarding the generated audio.
+- **Loading feedback:** audio import now shows a persistent in-app status banner through decoding, timeline insertion, and local recovery saving.
+- **Folder discoverability:** if no root folder is configured, show a first-use setup banner with a direct folder-picker action and a “Not now” option. No microphone permission is requested by this banner.
+- **Validation:** unit tests and latest branch CI must pass. Browser checks for long-track zoom/waveform detail, TTS insertion, export duration, root-folder selection and microphone prompt behavior remain open.
