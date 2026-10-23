@@ -95,4 +95,21 @@ describe('UUDA project file', () => {
     expect(decoded.project.id).toBe(project.id);
     expect(decoded.missingAssetIds).toEqual(['asset-1']);
   });
+
+  it('reports a referenced audio asset as missing when its PCM payload is truncated', async () => {
+    const blob = encodeProjectFile(project, (id) => id === originalAsset.id ? originalAsset : undefined);
+    const bytes = await blob.arrayBuffer();
+    const truncatedFile = new File([bytes.slice(0, bytes.byteLength - 4)], 'truncated.uuda');
+    const decoded = await decodeProjectFile(truncatedFile, fakeContext());
+
+    expect(decoded.project.id).toBe(project.id);
+    expect(decoded.assets).toHaveLength(0);
+    expect(decoded.missingAssetIds).toEqual(['asset-1']);
+  });
+
+  it('rejects a malformed manifest length instead of reading outside the file', async () => {
+    const header = new Uint8Array([0x55, 0x55, 0x44, 0x41, 0x50, 0x4a, 0xff, 0xff, 0xff, 0x7f]);
+    const file = new File([header as BlobPart], 'bad-manifest.uuda');
+    await expect(decodeProjectFile(file, fakeContext())).rejects.toThrow(/manifest length is invalid/);
+  });
 });
