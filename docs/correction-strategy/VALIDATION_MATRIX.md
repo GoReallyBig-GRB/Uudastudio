@@ -196,3 +196,6 @@ The checked items above describe added unit-test coverage. Latest branch CI pass
 - [ ] Browser: generate a TTS voiceover, audition it, place it on a new timeline track, and reload to check persistence warnings.
 - [ ] Browser: first-use folder banner appears without requesting microphone access; folder selection persists/reconnects as supported by the browser.
 - [ ] Browser: confirm plugin enhancement is present compared with the last known-good version.
+
+
+Latest browser-feedback follow-up CI passed at commit `4f9c2945322882c9e63f661d52435757826598f7`: type-check, tests, and application/server build all passed. This is automated validation only; the browser acceptance items above remain unchecked until re-tested.
