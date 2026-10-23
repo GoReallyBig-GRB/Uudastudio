@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { measureLoudnessAsync } from './mastering';
+import { createMonotonicProgressReporter, measureLoudnessAsync } from './mastering';
 
 describe('long-file mastering progress', () => {
   it('advances true-peak progress instead of reporting a fixed percentage', async () => {
@@ -23,5 +23,19 @@ describe('long-file mastering progress', () => {
       .toBeGreaterThan(truePeakUpdates[0].percent);
     expect(truePeakUpdates.every((update, index) => index === 0 || update.percent >= truePeakUpdates[index - 1].percent))
       .toBe(true);
+  });
+
+  it('never lets nested mastering stages move the reported percentage backwards', () => {
+    const updates: number[] = [];
+    const report = createMonotonicProgressReporter(({ percent }) => updates.push(percent));
+
+    report({ stage: 'mastering', percent: 65, message: 'Starting analysis' });
+    report({ stage: 'mastering', percent: 60, message: 'True peak phase starts' });
+    report({ stage: 'mastering', percent: 63, message: 'Filtering audio' });
+    report({ stage: 'mastering', percent: 75, message: 'Applying mastering' });
+    report({ stage: 'mastering', percent: 101, message: 'Final stage' });
+
+    expect(updates).toEqual([65, 65, 65, 75, 100]);
+    expect(updates.every((value, index) => index === 0 || value >= updates[index - 1])).toBe(true);
   });
 });
