@@ -34,6 +34,7 @@ import {
   UploadCloud,
   Sparkles,
   ExternalLink,
+  LayoutTemplate,
 } from 'lucide-react';
 import { Project } from '../types';
 import { audioEngine } from '../audio/engine';
@@ -58,6 +59,8 @@ interface HeaderProps {
   onOpenNewProjectInTab?: () => void;
   onOpenProjectFromFile?: (file: File) => void;
   onSaveProjectToFile?: () => void;
+  onNewFromTemplate?: () => void;
+  onSaveAsTemplate?: () => void;
   onSaveProjectAs?: () => void;
   onChooseProjectRoot?: () => void;
   onOpenProjectFromRoot?: () => void;
@@ -111,6 +114,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNewProjectInTab,
   onOpenProjectFromFile,
   onSaveProjectToFile,
+  onNewFromTemplate,
+  onSaveAsTemplate,
   onSaveProjectAs,
   onChooseProjectRoot,
   onOpenProjectFromRoot,
@@ -256,6 +261,13 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               </button>
 
+              {onNewFromTemplate && (
+                <button onClick={onNewFromTemplate} className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer">
+                  <LayoutTemplate className="w-4 h-4 text-purple-400" />
+                  <div><div className="font-semibold">New from Template...</div><div className="text-[10px] text-zinc-500">Podcast, spot, sweep or your own</div></div>
+                </button>
+              )}
+
               {onSaveAndNewProject && (
                 <button
                   onClick={onSaveAndNewProject}
@@ -316,6 +328,13 @@ export const Header: React.FC<HeaderProps> = ({
                     <div className="font-semibold">Open from Root Folder...</div>
                     <div className="text-[10px] text-zinc-500">Browse .uuda files in the selected folder</div>
                   </div>
+                </button>
+              )}
+
+              {onSaveAsTemplate && (
+                <button onClick={onSaveAsTemplate} className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer">
+                  <LayoutTemplate className="w-4 h-4 text-purple-400" />
+                  <div><div className="font-semibold">Save as Template...</div><div className="text-[10px] text-zinc-500">Keep tracks, effects and ducking, no audio</div></div>
                 </button>
               )}
 

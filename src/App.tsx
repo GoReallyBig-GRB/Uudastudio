@@ -56,6 +56,9 @@ import { SignInPage } from './components/auth/SignInPage';
 import { UserDashboard } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
+import { TemplatesModal } from './components/TemplatesModal';
+import { SaveTemplateModal } from './components/SaveTemplateModal';
+import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, UudaTemplate } from './templates/template';
 import { VoiceoverModal } from './components/VoiceoverModal';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
 
@@ -162,6 +165,8 @@ const MainStudio: React.FC = () => {
   const [isTimelineViewCollapsed, setIsTimelineViewCollapsed] = useState<boolean>(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(true);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
+  const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState<boolean>(false);
+  const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState<boolean>(false);
   const [isResetSessionModalOpen, setIsResetSessionModalOpen] = useState<boolean>(false);
   const [isEffectsModalOpen, setIsEffectsModalOpen] = useState<boolean>(false);
   const [activeEffectType, setActiveEffectType] = useState<EffectType>('reverb');
@@ -596,6 +601,57 @@ const MainStudio: React.FC = () => {
       return false;
     }
   }, [project, addToast]);
+
+  /** Create a fresh project from a built-in or imported template. */
+  const handleUseTemplate = useCallback(
+    async (template: UudaTemplate, saveFirst: boolean) => {
+      if (saveFirst) {
+        const saved = await handleSaveProjectToFile(false);
+        if (!saved) return;
+      }
+      if (isPlaying) {
+        audioEngine.pause();
+        setIsPlaying(false);
+      }
+      audioEngine.seek(0);
+      setPlayheadSeconds(0);
+      const next = projectFromTemplate(template);
+      pluginManager.clearAll();
+      setProjectWithHistory(next);
+      if (hasSavedPlugins(next)) {
+        restorePluginStates(audioEngine.init(), next).catch((err) => console.warn('Could not set up template plugins:', err));
+      }
+      setSelectedTrackId(next.tracks[0]?.id || null);
+      setSelectedClipIds(new Set());
+      saveProjectToDB(next).catch(() => {});
+      setIsTemplatesModalOpen(false);
+      addToast({ type: 'success', title: 'Project Created from Template', message: `"${template.name}" is ready with ${next.tracks.length} tracks.` });
+    },
+    [handleSaveProjectToFile, isPlaying, setProjectWithHistory, addToast],
+  );
+
+  const handleSaveAsTemplate = useCallback(
+    async (meta: { name: string; description: string; tags: string[] }) => {
+      try {
+        const full = await withPluginStates(project);
+        const template = templateFromProject(full, meta);
+        const blob = new Blob([serializeTemplate(template)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = templateFileName(template);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setIsSaveTemplateModalOpen(false);
+        addToast({ type: 'success', title: 'Template Saved', message: `Downloaded "${templateFileName(template)}".` });
+      } catch (err) {
+        addToast({ type: 'error', title: 'Could Not Save Template', message: err instanceof Error ? err.message : 'Something went wrong.' });
+      }
+    },
+    [project, addToast],
+  );
 
   const handleSaveAndNewProject = useCallback(async () => {
     const saved = await handleSaveProjectToFile();
@@ -2045,6 +2101,8 @@ const MainStudio: React.FC = () => {
         onSaveAndNewProject={handleSaveAndNewProject}
         onOpenNewProjectInTab={handleOpenNewProjectInTab}
         onSaveProjectToFile={() => { void handleSaveProjectToFile(false); }}
+        onNewFromTemplate={() => setIsTemplatesModalOpen(true)}
+        onSaveAsTemplate={() => setIsSaveTemplateModalOpen(true)}
         onSaveProjectAs={() => { void handleSaveProjectToFile(true); }}
         onChooseProjectRoot={() => void handleChooseProjectRoot()}
         onOpenProjectFromRoot={() => void handleOpenProjectFromRoot()}
@@ -2261,6 +2319,16 @@ const MainStudio: React.FC = () => {
         onZoomFit={handleZoomFit}
         isAutosaving={isAutosaving}
         lastSavedAt={lastSavedAt}
+      />
+
+      <TemplatesModal isOpen={isTemplatesModalOpen} onClose={() => setIsTemplatesModalOpen(false)} hasWork={project.tracks.length > 0} projectName={project.name} onUseTemplate={handleUseTemplate} />
+      <SaveTemplateModal
+        isOpen={isSaveTemplateModalOpen}
+        onClose={() => setIsSaveTemplateModalOpen(false)}
+        defaultName={project.name}
+        trackCount={project.tracks.length}
+        pluginCount={project.tracks.reduce((n, t) => n + (pluginManager.getPluginsForTrack(t.id).length || t.plugins?.length || 0), 0) + pluginManager.getPluginsForTrack('__master__').length}
+        onSave={handleSaveAsTemplate}
       />
 
       {/* New Project Modal (Preserves active project state with Save / New Tab / Discard) */}
