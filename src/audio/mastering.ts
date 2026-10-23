@@ -286,7 +286,7 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
   const hopSize = Math.floor(0.1 * sampleRate);
   const effectiveBlockSize = Math.max(1, Math.min(blockSize, length));
   const effectiveHopSize = Math.max(1, Math.min(hopSize, effectiveBlockSize));
-  const numBlocks = Math.max(1, Math.ceil(Math.max(0, length - effectiveBlockSize) / effectiveHopSize) + 1);
+  const numBlocks = Math.floor(Math.max(0, length - effectiveBlockSize) / effectiveHopSize) + 1;
   const channelBlockPowers: Float64Array[] = [];
 
   for (let c = 0; c < numChannels; c++) {
@@ -427,18 +427,21 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
   const b1_hp = -2.0;
   const b2_hp = 1.0;
 
-  // Process one channel at a time and retain only a 400ms ring buffer.
-  // The previous implementation kept a full-duration filtered Float32Array per channel.
+  // Keep a bounded rolling window per channel. Count only complete windows whose
+  // start aligns with the hop; short clips use one window covering the whole clip.
   const blockSize = Math.floor(0.4 * sampleRate);
   const hopSize = Math.floor(0.1 * sampleRate);
-  const numBlocks = Math.floor((length - blockSize) / hopSize);
-  const blockPowers = new Array<number>(Math.max(0, numBlocks)).fill(0);
+  const effectiveBlockSize = Math.max(1, Math.min(blockSize, length));
+  const effectiveHopSize = Math.max(1, Math.min(hopSize, effectiveBlockSize));
+  const numBlocks = Math.floor((length - effectiveBlockSize) / effectiveHopSize) + 1;
+  const blockPowers = new Array<number>(numBlocks).fill(0);
   const shortTermPowers: number[] = [];
   const activeBlockPowers: number[] = [];
 
-    for (let c = 0; c < numChannels; c++) {
+  for (let c = 0; c < numChannels; c++) {
     const input = channelData[c];
-    const ring = new Float32Array(Math.max(1, blockSize));
+    const squareRing = new Float64Array(effectiveBlockSize);
+    let rollingSum = 0;
     let x1_hs = 0, x2_hs = 0, y1_hs = 0, y2_hs = 0;
     let x1_hp = 0, x2_hp = 0, y1_hp = 0, y2_hp = 0;
 
@@ -455,20 +458,18 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
       x1_hp = y_hs;
       y2_hp = y1_hp;
       y1_hp = y_hp;
-      ring[i % ring.length] = y_hp;
 
-      // Recreate the original overlapping 400ms blocks in sample order, but sum each
-      // completed window immediately so filtered PCM never needs to be retained.
-      if (blockSize > 0 && i >= blockSize - 1 && (i - blockSize + 1) % hopSize === 0) {
-        const blockIndex = Math.floor((i - blockSize + 1) / hopSize);
-        if (blockIndex < numBlocks) {
-          let sum = 0;
-          const oldestIndex = (i + 1) % ring.length;
-          for (let j = 0; j < blockSize; j++) {
-            const value = ring[(oldestIndex + j) % ring.length];
-            sum += value * value;
-          }
-          blockPowers[blockIndex] += sum / blockSize;
+      const ringIndex = i % effectiveBlockSize;
+      const squared = y_hp * y_hp;
+      if (i >= effectiveBlockSize) rollingSum -= squareRing[ringIndex];
+      squareRing[ringIndex] = squared;
+      rollingSum += squared;
+
+      const windowStart = i - effectiveBlockSize + 1;
+      if (windowStart >= 0 && windowStart % effectiveHopSize === 0) {
+        const blockIndex = windowStart / effectiveHopSize;
+        if (blockIndex < blockPowers.length) {
+          blockPowers[blockIndex] += rollingSum / effectiveBlockSize;
         }
       }
 

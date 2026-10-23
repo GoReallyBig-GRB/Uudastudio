@@ -129,3 +129,10 @@ The following implementation PRs are merged to main; these are not equivalent to
 - [PR #20](https://github.com/GoReallyBig-GRB/Uudastudio/pull/20): waveform cache and mastering/export improvements.
 
 Still mandatory and not marked Done: CS-00, CS-04, CS-06, CS-09, CS-10, CS-12, CS-13, CS-15, CS-16. Runtime-only acceptance remains queued for AI Studio staging; do not treat that constraint as a reason to stop independent implementation or CI validation. Cloudflare/hosting remains parked by user direction.
+
+## Reconciliation addendum — 2026-10-23
+
+- Async loudness analysis now uses a bounded rolling squared-sample window and counts only valid, hop-aligned windows. Short non-empty clips are analyzed with one effective window no longer than the clip.
+- Regression coverage includes empty/short clips, 400 ms block boundaries, 100 ms hop boundaries, async/sync parity, and progress during long true-peak scans.
+- Export verification progress is forwarded to the export progress UI.
+- Automated checks and browser/runtime memory measurements must be recorded from the resulting candidate before this correction is considered complete. No unperformed browser or long-duration memory test is claimed as passed.
