@@ -18,6 +18,9 @@ export class PluginManager {
   // Listeners for UI state synchronizations (rack updates, add/remove/bypass)
   private changeListeners: Set<() => void> = new Set();
 
+  // Listeners told about every edit, including parameter drags (the UI listeners above skip those for speed)
+  private editListeners: Set<() => void> = new Set();
+
   private constructor() {}
 
   public static getInstance(): PluginManager {
@@ -32,7 +35,24 @@ export class PluginManager {
     return () => this.changeListeners.delete(listener);
   }
 
+  /** Fires on every change to any chain: add, remove, reorder, bypass, mix, parameters, restore, clear */
+  public subscribeEdits(listener: () => void): () => void {
+    this.editListeners.add(listener);
+    return () => this.editListeners.delete(listener);
+  }
+
+  private edited() {
+    for (const listener of this.editListeners) {
+      try {
+        listener();
+      } catch (err) {
+        console.error('PluginManager edit listener error:', err);
+      }
+    }
+  }
+
   private notify() {
+    this.edited();
     for (const listener of this.changeListeners) {
       try {
         listener();
@@ -153,6 +173,7 @@ export class PluginManager {
     const plugin = current.find((p) => p.instanceId === instanceId);
     if (plugin) {
       plugin.setParameter(paramId, value);
+      this.edited();
     }
   }
 

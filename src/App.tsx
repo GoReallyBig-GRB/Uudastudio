@@ -53,7 +53,8 @@ import { UserDashboard, TabType } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
 import { pluginManager } from './plugins/pluginManager';
-import { withPluginStates, restorePluginStates, hasSavedPlugins } from './plugins/projectPlugins';
+import { withPluginStates, restorePluginStates, hasSavedPlugins, isRestoringPlugins } from './plugins/projectPlugins';
+import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
 import { VoiceoverModal } from './components/VoiceoverModal';
 import { voiceJob } from './voice/voiceJob';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
@@ -241,6 +242,68 @@ const MainStudio: React.FC = () => {
     },
     []
   );
+
+  // Plugin chains in undo/redo: edits are written into the project (one history step per burst of edits)
+  const projectRef = useRef<Project>(project);
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+  const applyingPluginsRef = useRef<boolean>(false);
+  const pluginCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const commitPluginEdits = useCallback(async () => {
+    if (applyingPluginsRef.current || isRestoringPlugins()) return;
+    const live = await collectLive(projectRef.current);
+    if (applyingPluginsRef.current || isRestoringPlugins()) return;
+    setProjectWithHistory((prev) => {
+      const next = attachLive(prev, live);
+      return pluginSignature(next) === pluginSignature(prev) ? prev : next;
+    });
+  }, [setProjectWithHistory]);
+
+  /** Records any pending plugin edit right now (before undo, before deleting a track) */
+  const flushPluginEdits = useCallback(async () => {
+    if (pluginCommitTimerRef.current) {
+      clearTimeout(pluginCommitTimerRef.current);
+      pluginCommitTimerRef.current = null;
+    }
+    await commitPluginEdits();
+  }, [commitPluginEdits]);
+
+  useEffect(() => {
+    const unsubscribe = pluginManager.subscribeEdits(() => {
+      if (applyingPluginsRef.current || isRestoringPlugins()) return;
+      if (pluginCommitTimerRef.current) clearTimeout(pluginCommitTimerRef.current);
+      // A knob drag is many edits; wait for it to settle so it is one undo step
+      pluginCommitTimerRef.current = setTimeout(() => {
+        pluginCommitTimerRef.current = null;
+        void commitPluginEdits();
+      }, 350);
+    });
+    return () => {
+      unsubscribe();
+      if (pluginCommitTimerRef.current) clearTimeout(pluginCommitTimerRef.current);
+    };
+  }, [commitPluginEdits]);
+
+  /** After undo/redo: make the live chains match the snapshot, without adding a history step of their own */
+  const syncPluginsToSnapshot = useCallback(async (snapshot: Project) => {
+    applyingPluginsRef.current = true;
+    try {
+      const rebuilt = await applySnapshot(audioEngine.init(), snapshot);
+      if (rebuilt) {
+        // Rebuilt chains can differ in tiny ways (clamped values): rebase quietly so redo is not lost
+        const live = await collectLive(projectRef.current);
+        const rebased = attachLive(projectRef.current, live);
+        historyManagerRef.current.setPresent(rebased);
+        setProject(rebased);
+      }
+    } catch (err) {
+      console.warn('Could not rebuild plugin chains after undo/redo:', err);
+    } finally {
+      applyingPluginsRef.current = false;
+    }
+  }, []);
 
   // 1. Restore project and stored assets from IndexedDB on initial mount
   useEffect(() => {
@@ -869,7 +932,9 @@ const MainStudio: React.FC = () => {
     }));
   };
 
-  const handleDeleteTrack = (trackId: string) => {
+  const handleDeleteTrack = async (trackId: string) => {
+    // Record the track's chain in history first, so undoing the delete brings its plugins back
+    await flushPluginEdits();
     pluginManager.clearTrack(trackId);
     setProjectWithHistory((prev) => ({
       ...prev,
@@ -1529,19 +1594,25 @@ const MainStudio: React.FC = () => {
   };
 
   // 8. Undo / Redo
-  const handleUndo = () => {
+  const handleUndo = async () => {
+    await flushPluginEdits();
     const previous = historyManagerRef.current.undo();
     if (previous) {
       setProject(previous);
+      projectRef.current = previous;
+      void syncPluginsToSnapshot(previous);
       updateHistoryFlags();
       addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
     }
   };
 
-  const handleRedo = () => {
+  const handleRedo = async () => {
+    await flushPluginEdits();
     const next = historyManagerRef.current.redo();
     if (next) {
       setProject(next);
+      projectRef.current = next;
+      void syncPluginsToSnapshot(next);
       updateHistoryFlags();
       addToast({ type: 'info', title: 'Redo', message: 'Reapplied change.' });
     }
