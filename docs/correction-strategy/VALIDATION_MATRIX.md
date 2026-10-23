@@ -177,3 +177,5 @@ The checked items above describe added test coverage, not a claim that CI has pa
 - [ ] IndexedDB restore failure check: force a read/open failure and verify the app warns, pauses autosave, and does not overwrite an existing recovery snapshot with the blank fallback.
 
 - [ ] Large `.uuda` open check: confirm timeline becomes available before IndexedDB asset writes finish; verify failed writes warn and recovery autosave omits non-durable audio references.
+
+- [x] Added automated cases for truncated UUDA PCM payload and invalid manifest length; run them in branch CI before handoff.
