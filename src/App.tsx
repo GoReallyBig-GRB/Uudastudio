@@ -341,7 +341,9 @@ const MainStudio: React.FC = () => {
   // Sync track gain and pan nodes with audio engine when project tracks change
   useEffect(() => {
     audioEngine.syncTracks(project.tracks);
-  }, [project.tracks]);
+    // Ducking settings or source clips may have changed mid-playback: re-apply only the curves that did
+    audioEngine.refreshDucking(project);
+  }, [project]);
 
   // 4. Playback Handlers
   const handlePlay = async () => {
@@ -2120,6 +2122,7 @@ const MainStudio: React.FC = () => {
         project={project}
         selectedTrackId={selectedTrackId}
         onSelectTrack={(id) => setSelectedTrackId(id)}
+        onUpdateTrack={handleUpdateTrack}
       />
 
       {/* Expanded Multi-Pane Broadcast Voiceover Studio Workspace Modal */}

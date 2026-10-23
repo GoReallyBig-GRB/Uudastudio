@@ -41,6 +41,8 @@ import { getTrackLabel } from '../utils/tracks';
 import { PluginPanel } from './plugins/PluginPanel';
 import { PluginPopout } from './plugins/PluginPopout';
 import { PreviewButton } from './plugins/PreviewButton';
+import { DuckingPanel } from './plugins/DuckingPanel';
+import { normalizeDucking } from '../audio/ducking';
 
 interface PluginsRackModalProps {
   isOpen: boolean;
@@ -50,6 +52,7 @@ interface PluginsRackModalProps {
   project: Project;
   selectedTrackId: string | null;
   onSelectTrack: (trackId: string) => void;
+  onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -70,6 +73,7 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
   project,
   selectedTrackId,
   onSelectTrack,
+  onUpdateTrack,
 }) => {
   // 'Master bus' is a local target, so the app's selected track is left alone
   const [masterTarget, setMasterTarget] = useState<boolean>(false);
@@ -503,6 +507,16 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                 {activePlugins.length} {activePlugins.length === 1 ? 'plugin' : 'plugins'}
               </span>
             </div>
+
+            {!masterTarget && activeIndex >= 0 && (
+              <DuckingPanel
+                track={tracks[activeIndex]}
+                tracks={tracks}
+                onChange={(u) =>
+                  onUpdateTrack(tracks[activeIndex].id, { ducking: normalizeDucking({ ...tracks[activeIndex].ducking, ...u }) })
+                }
+              />
+            )}
 
             {activePlugins.length === 0 ? (
               <div className="flex-1 min-h-[220px] border border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center p-6 text-center gap-3">

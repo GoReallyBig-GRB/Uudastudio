@@ -135,6 +135,18 @@ export interface ClipVersion {
   operation: string;
 }
 
+/** Automatic ducking of a (music) track under chosen source tracks (the voice) */
+export interface DuckingSettings {
+  enabled: boolean;
+  /** Tracks whose level triggers the duck */
+  sourceTrackIds: string[];
+  thresholdDb: number; // -70 to -6: level that counts as "voice present"
+  amountDb: number; // -40 to 0: how far the track drops
+  attackMs: number; // how fast it drops (the drop starts this early, ahead of the voice)
+  holdMs: number; // stays down this long after the voice stops
+  releaseMs: number; // how slowly it comes back up
+}
+
 export interface Track {
   id: string;
   name: string;
@@ -147,6 +159,8 @@ export interface Track {
   solo: boolean;
   effects?: TrackEffect[];
   plugins?: import('../plugins/types').StoredPluginState[];
+  /** Auto-duck under other tracks; see audio/ducking.ts */
+  ducking?: DuckingSettings;
 }
 
 export * from '../plugins/types';

@@ -14,6 +14,7 @@ import { Mp3Encoder } from '@breezystack/lamejs';
 import { Project } from '../types';
 import { audioEngine } from './engine';
 import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
+import { buildDuckCurve, scheduleDuckCurve } from './ducking';
 
 export type MasteringProfileType = 'podcast' | 'broadcast' | 'music' | 'custom' | 'bypass';
 export type BroadcastPreset = 'ebu_r128' | 'atsc_a85' | 'hot_commercial';
@@ -442,7 +443,22 @@ export async function renderProjectOffline(
     // Route track effect plugins in offline context with graceful fallback
     const trackOutput = await appendOfflinePlugins(offlineCtx, track.id, trackPan);
 
-    trackOutput.connect(masterBusIn);
+    // Automatic ducking: the same precomputed curve the live engine uses
+    const duckCurve = buildDuckCurve(project, track, (id) => {
+      const b = audioEngine.getAsset(id)?.buffer;
+      if (!b) return null;
+      const channels: Float32Array[] = [];
+      for (let c = 0; c < b.numberOfChannels; c++) channels.push(b.getChannelData(c));
+      return { channels, sampleRate: b.sampleRate };
+    });
+    if (duckCurve) {
+      const duckNode = offlineCtx.createGain();
+      scheduleDuckCurve(duckNode.gain, duckCurve, rangeStart, 0);
+      trackOutput.connect(duckNode);
+      duckNode.connect(masterBusIn);
+    } else {
+      trackOutput.connect(masterBusIn);
+    }
 
     for (const clip of track.clips) {
       if (clip.muted) continue;
