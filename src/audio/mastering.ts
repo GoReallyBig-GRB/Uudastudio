@@ -141,6 +141,18 @@ export interface ExportProgress {
   message: string;
 }
 
+/** Create a progress callback that never reports a lower percentage than its previous update. */
+export function createMonotonicProgressReporter(
+  onProgress?: (progress: ExportProgress) => void
+): (progress: ExportProgress) => void {
+  let lastReportedPercent = 0;
+  return (progress) => {
+    const percent = Math.max(lastReportedPercent, Math.min(100, progress.percent));
+    lastReportedPercent = percent;
+    onProgress?.({ ...progress, percent });
+  };
+}
+
 export interface ExportSummary {
   filename: string;
   format: 'wav' | 'mp3';
@@ -774,14 +786,7 @@ export async function measureAndApplyMastering(
   const ceilingDbTP = customCeilingDbTP ?? profile.ceilingDbTP;
 
   // Keep the public progress stream monotonic across nested analysis/DSP stages.
-  // Previously the 65% banner was immediately followed by analysis starting at 60%,
-  // making the meter appear to jump backwards before long true-peak scans.
-  let lastReportedPercent = 0;
-  const reportProgress = (progress: ExportProgress) => {
-    const percent = Math.max(lastReportedPercent, Math.min(100, progress.percent));
-    lastReportedPercent = percent;
-    onProgress?.({ ...progress, percent });
-  };
+  const reportProgress = createMonotonicProgressReporter(onProgress);
 
   reportProgress({ stage: 'mastering', percent: 60, message: 'Measuring initial mix loudness...' });
   const preStats = await measureLoudnessAsync(inputBuffer, reportProgress, 60, 69);
