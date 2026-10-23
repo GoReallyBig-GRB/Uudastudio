@@ -178,26 +178,17 @@ export function calculateTruePeak(channelData: Float32Array): number {
   const len = channelData.length;
 
   for (let i = 0; i < len; i++) {
-    const s0 = channelData[Math.max(0, i - 1)];
+    const s0 = channelData[i > 0 ? i - 1 : 0];
     const s1 = channelData[i];
-    const s2 = channelData[Math.min(len - 1, i + 1)];
-    const s3 = channelData[Math.min(len - 1, i + 2)];
+    const s2 = channelData[i + 1 < len ? i + 1 : len - 1];
+    const s3 = channelData[i + 2 < len ? i + 2 : len - 1];
 
     const abs1 = Math.abs(s1);
     if (abs1 > peak) peak = abs1;
 
-    // 4x sub-sample points: t = 0.25, 0.5, 0.75
-    for (let sub = 1; sub <= 3; sub++) {
-      const t = sub * 0.25;
-      const t2 = t * t;
-      const t3 = t2 * t;
-      // Hermite cubic polynomial
-      const inter = 0.5 * (
-        (2 * s1) +
-        (-s0 + s2) * t +
-        (2 * s0 - 5 * s1 + 4 * s2 - s3) * t2 +
-        (-s0 + 3 * s1 - 3 * s2 + s3) * t3
-      );
+    // Same 4x Hermite interpolation, with coefficients hoisted out of the hot loop.
+    for (const [w0, w1, w2, w3] of interpolationWeights) {
+      const inter = w0 * s0 + w1 * s1 + w2 * s2 + w3 * s3;
       const absInter = Math.abs(inter);
       if (absInter > peak) peak = absInter;
     }
@@ -206,7 +197,7 @@ export function calculateTruePeak(channelData: Float32Array): number {
   return peak;
 }
 
-async function calculateTruePeakAsync(
+export async function calculateTruePeakAsync(
   channelData: Float32Array,
   onProgress?: (progress: ExportProgress) => void,
   progressStart = 60,
@@ -218,6 +209,19 @@ async function calculateTruePeakAsync(
   // a 57-minute stereo file otherwise incurs tens of thousands of timer waits.
   const yieldBlockSamples = 65_536;
   const reportBlockSamples = 1_048_576;
+  // Precompute the Hermite interpolation weights once. The old inner loop recomputed
+  // t²/t³ and several common expressions for every one of billions of sub-samples on
+  // long stereo projects.
+  const interpolationWeights = [0.25, 0.5, 0.75].map((t) => {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return [
+      0.5 * (-t + 2 * t2 - t3),
+      0.5 * (2 - 5 * t2 + 3 * t3),
+      0.5 * (t + 4 * t2 - 3 * t3),
+      0.5 * (-t2 + t3),
+    ] as const;
+  });
 
   for (let i = 0; i < len; i++) {
     const processed = i + 1;
