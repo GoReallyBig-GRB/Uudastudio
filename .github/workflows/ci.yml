@@ -31,14 +31,7 @@ jobs:
           bun --version
 
       - name: Install locked dependencies
-        run: bun install
-
-      - name: Emit reconciled lockfile for committing
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'migration/correction-batch-3'
-        run: |
-          echo "LOCKFILE_CONTENT_BEGIN"
-          cat bun.lock
-          echo "LOCKFILE_CONTENT_END"
+        run: bun install --frozen-lockfile
 
       - name: Verify React and TypeScript installation
         run: bun pm ls
