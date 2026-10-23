@@ -173,3 +173,5 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **Project-open responsiveness:** opening a `.uuda` project now registers decoded audio and displays the timeline before awaiting IndexedDB persistence. Assets remain marked non-durable until their writes succeed; failed writes are reported and their references stay excluded from recovery autosaves.
 
 - **UUDA corruption regressions:** added tests for truncated PCM payloads (reported as missing referenced audio rather than crashing) and invalid manifest lengths (rejected before payload reads). CI must run these tests before the branch is handed over.
+
+- **Dirty-state accuracy:** manual timeline refresh now uses a view-only render counter rather than replacing the project object, so a redraw does not falsely mark the portable project as modified or trigger project-change side effects.
