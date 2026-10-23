@@ -888,44 +888,51 @@ export async function applyLookaheadLimiterChannel(
   const pushIndex = (index: number) => {
     const value = Math.abs(inData[index]);
     while (count > 0) {
-      const tail = (head + count - 1) % capacity;
+      let tail = head + count - 1;
+      if (tail >= capacity) tail -= capacity;
       if (Math.abs(inData[deque[tail]]) > value) break;
       count--;
     }
-    deque[(head + count) % capacity] = index;
+    let writeIndex = head + count;
+    if (writeIndex >= capacity) writeIndex -= capacity;
+    deque[writeIndex] = index;
     count++;
   };
 
   for (let i = 0; i < Math.min(length, windowSize); i++) pushIndex(i);
   let envelope = 0;
 
-  for (let i = 0; i < length; i++) {
-    const maxFuture = count > 0 ? Math.abs(inData[deque[head]]) : 0;
-    if (maxFuture > envelope) envelope = maxFuture;
-    else envelope = maxFuture + releaseCoeff * (envelope - maxFuture);
+  for (let blockStart = 0; blockStart < length; blockStart += yieldEverySamples) {
+    const blockEnd = Math.min(length, blockStart + yieldEverySamples);
+    for (let i = blockStart; i < blockEnd; i++) {
+      const maxFuture = count > 0 ? Math.abs(inData[deque[head]]) : 0;
+      if (maxFuture > envelope) envelope = maxFuture;
+      else envelope = maxFuture + releaseCoeff * (envelope - maxFuture);
 
-    const gain = envelope > ceilingLinear ? ceilingLinear / envelope : 1;
-    let sample = inData[i] * gain;
-    if (sample > ceilingLinear) sample = ceilingLinear;
-    if (sample < -ceilingLinear) sample = -ceilingLinear;
-    outData[i] = sample;
+      const gain = envelope > ceilingLinear ? ceilingLinear / envelope : 1;
+      let sample = inData[i] * gain;
+      if (sample > ceilingLinear) sample = ceilingLinear;
+      if (sample < -ceilingLinear) sample = -ceilingLinear;
+      outData[i] = sample;
 
-    // Advance the window for the next sample.
-    while (count > 0 && deque[head] <= i) {
-      head = (head + 1) % capacity;
-      count--;
+      // Advance the window for the next sample without per-sample modulo operations.
+      while (count > 0 && deque[head] <= i) {
+        head++;
+        if (head === capacity) head = 0;
+        count--;
+      }
+      const nextIndex = i + windowSize;
+      if (nextIndex < length) pushIndex(nextIndex);
     }
-    const nextIndex = i + windowSize;
-    if (nextIndex < length) pushIndex(nextIndex);
 
-    if ((i + 1) % yieldEverySamples === 0) {
-      const completed = progressBase + ((i + 1) / Math.max(1, length)) * progressSpan;
-      onProgress?.({
-        stage: 'mastering',
-        percent: Math.min(84, 75 + Math.floor(completed * 9)),
-        message: `Applying lookahead limiter (${Math.round(completed * 100)}%)...`,
-      });
-      // Let the browser paint and process input during long limiter passes.
+    const completed = progressBase + (blockEnd / Math.max(1, length)) * progressSpan;
+    onProgress?.({
+      stage: 'mastering',
+      percent: Math.min(84, 75 + Math.floor(completed * 9)),
+      message: `Applying lookahead limiter (${Math.round(completed * 100)}%)...`,
+    });
+    // Let the browser paint and process input during long limiter passes.
+    if (blockEnd < length) {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
   }
