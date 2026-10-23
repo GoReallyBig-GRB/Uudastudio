@@ -123,8 +123,8 @@ const MainStudio: React.FC = () => {
   const [, setTimelineRefreshVersion] = useState<number>(0);
   const projectRef = useRef<Project>(DEFAULT_PROJECT);
   const savedProjectRef = useRef<Project>(DEFAULT_PROJECT);
-  // Audio IDs remain here until their IndexedDB write succeeds. Autosave omits only
-  // clips whose audio is not durable, avoiding saved projects with dangling asset refs.
+  // Audio IDs remain here until their IndexedDB write succeeds. Autosave omits
+  // non-durable active clips and historical version references from recovery snapshots.
   const unsavedAssetIdsRef = useRef<Set<string>>(new Set());
   const autosaveFailureNotifiedRef = useRef<boolean>(false);
   // If restore fails, do not autosave the blank fallback over a potentially recoverable project.
