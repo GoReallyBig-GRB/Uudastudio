@@ -35,13 +35,11 @@ function openDB(): Promise<IDBDatabase> {
  * Serialize an AudioBuffer into raw ArrayBuffers for IndexedDB storage
  */
 export function serializeAsset(asset: Asset): StoredAsset {
-  const channels: ArrayBuffer[] = [];
+  const channels: Float32Array[] = [];
   const buffer = asset.buffer;
   for (let c = 0; c < buffer.numberOfChannels; c++) {
-    const chData = buffer.getChannelData(c);
-    // Clone Float32Array buffer so it can be stored in IndexedDB
-    const copy = new Float32Array(chData);
-    channels.push(copy.buffer);
+    // IndexedDB structured-clones typed arrays on put; avoid an additional full-channel copy here.
+    channels.push(buffer.getChannelData(c));
   }
 
   return {
@@ -74,7 +72,8 @@ export function deserializeAsset(stored: StoredAsset, engine: AudioEngine): Asse
 
   for (let c = 0; c < stored.numberOfChannels; c++) {
     if (stored.channels[c]) {
-      const f32 = new Float32Array(stored.channels[c]);
+      const channel = stored.channels[c];
+      const f32 = channel instanceof Float32Array ? channel : new Float32Array(channel);
       buffer.getChannelData(c).set(f32);
     }
   }
@@ -134,6 +133,8 @@ export async function loadAllAssetsFromDB(engine: AudioEngine): Promise<Asset[]>
   });
 }
 
+export const MAX_SESSION_AGE_MS = 5 * 60 * 1000; // 5 minutes
+
 export async function saveProjectToDB(project: Project): Promise<void> {
   const db = await openDB();
   const projectWithTimestamp = {
@@ -151,14 +152,33 @@ export async function saveProjectToDB(project: Project): Promise<void> {
 export async function loadProjectFromDB(): Promise<Project | null> {
   try {
     const db = await openDB();
-    return await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_PROJECT, 'readonly');
       const req = tx.objectStore(STORE_PROJECT).get(PROJECT_KEY);
-      req.onsuccess = () => {
-        const stored = req.result as Project | undefined;
-        // Never discard recoverable project data solely because it is older than
-        // an arbitrary session-age threshold. Recovery is user work, not a cache.
-        resolve(stored ?? null);
+      req.onsuccess = async () => {
+        const stored = req.result as (Project & { updatedAt?: number }) | undefined;
+        if (!stored) {
+          resolve(null);
+          return;
+        }
+
+        const now = Date.now();
+        const savedAt = stored.updatedAt || 0;
+        const ageMs = now - savedAt;
+
+        // The app should only load with work done within the last 5 minutes before shutdown
+        if (ageMs > MAX_SESSION_AGE_MS) {
+          // Stale session older than 5 minutes: clear and return null
+          try {
+            await clearAllProjectData();
+          } catch {
+            // ignore cleanup failure
+          }
+          resolve(null);
+          return;
+        }
+
+        resolve(stored);
       };
       req.onerror = () => reject(req.error);
     });

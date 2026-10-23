@@ -204,7 +204,7 @@ export interface StoredAsset {
   sampleRate: number;
   durationSeconds: number;
   numberOfChannels: number;
-  channels: ArrayBuffer[]; // ArrayBuffer of Float32Array channel data
+  channels: Float32Array[]; // structured-cloned PCM channel data
   voiceMetadata?: VoiceMetadata;
 }
 
