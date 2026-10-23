@@ -90,3 +90,11 @@ Run `npm run lint`, `npm test`, and `npm run build` where the repository environ
 - [ ] Test folder-picker cancellation, denied permission, empty folder, invalid selection, and unsupported-browser fallback.
 - [ ] Confirm Save As can still select a different destination and subsequent Save targets that chosen file.
 - [ ] Confirm no claim is made that IndexedDB autosave/audio assets are stored in the selected folder.
+
+
+## Candidate evidence — PR #20 (2026-10-23)
+
+- CI passed on `a5360fffe211bfa8807ce124d7cc71c28745d0c1`: [run 39909841496](https://github.com/GoReallyBig-GRB/Uudastudio/actions/runs/39909841496). Type-check, tests and build steps completed successfully.
+- Waveform pyramid unit test and lookahead limiter reference-equivalence tests are included in the candidate and passed in CI.
+- Source inspection confirms `exportAudioBufferToMp3` no longer posts a WAV to `/api/export/mp3`; V-09 is still **NOT VERIFIED** until a browser network capture is recorded.
+- V-04/V-05, V-07/V-08, V-09 and the 60-/90-minute performance target rows remain **NOT VERIFIED** pending browser profiling, real output comparison, and memory/network evidence.
