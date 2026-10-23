@@ -41,6 +41,25 @@ class WaveformCache {
       return cached;
     }
 
+    // If the requested zoom is finer than every cached level, reuse the closest coarser
+    // level rather than synchronously rescanning every sample of a potentially hour-long
+    // source on the UI thread. This keeps the waveform visible and interactive while zooming;
+    // the displayed envelope may be less detailed than a freshly computed fine level.
+    let coarserKey: string | null = null;
+    let coarserPeaks: WaveformPeaks | null = null;
+    for (const [key, peaks] of this.cache) {
+      if (!key.startsWith(`${assetId}:`) || peaks.samplesPerPixel <= roundedStep) continue;
+      if (!coarserPeaks || peaks.samplesPerPixel < coarserPeaks.samplesPerPixel) {
+        coarserKey = key;
+        coarserPeaks = peaks;
+      }
+    }
+    if (coarserKey && coarserPeaks) {
+      this.cache.delete(coarserKey);
+      this.cache.set(coarserKey, coarserPeaks);
+      return coarserPeaks;
+    }
+
     const totalSamples = buffer.length;
     const numBuckets = Math.ceil(totalSamples / roundedStep);
     const mins = new Float32Array(numBuckets);
