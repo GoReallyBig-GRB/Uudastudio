@@ -9,7 +9,7 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
@@ -18,6 +18,7 @@ import { ClipActionStrip } from './ClipActionStrip';
 import { waveformCache } from '../waveform/cache';
 import { audioEngine } from '../audio/engine';
 import { formatTimecode } from '../utils/formatters';
+import { calculateZoomScrollLeft } from './timelineZoom';
 
 interface TimelineProps {
   project: Project;
@@ -192,20 +193,24 @@ export const Timeline: React.FC<TimelineProps> = ({
   // Preserve the time at the viewport center when zoom changes. Browsers clamp scrollLeft
   // when a very long timeline shrinks; explicitly syncing React state avoids stale offsets
   // that can misalign the canvas waveform and playhead after zooming out.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previousZoom = previousZoomRef.current;
     previousZoomRef.current = pixelsPerSecond;
     if (previousZoom === pixelsPerSecond) return;
 
     const viewport = laneScrollContainerRef.current;
     if (!viewport) return;
-    const centerTime = Math.max(
-      0,
-      (viewport.scrollLeft + viewport.clientWidth / 2 - currentHeaderWidth) / Math.max(0.1, previousZoom)
-    );
-    const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
-    const targetScrollLeft = currentHeaderWidth + centerTime * pixelsPerSecond - viewport.clientWidth / 2;
-    const nextScrollLeft = Math.min(maxScrollLeft, Math.max(0, targetScrollLeft));
+
+    // Run after DOM layout but before paint so the browser's new scroll bounds are
+    // available and the waveform, ruler, and playhead cannot display an intermediate offset.
+    const nextScrollLeft = calculateZoomScrollLeft({
+      scrollLeft: viewport.scrollLeft,
+      viewportWidth: viewport.clientWidth,
+      headerWidth: currentHeaderWidth,
+      previousZoom,
+      nextZoom: pixelsPerSecond,
+      maxScrollLeft: viewport.scrollWidth - viewport.clientWidth,
+    });
     viewport.scrollLeft = nextScrollLeft;
     setScrollLeft(nextScrollLeft);
   }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth]);
