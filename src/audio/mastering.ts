@@ -186,12 +186,25 @@ export function calculateTruePeak(channelData: Float32Array): number {
     const abs1 = Math.abs(s1);
     if (abs1 > peak) peak = abs1;
 
-    // Same 4x Hermite interpolation, with coefficients hoisted out of the hot loop.
-    for (const [w0, w1, w2, w3] of interpolationWeights) {
-      const inter = w0 * s0 + w1 * s1 + w2 * s2 + w3 * s3;
-      const absInter = Math.abs(inter);
-      if (absInter > peak) peak = absInter;
-    }
+    // Same 4x Hermite interpolation, with coefficients hoisted out of the hot loop
+    // and no per-sample iterator/destructuring allocations.
+    const w00 = interpolationWeights[0][0], w01 = interpolationWeights[0][1];
+    const w02 = interpolationWeights[0][2], w03 = interpolationWeights[0][3];
+    const inter1 = w00 * s0 + w01 * s1 + w02 * s2 + w03 * s3;
+    const absInter1 = Math.abs(inter1);
+    if (absInter1 > peak) peak = absInter1;
+
+    const w10 = interpolationWeights[1][0], w11 = interpolationWeights[1][1];
+    const w12 = interpolationWeights[1][2], w13 = interpolationWeights[1][3];
+    const inter2 = w10 * s0 + w11 * s1 + w12 * s2 + w13 * s3;
+    const absInter2 = Math.abs(inter2);
+    if (absInter2 > peak) peak = absInter2;
+
+    const w20 = interpolationWeights[2][0], w21 = interpolationWeights[2][1];
+    const w22 = interpolationWeights[2][2], w23 = interpolationWeights[2][3];
+    const inter3 = w20 * s0 + w21 * s1 + w22 * s2 + w23 * s3;
+    const absInter3 = Math.abs(inter3);
+    if (absInter3 > peak) peak = absInter3;
   }
 
   return peak;
