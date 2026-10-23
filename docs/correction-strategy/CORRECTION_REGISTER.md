@@ -189,3 +189,5 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **Loading feedback:** audio import now shows a persistent in-app status banner through decoding, timeline insertion, and local recovery saving.
 - **Folder discoverability:** if no root folder is configured, show a first-use setup banner with a direct folder-picker action and a “Not now” option. No microphone permission is requested by this banner.
 - **Validation:** unit tests and latest branch CI must pass. Browser checks for long-track zoom/waveform detail, TTS insertion, export duration, root-folder selection and microphone prompt behavior remain open.
+
+- **Zoom anchoring:** timeline zoom changes preserve the time at the viewport center and explicitly sync the clamped scroll offset back into React state, reducing stale canvas/playhead offsets when zooming out on long timelines.
