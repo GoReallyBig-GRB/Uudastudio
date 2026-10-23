@@ -60,8 +60,15 @@ export function isUudaProjectFile(bytes: ArrayBuffer | Uint8Array): boolean {
   return view.length >= MAGIC.length && MAGIC.every((byte, i) => view[i] === byte);
 }
 
-/** Creates a single-file project archive. Audio samples are stored exactly as float32 PCM. */
-export function encodeProjectFile(project: Project, availableAssets: (id: string) => Asset | undefined): Blob {
+interface ProjectFileWritable {
+  write(data: Uint8Array): Promise<void>;
+}
+
+/** Build metadata and zero-copy channel views shared by Blob and streaming writers. */
+function buildProjectFileParts(
+  project: Project,
+  availableAssets: (id: string) => Asset | undefined
+): { header: Uint8Array; manifestBytes: Uint8Array; audioParts: Uint8Array[]; totalBytes: number } {
   const referencedIds = collectReferencedAssetIds(project);
   const audioParts: Uint8Array[] = [];
   const assets: ProjectAssetManifest[] = [];
@@ -75,7 +82,6 @@ export function encodeProjectFile(project: Project, availableAssets: (id: string
     const channelDescriptors: ChannelDescriptor[] = [];
     for (let channelIndex = 0; channelIndex < asset.buffer.numberOfChannels; channelIndex++) {
       const samples = asset.buffer.getChannelData(channelIndex);
-      // Use a view over AudioBuffer memory; avoid an additional intermediate channel copy.
       const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
       channelDescriptors.push({ byteOffset: payloadOffset, byteLength: bytes.byteLength });
       audioParts.push(bytes);
@@ -107,7 +113,52 @@ export function encodeProjectFile(project: Project, availableAssets: (id: string
   const header = new Uint8Array(HEADER_BYTES);
   header.set(MAGIC, 0);
   new DataView(header.buffer).setUint32(6, manifestBytes.byteLength, true);
-  return new Blob([header as BlobPart, manifestBytes as BlobPart, ...audioParts.map((part) => part as BlobPart)], { type: 'application/vnd.uuda.project' });
+  return { header, manifestBytes, audioParts, totalBytes: HEADER_BYTES + manifestBytes.byteLength + payloadOffset };
+}
+
+/** Creates a single-file project archive. Audio samples are stored exactly as float32 PCM. */
+export function encodeProjectFile(project: Project, availableAssets: (id: string) => Asset | undefined): Blob {
+  const parts = buildProjectFileParts(project, availableAssets);
+  return new Blob([
+    parts.header as BlobPart,
+    parts.manifestBytes as BlobPart,
+    ...parts.audioParts.map((part) => part as BlobPart),
+  ], { type: 'application/vnd.uuda.project' });
+}
+
+/**
+ * Writes a UUDA file in bounded chunks to a File System Access writable.
+ * Unlike Blob construction, this avoids materializing one large project Blob in memory.
+ * The writable is left open for the caller to close after successful completion.
+ */
+export async function writeProjectFileToWritable(
+  project: Project,
+  availableAssets: (id: string) => Asset | undefined,
+  writable: ProjectFileWritable,
+  onProgress?: (writtenBytes: number, totalBytes: number) => void,
+  chunkBytes = 4 * 1024 * 1024
+): Promise<void> {
+  if (!Number.isSafeInteger(chunkBytes) || chunkBytes < Float32Array.BYTES_PER_ELEMENT || chunkBytes % Float32Array.BYTES_PER_ELEMENT !== 0) {
+    throw new Error('Project write chunk size must be a positive Float32-aligned byte count.');
+  }
+  const parts = buildProjectFileParts(project, availableAssets);
+  await writable.write(parts.header);
+  await writable.write(parts.manifestBytes);
+  let writtenBytes = HEADER_BYTES + parts.manifestBytes.byteLength;
+  onProgress?.(writtenBytes, parts.totalBytes);
+  for (const part of parts.audioParts) {
+    for (let offset = 0; offset < part.byteLength; offset += chunkBytes) {
+      const chunk = part.subarray(offset, Math.min(part.byteLength, offset + chunkBytes));
+      await writable.write(chunk);
+      writtenBytes += chunk.byteLength;
+      onProgress?.(writtenBytes, parts.totalBytes);
+      // Let the browser paint and service input between large writes.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  if (writtenBytes !== parts.totalBytes) {
+    throw new Error(`UUDA write size mismatch: wrote ${writtenBytes} of ${parts.totalBytes} bytes.`);
+  }
 }
 
 /** Reads UUDA v1 or legacy project JSON, reporting missing audio without crashing the project open. */
