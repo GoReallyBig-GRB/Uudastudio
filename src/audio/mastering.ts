@@ -441,19 +441,7 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
   const shortTermPowers: number[] = [];
   const activeBlockPowers: number[] = [];
 
-  // K-Weighting Biquad Coefficients (ITU-R BS.1770-4 for 48kHz; normalized)
-  const a1_hs = -1.69065929318241;
-  const a2_hs = 0.73248077421585;
-  const b0_hs = 1.53512485958697;
-  const b1_hs = -2.69169618940638;
-  const b2_hs = 1.19839281085285;
-  const a1_hp = -1.99004745483398;
-  const a2_hp = 0.99007225036621;
-  const b0_hp = 1.0;
-  const b1_hp = -2.0;
-  const b2_hp = 1.0;
-
-  for (let c = 0; c < numChannels; c++) {
+    for (let c = 0; c < numChannels; c++) {
     const input = channelData[c];
     const ring = new Float32Array(Math.max(1, blockSize));
     let x1_hs = 0, x2_hs = 0, y1_hs = 0, y2_hs = 0;
