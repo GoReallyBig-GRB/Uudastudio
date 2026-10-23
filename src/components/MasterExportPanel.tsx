@@ -56,6 +56,7 @@ import {
   renderProjectOffline,
   measureLoudness,
   measureAndApplyMastering,
+  exportAudioBufferToWav,
   exportAudioBufferToWavAsync,
   exportAudioBufferToMp3,
   verifyExportedBlob,
