@@ -120,11 +120,15 @@ const MainStudio: React.FC = () => {
   const [adminCodePreview, setAdminCodePreview] = useState<string | undefined>(undefined);
 
   const [project, setProject] = useState<Project>(DEFAULT_PROJECT);
+  const [, setTimelineRefreshVersion] = useState<number>(0);
   const projectRef = useRef<Project>(DEFAULT_PROJECT);
   const savedProjectRef = useRef<Project>(DEFAULT_PROJECT);
-  // Audio IDs remain here until their IndexedDB write succeeds. Autosave omits only
-  // clips whose audio is not durable, avoiding saved projects with dangling asset refs.
+  // Audio IDs remain here until their IndexedDB write succeeds. Autosave omits
+  // non-durable active clips and historical version references from recovery snapshots.
   const unsavedAssetIdsRef = useRef<Set<string>>(new Set());
+  const autosaveFailureNotifiedRef = useRef<boolean>(false);
+  // If restore fails, do not autosave the blank fallback over a potentially recoverable project.
+  const storageRestoreBlockedRef = useRef<boolean>(false);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
   // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
@@ -378,11 +382,17 @@ const MainStudio: React.FC = () => {
           }
         }
       } catch (err) {
+        // A transient IndexedDB read failure must not be treated as an empty project:
+        // pause autosave so the blank fallback cannot overwrite a recoverable snapshot.
+        storageRestoreBlockedRef.current = true;
         if (isMounted) {
           addToast({
             type: 'error',
             title: 'Storage Restore Warning',
-            message: err instanceof Error ? err.message : 'Could not restore previous session.',
+            message: err instanceof Error
+              ? `${err.message} Local autosave is paused to protect existing recovery data.`
+              : 'Could not restore previous session. Local autosave is paused to protect existing recovery data.',
+            duration: 0,
           });
         }
       }
@@ -394,29 +404,57 @@ const MainStudio: React.FC = () => {
     };
   }, [addToast, updateHistoryFlags]);
 
-  // 2. Periodic Autosave to IndexedDB
+  // 2. Periodic Autosave to IndexedDB. Read the latest project ref on each tick so
+  // project edits do not continually tear down/recreate the timer or queue stale snapshots.
   useEffect(() => {
+    let saveInFlight = false;
     const timer = setInterval(async () => {
+      if (storageRestoreBlockedRef.current || saveInFlight) return;
+      saveInFlight = true;
       try {
         setIsAutosaving(true);
+        const snapshot = projectRef.current;
         const unsavedAssetIds = unsavedAssetIdsRef.current;
-        const safeTracks = project.tracks
+        const safeTracks = snapshot.tracks
           .map((track) => ({
             ...track,
-            clips: track.clips.filter((clip) => !unsavedAssetIds.has(clip.assetId)),
+            clips: track.clips
+              .filter((clip) => !unsavedAssetIds.has(clip.assetId))
+              .map((clip) => ({
+                ...clip,
+                // Historical clip versions also reference durable audio assets. Do not let
+                // an in-flight/failed asset write leave a dangling version-history reference
+                // in the recovery snapshot when the active clip itself is already saved.
+                versionHistory: clip.versionHistory?.filter(
+                  (version) => !unsavedAssetIds.has(version.assetId)
+                ),
+              })),
           }))
-          .filter((track, index) => track.clips.length > 0 || project.tracks[index].clips.length === 0);
-        await saveProjectToDB({ ...project, tracks: safeTracks });
+          .filter((track, index) => track.clips.length > 0 || snapshot.tracks[index].clips.length === 0);
+        await saveProjectToDB({ ...snapshot, tracks: safeTracks });
+        autosaveFailureNotifiedRef.current = false;
         setLastSavedAt(new Date());
-      } catch {
-        // Autosave error handled silently or quietly
+      } catch (error) {
+        // Quota/permission failures must not silently imply that local recovery is current.
+        if (!autosaveFailureNotifiedRef.current) {
+          autosaveFailureNotifiedRef.current = true;
+          addToast({
+            type: 'warning',
+            title: 'Local Recovery Save Failed',
+            message: error instanceof Error
+              ? `IndexedDB could not save the latest recovery snapshot: ${error.message}. Use Project → Save to keep a portable copy.`
+              : 'IndexedDB could not save the latest recovery snapshot. Use Project → Save to keep a portable copy.',
+            duration: 0,
+          });
+        }
       } finally {
+        saveInFlight = false;
         setIsAutosaving(false);
       }
     }, 4000);
 
     return () => clearInterval(timer);
-  }, [project]);
+  }, [addToast]);
 
   // 3. Connect audio engine time update & playback ended listeners
   useEffect(() => {
@@ -508,11 +546,13 @@ const MainStudio: React.FC = () => {
       updatedAt: Date.now(),
     };
     savedProjectRef.current = blankProject;
-    setProjectWithHistory(blankProject);
+    setProject(blankProject);
+    historyManagerRef.current.reset(blankProject);
+    updateHistoryFlags();
     setSelectedTrackId(null);
     setSelectedClipIds(new Set());
     saveProjectToDB(blankProject).catch(() => {});
-  }, [isPlaying, setProjectWithHistory]);
+  }, [isPlaying, updateHistoryFlags]);
 
   const handleNewProject = useCallback(() => {
     if (project !== savedProjectRef.current) {
@@ -698,6 +738,12 @@ const MainStudio: React.FC = () => {
 
   const handleOpenProjectFromFile = useCallback(async (file: File) => {
     try {
+      if (project !== savedProjectRef.current) {
+        const shouldReplace = window.confirm(
+          'This project has changes that have not been saved to a portable .uuda file. Continue opening another project and replace the current workspace?'
+        );
+        if (!shouldReplace) return false;
+      }
       const context = await audioEngine.init();
       const decoded = await decodeProjectFile(file, context);
       projectFileHandleRef.current = null;
@@ -731,22 +777,17 @@ const MainStudio: React.FC = () => {
         updatedAt: Date.now(),
       };
 
-      const failedPersistenceAssetIds: string[] = [];
+      // Register decoded audio immediately and mark it non-durable until each IndexedDB
+      // write succeeds. Project opening must not wait behind large persistence writes.
       for (const asset of decoded.assets) {
         audioEngine.registerAsset(asset);
         unsavedAssetIdsRef.current.add(asset.id);
-        try {
-          await saveAssetToDB(asset);
-          unsavedAssetIdsRef.current.delete(asset.id);
-        } catch {
-          failedPersistenceAssetIds.push(asset.id);
-          // The imported file remains playable in memory; keep it excluded from autosave
-          // until IndexedDB persistence succeeds, and tell the user below.
-        }
       }
 
       savedProjectRef.current = loadedProject;
-      setProjectWithHistory(loadedProject);
+      setProject(loadedProject);
+      historyManagerRef.current.reset(loadedProject);
+      updateHistoryFlags();
       setSelectedTrackId(loadedProject.tracks[0]?.id || null);
       setSelectedClipIds(new Set());
 
@@ -759,19 +800,36 @@ const MainStudio: React.FC = () => {
           message: `${missingFromFile.length} referenced audio asset(s) could not be restored. The project timeline opened; affected clips may be silent.`,
           duration: 0,
         });
-      } else if (failedPersistenceAssetIds.length > 0) {
-        addToast({
-          type: 'warning',
-          title: 'Project Opened; Local Recovery Incomplete',
-          message: `${failedPersistenceAssetIds.length} audio asset(s) could not be saved to IndexedDB. The project is playable now; keep the .uuda file as your recovery copy.`,
-          duration: 0,
-        });
       } else {
         addToast({
           type: 'success',
           title: 'Project Loaded from Computer',
-          message: `"${loadedProject.name}" restored with ${loadedProject.tracks.length} tracks and ${decoded.assets.length} audio assets.`,
+          message: `"${loadedProject.name}" restored with ${loadedProject.tracks.length} tracks and ${decoded.assets.length} audio assets. Local recovery is saving in the background.`,
         });
+      }
+
+      // Persist in the background after the timeline becomes available. Failed assets remain
+      // excluded from recovery snapshots, and a later successful retry can make them durable.
+      if (decoded.assets.length > 0) {
+        void (async () => {
+          const failedPersistenceAssetIds: string[] = [];
+          for (const asset of decoded.assets) {
+            try {
+              await saveAssetToDB(asset);
+              unsavedAssetIdsRef.current.delete(asset.id);
+            } catch {
+              failedPersistenceAssetIds.push(asset.id);
+            }
+          }
+          if (failedPersistenceAssetIds.length > 0) {
+            addToast({
+              type: 'warning',
+              title: 'Project Opened; Local Recovery Incomplete',
+              message: `${failedPersistenceAssetIds.length} audio asset(s) could not be saved to IndexedDB. The project is playable now; keep the .uuda file as your recovery copy.`,
+              duration: 0,
+            });
+          }
+        })();
       }
       return true;
     } catch (err) {
@@ -782,7 +840,7 @@ const MainStudio: React.FC = () => {
       });
       return false;
     }
-  }, [isPlaying, addToast, setProjectWithHistory]);
+  }, [isPlaying, addToast, project, updateHistoryFlags]);
 
 
   const handleOpenProjectFromRoot = useCallback(async () => {
@@ -2150,8 +2208,9 @@ const MainStudio: React.FC = () => {
         onToggleDucking={handleToggleDucking}
         onUpdateDuckingDb={handleUpdateDuckingDb}
         onManualRefresh={() => {
-          // Trigger manual re-render
-          setProject((p) => ({ ...p }));
+          // Force the view to render without replacing project identity, recording history,
+          // or incorrectly marking the project dirty for portable-save purposes.
+          setTimelineRefreshVersion((version) => version + 1);
           addToast({ type: 'info', title: 'Timeline Refreshed', message: 'Manual redraw completed.' });
         }}
         onClearSession={handleClearSession}

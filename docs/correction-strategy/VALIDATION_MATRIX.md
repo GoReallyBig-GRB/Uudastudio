@@ -133,3 +133,55 @@ Implementation merges: [PR #20](https://github.com/GoReallyBig-GRB/Uudastudio/pu
 - Regression coverage includes empty/short clips, 400 ms block boundaries, 100 ms hop boundaries, async/sync parity, and progress during long true-peak scans.
 - Export verification progress is forwarded to the export progress UI.
 - Automated checks and browser/runtime memory measurements must be recorded from the resulting candidate before this correction is considered complete. No unperformed browser or long-duration memory test is claimed as passed.
+
+## Consolidated open-task execution branch — 2026-10-23
+
+Branch: `correction/open-partial-tasks`, based on main commit `51df2b8241a855ee4e16be7b8865752d1524bcb5`.
+
+### Added automated coverage (execution pending)
+
+- `src/audio/masteringExport.test.ts`: asynchronous 16-/24-bit WAV output byte-for-byte parity with the synchronous encoder, RIFF/data size fields, monotonic block progress, unsupported channel count rejection, and RIFF 4 GiB overflow rejection before channel reads.
+- These tests were authored on the branch; this environment did not provide a usable network connection for a fresh clone, and no claim is made that Vitest, full type-check, or production build has passed for this branch.
+
+### Outstanding acceptance evidence (still required)
+
+| Scope | Required next evidence | Status |
+|---|---|---|
+| CS-00 / CS-15 | Named-machine baseline and agreed 60-/90-minute metrics/caps | OPEN |
+| CS-04 | React Profiler trace; seek/scrub/playback interaction recording | PARTIAL |
+| CS-06 / V-04 / V-05 | Long stereo-file zoom/scroll timings, canvas dimensions, cache hits/bytes | PARTIAL |
+| CS-09 / V-08 | Reference-output comparison, loudness/true-peak measurements and listening notes | OPEN |
+| CS-10 / CS-12 / V-07 | Stage timing, peak memory, long-task trace and progress responsiveness | PARTIAL |
+| V-09 | Sanitized browser network capture confirming local export sends no full audio payload | NOT VERIFIED |
+| CS-13 / V-10 / V-11 | Browser `.uuda` round trip, missing/corrupt audio, interrupted save/recovery, quota failure | PARTIAL |
+| CS-16 | Folder permission restoration/cancel/error and save/open round trip in supported browser | PARTIAL |
+| CS-14 / V-12 | Serial-vs-worker correctness and memory benchmark after baseline | DEFERRED |
+
+Run `npm run lint`, `npm test`, and `npm run build` in the normal dependency-complete environment. Preserve CI logs and browser profiles with commit hash, browser/OS/RAM, audio duration/channels, track/clip count, and cold/warm cache state. Never mark browser/audio/performance gates passed from source inspection or unit tests alone.
+
+
+## Additional regression coverage — session recovery safety
+
+- [x] Pure unit test: distinct per-tab IndexedDB project keys.
+- [x] Pure unit tests: snapshots within the recovery window are retained; stale/missing/invalid timestamps are expired.
+- [ ] IndexedDB integration: expired snapshots are deleted before orphan asset collection.
+- [ ] Multi-tab browser check: an active tab's snapshot/assets remain intact while a stale tab's snapshot expires.
+- [ ] Persistence failure check: autosave omits clips whose active asset is not durable and strips version-history references to unsaved assets.
+- [ ] Slow-storage check: autosave does not queue overlapping writes or overwrite a newer snapshot with an older one.
+- [ ] Browser recovery check after suspended-tab resume and quota/storage failure.
+
+The checked items above describe added unit-test coverage. Latest branch CI passed at commit 5004d36ff10e751348e3cd74d412e646e71d1b16 (type-check, tests, application/server build). Browser and IndexedDB transaction acceptance remains open.
+
+- [ ] Browser quota/permission failure check: verify a persistent warning appears once during a failure streak and clears its latch after a successful autosave.
+
+- [ ] IndexedDB restore failure check: force a read/open failure and verify the app warns, pauses autosave, and does not overwrite an existing recovery snapshot with the blank fallback.
+
+- [ ] Large `.uuda` open check: confirm timeline becomes available before IndexedDB asset writes finish; verify failed writes warn and recovery autosave omits non-durable audio references.
+
+- [x] Added automated cases for truncated UUDA PCM payload and invalid manifest length; run them in branch CI before handoff.
+
+- [ ] Dirty-state browser check: manual timeline refresh alone must not trigger an unsaved-project prompt; actual edits must still trigger it until a portable save succeeds.
+
+- [ ] Open-loss prevention: with unsaved edits, cancel the replacement confirmation and verify the active project remains unchanged; confirm replacement only after explicit approval.
+
+- [ ] Project replacement undo isolation: create edits, open a different project (or create a new blank one), and verify Undo cannot restore clips/tracks from the previous project.

@@ -177,6 +177,12 @@ export async function loadAllAssetsFromDB(engine: AudioEngine): Promise<Asset[]>
 
 export const MAX_SESSION_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
+/** Pure expiry rule shared by restore and orphan-cleanup paths. */
+export function isSessionProjectExpired(updatedAt: number | undefined, now = Date.now()): boolean {
+  const savedAt = typeof updatedAt === 'number' && Number.isFinite(updatedAt) ? updatedAt : 0;
+  return now - savedAt > MAX_SESSION_AGE_MS;
+}
+
 export async function saveProjectToDB(project: Project): Promise<void> {
   const db = await openDB();
   const projectWithTimestamp = {
@@ -192,55 +198,52 @@ export async function saveProjectToDB(project: Project): Promise<void> {
 }
 
 export async function loadProjectFromDB(): Promise<Project | null> {
-  try {
-    const db = await openDB();
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_PROJECT, 'readonly');
-      const store = tx.objectStore(STORE_PROJECT);
-      const currentKey = getCurrentProjectKey();
-      const req = store.get(currentKey);
-      req.onsuccess = () => {
-        const current = req.result as (Project & { updatedAt?: number }) | undefined;
-        if (current) {
-          void validateSessionProject(db, currentKey, current).then(resolve, reject);
-          return;
-        }
-        // Migrate the old shared key once per tab. Explicit new-tab sessions set this
-        // marker already, so they can never fall back into another tab's legacy project.
-        let alreadyMigrated = false;
-        try { alreadyMigrated = window.sessionStorage.getItem(LEGACY_MIGRATION_FLAG) === 'true'; } catch {}
-        if (alreadyMigrated) {
+  const db = await openDB();
+  return await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_PROJECT, 'readonly');
+    const store = tx.objectStore(STORE_PROJECT);
+    const currentKey = getCurrentProjectKey();
+    const req = store.get(currentKey);
+    req.onsuccess = () => {
+      const current = req.result as (Project & { updatedAt?: number }) | undefined;
+      if (current) {
+        void validateSessionProject(db, currentKey, current).then(resolve, reject);
+        return;
+      }
+      // Migrate the old shared key once per tab. Explicit new-tab sessions set this
+      // marker already, so they can never fall back into another tab's legacy project.
+      let alreadyMigrated = false;
+      try { alreadyMigrated = window.sessionStorage.getItem(LEGACY_MIGRATION_FLAG) === 'true'; } catch {}
+      if (alreadyMigrated) {
+        resolve(null);
+        return;
+      }
+      const legacyReq = store.get(LEGACY_PROJECT_KEY);
+      legacyReq.onsuccess = () => {
+        const legacy = legacyReq.result as (Project & { updatedAt?: number }) | undefined;
+        if (!legacy) {
           resolve(null);
           return;
         }
-        const legacyReq = store.get(LEGACY_PROJECT_KEY);
-        legacyReq.onsuccess = () => {
-          const legacy = legacyReq.result as (Project & { updatedAt?: number }) | undefined;
-          if (!legacy) {
+        void validateSessionProject(db, LEGACY_PROJECT_KEY, legacy).then(async (valid) => {
+          if (!valid) {
             resolve(null);
             return;
           }
-          void validateSessionProject(db, LEGACY_PROJECT_KEY, legacy).then(async (valid) => {
-            if (!valid) {
-              resolve(null);
-              return;
-            }
-            try {
-              await saveProjectToDB(valid);
-              window.sessionStorage.setItem(LEGACY_MIGRATION_FLAG, 'true');
-            } catch {
-              // The compatibility read still works for this page if migration storage fails.
-            }
-            resolve(valid);
-          }, reject);
-        };
-        legacyReq.onerror = () => reject(legacyReq.error);
+          try {
+            await saveProjectToDB(valid);
+            window.sessionStorage.setItem(LEGACY_MIGRATION_FLAG, 'true');
+          } catch {
+            // The compatibility read still works for this page if migration storage fails.
+          }
+          resolve(valid);
+        }, reject);
       };
-      req.onerror = () => reject(req.error);
-    });
-  } catch {
-    return null;
-  }
+      legacyReq.onerror = () => reject(legacyReq.error);
+    };
+    req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 async function validateSessionProject(
@@ -248,8 +251,7 @@ async function validateSessionProject(
   key: IDBValidKey,
   stored: Project & { updatedAt?: number }
 ): Promise<Project | null> {
-  const savedAt = stored.updatedAt || 0;
-  if (Date.now() - savedAt > MAX_SESSION_AGE_MS) {
+  if (isSessionProjectExpired(stored.updatedAt)) {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_PROJECT, 'readwrite');
       tx.objectStore(STORE_PROJECT).delete(key);
@@ -286,25 +288,36 @@ export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removed
     const tx = db.transaction([STORE_PROJECT, STORE_ASSETS], 'readwrite');
     const projectStore = tx.objectStore(STORE_PROJECT);
     const assetStore = tx.objectStore(STORE_ASSETS);
+    const projectKeysRequest = projectStore.getAllKeys();
     const projectsRequest = projectStore.getAll();
     const assetsRequest = assetStore.getAll();
     let ready = 0;
+    let projectKeys: IDBValidKey[] = [];
     let projects: Array<(Project & { updatedAt?: number }) | undefined> = [];
     let assets: Array<StoredAsset & { storedAt?: number }> = [];
 
     const processIfReady = () => {
       ready++;
-      if (ready !== 2) return;
+      if (ready !== 3) return;
 
-      // Include all saved tabs, including stale snapshots, before deciding whether an
-      // asset is orphaned. Never delete another tab's recovery data as a side effect.
+      // Expire stale per-tab snapshots before computing references. Otherwise an abandoned
+      // tab's old snapshot can pin orphaned audio forever. Active tabs refresh updatedAt on
+      // autosave; asset writes still receive a 24-hour grace period for in-flight imports.
       const referencedAssetIds = new Set<string>();
-      for (const project of projects) {
-        if (!project) continue;
+      for (let index = 0; index < projects.length; index++) {
+        const project = projects[index];
+        const key = projectKeys[index];
+        if (!project || key === undefined) continue;
+        if (isSessionProjectExpired(project.updatedAt, now)) {
+          projectStore.delete(key);
+          continue;
+        }
         for (const track of project.tracks || []) {
           for (const clip of track.clips || []) {
             if (clip.assetId) referencedAssetIds.add(clip.assetId);
-            for (const version of clip.versionHistory || []) if (version.assetId) referencedAssetIds.add(version.assetId);
+            for (const version of clip.versionHistory || []) {
+              if (version.assetId) referencedAssetIds.add(version.assetId);
+            }
           }
         }
       }
@@ -318,6 +331,7 @@ export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removed
       }
     };
 
+    projectKeysRequest.onsuccess = () => { projectKeys = projectKeysRequest.result; processIfReady(); };
     projectsRequest.onsuccess = () => { projects = projectsRequest.result; processIfReady(); };
     assetsRequest.onsuccess = () => { assets = assetsRequest.result; processIfReady(); };
     tx.oncomplete = () => resolve();
