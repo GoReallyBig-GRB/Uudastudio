@@ -203,3 +203,5 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **Validation:** unit tests and CI must pass on the current head. The 57-minute mastering and repeated-zoom browser acceptance tests remain open; no claim is made that the full long-file mastering run is already fixed.
 
 - **Loudness hot-loop hardening:** RMS and K-weighting passes now iterate in explicit 262,144-sample blocks with progress/yields at block boundaries. The rolling window uses a maintained ring index and next-window counter instead of per-sample modulo checks. Existing sync-vs-async boundary tests protect loudness statistics.
+
+- **Limiter progress/performance:** the long lookahead-limiter pass now yields at explicit 1,048,576-sample block boundaries, uses wraparound index checks instead of per-sample modulo operations, and reports fractional progress so a long pass does not appear flat at 75% for an extended interval.
