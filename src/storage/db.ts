@@ -177,6 +177,12 @@ export async function loadAllAssetsFromDB(engine: AudioEngine): Promise<Asset[]>
 
 export const MAX_SESSION_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
+/** Pure expiry rule shared by restore and orphan-cleanup paths. */
+export function isSessionProjectExpired(updatedAt: number | undefined, now = Date.now()): boolean {
+  const savedAt = typeof updatedAt === 'number' && Number.isFinite(updatedAt) ? updatedAt : 0;
+  return now - savedAt > MAX_SESSION_AGE_MS;
+}
+
 export async function saveProjectToDB(project: Project): Promise<void> {
   const db = await openDB();
   const projectWithTimestamp = {
@@ -248,8 +254,7 @@ async function validateSessionProject(
   key: IDBValidKey,
   stored: Project & { updatedAt?: number }
 ): Promise<Project | null> {
-  const savedAt = stored.updatedAt || 0;
-  if (Date.now() - savedAt > MAX_SESSION_AGE_MS) {
+  if (isSessionProjectExpired(stored.updatedAt)) {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_PROJECT, 'readwrite');
       tx.objectStore(STORE_PROJECT).delete(key);
@@ -286,25 +291,36 @@ export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removed
     const tx = db.transaction([STORE_PROJECT, STORE_ASSETS], 'readwrite');
     const projectStore = tx.objectStore(STORE_PROJECT);
     const assetStore = tx.objectStore(STORE_ASSETS);
+    const projectKeysRequest = projectStore.getAllKeys();
     const projectsRequest = projectStore.getAll();
     const assetsRequest = assetStore.getAll();
     let ready = 0;
+    let projectKeys: IDBValidKey[] = [];
     let projects: Array<(Project & { updatedAt?: number }) | undefined> = [];
     let assets: Array<StoredAsset & { storedAt?: number }> = [];
 
     const processIfReady = () => {
       ready++;
-      if (ready !== 2) return;
+      if (ready !== 3) return;
 
-      // Include all saved tabs, including stale snapshots, before deciding whether an
-      // asset is orphaned. Never delete another tab's recovery data as a side effect.
+      // Expire stale per-tab snapshots before computing references. Otherwise an abandoned
+      // tab's old snapshot can pin orphaned audio forever. Active tabs refresh updatedAt on
+      // autosave; asset writes still receive a 24-hour grace period for in-flight imports.
       const referencedAssetIds = new Set<string>();
-      for (const project of projects) {
-        if (!project) continue;
+      for (let index = 0; index < projects.length; index++) {
+        const project = projects[index];
+        const key = projectKeys[index];
+        if (!project || key === undefined) continue;
+        if (isSessionProjectExpired(project.updatedAt, now)) {
+          projectStore.delete(key);
+          continue;
+        }
         for (const track of project.tracks || []) {
           for (const clip of track.clips || []) {
             if (clip.assetId) referencedAssetIds.add(clip.assetId);
-            for (const version of clip.versionHistory || []) if (version.assetId) referencedAssetIds.add(version.assetId);
+            for (const version of clip.versionHistory || []) {
+              if (version.assetId) referencedAssetIds.add(version.assetId);
+            }
           }
         }
       }
@@ -318,6 +334,7 @@ export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removed
       }
     };
 
+    projectKeysRequest.onsuccess = () => { projectKeys = projectKeysRequest.result; processIfReady(); };
     projectsRequest.onsuccess = () => { projects = projectsRequest.result; processIfReady(); };
     assetsRequest.onsuccess = () => { assets = assetsRequest.result; processIfReady(); };
     tx.oncomplete = () => resolve();
