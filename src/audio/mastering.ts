@@ -402,7 +402,7 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
   for (let c = 0; c < numChannels; c++) {
     const data = buffer.getChannelData(c);
     channelData.push(data);
-    const tp = await calculateTruePeakAsync(data, onProgress, Math.round(progressStart + (progressEnd - progressStart) * 0.2));
+    const tp = await calculateTruePeakAsync(data);
     if (tp > maxTruePeakLinear) maxTruePeakLinear = tp;
 
     for (let i = 0; i < length; i++) {
