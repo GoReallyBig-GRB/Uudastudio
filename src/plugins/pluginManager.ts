@@ -5,7 +5,7 @@
  */
 
 import { PluginDescriptor, PluginInstance, StoredPluginState } from './types';
-import { NATIVE_STEM_PLUGINS, VERIFIED_THIRD_PARTY_PLUGINS, findPluginDescriptor } from './registry';
+import { NATIVE_STEM_PLUGINS, VERIFIED_THIRD_PARTY_PLUGINS, findPluginDescriptor, resolveVerifiedThirdPartyPlugin } from './registry';
 import { loadThirdPartyWamPlugin } from './wamHost';
 import { createNativePlugin } from './nativeFactories';
 import { createMissingPlugin } from './missingPlugin';
@@ -90,8 +90,10 @@ export class PluginManager {
     if (descriptor.type === 'native') {
       return await createNativePlugin(descriptor.id, audioCtx, trackId, initialState);
     } else {
-      // Third-party WAM 2.0 plugin
-      return await loadThirdPartyWamPlugin(audioCtx, trackId, descriptor, initialState);
+      // Resolve against the reviewed catalogue; never trust a module URL from project state.
+      const trustedDescriptor = resolveVerifiedThirdPartyPlugin(descriptor);
+      if (!trustedDescriptor) throw new Error(`Unapproved third-party plugin: ${descriptor.id}`);
+      return await loadThirdPartyWamPlugin(audioCtx, trackId, trustedDescriptor, initialState);
     }
   }
 
