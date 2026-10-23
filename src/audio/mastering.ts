@@ -212,94 +212,88 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
     return { integratedLUFS: -70, truePeakDbTP: -70, rmsDb: -70, loudnessRangeLU: 0, durationSeconds: 0 };
   }
 
-  const channelData: Float32Array[] = [];
   let maxTruePeakLinear = 0;
   let totalSumSq = 0;
+  const channelData: Float32Array[] = [];
 
   for (let c = 0; c < numChannels; c++) {
     const data = buffer.getChannelData(c);
     channelData.push(data);
     const tp = calculateTruePeak(data);
     if (tp > maxTruePeakLinear) maxTruePeakLinear = tp;
-
-    for (let i = 0; i < length; i++) {
-      totalSumSq += data[i] * data[i];
-    }
+    for (let i = 0; i < length; i++) totalSumSq += data[i] * data[i];
   }
 
   const rms = Math.sqrt(totalSumSq / (length * numChannels || 1));
   const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -70;
   const truePeakDbTP = maxTruePeakLinear > 0 ? 20 * Math.log10(maxTruePeakLinear) : -70;
 
-  // K-Weighting Biquad Coefficients (ITU-R BS.1770-4 for 48kHz; normalized)
+  // K-Weighting Biquad Coefficients (ITU-R BS.1770-4 for 48kHz; normalized).
   const a1_hs = -1.69065929318241;
   const a2_hs = 0.73248077421585;
   const b0_hs = 1.53512485958697;
   const b1_hs = -2.69169618940638;
   const b2_hs = 1.19839281085285;
-
   const a1_hp = -1.99004745483398;
   const a2_hp = 0.99007225036621;
   const b0_hp = 1.0;
   const b1_hp = -2.0;
   const b2_hp = 1.0;
 
-  const filteredChannels: Float32Array[] = [];
+  // Retain only one 400 ms ring buffer per channel and one power value per 100 ms
+  // block. Avoid allocating a second full-length Float32Array for every channel.
+  const blockSize = Math.floor(0.4 * sampleRate);
+  const hopSize = Math.floor(0.1 * sampleRate);
+  const numBlocks = Math.max(0, Math.floor((length - blockSize) / hopSize));
+  const channelBlockPowers: Float64Array[] = [];
 
   for (let c = 0; c < numChannels; c++) {
     const input = channelData[c];
-    const filtered = new Float32Array(length);
+    const blockPowers = new Float64Array(numBlocks);
+    const squareRing = new Float64Array(Math.max(1, blockSize));
+    let rollingSum = 0;
 
     let x1_hs = 0, x2_hs = 0, y1_hs = 0, y2_hs = 0;
     let x1_hp = 0, x2_hp = 0, y1_hp = 0, y2_hp = 0;
 
     for (let i = 0; i < length; i++) {
       const x = input[i];
-
-      // Stage 1: High shelf filter
       const y_hs = b0_hs * x + b1_hs * x1_hs + b2_hs * x2_hs - a1_hs * y1_hs - a2_hs * y2_hs;
       x2_hs = x1_hs;
       x1_hs = x;
       y2_hs = y1_hs;
       y1_hs = y_hs;
 
-      // Stage 2: High pass RLB filter
       const y_hp = b0_hp * y_hs + b1_hp * x1_hp + b2_hp * x2_hp - a1_hp * y1_hp - a2_hp * y2_hp;
       x2_hp = x1_hp;
       x1_hp = y_hs;
       y2_hp = y1_hp;
       y1_hp = y_hp;
 
-      filtered[i] = y_hp;
+      const ringIndex = i % Math.max(1, blockSize);
+      const squared = y_hp * y_hp;
+      if (i >= blockSize) rollingSum -= squareRing[ringIndex];
+      squareRing[ringIndex] = squared;
+      rollingSum += squared;
+
+      if (i + 1 >= blockSize) {
+        const start = i + 1 - blockSize;
+        if (start % hopSize === 0) {
+          const blockIndex = start / hopSize;
+          if (blockIndex < numBlocks) blockPowers[blockIndex] = rollingSum / blockSize;
+        }
+      }
     }
 
-    filteredChannels.push(filtered);
+    channelBlockPowers.push(blockPowers);
   }
-
-  // 400ms blocks with 100ms hop size (75% overlap)
-  const blockSize = Math.floor(0.4 * sampleRate);
-  const hopSize = Math.floor(0.1 * sampleRate);
-  const numBlocks = Math.floor((length - blockSize) / hopSize);
 
   const blockPowers: number[] = [];
   const shortTermPowers: number[] = [];
-
   for (let b = 0; b < numBlocks; b++) {
-    const start = b * hopSize;
     let blockSum = 0;
-
-    for (let c = 0; c < numChannels; c++) {
-      const data = filteredChannels[c];
-      let sum = 0;
-      for (let i = 0; i < blockSize; i++) {
-        const val = data[start + i];
-        sum += val * val;
-      }
-      blockSum += (sum / blockSize);
-    }
-
+    for (let c = 0; c < numChannels; c++) blockSum += channelBlockPowers[c][b];
     const blockLoudness = -0.691 + 10 * Math.log10(Math.max(1e-12, blockSum));
-    // Absolute threshold gating at -70 LKFS
     if (blockLoudness > -70) {
       blockPowers.push(blockSum);
       shortTermPowers.push(blockLoudness);
@@ -307,17 +301,13 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
   }
 
   let integratedLUFS = -70;
-
   if (blockPowers.length > 0) {
-    // Relative gate: -10 LU below un-gated mean
     const avgPower = blockPowers.reduce((a, b) => a + b, 0) / blockPowers.length;
     const gammaA = -0.691 + 10 * Math.log10(Math.max(1e-12, avgPower)) - 10;
-
     const gatedPowers = blockPowers.filter((p) => {
       const lkfs = -0.691 + 10 * Math.log10(Math.max(1e-12, p));
       return lkfs > gammaA;
     });
-
     if (gatedPowers.length > 0) {
       const finalPower = gatedPowers.reduce((a, b) => a + b, 0) / gatedPowers.length;
       integratedLUFS = -0.691 + 10 * Math.log10(Math.max(1e-12, finalPower));
@@ -328,7 +318,6 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
     integratedLUFS = Math.max(-70, rmsDb - 3.0);
   }
 
-  // Loudness Range (LRA) calculation across short term powers
   let loudnessRangeLU = 0;
   if (shortTermPowers.length >= 10) {
     const sorted = [...shortTermPowers].sort((a, b) => a - b);
