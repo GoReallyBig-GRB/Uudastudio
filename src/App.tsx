@@ -48,7 +48,7 @@ import { processCompression } from './audio/dsp/compressor';
 import { processBasicDenoise } from './audio/dsp/denoiser';
 import { processPitchShift, processTimeStretch } from './audio/dsp/wsola';
 import { waveformCache } from './waveform/cache';
-import { decodeProjectFile, encodeProjectFile } from './storage/projectFile';
+import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { formatVolumeDb } from './utils/formatters';
 import { useAuth } from './hooks/useAuth';
@@ -61,8 +61,9 @@ import { SoundLibraryModal } from './components/SoundLibraryModal';
 
 
 interface ProjectFileWritable {
-  write(data: Blob): Promise<void>;
+  write(data: Blob | Uint8Array): Promise<void>;
   close(): Promise<void>;
+  abort?(reason?: unknown): Promise<void>;
 }
 interface ProjectFileHandle {
   name?: string;
@@ -523,7 +524,7 @@ const MainStudio: React.FC = () => {
     try {
       // The .uuda file is the portable project backup: project JSON plus every referenced
       // audio asset in a single binary container. IndexedDB remains the recovery autosave.
-      const blob = encodeProjectFile(project, (assetId) => audioEngine.getAsset(assetId));
+      // Use bounded writes when a file handle is available; build a Blob only for download fallback.
       const fileName = `${project.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Session'}.uuda`;
       const pickerWindow = window as WindowWithProjectFilePicker;
       let fileHandle = !forceSaveAs ? projectFileHandleRef.current : null;
@@ -552,10 +553,12 @@ const MainStudio: React.FC = () => {
       if (fileHandle) {
         const writable = await fileHandle.createWritable();
         try {
-          await writable.write(blob);
+          await writeProjectFileToWritable(project, (assetId) => audioEngine.getAsset(assetId), writable);
           await writable.close();
         } catch (err) {
-          try { await writable.close(); } catch { /* preserve original write error */ }
+          if (writable.abort) {
+            try { await writable.abort(err); } catch { /* preserve original write error */ }
+          }
           throw err;
         }
         projectFileHandleRef.current = fileHandle;
@@ -566,6 +569,7 @@ const MainStudio: React.FC = () => {
         });
       } else {
         // Non-Chromium fallback: downloads remain the supported save mechanism.
+        const blob = encodeProjectFile(project, (assetId) => audioEngine.getAsset(assetId));
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
