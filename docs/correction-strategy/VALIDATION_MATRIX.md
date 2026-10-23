@@ -217,3 +217,5 @@ Latest browser-feedback follow-up CI passed at commit `4f9c2945322882c9e63f661d5
 
 - [x] Existing limiter reference-equivalence tests cover short, boundary, empty, and peak-heavy signals after block-loop/index changes.
 - [ ] Browser: confirm fractional limiter progress visibly advances during the 57-minute mastering run and does not regress between channels/stages.
+
+- [x] Unit test: long limiter pass emits fractional, monotonic progress and reaches the end of the limiter stage.
