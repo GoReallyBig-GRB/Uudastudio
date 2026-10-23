@@ -219,3 +219,8 @@ Latest browser-feedback follow-up CI passed at commit `4f9c2945322882c9e63f661d5
 - [ ] Browser: confirm fractional limiter progress visibly advances during the 57-minute mastering run and does not regress between channels/stages.
 
 - [x] Unit test: long limiter pass emits fractional, monotonic progress and reaches the end of the limiter stage.
+
+
+## Long-session acceptance tiers — 2026-10-23
+
+The five required duration tiers are now defined in [LONG_SESSION_THRESHOLDS.md](./LONG_SESSION_THRESHOLDS.md): **15, 30, 60, 90 and 120 minutes**. They are test tiers, not maximum supported durations. The plan defines provisional responsiveness targets, memory-sizing references, phase gates and the evidence record needed for each run. Targets remain unratified until a named-machine baseline is captured; none of the tiers is marked passed by this documentation change.
