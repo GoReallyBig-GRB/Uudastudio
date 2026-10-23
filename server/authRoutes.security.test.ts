@@ -16,9 +16,10 @@ app.use(authRouter);
 
 let server: ReturnType<typeof app.listen>;
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.mocked(verifyFirebaseIdToken).mockRejectedValue(new Error('Invalid signature'));
   server = app.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve) => server.once('listening', resolve));
 });
 
 afterEach(async () => {
