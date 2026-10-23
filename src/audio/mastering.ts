@@ -213,7 +213,7 @@ async function calculateTruePeakAsync(
       const ratio = processed / Math.max(1, len);
       onProgress?.({
         stage: 'mastering',
-        percent: Math.round(progressStart + ratio * (progressEnd - progressStart)),
+        percent: Math.round((progressStart + ratio * (progressEnd - progressStart)) * 100) / 100,
         message: `Measuring true peak... ${Math.round(ratio * 100)}% of channel`,
       });
     }
