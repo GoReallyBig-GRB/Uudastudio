@@ -496,6 +496,8 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
     const input = channelData[c];
     const squareRing = new Float64Array(effectiveBlockSize);
     let rollingSum = 0;
+    let ringIndex = 0;
+    let nextWindowEnd = effectiveBlockSize - 1;
     let x1_hs = 0, x2_hs = 0, y1_hs = 0, y2_hs = 0;
     let x1_hp = 0, x2_hp = 0, y1_hp = 0, y2_hp = 0;
 
@@ -516,19 +518,20 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
         y2_hp = y1_hp;
         y1_hp = y_hp;
 
-        const ringIndex = i % effectiveBlockSize;
         const squared = y_hp * y_hp;
         if (i >= effectiveBlockSize) rollingSum -= squareRing[ringIndex];
         squareRing[ringIndex] = squared;
         rollingSum += squared;
 
-        const windowStart = i - effectiveBlockSize + 1;
-        if (windowStart >= 0 && windowStart % effectiveHopSize === 0) {
-          const blockIndex = windowStart / effectiveHopSize;
+        if (i === nextWindowEnd) {
+          const blockIndex = (i - effectiveBlockSize + 1) / effectiveHopSize;
           if (blockIndex < blockPowers.length) {
             blockPowers[blockIndex] += rollingSum / effectiveBlockSize;
           }
+          nextWindowEnd += effectiveHopSize;
         }
+        ringIndex++;
+        if (ringIndex === effectiveBlockSize) ringIndex = 0;
       }
 
       const ratio = (c * length + blockEnd) / Math.max(1, length * numChannels);
