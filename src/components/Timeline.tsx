@@ -187,6 +187,28 @@ export const Timeline: React.FC<TimelineProps> = ({
   }, [project.tracks]);
 
   const lanePixelWidth = Math.max(1200, Math.ceil(totalDurationSeconds * pixelsPerSecond));
+  const previousZoomRef = useRef<number>(pixelsPerSecond);
+
+  // Preserve the time at the viewport center when zoom changes. Browsers clamp scrollLeft
+  // when a very long timeline shrinks; explicitly syncing React state avoids stale offsets
+  // that can misalign the canvas waveform and playhead after zooming out.
+  useEffect(() => {
+    const previousZoom = previousZoomRef.current;
+    previousZoomRef.current = pixelsPerSecond;
+    if (previousZoom === pixelsPerSecond) return;
+
+    const viewport = laneScrollContainerRef.current;
+    if (!viewport) return;
+    const centerTime = Math.max(
+      0,
+      (viewport.scrollLeft + viewport.clientWidth / 2 - currentHeaderWidth) / Math.max(0.1, previousZoom)
+    );
+    const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+    const targetScrollLeft = currentHeaderWidth + centerTime * pixelsPerSecond - viewport.clientWidth / 2;
+    const nextScrollLeft = Math.min(maxScrollLeft, Math.max(0, targetScrollLeft));
+    viewport.scrollLeft = nextScrollLeft;
+    setScrollLeft(nextScrollLeft);
+  }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth]);
 
   // ResizeObserver for canvas width
   useEffect(() => {
