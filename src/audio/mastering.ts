@@ -446,13 +446,21 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
     );
     if (tp > maxTruePeakLinear) maxTruePeakLinear = tp;
 
-    for (let i = 0; i < length; i++) {
-      if ((i + 1) % 262144 === 0) {
-        const ratio = (c * length + i + 1) / Math.max(1, length * numChannels);
-        onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + (0.2 + ratio * 0.2) * (progressEnd - progressStart)), message: 'Analyzing loudness in yielding blocks...' });
+    const analysisBlockSamples = 262_144;
+    for (let blockStart = 0; blockStart < length; blockStart += analysisBlockSamples) {
+      const blockEnd = Math.min(length, blockStart + analysisBlockSamples);
+      for (let i = blockStart; i < blockEnd; i++) {
+        totalSumSq += data[i] * data[i];
+      }
+      const ratio = (c * length + blockEnd) / Math.max(1, length * numChannels);
+      onProgress?.({
+        stage: 'mastering',
+        percent: Math.round(progressStart + (0.2 + ratio * 0.2) * (progressEnd - progressStart)),
+        message: 'Analyzing loudness in yielding blocks...',
+      });
+      if (blockEnd < length || c < numChannels - 1) {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
-      totalSumSq += data[i] * data[i];
     }
   }
 
@@ -491,41 +499,45 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
     let x1_hs = 0, x2_hs = 0, y1_hs = 0, y2_hs = 0;
     let x1_hp = 0, x2_hp = 0, y1_hp = 0, y2_hp = 0;
 
-    for (let i = 0; i < length; i++) {
-      const x = input[i];
-      const y_hs = b0_hs * x + b1_hs * x1_hs + b2_hs * x2_hs - a1_hs * y1_hs - a2_hs * y2_hs;
-      x2_hs = x1_hs;
-      x1_hs = x;
-      y2_hs = y1_hs;
-      y1_hs = y_hs;
+    const filterBlockSamples = 262_144;
+    for (let blockStart = 0; blockStart < length; blockStart += filterBlockSamples) {
+      const blockEnd = Math.min(length, blockStart + filterBlockSamples);
+      for (let i = blockStart; i < blockEnd; i++) {
+        const x = input[i];
+        const y_hs = b0_hs * x + b1_hs * x1_hs + b2_hs * x2_hs - a1_hs * y1_hs - a2_hs * y2_hs;
+        x2_hs = x1_hs;
+        x1_hs = x;
+        y2_hs = y1_hs;
+        y1_hs = y_hs;
 
-      const y_hp = b0_hp * y_hs + b1_hp * x1_hp + b2_hp * x2_hp - a1_hp * y1_hp - a2_hp * y2_hp;
-      x2_hp = x1_hp;
-      x1_hp = y_hs;
-      y2_hp = y1_hp;
-      y1_hp = y_hp;
+        const y_hp = b0_hp * y_hs + b1_hp * x1_hp + b2_hp * x2_hp - a1_hp * y1_hp - a2_hp * y2_hp;
+        x2_hp = x1_hp;
+        x1_hp = y_hs;
+        y2_hp = y1_hp;
+        y1_hp = y_hp;
 
-      const ringIndex = i % effectiveBlockSize;
-      const squared = y_hp * y_hp;
-      if (i >= effectiveBlockSize) rollingSum -= squareRing[ringIndex];
-      squareRing[ringIndex] = squared;
-      rollingSum += squared;
+        const ringIndex = i % effectiveBlockSize;
+        const squared = y_hp * y_hp;
+        if (i >= effectiveBlockSize) rollingSum -= squareRing[ringIndex];
+        squareRing[ringIndex] = squared;
+        rollingSum += squared;
 
-      const windowStart = i - effectiveBlockSize + 1;
-      if (windowStart >= 0 && windowStart % effectiveHopSize === 0) {
-        const blockIndex = windowStart / effectiveHopSize;
-        if (blockIndex < blockPowers.length) {
-          blockPowers[blockIndex] += rollingSum / effectiveBlockSize;
+        const windowStart = i - effectiveBlockSize + 1;
+        if (windowStart >= 0 && windowStart % effectiveHopSize === 0) {
+          const blockIndex = windowStart / effectiveHopSize;
+          if (blockIndex < blockPowers.length) {
+            blockPowers[blockIndex] += rollingSum / effectiveBlockSize;
+          }
         }
       }
 
-      if ((i + 1) % 262144 === 0) {
-        const ratio = (c * length + i + 1) / Math.max(1, length * numChannels);
-        onProgress?.({
-          stage: 'mastering',
-          percent: Math.round(progressStart + (0.4 + ratio * 0.3) * (progressEnd - progressStart)),
-          message: 'Filtering audio in bounded memory blocks...'
-        });
+      const ratio = (c * length + blockEnd) / Math.max(1, length * numChannels);
+      onProgress?.({
+        stage: 'mastering',
+        percent: Math.round(progressStart + (0.4 + ratio * 0.3) * (progressEnd - progressStart)),
+        message: 'Filtering audio in bounded memory blocks...',
+      });
+      if (blockEnd < length || c < numChannels - 1) {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
     }
