@@ -736,6 +736,12 @@ const MainStudio: React.FC = () => {
 
   const handleOpenProjectFromFile = useCallback(async (file: File) => {
     try {
+      if (project !== savedProjectRef.current) {
+        const shouldReplace = window.confirm(
+          'This project has changes that have not been saved to a portable .uuda file. Continue opening another project and replace the current workspace?'
+        );
+        if (!shouldReplace) return false;
+      }
       const context = await audioEngine.init();
       const decoded = await decodeProjectFile(file, context);
       projectFileHandleRef.current = null;
@@ -830,7 +836,7 @@ const MainStudio: React.FC = () => {
       });
       return false;
     }
-  }, [isPlaying, addToast, setProjectWithHistory]);
+  }, [isPlaying, addToast, project, setProjectWithHistory]);
 
 
   const handleOpenProjectFromRoot = useCallback(async () => {
