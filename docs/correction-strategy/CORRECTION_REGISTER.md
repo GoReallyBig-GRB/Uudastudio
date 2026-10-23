@@ -109,3 +109,10 @@ B and C items are mandatory next-execution work, not deferrals. Browser-only evi
 - `measureAndApplyMastering` now awaits yielding pre- and post-mastering measurements, with stage progress ranges.
 - Added parity tests comparing sync/async measurement results and a long-analysis progress test.
 - This removes several large uninterrupted loops, but still allocates full-length filtered channel arrays and a per-block loudness list. CS-10 remains **PARTIAL** until memory profiling informs whether a streaming/incremental loudness algorithm is necessary; CI and browser performance are pending.
+
+
+## Continued correction work — 2026-10-23 (bounded-memory loudness filter)
+
+- Follow-up to the yielding analysis work: the async loudness path now filters one channel at a time and retains only a 400ms Float32 ring buffer while calculating overlapping loudness windows. It no longer allocates a full-duration K-weighted Float32Array for every channel.
+- Per-window powers are retained for gating/LRA only; original absolute and relative gating behavior is preserved. The synchronous `measureLoudness` remains the comparison reference.
+- The existing sync/async parity test is the key correctness gate. This is an implementation candidate until CI confirms exact output parity. True-peak and RMS scans still traverse full input channels, and final export buffers remain in memory; CS-10 remains partial pending profiling.
