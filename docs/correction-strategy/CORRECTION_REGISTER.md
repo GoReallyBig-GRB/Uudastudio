@@ -92,3 +92,12 @@ PR #20 re-applies the waveform cache pyramid, linear-time lookahead limiter, and
 | Cloudflare/hosting cutover | A | Parked as a genuine later task per user direction | Resume only when requested; no deployment work in this correction batch |
 
 B and C items are mandatory next-execution work, not deferrals. Browser-only evidence that is blocked by staging remains explicitly unresolved while safe independent code work continues.
+
+
+## Continued correction work — 2026-10-23 (WAV export responsiveness)
+
+- Added `exportAudioBufferToWavAsync`: PCM conversion happens in approximately one-second chunks, with progress callbacks and an event-loop yield after each chunk. The existing synchronous encoder remains available for internal acceptance-test paths.
+- The async encoder rejects channel counts outside mono/stereo rather than silently writing a malformed/truncated file, sanitizes non-finite samples to zero, checks the RIFF 4 GiB size limit, and validates the final Blob size.
+- The export UI now awaits the async encoder and forwards progress updates, so WAV encoding can paint progress and respond between blocks.
+- Added unit tests for RIFF/WAVE header fields, stereo 16-bit sample conversion, packed 24-bit samples, progress updates, and unsupported channel counts.
+- This reduces large contiguous allocation pressure and main-thread monopolization, but does **not** remove the final encoded Blob's total memory footprint, and mastering/render/verification still hold large buffers. CS-10/CS-12 remain **PARTIAL; runtime NOT VERIFIED** pending CI and named-machine memory/long-task profiling.
