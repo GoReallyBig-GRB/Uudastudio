@@ -1971,16 +1971,9 @@ const MainStudio: React.FC = () => {
           sessionStorage.setItem('uuda_guest_mode', 'true');
           setCurrentView('studio');
         }}
-        onSuccessSignIn={(info) => {
+        onSuccessSignIn={() => {
+          // Admin verification codes are delivered out-of-band; never expose them in the browser UI.
           setCurrentView('studio');
-          if (info?.adminCodeSent && info.connectionCodePreview) {
-            setAdminCodePreview(info.connectionCodePreview);
-            addToast({
-              type: 'info',
-              title: 'Admin Verification Code',
-              message: `6-Digit Code: ${info.connectionCodePreview} (Enter to unlock Admin Panel)`,
-            });
-          }
         }}
       />
     );
