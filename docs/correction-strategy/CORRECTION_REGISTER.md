@@ -101,3 +101,11 @@ B and C items are mandatory next-execution work, not deferrals. Browser-only evi
 - The export UI now awaits the async encoder and forwards progress updates, so WAV encoding can paint progress and respond between blocks.
 - Added unit tests for RIFF/WAVE header fields, stereo 16-bit sample conversion, packed 24-bit samples, progress updates, and unsupported channel counts.
 - This reduces large contiguous allocation pressure and main-thread monopolization, but does **not** remove the final encoded Blob's total memory footprint, and mastering/render/verification still hold large buffers. CS-10/CS-12 remain **PARTIAL; runtime NOT VERIFIED** pending CI and named-machine memory/long-task profiling.
+
+
+## Continued correction work — 2026-10-23 (yielding loudness analysis)
+
+- Added an asynchronous counterpart to the existing loudness/true-peak measurement routine. It preserves the synchronous reference algorithm's filter coefficients, sample iteration, gating and result rounding while yielding during true-peak scans, RMS accumulation, K-weighting, and block gating.
+- `measureAndApplyMastering` now awaits yielding pre- and post-mastering measurements, with stage progress ranges.
+- Added parity tests comparing sync/async measurement results and a long-analysis progress test.
+- This removes several large uninterrupted loops, but still allocates full-length filtered channel arrays and a per-block loudness list. CS-10 remains **PARTIAL** until memory profiling informs whether a streaming/incremental loudness algorithm is necessary; CI and browser performance are pending.
