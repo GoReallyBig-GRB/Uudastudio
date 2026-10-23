@@ -158,3 +158,16 @@ Branch: `correction/open-partial-tasks`, based on main commit `51df2b8241a855ee4
 | CS-14 / V-12 | Serial-vs-worker correctness and memory benchmark after baseline | DEFERRED |
 
 Run `npm run lint`, `npm test`, and `npm run build` in the normal dependency-complete environment. Preserve CI logs and browser profiles with commit hash, browser/OS/RAM, audio duration/channels, track/clip count, and cold/warm cache state. Never mark browser/audio/performance gates passed from source inspection or unit tests alone.
+
+
+## Additional regression coverage — session recovery safety
+
+- [x] Pure unit test: distinct per-tab IndexedDB project keys.
+- [x] Pure unit tests: snapshots within the recovery window are retained; stale/missing/invalid timestamps are expired.
+- [ ] IndexedDB integration: expired snapshots are deleted before orphan asset collection.
+- [ ] Multi-tab browser check: an active tab's snapshot/assets remain intact while a stale tab's snapshot expires.
+- [ ] Persistence failure check: autosave omits clips whose active asset is not durable and strips version-history references to unsaved assets.
+- [ ] Slow-storage check: autosave does not queue overlapping writes or overwrite a newer snapshot with an older one.
+- [ ] Browser recovery check after suspended-tab resume and quota/storage failure.
+
+The checked items above describe added test coverage, not a claim that CI has passed for the latest commit. Browser and IndexedDB transaction acceptance remains open.
