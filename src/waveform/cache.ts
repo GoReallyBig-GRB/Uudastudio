@@ -45,13 +45,20 @@ class WaveformCache {
     // level rather than synchronously rescanning every sample of a potentially hour-long
     // source on the UI thread. This keeps the waveform visible and interactive while zooming;
     // the displayed envelope may be less detailed than a freshly computed fine level.
+    const hasUsableFinerLevel = [...this.cache].some(([key, peaks]) =>
+      key.startsWith(`${assetId}:`) &&
+      peaks.samplesPerPixel < roundedStep &&
+      roundedStep % peaks.samplesPerPixel === 0
+    );
     let coarserKey: string | null = null;
     let coarserPeaks: WaveformPeaks | null = null;
-    for (const [key, peaks] of this.cache) {
-      if (!key.startsWith(`${assetId}:`) || peaks.samplesPerPixel <= roundedStep) continue;
-      if (!coarserPeaks || peaks.samplesPerPixel < coarserPeaks.samplesPerPixel) {
-        coarserKey = key;
-        coarserPeaks = peaks;
+    if (!hasUsableFinerLevel) {
+      for (const [key, peaks] of this.cache) {
+        if (!key.startsWith(`${assetId}:`) || peaks.samplesPerPixel <= roundedStep) continue;
+        if (!coarserPeaks || peaks.samplesPerPixel < coarserPeaks.samplesPerPixel) {
+          coarserKey = key;
+          coarserPeaks = peaks;
+        }
       }
     }
     if (coarserKey && coarserPeaks) {
