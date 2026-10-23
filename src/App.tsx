@@ -403,7 +403,17 @@ const MainStudio: React.FC = () => {
         const safeTracks = project.tracks
           .map((track) => ({
             ...track,
-            clips: track.clips.filter((clip) => !unsavedAssetIds.has(clip.assetId)),
+            clips: track.clips
+              .filter((clip) => !unsavedAssetIds.has(clip.assetId))
+              .map((clip) => ({
+                ...clip,
+                // Historical clip versions also reference durable audio assets. Do not let
+                // an in-flight/failed asset write leave a dangling version-history reference
+                // in the recovery snapshot when the active clip itself is already saved.
+                versionHistory: clip.versionHistory?.filter(
+                  (version) => !unsavedAssetIds.has(version.assetId)
+                ),
+              })),
           }))
           .filter((track, index) => track.clips.length > 0 || project.tracks[index].clips.length === 0);
         await saveProjectToDB({ ...project, tracks: safeTracks });
