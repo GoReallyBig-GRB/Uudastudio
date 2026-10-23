@@ -191,3 +191,13 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **Validation:** unit tests and latest branch CI must pass. Browser checks for long-track zoom/waveform detail, TTS insertion, export duration, root-folder selection and microphone prompt behavior remain open.
 
 - **Zoom anchoring:** timeline zoom changes preserve the time at the viewport center and explicitly sync the clamped scroll offset back into React state, reducing stale canvas/playhead offsets when zooming out on long timelines.
+
+
+## Mastering and timeline hardening follow-up — 2026-10-23
+
+- **Progress contract:** mastering now uses a monotonic progress reporter across nested analysis, DSP, and compliance stages. This prevents the progress percentage from moving backwards when the initial banner and first analysis updates overlap.
+- **True-peak performance:** the asynchronous 4x Hermite scan now processes bounded 65,536-sample blocks, yields between blocks, hoists interpolation weights out of the hot loop, and avoids per-sample modulo/iterator overhead. Automated parity coverage compares the optimized async result with the synchronous reference.
+- **Honest offline-render feedback:** `OfflineAudioContext.startRendering()` does not expose a standard progress callback. The UI now retains the true 75% stage and reports elapsed time rather than inventing progress while the browser renders the effect graph.
+- **Zoom hardening:** zoom anchoring is calculated by a finite-safe, clamped helper and applied in a layout effect before paint, using the updated browser scroll bounds. Unit tests cover zoom-in, zoom-out, boundary clamps, and invalid geometry.
+- **Installable DAW direction:** the PRD describes a browser-based workstation and identifies Web Worker DSP and OPFS streaming as the next architectural steps for heavy offline processing and large local audio. Native desktop packaging is not yet specified; it must be planned explicitly rather than inferred from the browser build.
+- **Validation:** unit tests and CI must pass on the current head. The 57-minute mastering and repeated-zoom browser acceptance tests remain open; no claim is made that the full long-file mastering run is already fixed.
