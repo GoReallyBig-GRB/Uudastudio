@@ -194,15 +194,30 @@ export function calculateTruePeak(channelData: Float32Array): number {
   return peak;
 }
 
-async function calculateTruePeakAsync(channelData: Float32Array, onProgress?: (progress: ExportProgress) => void, progressPercent = 62): Promise<number> {
+async function calculateTruePeakAsync(
+  channelData: Float32Array,
+  onProgress?: (progress: ExportProgress) => void,
+  progressStart = 60,
+  progressEnd = 62
+): Promise<number> {
   let peak = 0;
   const len = channelData.length;
+  // Yield often enough to keep the UI responsive, but avoid a timer per 8K samples:
+  // a 57-minute stereo file otherwise incurs tens of thousands of timer waits.
+  const yieldBlockSamples = 65_536;
+  const reportBlockSamples = 1_048_576;
 
   for (let i = 0; i < len; i++) {
-    if ((i + 1) % 8192 === 0) {
-      if ((i + 1) % 1_048_576 === 0) {
-        onProgress?.({ stage: 'mastering', percent: progressPercent, message: 'Measuring true peak...' });
-      }
+    const processed = i + 1;
+    if (processed % reportBlockSamples === 0 || processed === len) {
+      const ratio = processed / Math.max(1, len);
+      onProgress?.({
+        stage: 'mastering',
+        percent: Math.round(progressStart + ratio * (progressEnd - progressStart)),
+        message: `Measuring true peak... ${Math.round(ratio * 100)}% of channel`,
+      });
+    }
+    if (processed % yieldBlockSamples === 0) {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
     const s0 = channelData[Math.max(0, i - 1)];
@@ -393,10 +408,13 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
   for (let c = 0; c < numChannels; c++) {
     const data = buffer.getChannelData(c);
     channelData.push(data);
+    const truePeakPhaseStart = progressStart + (progressEnd - progressStart) * (0.2 * c / numChannels);
+    const truePeakPhaseEnd = progressStart + (progressEnd - progressStart) * (0.2 * (c + 1) / numChannels);
     const tp = await calculateTruePeakAsync(
       data,
       onProgress,
-      Math.round(progressStart + (progressEnd - progressStart) * 0.2)
+      truePeakPhaseStart,
+      truePeakPhaseEnd
     );
     if (tp > maxTruePeakLinear) maxTruePeakLinear = tp;
 
