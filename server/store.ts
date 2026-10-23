@@ -15,11 +15,12 @@ import {
   GenerationLog,
   SupportTicket,
   ServerProject,
+  ServerTemplate,
   AdminRecord,
   AuditEntry,
 } from './db';
 
-export type { UserRecord, UserPreferences, GenerationLog, SupportTicket, ServerProject, AdminRecord, AuditEntry };
+export type { UserRecord, UserPreferences, GenerationLog, SupportTicket, ServerProject, ServerTemplate, AdminRecord, AuditEntry };
 
 export type AdminCodeResult = { ok: boolean; reason?: 'locked' | 'invalid' | 'expired'; retryAfterSec?: number };
 
@@ -97,6 +98,11 @@ export interface DataStore {
   getProject(userId: string, projectId: string): Promise<ServerProject | null>;
   deleteProject(userId: string, projectId: string): Promise<boolean>;
   duplicateProject(userId: string, projectId: string): Promise<ServerProject>;
+
+  // templates (small JSON documents, newest first)
+  saveTemplate(userId: string, templateId: string, name: string, data: unknown): Promise<ServerTemplate>;
+  getTemplatesForUser(userId: string): Promise<ServerTemplate[]>;
+  deleteTemplate(userId: string, templateId: string): Promise<boolean>;
 }
 
 /** The file database, wrapped so every call returns a promise */
@@ -146,6 +152,9 @@ function createFileStore(): DataStore {
     getProject: async (u, p) => d.getProjectsForUser(u).find((x) => x.id === p) || null,
     deleteProject: async (u, p) => d.deleteProject(u, p),
     duplicateProject: async (u, p) => d.duplicateProject(u, p),
+    saveTemplate: async (u, t, n, data) => d.saveTemplate(u, t, n, data),
+    getTemplatesForUser: async (u) => d.getTemplatesForUser(u),
+    deleteTemplate: async (u, t) => d.deleteTemplate(u, t),
   };
 }
 
