@@ -181,3 +181,5 @@ The checked items above describe added test coverage, not a claim that CI has pa
 - [x] Added automated cases for truncated UUDA PCM payload and invalid manifest length; run them in branch CI before handoff.
 
 - [ ] Dirty-state browser check: manual timeline refresh alone must not trigger an unsaved-project prompt; actual edits must still trigger it until a portable save succeeds.
+
+- [ ] Open-loss prevention: with unsaved edits, cancel the replacement confirmation and verify the active project remains unchanged; confirm replacement only after explicit approval.
