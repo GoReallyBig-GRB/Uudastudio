@@ -105,3 +105,10 @@ Run `npm run lint`, `npm test`, and `npm run build` where the repository environ
 - Added async chunked WAV encoding and progress updates to the export UI; unit coverage added for header, PCM sample bytes, 16-/24-bit formats, progress, and channel validation.
 - CI and runtime evidence for this change: **PENDING** at commit creation. Even after CI passes, V-07 remains **NOT VERIFIED** until a browser profile records export stage timings, peak memory, long tasks, and responsiveness for reference projects.
 - Chunking prevents a single full-size contiguous PCM ArrayBuffer and yields between blocks. It does not make total WAV bytes disappear from memory; Blob parts remain retained until download, so the agreed memory cap still needs measurement.
+
+
+## Continued correction work — 2026-10-23 (yielding loudness analysis)
+
+- Added `measureLoudnessAsync` with yielding true-peak, RMS, K-weighting, and gating passes, then routed the mastering pre/post analysis through it.
+- Automated parity and progress tests added. CI status: **PENDING** for this candidate.
+- Memory is not yet bounded: the K-weighted channel buffers and loudness-block arrays remain full-duration allocations. V-07 remains **NOT VERIFIED** until a browser profile records stage timings, peak memory, long tasks and responsiveness.
