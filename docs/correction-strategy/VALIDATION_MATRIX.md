@@ -185,3 +185,14 @@ The checked items above describe added unit-test coverage. Latest branch CI pass
 - [ ] Open-loss prevention: with unsaved edits, cancel the replacement confirmation and verify the active project remains unchanged; confirm replacement only after explicit approval.
 
 - [ ] Project replacement undo isolation: create edits, open a different project (or create a new blank one), and verify Undo cannot restore clips/tracks from the previous project.
+
+## Browser feedback regression coverage
+
+- [x] Unit test: true-peak analysis progress advances on a long sample buffer.
+- [x] Unit test: waveform cache reuses an existing coarser peak level instead of rescanning the source on zoom-in.
+- [ ] Browser: import a 57-minute recording and verify loading status remains visible while the UI stays usable.
+- [ ] Browser: zoom in/out repeatedly on a long track; verify waveform remains visible and playhead position stays aligned.
+- [ ] Browser: process long-file mastering and verify progress advances past true-peak measurement without locking the app.
+- [ ] Browser: generate a TTS voiceover, audition it, place it on a new timeline track, and reload to check persistence warnings.
+- [ ] Browser: first-use folder banner appears without requesting microphone access; folder selection persists/reconnects as supported by the browser.
+- [ ] Browser: confirm plugin enhancement is present compared with the last known-good version.
