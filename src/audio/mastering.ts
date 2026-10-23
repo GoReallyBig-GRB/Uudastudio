@@ -194,13 +194,15 @@ export function calculateTruePeak(channelData: Float32Array): number {
   return peak;
 }
 
-async function calculateTruePeakAsync(channelData: Float32Array, onProgress?: (progress: ExportProgress) => void): Promise<number> {
+async function calculateTruePeakAsync(channelData: Float32Array, onProgress?: (progress: ExportProgress) => void, progressPercent = 62): Promise<number> {
   let peak = 0;
   const len = channelData.length;
 
   for (let i = 0; i < len; i++) {
     if ((i + 1) % 8192 === 0) {
-      onProgress?.({ stage: 'mastering', percent: 62, message: 'Measuring true peak...' });
+      if ((i + 1) % 1_048_576 === 0) {
+        onProgress?.({ stage: 'mastering', percent: progressPercent, message: 'Measuring true peak...' });
+      }
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
     const s0 = channelData[Math.max(0, i - 1)];
@@ -400,7 +402,7 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
   for (let c = 0; c < numChannels; c++) {
     const data = buffer.getChannelData(c);
     channelData.push(data);
-    const tp = await calculateTruePeakAsync(data, onProgress);
+    const tp = await calculateTruePeakAsync(data, onProgress, Math.round(progressStart + (progressEnd - progressStart) * 0.2));
     if (tp > maxTruePeakLinear) maxTruePeakLinear = tp;
 
     for (let i = 0; i < length; i++) {
