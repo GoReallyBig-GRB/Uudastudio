@@ -126,6 +126,8 @@ const MainStudio: React.FC = () => {
   // clips whose audio is not durable, avoiding saved projects with dangling asset refs.
   const unsavedAssetIdsRef = useRef<Set<string>>(new Set());
   const autosaveFailureNotifiedRef = useRef<boolean>(false);
+  // If restore fails, do not autosave the blank fallback over a potentially recoverable project.
+  const storageRestoreBlockedRef = useRef<boolean>(false);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
   // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
@@ -379,11 +381,17 @@ const MainStudio: React.FC = () => {
           }
         }
       } catch (err) {
+        // A transient IndexedDB read failure must not be treated as an empty project:
+        // pause autosave so the blank fallback cannot overwrite a recoverable snapshot.
+        storageRestoreBlockedRef.current = true;
         if (isMounted) {
           addToast({
             type: 'error',
             title: 'Storage Restore Warning',
-            message: err instanceof Error ? err.message : 'Could not restore previous session.',
+            message: err instanceof Error
+              ? `${err.message} Local autosave is paused to protect existing recovery data.`
+              : 'Could not restore previous session. Local autosave is paused to protect existing recovery data.',
+            duration: 0,
           });
         }
       }
@@ -400,7 +408,7 @@ const MainStudio: React.FC = () => {
   useEffect(() => {
     let saveInFlight = false;
     const timer = setInterval(async () => {
-      if (saveInFlight) return;
+      if (storageRestoreBlockedRef.current || saveInFlight) return;
       saveInFlight = true;
       try {
         setIsAutosaving(true);
