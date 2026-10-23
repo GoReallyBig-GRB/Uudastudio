@@ -166,3 +166,6 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 
 
 - **Autosave failure feedback:** repeated IndexedDB recovery-save failures now trigger a persistent warning once per failure streak; a successful save resets the warning latch. This prevents storage quota/permission failures from being silently mistaken for a current recovery snapshot. Runtime quota behavior still needs browser verification.
+
+
+- **Restore failure safety:** `loadProjectFromDB` now propagates IndexedDB errors instead of disguising them as “no saved project.” If restore fails, the app warns the user and pauses autosave so the blank fallback cannot overwrite a potentially recoverable snapshot. A successful empty lookup remains distinct from a storage error.
