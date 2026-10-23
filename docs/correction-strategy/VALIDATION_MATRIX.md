@@ -199,3 +199,15 @@ The checked items above describe added unit-test coverage. Latest branch CI pass
 
 
 Latest browser-feedback follow-up CI passed at commit `4f9c2945322882c9e63f661d52435757826598f7`: type-check, tests, and application/server build all passed. This is automated validation only; the browser acceptance items above remain unchecked until re-tested.
+
+
+## Mastering and zoom hardening follow-up
+
+- [x] Unit test: optimized async true-peak calculation matches synchronous reference on a representative signal.
+- [x] Unit test: progress reporter never moves backwards across nested mastering stages.
+- [x] Unit test: loudness-analysis progress is monotonic across true peak, RMS, filtering and gating phases.
+- [x] Unit test: zoom anchoring clamps offsets and handles invalid geometry without NaN.
+- [ ] Browser: process the same 57-minute project; verify true-peak analysis completes, progress remains monotonic, and offline-render elapsed feedback continues until the effect graph completes.
+- [ ] Browser: repeat zoom in/out at different scroll positions while playing and stopped; verify waveform and playhead remain aligned and playback remains stable.
+- [ ] Performance profile: measure mastering time and peak memory for 57-/60-/90-minute projects. If processing or memory remains excessive, move heavy offline DSP into a Web Worker and implement OPFS-backed large-file streaming per PRD before considering WASM/native ports.
+- [ ] Product decision: specify whether “installable DAW” means installable PWA first or a native desktop package; do not mark desktop packaging complete until target platforms and file/audio permissions are defined.
