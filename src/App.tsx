@@ -755,6 +755,19 @@ const MainStudio: React.FC = () => {
     return () => window.removeEventListener('keydown', handleProjectShortcuts);
   }, [currentView, handleSaveProjectToFile]);
 
+  const handleSeek = (seconds: number) => {
+    let projectEnd = 0;
+    for (const track of project.tracks) {
+      for (const clip of track.clips) {
+        const end = clip.startSeconds + clip.durationSeconds;
+        if (end > projectEnd) projectEnd = end;
+      }
+    }
+    const clamped = projectEnd > 0 ? Math.min(Math.max(0, seconds), projectEnd) : Math.max(0, seconds);
+    setPlayheadSeconds(clamped);
+    audioEngine.seek(clamped, isPlaying ? project : undefined);
+  };
+
   // 5. File Import: make decoded audio available immediately, then persist it locally.
   const handleImportFiles = async (files: FileList) => {
     if (files.length === 0) return;
