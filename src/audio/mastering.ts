@@ -331,7 +331,7 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
     truePeakDbTP: Math.round(truePeakDbTP * 10) / 10,
     rmsDb: Math.round(rmsDb * 10) / 10,
     loudnessRangeLU,
-    durationSeconds: Math.round((length / sampleRate) * 10) / 10,
+    durationSeconds: length / sampleRate,
   };
 }
 
