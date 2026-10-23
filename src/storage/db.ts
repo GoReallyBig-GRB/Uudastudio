@@ -10,7 +10,47 @@ const DB_NAME = 'xpro_audio_db';
 const DB_VERSION = 1;
 const STORE_ASSETS = 'assets';
 const STORE_PROJECT = 'project';
-const PROJECT_KEY = 'active_session';
+const LEGACY_PROJECT_KEY = 'active_session';
+const PROJECT_KEY_PREFIX = 'session:';
+const SESSION_ID_STORAGE_KEY = 'uuda_project_session_id';
+const ORPHAN_ASSET_GRACE_MS = 24 * 60 * 60 * 1000;
+let fallbackSessionId: string | null = null;
+
+function createSessionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/** Starts an isolated autosave slot, used by the explicit "new project in new tab" flow. */
+export function startNewProjectSession(): void {
+  const id = createSessionId();
+  fallbackSessionId = id;
+  try {
+    window.sessionStorage.setItem(SESSION_ID_STORAGE_KEY, id);
+  } catch {
+    // The in-memory fallback still isolates writes for this live page if storage is blocked.
+  }
+}
+
+/** Pure key helper so session isolation has a deterministic contract. */
+export function projectStorageKeyForSession(sessionId: string): string {
+  return `${PROJECT_KEY_PREFIX}${sessionId}`;
+}
+
+function getCurrentProjectKey(): string {
+  try {
+    let id = window.sessionStorage.getItem(SESSION_ID_STORAGE_KEY);
+    if (!id) {
+      id = createSessionId();
+      window.sessionStorage.setItem(SESSION_ID_STORAGE_KEY, id);
+    }
+    fallbackSessionId = id;
+    return projectStorageKeyForSession(id);
+  } catch {
+    fallbackSessionId ??= createSessionId();
+    return projectStorageKeyForSession(fallbackSessionId);
+  }
+}
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -91,7 +131,7 @@ export function deserializeAsset(stored: StoredAsset, engine: AudioEngine): Asse
 
 export async function saveAssetToDB(asset: Asset): Promise<void> {
   const db = await openDB();
-  const stored = serializeAsset(asset);
+  const stored = { ...serializeAsset(asset), storedAt: Date.now() };
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_ASSETS, 'readwrite');
     tx.objectStore(STORE_ASSETS).put(stored);
@@ -143,7 +183,7 @@ export async function saveProjectToDB(project: Project): Promise<void> {
   };
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_PROJECT, 'readwrite');
-    tx.objectStore(STORE_PROJECT).put(projectWithTimestamp, PROJECT_KEY);
+    tx.objectStore(STORE_PROJECT).put(projectWithTimestamp, getCurrentProjectKey());
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -152,39 +192,126 @@ export async function saveProjectToDB(project: Project): Promise<void> {
 export async function loadProjectFromDB(): Promise<Project | null> {
   try {
     const db = await openDB();
-    return new Promise((resolve, reject) => {
+    return await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_PROJECT, 'readonly');
-      const req = tx.objectStore(STORE_PROJECT).get(PROJECT_KEY);
-      req.onsuccess = async () => {
-        const stored = req.result as (Project & { updatedAt?: number }) | undefined;
-        if (!stored) {
-          resolve(null);
+      const store = tx.objectStore(STORE_PROJECT);
+      const currentKey = getCurrentProjectKey();
+      const req = store.get(currentKey);
+      req.onsuccess = () => {
+        const current = req.result as (Project & { updatedAt?: number }) | undefined;
+        if (current) {
+          void validateSessionProject(db, currentKey, current).then(resolve, reject);
           return;
         }
-
-        const now = Date.now();
-        const savedAt = stored.updatedAt || 0;
-        const ageMs = now - savedAt;
-
-        // The app should only load with work done within the last 5 minutes before shutdown
-        if (ageMs > MAX_SESSION_AGE_MS) {
-          // Stale session older than 5 minutes: clear and return null
-          try {
-            await clearAllProjectData();
-          } catch {
-            // ignore cleanup failure
+        // One-time compatibility read for sessions saved by the older shared-key implementation.
+        const legacyReq = store.get(LEGACY_PROJECT_KEY);
+        legacyReq.onsuccess = () => {
+          const legacy = legacyReq.result as (Project & { updatedAt?: number }) | undefined;
+          if (!legacy) {
+            resolve(null);
+            return;
           }
-          resolve(null);
-          return;
-        }
-
-        resolve(stored);
+          void validateSessionProject(db, LEGACY_PROJECT_KEY, legacy).then(resolve, reject);
+        };
+        legacyReq.onerror = () => reject(legacyReq.error);
       };
       req.onerror = () => reject(req.error);
     });
   } catch {
     return null;
   }
+}
+
+async function validateSessionProject(
+  db: IDBDatabase,
+  key: IDBValidKey,
+  stored: Project & { updatedAt?: number }
+): Promise<Project | null> {
+  const savedAt = stored.updatedAt || 0;
+  if (Date.now() - savedAt > MAX_SESSION_AGE_MS) {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_PROJECT, 'readwrite');
+      tx.objectStore(STORE_PROJECT).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return null;
+  }
+  return stored;
+}
+
+/** Clears only this tab's autosave slot; other open tabs keep their recoverable projects. */
+export async function clearCurrentProjectData(): Promise<void> {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_PROJECT, 'readwrite');
+    tx.objectStore(STORE_PROJECT).delete(getCurrentProjectKey());
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  await cleanupOrphanedAssets();
+}
+
+/**
+ * Removes expired project snapshots and old audio assets that are not referenced by any
+ * remaining per-tab project snapshot. Newly written audio gets a 24-hour grace period to
+ * avoid racing another tab between asset persistence and its next autosave.
+ */
+export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removedProjects: number; removedAssets: number }> {
+  const db = await openDB();
+  let removedProjects = 0;
+  let removedAssets = 0;
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction([STORE_PROJECT, STORE_ASSETS], 'readwrite');
+    const projectStore = tx.objectStore(STORE_PROJECT);
+    const assetStore = tx.objectStore(STORE_ASSETS);
+    const keysRequest = projectStore.getAllKeys();
+    const projectsRequest = projectStore.getAll();
+    const assetsRequest = assetStore.getAll();
+    let ready = 0;
+    let projectKeys: IDBValidKey[] = [];
+    let projects: Array<(Project & { updatedAt?: number }) | undefined> = [];
+    let assets: Array<StoredAsset & { storedAt?: number }> = [];
+
+    const processIfReady = () => {
+      ready++;
+      if (ready !== 3) return;
+
+      const referencedAssetIds = new Set<string>();
+      for (let i = 0; i < projects.length; i++) {
+        const project = projects[i];
+        const key = projectKeys[i];
+        if (!project || !Number.isFinite(project.updatedAt) || now - (project.updatedAt || 0) > MAX_SESSION_AGE_MS) {
+          projectStore.delete(key);
+          removedProjects++;
+          continue;
+        }
+        for (const track of project.tracks || []) {
+          for (const clip of track.clips || []) {
+            if (clip.assetId) referencedAssetIds.add(clip.assetId);
+            for (const version of clip.versionHistory || []) if (version.assetId) referencedAssetIds.add(version.assetId);
+          }
+        }
+      }
+
+      for (const asset of assets) {
+        if (!referencedAssetIds.has(asset.id) && typeof asset.storedAt === 'number' &&
+            now - asset.storedAt > ORPHAN_ASSET_GRACE_MS) {
+          assetStore.delete(asset.id);
+          removedAssets++;
+        }
+      }
+    };
+
+    keysRequest.onsuccess = () => { projectKeys = keysRequest.result; processIfReady(); };
+    projectsRequest.onsuccess = () => { projects = projectsRequest.result; processIfReady(); };
+    assetsRequest.onsuccess = () => { assets = assetsRequest.result; processIfReady(); };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
+  return { removedProjects, removedAssets };
 }
 
 export async function clearAllProjectData(): Promise<void> {
