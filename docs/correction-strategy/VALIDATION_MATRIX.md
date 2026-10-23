@@ -211,3 +211,6 @@ Latest browser-feedback follow-up CI passed at commit `4f9c2945322882c9e63f661d5
 - [ ] Browser: repeat zoom in/out at different scroll positions while playing and stopped; verify waveform and playhead remain aligned and playback remains stable.
 - [ ] Performance profile: measure mastering time and peak memory for 57-/60-/90-minute projects. If processing or memory remains excessive, move heavy offline DSP into a Web Worker and implement OPFS-backed large-file streaming per PRD before considering WASM/native ports.
 - [ ] Product decision: specify whether “installable DAW” means installable PWA first or a native desktop package; do not mark desktop packaging complete until target platforms and file/audio permissions are defined.
+
+- [x] Existing sync-vs-async loudness tests cover short clips and block/hop boundaries after the rolling-window implementation changed.
+- [ ] Profile CPU time for true-peak, RMS, K-weighting, gating, OfflineAudioContext rendering, and limiter separately on the 57-minute reference file.
