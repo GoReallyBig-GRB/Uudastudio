@@ -170,7 +170,7 @@ Run `npm run lint`, `npm test`, and `npm run build` in the normal dependency-com
 - [ ] Slow-storage check: autosave does not queue overlapping writes or overwrite a newer snapshot with an older one.
 - [ ] Browser recovery check after suspended-tab resume and quota/storage failure.
 
-The checked items above describe added test coverage, not a claim that CI has passed for the latest commit. Browser and IndexedDB transaction acceptance remains open.
+The checked items above describe added unit-test coverage. Latest branch CI passed at commit 5004d36ff10e751348e3cd74d412e646e71d1b16 (type-check, tests, application/server build). Browser and IndexedDB transaction acceptance remains open.
 
 - [ ] Browser quota/permission failure check: verify a persistent warning appears once during a failure streak and clears its latch after a successful autosave.
 
