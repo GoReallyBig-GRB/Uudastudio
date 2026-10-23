@@ -112,3 +112,10 @@ Run `npm run lint`, `npm test`, and `npm run build` where the repository environ
 - Added `measureLoudnessAsync` with yielding true-peak, RMS, K-weighting, and gating passes, then routed the mastering pre/post analysis through it.
 - Automated parity and progress tests added. CI status: **PENDING** for this candidate.
 - Memory is not yet bounded: the K-weighted channel buffers and loudness-block arrays remain full-duration allocations. V-07 remains **NOT VERIFIED** until a browser profile records stage timings, peak memory, long tasks and responsiveness.
+
+
+## Continued correction work — 2026-10-23 (bounded-memory loudness filter)
+
+- Async loudness analysis now computes K-weighted samples into a 400ms ring and accumulates each overlapping window without storing full-length filtered audio.
+- Sync/async parity test must pass before merge. CI: **PENDING** for this candidate.
+- This bounds the K-weighting intermediate but does not bound the rendered/mastered AudioBuffers or final encoded Blob. V-07 and the 60-/90-minute targets remain **NOT VERIFIED** pending named-machine runtime profiling.
