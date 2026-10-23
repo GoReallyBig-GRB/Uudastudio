@@ -170,6 +170,24 @@ export interface ExportSummary {
 }
 
 /**
+ * Shared 4x Hermite interpolation coefficients. Calculate once so both synchronous
+ * and yielding true-peak scans use exactly the same reference values.
+ */
+const truePeakInterpolationWeights = [0.25, 0.5, 0.75].map((t) => {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return [
+    0.5 * (-t + 2 * t2 - t3),
+    0.5 * (2 - 5 * t2 + 3 * t3),
+    0.5 * (t + 4 * t2 - 3 * t3),
+    0.5 * (-t2 + t3),
+  ] as const;
+});
+const [w00, w01, w02, w03] = truePeakInterpolationWeights[0];
+const [w10, w11, w12, w13] = truePeakInterpolationWeights[1];
+const [w20, w21, w22, w23] = truePeakInterpolationWeights[2];
+
+/**
  * 4x Oversampled True Peak detection using cubic Hermite interpolation
  * Catches inter-sample peaks exceeding digital full scale according to ITU-R BS.1770-4
  */
@@ -219,20 +237,6 @@ export async function calculateTruePeakAsync(
   // Precompute the Hermite interpolation weights once. The old inner loop recomputed
   // t²/t³ and several common expressions for every one of billions of sub-samples on
   // long stereo projects.
-  const interpolationWeights = [0.25, 0.5, 0.75].map((t) => {
-    const t2 = t * t;
-    const t3 = t2 * t;
-    return [
-      0.5 * (-t + 2 * t2 - t3),
-      0.5 * (2 - 5 * t2 + 3 * t3),
-      0.5 * (t + 4 * t2 - 3 * t3),
-      0.5 * (-t2 + t3),
-    ] as const;
-  });
-  const [w00, w01, w02, w03] = interpolationWeights[0];
-  const [w10, w11, w12, w13] = interpolationWeights[1];
-  const [w20, w21, w22, w23] = interpolationWeights[2];
-
   for (let blockStart = 0; blockStart < len; blockStart += yieldBlockSamples) {
     const blockEnd = Math.min(len, blockStart + yieldBlockSamples);
     for (let i = blockStart; i < blockEnd; i++) {
