@@ -163,3 +163,6 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **Autosave:** the interval now reads the latest project ref instead of closing over each render's project, skips overlapping writes, and excludes unsaved assets from both active clips and clip-version history. This avoids stale queued snapshots and dangling historical audio references when IndexedDB persistence fails.
 - **Regression coverage:** `src/storage/db.test.ts` covers per-tab storage keys and the shared snapshot-expiry rule. These tests exercise the pure expiry contract, not a real IndexedDB transaction.
 - **Acceptance status:** implementation and unit coverage added; the branch CI run and browser tests must pass before considering this correction verified. Multi-tab recovery, quota failure, and suspended-tab behavior remain browser/runtime checks.
+
+
+- **Autosave failure feedback:** repeated IndexedDB recovery-save failures now trigger a persistent warning once per failure streak; a successful save resets the warning latch. This prevents storage quota/permission failures from being silently mistaken for a current recovery snapshot. Runtime quota behavior still needs browser verification.
