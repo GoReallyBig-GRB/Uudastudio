@@ -177,3 +177,5 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **Dirty-state accuracy:** manual timeline refresh now uses a view-only render counter rather than replacing the project object, so a redraw does not falsely mark the portable project as modified or trigger project-change side effects.
 
 - **Open-project loss prevention:** opening another `.uuda`/legacy project now asks before replacing the current workspace when it differs from the last portable save. Cancel leaves the current project intact.
+
+- **Undo history isolation:** creating a blank project or opening a portable project now resets the undo/redo history to that project's initial state rather than appending the new project to the previous project's history.
