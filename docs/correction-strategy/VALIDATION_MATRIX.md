@@ -98,3 +98,10 @@ Run `npm run lint`, `npm test`, and `npm run build` where the repository environ
 - Waveform pyramid unit test and lookahead limiter reference-equivalence tests are included in the candidate and passed in CI.
 - Source inspection confirms `exportAudioBufferToMp3` no longer posts a WAV to `/api/export/mp3`; V-09 is still **NOT VERIFIED** until a browser network capture is recorded.
 - V-04/V-05, V-07/V-08, V-09 and the 60-/90-minute performance target rows remain **NOT VERIFIED** pending browser profiling, real output comparison, and memory/network evidence.
+
+
+## Continued correction work — 2026-10-23 (WAV export responsiveness)
+
+- Added async chunked WAV encoding and progress updates to the export UI; unit coverage added for header, PCM sample bytes, 16-/24-bit formats, progress, and channel validation.
+- CI and runtime evidence for this change: **PENDING** at commit creation. Even after CI passes, V-07 remains **NOT VERIFIED** until a browser profile records export stage timings, peak memory, long tasks, and responsiveness for reference projects.
+- Chunking prevents a single full-size contiguous PCM ArrayBuffer and yields between blocks. It does not make total WAV bytes disappear from memory; Blob parts remain retained until download, so the agreed memory cap still needs measurement.
