@@ -332,7 +332,7 @@ const MainStudio: React.FC = () => {
         const isForcedNew = urlParams.get('new') === '1' || urlParams.get('new_project') === '1';
         if (isForcedNew) {
           startNewProjectSession();
-          await cleanupOrphanedAssets().catch(() => ({ removedProjects: 0, removedAssets: 0 }));
+          await cleanupOrphanedAssets().catch(() => ({ removedAssets: 0 }));
           window.history.replaceState({}, '', window.location.pathname);
           if (isMounted) {
             addToast({
@@ -347,7 +347,7 @@ const MainStudio: React.FC = () => {
         // Resolve this tab's project slot first, then prune stale snapshots/orphaned assets
         // before loading PCM. The cleanup keeps every fresh tab's referenced assets intact.
         const savedProject = await loadProjectFromDB();
-        await cleanupOrphanedAssets().catch(() => ({ removedProjects: 0, removedAssets: 0 }));
+        await cleanupOrphanedAssets().catch(() => ({ removedAssets: 0 }));
 
         const restoredAssets = await loadAllAssetsFromDB(audioEngine);
         if (isMounted) {
