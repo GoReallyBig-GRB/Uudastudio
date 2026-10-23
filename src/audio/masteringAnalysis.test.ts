@@ -1,0 +1,64 @@
+import { describe, expect, it } from 'vitest';
+import { measureLoudness, measureLoudnessAsync } from './mastering';
+
+function makeBuffer(sampleRate: number, channels: Float32Array[]): AudioBuffer {
+  return {
+    sampleRate,
+    numberOfChannels: channels.length,
+    length: channels[0]?.length ?? 0,
+    getChannelData: (channel: number) => channels[channel],
+  } as unknown as AudioBuffer;
+}
+
+describe('measureLoudnessAsync', () => {
+  it('matches synchronous loudness and true-peak statistics', async () => {
+    const length = 8192;
+    const channels = [
+      Float32Array.from({ length }, (_, i) => Math.sin(i * 0.031) * (i % 29 === 0 ? 0.95 : 0.4)),
+      Float32Array.from({ length }, (_, i) => Math.cos(i * 0.017) * (i % 43 === 0 ? 0.88 : 0.3)),
+    ];
+    const buffer = makeBuffer(8000, channels);
+    const expected = measureLoudness(buffer);
+    const actual = await measureLoudnessAsync(buffer);
+    expect(actual).toEqual(expected);
+  });
+
+  it('matches synchronous measurements at empty, short, block, and hop boundaries', async () => {
+    const sampleRate = 1000;
+    const lengths = [0, 1, 99, 100, 399, 400, 401, 499, 500, 799, 800, 801, 1000, 1100];
+
+    for (const length of lengths) {
+      const channel = Float32Array.from(
+        { length },
+        (_, i) => Math.sin(i * 0.037) * (i % 17 === 0 ? 0.85 : 0.35)
+      );
+      const buffer = makeBuffer(sampleRate, [channel]);
+      const expected = measureLoudness(buffer);
+      const actual = await measureLoudnessAsync(buffer);
+      expect(actual, `length=${length} samples`).toEqual(expected);
+    }
+  });
+
+  it('emits progress during long analysis and never moves backwards', async () => {
+    const length = 270_000;
+    const buffer = makeBuffer(8000, [
+      Float32Array.from({ length }, (_, i) => Math.sin(i * 0.023) * 0.6),
+    ]);
+    const updates: number[] = [];
+    await measureLoudnessAsync(buffer, (progress) => updates.push(progress.percent), 60, 70);
+    expect(updates.length).toBeGreaterThan(0);
+    for (let i = 1; i < updates.length; i++) {
+      expect(updates[i]).toBeGreaterThanOrEqual(updates[i - 1]);
+    }
+  });
+  it('reports progress during long true-peak scans', async () => {
+    const length = 1_050_000;
+    const buffer = makeBuffer(8000, [
+      Float32Array.from({ length }, (_, i) => Math.sin(i * 0.013) * 0.5),
+    ]);
+    const messages: string[] = [];
+    await measureLoudnessAsync(buffer, (progress) => messages.push(progress.message), 60, 70);
+    expect(messages).toContain('Measuring true peak...');
+  });
+
+});

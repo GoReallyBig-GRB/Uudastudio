@@ -194,6 +194,46 @@ export function calculateTruePeak(channelData: Float32Array): number {
   return peak;
 }
 
+async function calculateTruePeakAsync(channelData: Float32Array, onProgress?: (progress: ExportProgress) => void, progressPercent = 62): Promise<number> {
+  let peak = 0;
+  const len = channelData.length;
+
+  for (let i = 0; i < len; i++) {
+    if ((i + 1) % 8192 === 0) {
+      if ((i + 1) % 1_048_576 === 0) {
+        onProgress?.({ stage: 'mastering', percent: progressPercent, message: 'Measuring true peak...' });
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    const s0 = channelData[Math.max(0, i - 1)];
+    const s1 = channelData[i];
+    const s2 = channelData[Math.min(len - 1, i + 1)];
+    const s3 = channelData[Math.min(len - 1, i + 2)];
+
+    const abs1 = Math.abs(s1);
+    if (abs1 > peak) peak = abs1;
+
+    // 4x sub-sample points: t = 0.25, 0.5, 0.75
+    for (let sub = 1; sub <= 3; sub++) {
+      const t = sub * 0.25;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      // Hermite cubic polynomial
+      const inter = 0.5 * (
+        (2 * s1) +
+        (-s0 + s2) * t +
+        (2 * s0 - 5 * s1 + 4 * s2 - s3) * t2 +
+        (-s0 + 3 * s1 - 3 * s2 + s3) * t3
+      );
+      const absInter = Math.abs(inter);
+      if (absInter > peak) peak = absInter;
+    }
+  }
+
+  return peak;
+}
+
+
 /**
  * Full ITU-R BS.1770-4 / EBU R128 Loudness Measurement:
  * Stage 1: High shelf filter (+4dB @ 1500Hz)
@@ -212,6 +252,140 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
     return { integratedLUFS: -70, truePeakDbTP: -70, rmsDb: -70, loudnessRangeLU: 0, durationSeconds: 0 };
   }
 
+  let maxTruePeakLinear = 0;
+  let totalSumSq = 0;
+  const channelData: Float32Array[] = [];
+
+  for (let c = 0; c < numChannels; c++) {
+    const data = buffer.getChannelData(c);
+    channelData.push(data);
+    const tp = calculateTruePeak(data);
+    if (tp > maxTruePeakLinear) maxTruePeakLinear = tp;
+    for (let i = 0; i < length; i++) totalSumSq += data[i] * data[i];
+  }
+
+  const rms = Math.sqrt(totalSumSq / (length * numChannels || 1));
+  const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -70;
+  const truePeakDbTP = maxTruePeakLinear > 0 ? 20 * Math.log10(maxTruePeakLinear) : -70;
+
+  // K-Weighting Biquad Coefficients (ITU-R BS.1770-4 for 48kHz; normalized).
+  const a1_hs = -1.69065929318241;
+  const a2_hs = 0.73248077421585;
+  const b0_hs = 1.53512485958697;
+  const b1_hs = -2.69169618940638;
+  const b2_hs = 1.19839281085285;
+  const a1_hp = -1.99004745483398;
+  const a2_hp = 0.99007225036621;
+  const b0_hp = 1.0;
+  const b1_hp = -2.0;
+  const b2_hp = 1.0;
+
+  // Retain only one 400 ms ring buffer per channel and one power value per 100 ms
+  // block. Avoid allocating a second full-length Float32Array for every channel.
+  const blockSize = Math.floor(0.4 * sampleRate);
+  const hopSize = Math.floor(0.1 * sampleRate);
+  const effectiveBlockSize = Math.max(1, Math.min(blockSize, length));
+  const effectiveHopSize = Math.max(1, Math.min(hopSize, effectiveBlockSize));
+  const numBlocks = Math.floor(Math.max(0, length - effectiveBlockSize) / effectiveHopSize) + 1;
+  const channelBlockPowers: Float64Array[] = [];
+
+  for (let c = 0; c < numChannels; c++) {
+    const input = channelData[c];
+    const blockPowers = new Float64Array(numBlocks);
+    const squareRing = new Float64Array(effectiveBlockSize);
+    let rollingSum = 0;
+
+    let x1_hs = 0, x2_hs = 0, y1_hs = 0, y2_hs = 0;
+    let x1_hp = 0, x2_hp = 0, y1_hp = 0, y2_hp = 0;
+
+    for (let i = 0; i < length; i++) {
+      const x = input[i];
+      const y_hs = b0_hs * x + b1_hs * x1_hs + b2_hs * x2_hs - a1_hs * y1_hs - a2_hs * y2_hs;
+      x2_hs = x1_hs;
+      x1_hs = x;
+      y2_hs = y1_hs;
+      y1_hs = y_hs;
+
+      const y_hp = b0_hp * y_hs + b1_hp * x1_hp + b2_hp * x2_hp - a1_hp * y1_hp - a2_hp * y2_hp;
+      x2_hp = x1_hp;
+      x1_hp = y_hs;
+      y2_hp = y1_hp;
+      y1_hp = y_hp;
+
+      const ringIndex = i % effectiveBlockSize;
+      const squared = y_hp * y_hp;
+      if (i >= effectiveBlockSize) rollingSum -= squareRing[ringIndex];
+      squareRing[ringIndex] = squared;
+      rollingSum += squared;
+
+      if (i + 1 >= effectiveBlockSize) {
+        const start = i + 1 - effectiveBlockSize;
+        if (start % effectiveHopSize === 0) {
+          const blockIndex = start / effectiveHopSize;
+          if (blockIndex < numBlocks) blockPowers[blockIndex] = rollingSum / effectiveBlockSize;
+        }
+      }
+    }
+
+    channelBlockPowers.push(blockPowers);
+  }
+
+  const blockPowers: number[] = [];
+  const shortTermPowers: number[] = [];
+  for (let b = 0; b < numBlocks; b++) {
+    let blockSum = 0;
+    for (let c = 0; c < numChannels; c++) blockSum += channelBlockPowers[c][b];
+    const blockLoudness = -0.691 + 10 * Math.log10(Math.max(1e-12, blockSum));
+    if (blockLoudness > -70) {
+      blockPowers.push(blockSum);
+      shortTermPowers.push(blockLoudness);
+    }
+  }
+
+  let integratedLUFS = -70;
+  if (blockPowers.length > 0) {
+    const avgPower = blockPowers.reduce((a, b) => a + b, 0) / blockPowers.length;
+    const gammaA = -0.691 + 10 * Math.log10(Math.max(1e-12, avgPower)) - 10;
+    const gatedPowers = blockPowers.filter((p) => {
+      const lkfs = -0.691 + 10 * Math.log10(Math.max(1e-12, p));
+      return lkfs > gammaA;
+    });
+    if (gatedPowers.length > 0) {
+      const finalPower = gatedPowers.reduce((a, b) => a + b, 0) / gatedPowers.length;
+      integratedLUFS = -0.691 + 10 * Math.log10(Math.max(1e-12, finalPower));
+    } else {
+      integratedLUFS = -0.691 + 10 * Math.log10(Math.max(1e-12, avgPower));
+    }
+  } else {
+    integratedLUFS = Math.max(-70, rmsDb - 3.0);
+  }
+
+  let loudnessRangeLU = 0;
+  if (shortTermPowers.length >= 10) {
+    const sorted = [...shortTermPowers].sort((a, b) => a - b);
+    const p10 = sorted[Math.floor(sorted.length * 0.1)];
+    const p95 = sorted[Math.floor(sorted.length * 0.95)];
+    loudnessRangeLU = Math.max(0, Math.round((p95 - p10) * 10) / 10);
+  }
+
+  return {
+    integratedLUFS: Math.round(integratedLUFS * 10) / 10,
+    truePeakDbTP: Math.round(truePeakDbTP * 10) / 10,
+    rmsDb: Math.round(rmsDb * 10) / 10,
+    loudnessRangeLU,
+    durationSeconds: Math.round((length / sampleRate) * 10) / 10,
+  };
+}
+
+export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (progress: ExportProgress) => void, progressStart = 60, progressEnd = 70): Promise<LoudnessStats> {
+  const numChannels = buffer.numberOfChannels;
+  const length = buffer.length;
+  const sampleRate = buffer.sampleRate;
+
+  if (length === 0) {
+    return { integratedLUFS: -70, truePeakDbTP: -70, rmsDb: -70, loudnessRangeLU: 0, durationSeconds: 0 };
+  }
+
   const channelData: Float32Array[] = [];
   let maxTruePeakLinear = 0;
   let totalSumSq = 0;
@@ -219,10 +393,19 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
   for (let c = 0; c < numChannels; c++) {
     const data = buffer.getChannelData(c);
     channelData.push(data);
-    const tp = calculateTruePeak(data);
+    const tp = await calculateTruePeakAsync(
+      data,
+      onProgress,
+      Math.round(progressStart + (progressEnd - progressStart) * 0.2)
+    );
     if (tp > maxTruePeakLinear) maxTruePeakLinear = tp;
 
     for (let i = 0; i < length; i++) {
+      if ((i + 1) % 262144 === 0) {
+        const ratio = (c * length + i + 1) / Math.max(1, length * numChannels);
+        onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + (0.2 + ratio * 0.2) * (progressEnd - progressStart)), message: 'Analyzing loudness in yielding blocks...' });
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
       totalSumSq += data[i] * data[i];
     }
   }
@@ -244,76 +427,90 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
   const b1_hp = -2.0;
   const b2_hp = 1.0;
 
-  const filteredChannels: Float32Array[] = [];
+  // Keep a bounded rolling window per channel. Count only complete windows whose
+  // start aligns with the hop; short clips use one window covering the whole clip.
+  const blockSize = Math.floor(0.4 * sampleRate);
+  const hopSize = Math.floor(0.1 * sampleRate);
+  const effectiveBlockSize = Math.max(1, Math.min(blockSize, length));
+  const effectiveHopSize = Math.max(1, Math.min(hopSize, effectiveBlockSize));
+  const numBlocks = Math.floor((length - effectiveBlockSize) / effectiveHopSize) + 1;
+  const blockPowers = new Array<number>(numBlocks).fill(0);
+  const shortTermPowers: number[] = [];
+  const activeBlockPowers: number[] = [];
 
   for (let c = 0; c < numChannels; c++) {
     const input = channelData[c];
-    const filtered = new Float32Array(length);
-
+    const squareRing = new Float64Array(effectiveBlockSize);
+    let rollingSum = 0;
     let x1_hs = 0, x2_hs = 0, y1_hs = 0, y2_hs = 0;
     let x1_hp = 0, x2_hp = 0, y1_hp = 0, y2_hp = 0;
 
     for (let i = 0; i < length; i++) {
       const x = input[i];
-
-      // Stage 1: High shelf filter
       const y_hs = b0_hs * x + b1_hs * x1_hs + b2_hs * x2_hs - a1_hs * y1_hs - a2_hs * y2_hs;
       x2_hs = x1_hs;
       x1_hs = x;
       y2_hs = y1_hs;
       y1_hs = y_hs;
 
-      // Stage 2: High pass RLB filter
       const y_hp = b0_hp * y_hs + b1_hp * x1_hp + b2_hp * x2_hp - a1_hp * y1_hp - a2_hp * y2_hp;
       x2_hp = x1_hp;
       x1_hp = y_hs;
       y2_hp = y1_hp;
       y1_hp = y_hp;
 
-      filtered[i] = y_hp;
-    }
+      const ringIndex = i % effectiveBlockSize;
+      const squared = y_hp * y_hp;
+      if (i >= effectiveBlockSize) rollingSum -= squareRing[ringIndex];
+      squareRing[ringIndex] = squared;
+      rollingSum += squared;
 
-    filteredChannels.push(filtered);
+      const windowStart = i - effectiveBlockSize + 1;
+      if (windowStart >= 0 && windowStart % effectiveHopSize === 0) {
+        const blockIndex = windowStart / effectiveHopSize;
+        if (blockIndex < blockPowers.length) {
+          blockPowers[blockIndex] += rollingSum / effectiveBlockSize;
+        }
+      }
+
+      if ((i + 1) % 262144 === 0) {
+        const ratio = (c * length + i + 1) / Math.max(1, length * numChannels);
+        onProgress?.({
+          stage: 'mastering',
+          percent: Math.round(progressStart + (0.4 + ratio * 0.3) * (progressEnd - progressStart)),
+          message: 'Filtering audio in bounded memory blocks...'
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+    }
   }
 
-  // 400ms blocks with 100ms hop size (75% overlap)
-  const blockSize = Math.floor(0.4 * sampleRate);
-  const hopSize = Math.floor(0.1 * sampleRate);
-  const numBlocks = Math.floor((length - blockSize) / hopSize);
-
-  const blockPowers: number[] = [];
-  const shortTermPowers: number[] = [];
-
-  for (let b = 0; b < numBlocks; b++) {
-    const start = b * hopSize;
-    let blockSum = 0;
-
-    for (let c = 0; c < numChannels; c++) {
-      const data = filteredChannels[c];
-      let sum = 0;
-      for (let i = 0; i < blockSize; i++) {
-        const val = data[start + i];
-        sum += val * val;
-      }
-      blockSum += (sum / blockSize);
+  for (let b = 0; b < blockPowers.length; b++) {
+    if (b > 0 && b % 64 === 0) {
+      const ratio = b / Math.max(1, blockPowers.length);
+      onProgress?.({
+        stage: 'mastering',
+        percent: Math.round(progressStart + (0.7 + ratio * 0.3) * (progressEnd - progressStart)),
+        message: 'Applying loudness gating...'
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
-
+    const blockSum = blockPowers[b];
     const blockLoudness = -0.691 + 10 * Math.log10(Math.max(1e-12, blockSum));
-    // Absolute threshold gating at -70 LKFS
     if (blockLoudness > -70) {
-      blockPowers.push(blockSum);
+      activeBlockPowers.push(blockSum);
       shortTermPowers.push(blockLoudness);
     }
   }
 
   let integratedLUFS = -70;
 
-  if (blockPowers.length > 0) {
+  if (activeBlockPowers.length > 0) {
     // Relative gate: -10 LU below un-gated mean
-    const avgPower = blockPowers.reduce((a, b) => a + b, 0) / blockPowers.length;
+    const avgPower = activeBlockPowers.reduce((a, b) => a + b, 0) / activeBlockPowers.length;
     const gammaA = -0.691 + 10 * Math.log10(Math.max(1e-12, avgPower)) - 10;
 
-    const gatedPowers = blockPowers.filter((p) => {
+    const gatedPowers = activeBlockPowers.filter((p) => {
       const lkfs = -0.691 + 10 * Math.log10(Math.max(1e-12, p));
       return lkfs > gammaA;
     });
@@ -345,6 +542,7 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
     durationSeconds: Math.round((length / sampleRate) * 10) / 10,
   };
 }
+
 
 /**
  * Builds the active (non-bypassed) plugins of one chain inside an offline context and wires them in series after
@@ -558,7 +756,7 @@ export async function measureAndApplyMastering(
   const ceilingDbTP = customCeilingDbTP ?? profile.ceilingDbTP;
 
   onProgress?.({ stage: 'mastering', percent: 65, message: 'Measuring initial mix loudness...' });
-  const preStats = measureLoudness(inputBuffer);
+  const preStats = await measureLoudnessAsync(inputBuffer, onProgress, 60, 69);
 
   // Compute required gain
   let gainAdjustmentDb = 0;
@@ -578,11 +776,12 @@ export async function measureAndApplyMastering(
     profile,
     targetLufs,
     ceilingDbTP,
-    gainAdjustmentDb
+    gainAdjustmentDb,
+    onProgress
   );
 
   onProgress?.({ stage: 'mastering', percent: 85, message: 'Verifying post-mastering compliance...' });
-  const postStats = measureLoudness(masteredBuffer);
+  const postStats = await measureLoudnessAsync(masteredBuffer, onProgress, 85, 92);
 
   const passedLoudness = Math.abs(postStats.integratedLUFS - targetLufs) <= 1.0;
   const passedTruePeak = postStats.truePeakDbTP <= (ceilingDbTP + 0.1);
@@ -604,12 +803,78 @@ export async function measureAndApplyMastering(
  * Mastering DSP Chain:
  * Presence Filter -> Multi-stage Compression -> Normalization -> Lookahead True Peak Limiter
  */
+export async function applyLookaheadLimiterChannel(
+  inData: Float32Array,
+  outData: Float32Array,
+  ceilingLinear: number,
+  lookaheadSamples: number,
+  releaseCoeff: number,
+  onProgress?: (progress: ExportProgress) => void,
+  progressBase = 0,
+  progressSpan = 1
+): Promise<void> {
+  const length = inData.length;
+  if (outData.length < length) throw new Error('Limiter output buffer is shorter than its input.');
+  const windowSize = Math.max(1, lookaheadSamples);
+  const yieldEverySamples = 1_048_576;
+  const deque = new Int32Array(windowSize + 1);
+  const capacity = deque.length;
+  let head = 0;
+  let count = 0;
+  const pushIndex = (index: number) => {
+    const value = Math.abs(inData[index]);
+    while (count > 0) {
+      const tail = (head + count - 1) % capacity;
+      if (Math.abs(inData[deque[tail]]) > value) break;
+      count--;
+    }
+    deque[(head + count) % capacity] = index;
+    count++;
+  };
+
+  for (let i = 0; i < Math.min(length, windowSize); i++) pushIndex(i);
+  let envelope = 0;
+
+  for (let i = 0; i < length; i++) {
+    const maxFuture = count > 0 ? Math.abs(inData[deque[head]]) : 0;
+    if (maxFuture > envelope) envelope = maxFuture;
+    else envelope = maxFuture + releaseCoeff * (envelope - maxFuture);
+
+    const gain = envelope > ceilingLinear ? ceilingLinear / envelope : 1;
+    let sample = inData[i] * gain;
+    if (sample > ceilingLinear) sample = ceilingLinear;
+    if (sample < -ceilingLinear) sample = -ceilingLinear;
+    outData[i] = sample;
+
+    // Advance the window for the next sample.
+    while (count > 0 && deque[head] <= i) {
+      head = (head + 1) % capacity;
+      count--;
+    }
+    const nextIndex = i + windowSize;
+    if (nextIndex < length) pushIndex(nextIndex);
+
+    if ((i + 1) % yieldEverySamples === 0) {
+      const completed = progressBase + ((i + 1) / Math.max(1, length)) * progressSpan;
+      onProgress?.({
+        stage: 'mastering',
+        percent: Math.min(84, 75 + Math.floor(completed * 9)),
+        message: `Applying lookahead limiter (${Math.round(completed * 100)}%)...`,
+      });
+      // Let the browser paint and process input during long limiter passes.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+}
+
+
 export async function applyMasteringChain(
   inputBuffer: AudioBuffer,
   profile: MasteringProfileConfig,
   targetLufs: number,
   ceilingDbTP: number,
-  initialGainDb: number = 0
+  initialGainDb: number = 0,
+  onProgress?: (progress: ExportProgress) => void
 ): Promise<AudioBuffer> {
   if (profile.type === 'bypass') {
     return inputBuffer;
@@ -665,50 +930,23 @@ export async function applyMasteringChain(
   const ceilingLinear = Math.pow(10, ceilingDbTP / 20);
   const outBuffer = offlineCtx.createBuffer(channels, length, sampleRate);
 
-  // Lookahead window in samples (2ms)
-  const lookaheadSamples = Math.floor(0.002 * sampleRate);
+  // A monotonic deque makes lookahead peak detection linear-time and avoids a
+  // full-length gain-reduction array for each channel.
+  const lookaheadSamples = Math.max(1, Math.floor(0.002 * sampleRate));
   const releaseCoeff = Math.exp(-1 / (0.05 * sampleRate)); // 50ms release
 
   for (let c = 0; c < channels; c++) {
-    const inData = renderedIntermediate.getChannelData(c);
-    const outData = outBuffer.getChannelData(c);
-
-    // Compute peak envelope with lookahead
-    let envelope = 0;
-    const gainReduction = new Float32Array(length);
-
-    for (let i = 0; i < length; i++) {
-      // Lookahead peak
-      let maxFuture = 0;
-      const endLook = Math.min(length, i + lookaheadSamples);
-      for (let j = i; j < endLook; j++) {
-        const v = Math.abs(inData[j]);
-        if (v > maxFuture) maxFuture = v;
-      }
-
-      if (maxFuture > envelope) {
-        envelope = maxFuture;
-      } else {
-        envelope = maxFuture + releaseCoeff * (envelope - maxFuture);
-      }
-
-      if (envelope > ceilingLinear) {
-        gainReduction[i] = ceilingLinear / envelope;
-      } else {
-        gainReduction[i] = 1.0;
-      }
-    }
-
-    // Apply limiting gain curve
-    for (let i = 0; i < length; i++) {
-      let sample = inData[i] * gainReduction[i];
-      // Hard clamp safety to absolute ceiling
-      if (sample > ceilingLinear) sample = ceilingLinear;
-      if (sample < -ceilingLinear) sample = -ceilingLinear;
-      outData[i] = sample;
-    }
+    await applyLookaheadLimiterChannel(
+      renderedIntermediate.getChannelData(c),
+      outBuffer.getChannelData(c),
+      ceilingLinear,
+      lookaheadSamples,
+      releaseCoeff,
+      onProgress,
+      c / channels,
+      1 / channels
+    );
   }
-
   return outBuffer;
 }
 
@@ -782,6 +1020,93 @@ export function exportAudioBufferToWav(buffer: AudioBuffer, bitDepth: 16 | 24 = 
   return new Blob([arrayBuffer], { type: 'audio/wav' });
 }
 
+
+/**
+ * Responsive WAV encoder for long exports. PCM is converted into approximately
+ * one-second chunks so the encoder can yield to the browser between blocks rather
+ * than allocate one multi-gigabyte contiguous ArrayBuffer and block the main thread.
+ * The final Blob still necessarily retains the encoded file bytes.
+ */
+export async function exportAudioBufferToWavAsync(
+  buffer: AudioBuffer,
+  bitDepth: 16 | 24 = 16,
+  onProgress?: (progress: ExportProgress) => void
+): Promise<Blob> {
+  const channels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const length = buffer.length;
+  if (channels < 1 || channels > 2) throw new Error(`WAV export supports mono or stereo audio; received ${channels} channels.`);
+  if (bitDepth !== 16 && bitDepth !== 24) throw new Error('WAV bit depth must be 16 or 24.');
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = channels * bytesPerSample;
+  const dataSize = length * blockAlign;
+  if (!Number.isSafeInteger(dataSize) || dataSize > 0xffffffff - 36) {
+    throw new Error('This WAV export exceeds the RIFF/WAVE 4 GiB size limit. Export a shorter range or use a future RF64-capable format.');
+  }
+
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  const channelData = Array.from({ length: channels }, (_, channel) => buffer.getChannelData(channel));
+  const framesPerChunk = Math.max(1, sampleRate); // approximately one second per retained chunk
+  const parts: BlobPart[] = [new Uint8Array(header)];
+  const totalChunks = Math.ceil(length / framesPerChunk);
+
+  onProgress?.({ stage: 'encoding', percent: 80, message: `Encoding ${bitDepth}-bit PCM WAV in bounded blocks...` });
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+    const frameStart = chunkIndex * framesPerChunk;
+    const frameCount = Math.min(framesPerChunk, length - frameStart);
+    const bytes = new Uint8Array(frameCount * blockAlign);
+    const chunkView = new DataView(bytes.buffer);
+    let offset = 0;
+
+    for (let frame = 0; frame < frameCount; frame++) {
+      for (let channel = 0; channel < channels; channel++) {
+        const raw = channelData[channel][frameStart + frame];
+        const sample = Number.isFinite(raw) ? Math.max(-1, Math.min(1, raw)) : 0;
+        if (bitDepth === 16) {
+          const integer = Math.floor(sample < 0 ? sample * 0x8000 : sample * 0x7fff);
+          chunkView.setInt16(offset, integer, true);
+          offset += 2;
+        } else {
+          const integer = Math.floor(sample < 0 ? sample * 0x800000 : sample * 0x7fffff);
+          chunkView.setUint8(offset, integer & 0xff);
+          chunkView.setUint8(offset + 1, (integer >> 8) & 0xff);
+          chunkView.setUint8(offset + 2, (integer >> 16) & 0xff);
+          offset += 3;
+        }
+      }
+    }
+
+    parts.push(bytes);
+    const ratio = (chunkIndex + 1) / Math.max(1, totalChunks);
+    onProgress?.({
+      stage: 'encoding',
+      percent: Math.min(94, Math.round(80 + ratio * 14)),
+      message: `Encoding WAV blocks... ${Math.round(ratio * 100)}% (${chunkIndex + 1}/${totalChunks})`
+    });
+    // Let the browser paint progress and handle input between PCM blocks.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+
+  const blob = new Blob(parts, { type: 'audio/wav' });
+  if (blob.size !== 44 + dataSize) throw new Error('WAV encoder produced an unexpected file size.');
+  return blob;
+}
+
 function writeString(view: DataView, offset: number, string: string): void {
   for (let i = 0; i < string.length; i++) {
     view.setUint8(offset + i, string.charCodeAt(i));
@@ -798,95 +1123,53 @@ export async function exportAudioBufferToMp3(
   kbps: 128 | 192 | 256 | 320 = 320,
   onProgress?: (progress: ExportProgress) => void
 ): Promise<Blob> {
-  // 1. Primary: Try backend native FFmpeg + libmp3lame
-  try {
-    if (onProgress) {
-      onProgress({
-        stage: 'encoding',
-        percent: 75,
-        message: `Encoding with FFmpeg libmp3lame (${kbps} kbps)...`,
-      });
-    }
-
-    const wavBlob = exportAudioBufferToWav(buffer, 16);
-    const formData = new FormData();
-    formData.append('audio', wavBlob, 'mixdown.wav');
-    formData.append('bitrate', String(kbps));
-    formData.append('sampleRate', String(buffer.sampleRate));
-    formData.append('channels', String(buffer.numberOfChannels));
-    formData.append('filename', 'uuda_mixdown.mp3');
-
-    const res = await fetch('/api/export/mp3', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (res.ok) {
-      const mp3Blob = await res.blob();
-      if (mp3Blob && mp3Blob.size > 0) {
-        if (onProgress) {
-          onProgress({
-            stage: 'encoding',
-            percent: 100,
-            message: 'FFmpeg MP3 export completed.',
-          });
-        }
-        return mp3Blob;
-      }
-    }
-  } catch (backendErr) {
-    console.warn('Backend FFmpeg MP3 encoding fallback to client WASM/JS:', backendErr);
+  const numChannels = buffer.numberOfChannels;
+  if (numChannels < 1 || numChannels > 2) {
+    throw new Error(`MP3 export supports mono or stereo audio; received ${numChannels} channels.`);
   }
 
-  // 2. Client Fallback: @breezystack/lamejs bundler-safe encoder
-  const numChannels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
   const length = buffer.length;
-
   const leftChannel = buffer.getChannelData(0);
-  const rightChannel = numChannels > 1 ? buffer.getChannelData(1) : leftChannel;
-
-  // Convert Float32Array [-1.0, 1.0] to Int16Array [-32768, 32767]
-  const leftInt16 = new Int16Array(length);
-  const rightInt16 = new Int16Array(length);
-
-  for (let i = 0; i < length; i++) {
-    let l = Math.max(-1, Math.min(1, leftChannel[i]));
-    let r = Math.max(-1, Math.min(1, rightChannel[i]));
-    leftInt16[i] = l < 0 ? l * 0x8000 : l * 0x7fff;
-    rightInt16[i] = r < 0 ? r * 0x8000 : r * 0x7fff;
-  }
-
+  const rightChannel = numChannels > 1 ? buffer.getChannelData(1) : null;
   const mp3encoder = new Mp3Encoder(numChannels, sampleRate, kbps);
   const mp3Data: Uint8Array[] = [];
-
   const sampleBlockSize = 1152;
-  const totalChunks = Math.ceil(length / sampleBlockSize);
+  onProgress?.({ stage: 'encoding', percent: 70, message: `Encoding MP3 locally (${kbps} kbps)...` });
 
   for (let i = 0; i < length; i += sampleBlockSize) {
-    const chunkIndex = Math.floor(i / sampleBlockSize);
-    if (chunkIndex % 10 === 0 && onProgress) {
-      const pct = Math.min(99, Math.round(70 + (chunkIndex / totalChunks) * 28));
-      onProgress({
-        stage: 'encoding',
-        percent: pct,
-        message: `Encoding MP3 (${kbps} kbps)... ${Math.round((chunkIndex / totalChunks) * 100)}%`,
-      });
+    const blockLength = Math.min(sampleBlockSize, length - i);
+    const leftChunk = new Int16Array(blockLength);
+    const rightChunk = rightChannel ? new Int16Array(blockLength) : undefined;
+
+    for (let j = 0; j < blockLength; j++) {
+      const left = Math.max(-1, Math.min(1, leftChannel[i + j]));
+      leftChunk[j] = left < 0 ? left * 0x8000 : left * 0x7fff;
+      if (rightChunk && rightChannel) {
+        const right = Math.max(-1, Math.min(1, rightChannel[i + j]));
+        rightChunk[j] = right < 0 ? right * 0x8000 : right * 0x7fff;
+      }
     }
 
-    const leftChunk = leftInt16.subarray(i, i + sampleBlockSize);
-    const rightChunk = numChannels > 1 ? rightInt16.subarray(i, i + sampleBlockSize) : undefined;
     const mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
-    if (mp3buf.length > 0) {
-      mp3Data.push(new Uint8Array(mp3buf));
+    if (mp3buf.length > 0) mp3Data.push(new Uint8Array(mp3buf));
+
+    const chunkIndex = Math.floor(i / sampleBlockSize);
+    if (chunkIndex % 10 === 0 || i + blockLength >= length) {
+      const ratio = Math.min(1, (i + blockLength) / Math.max(1, length));
+      onProgress?.({
+        stage: 'encoding',
+        percent: Math.min(99, Math.round(70 + ratio * 29)),
+        message: `Encoding MP3 locally... ${Math.round(ratio * 100)}%`,
+      });
+      // Allow the browser to repaint progress during long encodes.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
   }
 
   const endBuf = mp3encoder.flush();
-  if (endBuf.length > 0) {
-    mp3Data.push(new Uint8Array(endBuf));
-  }
-
+  if (endBuf.length > 0) mp3Data.push(new Uint8Array(endBuf));
+  onProgress?.({ stage: 'encoding', percent: 100, message: 'Local MP3 encoding completed.' });
   return new Blob(mp3Data as unknown as BlobPart[], { type: 'audio/mp3' });
 }
 
@@ -899,7 +1182,8 @@ export async function exportAudioBufferToMp3(
 export async function verifyExportedBlob(
   blob: Blob,
   targetLufs: number,
-  ceilingDbTP: number = -1.0
+  ceilingDbTP: number = -1.0,
+  onProgress?: (progress: ExportProgress) => void
 ): Promise<{
   integratedLUFS: number;
   truePeakDbTP: number;
@@ -911,7 +1195,18 @@ export async function verifyExportedBlob(
   const ctx = await audioEngine.init();
   const decodedBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
 
-  const stats = measureLoudness(decodedBuffer);
+  const stats = await measureLoudnessAsync(
+    decodedBuffer,
+    (progress) => {
+      onProgress?.({
+        stage: 'verifying',
+        percent: Math.min(99, 95 + Math.round(progress.percent / 100 * 4)),
+        message: 'Verifying decoded export loudness and true peak...',
+      });
+    },
+    0,
+    100
+  );
   const passedLoudness = Math.abs(stats.integratedLUFS - targetLufs) <= 1.0;
   const passedTruePeak = stats.truePeakDbTP <= (ceilingDbTP + 0.1);
 
