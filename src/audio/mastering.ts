@@ -432,74 +432,87 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
   const b1_hp = -2.0;
   const b2_hp = 1.0;
 
-  const filteredChannels: Float32Array[] = [];
+  // Process one channel at a time and retain only a 400ms ring buffer.
+  // The previous implementation kept a full-duration filtered Float32Array per channel.
+  const blockSize = Math.floor(0.4 * sampleRate);
+  const hopSize = Math.floor(0.1 * sampleRate);
+  const numBlocks = Math.floor((length - blockSize) / hopSize);
+  const blockPowers = new Array<number>(Math.max(0, numBlocks)).fill(0);
+  const shortTermPowers: number[] = [];
+
+  // K-Weighting Biquad Coefficients (ITU-R BS.1770-4 for 48kHz; normalized)
+  const a1_hs = -1.69065929318241;
+  const a2_hs = 0.73248077421585;
+  const b0_hs = 1.53512485958697;
+  const b1_hs = -2.69169618940638;
+  const b2_hs = 1.19839281085285;
+  const a1_hp = -1.99004745483398;
+  const a2_hp = 0.99007225036621;
+  const b0_hp = 1.0;
+  const b1_hp = -2.0;
+  const b2_hp = 1.0;
 
   for (let c = 0; c < numChannels; c++) {
     const input = channelData[c];
-    const filtered = new Float32Array(length);
-
+    const ring = new Float32Array(Math.max(1, blockSize));
     let x1_hs = 0, x2_hs = 0, y1_hs = 0, y2_hs = 0;
     let x1_hp = 0, x2_hp = 0, y1_hp = 0, y2_hp = 0;
 
     for (let i = 0; i < length; i++) {
-      if ((i + 1) % 262144 === 0) {
-        const ratio = (c * length + i + 1) / Math.max(1, length * numChannels);
-        onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + (0.4 + ratio * 0.3) * (progressEnd - progressStart)), message: 'Applying K-weighting in yielding blocks...' });
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      }
       const x = input[i];
-
-      // Stage 1: High shelf filter
       const y_hs = b0_hs * x + b1_hs * x1_hs + b2_hs * x2_hs - a1_hs * y1_hs - a2_hs * y2_hs;
       x2_hs = x1_hs;
       x1_hs = x;
       y2_hs = y1_hs;
       y1_hs = y_hs;
 
-      // Stage 2: High pass RLB filter
       const y_hp = b0_hp * y_hs + b1_hp * x1_hp + b2_hp * x2_hp - a1_hp * y1_hp - a2_hp * y2_hp;
       x2_hp = x1_hp;
       x1_hp = y_hs;
       y2_hp = y1_hp;
       y1_hp = y_hp;
+      ring[i % ring.length] = y_hp;
 
-      filtered[i] = y_hp;
+      // Recreate the original overlapping 400ms blocks in sample order, but sum each
+      // completed window immediately so filtered PCM never needs to be retained.
+      if (blockSize > 0 && i >= blockSize - 1 && (i - blockSize + 1) % hopSize === 0) {
+        const blockIndex = Math.floor((i - blockSize + 1) / hopSize);
+        if (blockIndex < numBlocks) {
+          let sum = 0;
+          const oldestIndex = (i + 1) % ring.length;
+          for (let j = 0; j < blockSize; j++) {
+            const value = ring[(oldestIndex + j) % ring.length];
+            sum += value * value;
+          }
+          blockPowers[blockIndex] += sum / blockSize;
+        }
+      }
+
+      if ((i + 1) % 262144 === 0) {
+        const ratio = (c * length + i + 1) / Math.max(1, length * numChannels);
+        onProgress?.({
+          stage: 'mastering',
+          percent: Math.round(progressStart + (0.4 + ratio * 0.3) * (progressEnd - progressStart)),
+          message: 'Filtering audio in bounded memory blocks...'
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
     }
-
-    filteredChannels.push(filtered);
   }
 
-  // 400ms blocks with 100ms hop size (75% overlap)
-  const blockSize = Math.floor(0.4 * sampleRate);
-  const hopSize = Math.floor(0.1 * sampleRate);
-  const numBlocks = Math.floor((length - blockSize) / hopSize);
-
-  const blockPowers: number[] = [];
-  const shortTermPowers: number[] = [];
-
-  for (let b = 0; b < numBlocks; b++) {
+  for (let b = 0; b < blockPowers.length; b++) {
     if (b > 0 && b % 64 === 0) {
-      const ratio = b / Math.max(1, numBlocks);
-      onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + (0.7 + ratio * 0.3) * (progressEnd - progressStart)), message: 'Applying loudness gating...' });
+      const ratio = b / Math.max(1, blockPowers.length);
+      onProgress?.({
+        stage: 'mastering',
+        percent: Math.round(progressStart + (0.7 + ratio * 0.3) * (progressEnd - progressStart)),
+        message: 'Applying loudness gating...'
+      });
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
-    const start = b * hopSize;
-    let blockSum = 0;
-
-    for (let c = 0; c < numChannels; c++) {
-      const data = filteredChannels[c];
-      let sum = 0;
-      for (let i = 0; i < blockSize; i++) {
-        const val = data[start + i];
-        sum += val * val;
-      }
-      blockSum += (sum / blockSize);
-    }
-
+    const blockSum = blockPowers[b];
     const blockLoudness = -0.691 + 10 * Math.log10(Math.max(1e-12, blockSum));
-    // Absolute threshold gating at -70 LKFS
     if (blockLoudness > -70) {
-      blockPowers.push(blockSum);
       shortTermPowers.push(blockLoudness);
     }
   }
