@@ -439,6 +439,7 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
   const numBlocks = Math.floor((length - blockSize) / hopSize);
   const blockPowers = new Array<number>(Math.max(0, numBlocks)).fill(0);
   const shortTermPowers: number[] = [];
+  const activeBlockPowers: number[] = [];
 
   // K-Weighting Biquad Coefficients (ITU-R BS.1770-4 for 48kHz; normalized)
   const a1_hs = -1.69065929318241;
@@ -513,18 +514,19 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
     const blockSum = blockPowers[b];
     const blockLoudness = -0.691 + 10 * Math.log10(Math.max(1e-12, blockSum));
     if (blockLoudness > -70) {
+      activeBlockPowers.push(blockSum);
       shortTermPowers.push(blockLoudness);
     }
   }
 
   let integratedLUFS = -70;
 
-  if (blockPowers.length > 0) {
+  if (activeBlockPowers.length > 0) {
     // Relative gate: -10 LU below un-gated mean
-    const avgPower = blockPowers.reduce((a, b) => a + b, 0) / blockPowers.length;
+    const avgPower = activeBlockPowers.reduce((a, b) => a + b, 0) / activeBlockPowers.length;
     const gammaA = -0.691 + 10 * Math.log10(Math.max(1e-12, avgPower)) - 10;
 
-    const gatedPowers = blockPowers.filter((p) => {
+    const gatedPowers = activeBlockPowers.filter((p) => {
       const lkfs = -0.691 + 10 * Math.log10(Math.max(1e-12, p));
       return lkfs > gammaA;
     });
