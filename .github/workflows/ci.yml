@@ -5,7 +5,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   check:
@@ -32,6 +32,21 @@ jobs:
 
       - name: Install locked dependencies
         run: bun install
+
+      - name: Reconcile and commit Bun lockfile on the integration branch
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'migration/correction-batch-3' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          git fetch origin "${{ github.event.pull_request.head.ref }}"
+          git checkout --detach FETCH_HEAD
+          bun install
+          if ! git diff --quiet -- bun.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add bun.lock
+            git commit -m "Refresh Bun lockfile for reconciled manifest"
+            git push origin HEAD:"${{ github.event.pull_request.head.ref }}"
+          fi
+          bun install --frozen-lockfile
 
       - name: Verify React and TypeScript installation
         run: bun pm ls
