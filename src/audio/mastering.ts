@@ -156,6 +156,12 @@ export interface ExportSummary {
   license: string;
 }
 
+export interface SkippedPlugin {
+  chainId: string;
+  name: string;
+  reason: 'missing';
+}
+
 /**
  * 4x Oversampled True Peak detection using cubic Hermite interpolation
  * Catches inter-sample peaks exceeding digital full scale according to ITU-R BS.1770-4
@@ -353,11 +359,16 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
 export async function appendOfflinePlugins(
   offlineCtx: OfflineAudioContext,
   chainId: string,
-  source: AudioNode
+  source: AudioNode,
+  skipped: SkippedPlugin[] = []
 ): Promise<AudioNode> {
   let output: AudioNode = source;
   for (const plugin of pluginManager.getPluginsForTrack(chainId)) {
     if (plugin.isBypassed) continue;
+    if ((plugin as typeof plugin & { missing?: boolean }).missing) {
+      skipped.push({ chainId, name: plugin.descriptor.name, reason: 'missing' });
+      continue;
+    }
     try {
       const offlineInst = await pluginManager.instantiatePlugin(
         offlineCtx,

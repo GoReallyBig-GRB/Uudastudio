@@ -48,6 +48,7 @@ export interface PluginInstance {
   audioNode: AudioNode;
   inputNode: AudioNode;
   outputNode: AudioNode;
+  missing?: boolean;
   guiElement?: HTMLElement | null;
   destroy: () => void;
   getState: () => Promise<Record<string, unknown>>;
