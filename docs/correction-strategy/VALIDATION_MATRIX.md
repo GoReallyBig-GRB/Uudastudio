@@ -133,3 +133,28 @@ Implementation merges: [PR #20](https://github.com/GoReallyBig-GRB/Uudastudio/pu
 - Regression coverage includes empty/short clips, 400 ms block boundaries, 100 ms hop boundaries, async/sync parity, and progress during long true-peak scans.
 - Export verification progress is forwarded to the export progress UI.
 - Automated checks and browser/runtime memory measurements must be recorded from the resulting candidate before this correction is considered complete. No unperformed browser or long-duration memory test is claimed as passed.
+
+## Consolidated open-task execution branch — 2026-10-23
+
+Branch: `correction/open-partial-tasks`, based on main commit `51df2b8241a855ee4e16be7b8865752d1524bcb5`.
+
+### Added automated coverage (execution pending)
+
+- `src/audio/masteringExport.test.ts`: asynchronous 16-/24-bit WAV output byte-for-byte parity with the synchronous encoder, RIFF/data size fields, monotonic block progress, unsupported channel count rejection, and RIFF 4 GiB overflow rejection before channel reads.
+- These tests were authored on the branch; this environment did not provide a usable network connection for a fresh clone, and no claim is made that Vitest, full type-check, or production build has passed for this branch.
+
+### Outstanding acceptance evidence (still required)
+
+| Scope | Required next evidence | Status |
+|---|---|---|
+| CS-00 / CS-15 | Named-machine baseline and agreed 60-/90-minute metrics/caps | OPEN |
+| CS-04 | React Profiler trace; seek/scrub/playback interaction recording | PARTIAL |
+| CS-06 / V-04 / V-05 | Long stereo-file zoom/scroll timings, canvas dimensions, cache hits/bytes | PARTIAL |
+| CS-09 / V-08 | Reference-output comparison, loudness/true-peak measurements and listening notes | OPEN |
+| CS-10 / CS-12 / V-07 | Stage timing, peak memory, long-task trace and progress responsiveness | PARTIAL |
+| V-09 | Sanitized browser network capture confirming local export sends no full audio payload | NOT VERIFIED |
+| CS-13 / V-10 / V-11 | Browser `.uuda` round trip, missing/corrupt audio, interrupted save/recovery, quota failure | PARTIAL |
+| CS-16 | Folder permission restoration/cancel/error and save/open round trip in supported browser | PARTIAL |
+| CS-14 / V-12 | Serial-vs-worker correctness and memory benchmark after baseline | DEFERRED |
+
+Run `npm run lint`, `npm test`, and `npm run build` in the normal dependency-complete environment. Preserve CI logs and browser profiles with commit hash, browser/OS/RAM, audio duration/channels, track/clip count, and cold/warm cache state. Never mark browser/audio/performance gates passed from source inspection or unit tests alone.
