@@ -26,27 +26,26 @@ import {
   KeyRound,
   CheckCircle2,
   AlertTriangle,
-  UserCog,
 } from 'lucide-react';
-import { AdminTeam } from './AdminTeam';
 import { useAuth } from '../../hooks/useAuth';
 import { authService } from '../../services/authService';
 import { AdminOverviewStats, AdminUserRow, SupportTicket } from '../../types';
 
 interface AdminPanelProps {
   onBackToStudio: () => void;
+  initialConnectionCode?: string;
 }
 
-type AdminTab = 'overview' | 'users' | 'support' | 'team';
+type AdminTab = 'overview' | 'users' | 'support';
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialConnectionCode }) => {
   const { user, isAdmin, isAdminVerified, verifyAdminCode, resendAdminCode } = useAuth();
 
   // Connection Code Verification State
-  const [codeInputValue, setCodeInputValue] = useState('');
+  const [codeInputValue, setCodeInputValue] = useState(initialConnectionCode || '');
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [codeError, setCodeError] = useState<string | null>(null);
-  const [codeNotice, setCodeNotice] = useState<string | null>(null);
+  const [activeCodePreview, setActiveCodePreview] = useState<string | undefined>(initialConnectionCode);
 
   // Active Admin Tab
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
@@ -65,23 +64,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
 
   // Support Inbox Data
   const [ticketsList, setTicketsList] = useState<SupportTicket[]>([]);
-  const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'Resolved' | 'Closed' | 'Archived'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'Resolved' | 'Closed'>('All');
   const [activeTicket, setActiveTicket] = useState<SupportTicket | null>(null);
   const [replyMessage, setReplyMessage] = useState('');
   const [replyStatus, setReplyStatus] = useState<SupportTicket['status']>('Resolved');
   const [isReplying, setIsReplying] = useState(false);
   const [isLoadingTickets, setIsLoadingTickets] = useState(false);
-
-  // Check for fallback connection code if email was undelivered
-  useEffect(() => {
-    if (!isAdminVerified && typeof window !== 'undefined') {
-      const fallback = (window as any).__uuda_admin_fallback_code;
-      if (fallback && typeof fallback === 'string') {
-        setCodeNotice(`Email delivery unconfirmed by SMTP. Fallback verification code: ${fallback}`);
-        setCodeInputValue(fallback);
-      }
-    }
-  }, [isAdminVerified]);
 
   // Load Data once verified
   useEffect(() => {
@@ -160,15 +148,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
 
   const handleResendCode = async () => {
     try {
-      setCodeError(null);
-      const message = await resendAdminCode();
-      setCodeNotice(message);
-      const codeMatch = message.match(/\b\d{6}\b/);
-      if (codeMatch) {
-        setCodeInputValue(codeMatch[0]);
+      const previewCode = await resendAdminCode();
+      if (previewCode) {
+        setActiveCodePreview(previewCode);
+        setCodeInputValue(previewCode);
       }
     } catch (err) {
-      setCodeError(err instanceof Error ? err.message : 'Could not send a new code.');
+      console.error(err);
     }
   };
 
@@ -260,13 +246,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
           </div>
 
           <p className="text-xs text-zinc-300 leading-relaxed mb-4">
-            A 6-digit connection code was sent to{' '}
-            <strong className="text-amber-300 font-mono">{user?.email}</strong>. Check your inbox and enter the code below to unlock the Admin Panel. It expires in 10 minutes.
+            A 6-digit connection code was generated when signing in as{' '}
+            <strong className="text-amber-300 font-mono">{user?.email}</strong>. Enter the code below to unlock the Admin Panel.
           </p>
 
-          {codeNotice && (
-            <div className="mb-4 p-3 bg-cyan-950/40 border border-cyan-800/60 rounded-lg text-xs text-cyan-300">
-              {codeNotice}
+          {activeCodePreview && (
+            <div className="mb-4 p-3 bg-cyan-950/40 border border-cyan-800/60 rounded-lg flex items-center justify-between text-xs text-cyan-300">
+              <span>Connection Code:</span>
+              <span className="font-mono text-base font-bold tracking-widest text-cyan-200">
+                {activeCodePreview}
+              </span>
             </div>
           )}
 
@@ -414,25 +403,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
               </span>
             )}
           </button>
-
-          <button
-            onClick={() => setActiveTab('team')}
-            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-              activeTab === 'team'
-                ? 'bg-amber-500/15 text-amber-300 font-semibold border border-amber-500/30'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-            }`}
-          >
-            <UserCog className="w-4 h-4 shrink-0" />
-            <span>Admin Team & Activity</span>
-          </button>
         </nav>
 
         {/* Viewport Detail Content */}
         <main className="flex-1 bg-[#101015] p-8 overflow-y-auto">
           {/* TAB 1: Overview */}
-          {activeTab === 'team' && <AdminTeam />}
-
           {activeTab === 'overview' && (
             <div className="max-w-4xl space-y-6">
               <div className="flex items-center justify-between">
@@ -638,7 +613,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
                   <p className="text-xs text-zinc-400 mt-1">Review inquiries, respond to tickets, and update resolution statuses.</p>
                 </div>
                 <div className="flex items-center gap-1.5 bg-[#14141A] p-1 rounded-lg border border-zinc-800 text-xs">
-                  {(['All', 'Open', 'Resolved', 'Closed', 'Archived'] as const).map((s) => (
+                  {(['All', 'Open', 'Resolved', 'Closed'] as const).map((s) => (
                     <button
                       key={s}
                       onClick={() => setStatusFilter(s)}
@@ -681,7 +656,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio }) => {
                         <option value="Open">Open</option>
                         <option value="Resolved">Resolved</option>
                         <option value="Closed">Closed</option>
-                        <option value="Archived">Archived</option>
                       </select>
                     </div>
                   </div>
