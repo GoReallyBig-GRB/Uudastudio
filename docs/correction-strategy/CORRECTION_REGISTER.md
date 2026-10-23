@@ -171,3 +171,5 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **Restore failure safety:** `loadProjectFromDB` now propagates IndexedDB errors instead of disguising them as “no saved project.” If restore fails, the app warns the user and pauses autosave so the blank fallback cannot overwrite a potentially recoverable snapshot. A successful empty lookup remains distinct from a storage error.
 
 - **Project-open responsiveness:** opening a `.uuda` project now registers decoded audio and displays the timeline before awaiting IndexedDB persistence. Assets remain marked non-durable until their writes succeed; failed writes are reported and their references stay excluded from recovery autosaves.
+
+- **UUDA corruption regressions:** added tests for truncated PCM payloads (reported as missing referenced audio rather than crashing) and invalid manifest lengths (rejected before payload reads). CI must run these tests before the branch is handed over.
