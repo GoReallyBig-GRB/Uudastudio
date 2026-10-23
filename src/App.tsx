@@ -768,18 +768,11 @@ const MainStudio: React.FC = () => {
         updatedAt: Date.now(),
       };
 
-      const failedPersistenceAssetIds: string[] = [];
+      // Register decoded audio immediately and mark it non-durable until each IndexedDB
+      // write succeeds. Project opening must not wait behind large persistence writes.
       for (const asset of decoded.assets) {
         audioEngine.registerAsset(asset);
         unsavedAssetIdsRef.current.add(asset.id);
-        try {
-          await saveAssetToDB(asset);
-          unsavedAssetIdsRef.current.delete(asset.id);
-        } catch {
-          failedPersistenceAssetIds.push(asset.id);
-          // The imported file remains playable in memory; keep it excluded from autosave
-          // until IndexedDB persistence succeeds, and tell the user below.
-        }
       }
 
       savedProjectRef.current = loadedProject;
@@ -796,19 +789,36 @@ const MainStudio: React.FC = () => {
           message: `${missingFromFile.length} referenced audio asset(s) could not be restored. The project timeline opened; affected clips may be silent.`,
           duration: 0,
         });
-      } else if (failedPersistenceAssetIds.length > 0) {
-        addToast({
-          type: 'warning',
-          title: 'Project Opened; Local Recovery Incomplete',
-          message: `${failedPersistenceAssetIds.length} audio asset(s) could not be saved to IndexedDB. The project is playable now; keep the .uuda file as your recovery copy.`,
-          duration: 0,
-        });
       } else {
         addToast({
           type: 'success',
           title: 'Project Loaded from Computer',
-          message: `"${loadedProject.name}" restored with ${loadedProject.tracks.length} tracks and ${decoded.assets.length} audio assets.`,
+          message: `"${loadedProject.name}" restored with ${loadedProject.tracks.length} tracks and ${decoded.assets.length} audio assets. Local recovery is saving in the background.`,
         });
+      }
+
+      // Persist in the background after the timeline becomes available. Failed assets remain
+      // excluded from recovery snapshots, and a later successful retry can make them durable.
+      if (decoded.assets.length > 0) {
+        void (async () => {
+          const failedPersistenceAssetIds: string[] = [];
+          for (const asset of decoded.assets) {
+            try {
+              await saveAssetToDB(asset);
+              unsavedAssetIdsRef.current.delete(asset.id);
+            } catch {
+              failedPersistenceAssetIds.push(asset.id);
+            }
+          }
+          if (failedPersistenceAssetIds.length > 0) {
+            addToast({
+              type: 'warning',
+              title: 'Project Opened; Local Recovery Incomplete',
+              message: `${failedPersistenceAssetIds.length} audio asset(s) could not be saved to IndexedDB. The project is playable now; keep the .uuda file as your recovery copy.`,
+              duration: 0,
+            });
+          }
+        })();
       }
       return true;
     } catch (err) {
