@@ -55,6 +55,7 @@ import {
   ExportSummary,
   renderProjectOffline,
   measureLoudness,
+  measureLoudnessAsync,
   measureAndApplyMastering,
   exportAudioBufferToWav,
   exportAudioBufferToWavAsync,
@@ -345,7 +346,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
 
     try {
       const rendered = await renderProjectOffline(project, project.sampleRate || 48000);
-      const stats = measureLoudness(rendered);
+      const stats = await measureLoudnessAsync(rendered);
       setFullMixStats(stats);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Measurement failed.');
@@ -482,7 +483,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
 
       // 4. Verify by reading back exported file and measuring it
       setExportProgress({ stage: 'verifying', percent: 95, message: '4/4 Reading back exported file & verifying BS.1770 compliance...' });
-      const verification = await verifyExportedBlob(exportedBlob, targetLufs, ceilingDbTP);
+      const verification = await verifyExportedBlob(exportedBlob, targetLufs, ceilingDbTP, setExportProgress);
 
       // Trigger automatic file download
       triggerFileDownload(exportedBlob, filename);
@@ -546,7 +547,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
       const testBuffer60s = await testCtx.startRendering();
 
       log('  - Measuring raw 60s test mix...');
-      const preTest1 = measureLoudness(testBuffer60s);
+      const preTest1 = await measureLoudnessAsync(testBuffer60s);
       log(`    Raw Integrated: ${preTest1.integratedLUFS} LUFS, True Peak: ${preTest1.truePeakDbTP} dBTP`);
 
       log('  - Applying Podcast Profile mastering...');

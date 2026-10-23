@@ -126,3 +126,10 @@ Run `npm run lint`, `npm test`, and `npm run build` where the repository environ
 Implementation merges: [PR #20](https://github.com/GoReallyBig-GRB/Uudastudio/pull/20), [PR #21](https://github.com/GoReallyBig-GRB/Uudastudio/pull/21), [PR #23](https://github.com/GoReallyBig-GRB/Uudastudio/pull/23), [PR #24](https://github.com/GoReallyBig-GRB/Uudastudio/pull/24), and [PR #25](https://github.com/GoReallyBig-GRB/Uudastudio/pull/25). CI passed for each candidate before merge. No browser profiling, audio listening/equivalence on real exports, long-file memory run, or AI Studio staging test is claimed from those CI results.
 
 **Current priority:** establish a reproducible browser baseline and run V-04/V-05, V-07/V-08/V-09, V-10/V-11, and the root-folder checks in AI Studio when staging becomes available. Until then, continue safe code-level work and keep CS-00/04/06/09/10/12/13/15/16 open or partial.
+
+## Reconciliation addendum — 2026-10-23
+
+- Async loudness analysis now uses a bounded rolling squared-sample window and counts only valid, hop-aligned windows. Short non-empty clips are analyzed with one effective window no longer than the clip.
+- Regression coverage includes empty/short clips, 400 ms block boundaries, 100 ms hop boundaries, async/sync parity, and progress during long true-peak scans.
+- Export verification progress is forwarded to the export progress UI.
+- Automated checks and browser/runtime memory measurements must be recorded from the resulting candidate before this correction is considered complete. No unperformed browser or long-duration memory test is claimed as passed.
