@@ -47,8 +47,8 @@ interface HeaderProps {
   pixelsPerSecond?: number;
   canUndo: boolean;
   canRedo: boolean;
-  activeSidebarTab?: 'tracks' | 'voice' | 'library' | 'messages';
-  onSelectSidebarTab?: (tab: 'tracks' | 'voice' | 'library' | 'messages') => void;
+  activeSidebarTab?: 'tracks' | 'voice' | 'library';
+  onSelectSidebarTab?: (tab: 'tracks' | 'voice' | 'library') => void;
   onOpenExport: () => void;
   onPlay: () => void;
   onPause: () => void;
@@ -61,6 +61,10 @@ interface HeaderProps {
   onSaveProjectToFile?: () => void;
   onNewFromTemplate?: () => void;
   onSaveAsTemplate?: () => void;
+  onSaveProjectAs?: () => void;
+  onChooseProjectRoot?: () => void;
+  onOpenProjectFromRoot?: () => void;
+  projectRootDirectoryName?: string | null;
   onOpenRecord: () => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
@@ -112,6 +116,10 @@ export const Header: React.FC<HeaderProps> = ({
   onSaveProjectToFile,
   onNewFromTemplate,
   onSaveAsTemplate,
+  onSaveProjectAs,
+  onChooseProjectRoot,
+  onOpenProjectFromRoot,
+  projectRootDirectoryName,
   onOpenRecord,
   onZoomIn,
   onZoomOut,
@@ -172,6 +180,12 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  useEffect(() => {
+    const openProjectPicker = () => projectFileInputRef.current?.click();
+    window.addEventListener('uuda:open-project-picker', openProjectPicker);
+    return () => window.removeEventListener('uuda:open-project-picker', openProjectPicker);
+  }, []);
+
   const handleProjectFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
@@ -198,12 +212,12 @@ export const Header: React.FC<HeaderProps> = ({
       <input
         ref={projectFileInputRef}
         type="file"
-        accept=".json,.uuda.json"
+        accept=".uuda,.json,.uuda.json"
         onChange={handleProjectFileChange}
         className="hidden"
       />
 
-      {/* Brand, File Menu, and Project Name */}
+      {/* Brand & Project Name & Project Menu */}
       <div className="flex items-center gap-3 min-w-0 shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-md bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-[0_0_12px_rgba(0,240,255,0.4)]">
@@ -216,18 +230,18 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="h-4 w-px bg-zinc-800" />
 
-        {/* File Menu Dropdown */}
+        {/* Project Menu Dropdown */}
         <div className="relative">
           <button
             onClick={() => {
               setIsProjectMenuOpen(!isProjectMenuOpen);
               setIsEditMenuOpen(false);
             }}
-            title="File Menu: Open, Save, Import, and Export"
+            title="Project Menu: New, Open from Computer, Save to Computer"
             className="flex items-center gap-1.5 text-xs text-zinc-200 hover:text-cyan-300 px-2 py-1 rounded bg-[#161622] hover:bg-[#1c1c2a] border border-zinc-700/80 transition-colors font-medium cursor-pointer"
           >
             <FolderArchive className="w-3.5 h-3.5 text-cyan-400" />
-            <span>File</span>
+            <span>Project</span>
             <ChevronDown className="w-3 h-3 opacity-60" />
           </button>
 
@@ -293,20 +307,35 @@ export const Header: React.FC<HeaderProps> = ({
                 <FolderOpen className="w-4 h-4 text-emerald-400" />
                 <div>
                   <div className="font-semibold">Open Project from Computer...</div>
-                  <div className="text-[10px] text-zinc-500">Load .json or .uuda.json file from disk</div>
+                  <div className="text-[10px] text-zinc-500">Load a self-contained .uuda project or legacy .json file</div>
                 </div>
               </button>
 
-              <button
-                onClick={onSaveProjectToFile}
-                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
-              >
-                <Save className="w-4 h-4 text-indigo-400" />
-                <div>
-                  <div className="font-semibold">Save Project to Computer</div>
-                  <div className="text-[10px] text-zinc-500">Download session JSON file</div>
-                </div>
-              </button>
+              {onChooseProjectRoot && (
+                <button
+                  onClick={onChooseProjectRoot}
+                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                >
+                  <FolderArchive className="w-4 h-4 text-amber-400" />
+                  <div>
+                    <div className="font-semibold">Choose Root Folder...</div>
+                    <div className="text-[10px] text-zinc-500">{projectRootDirectoryName ? `Current: ${projectRootDirectoryName}` : 'Choose a folder for project files'}</div>
+                  </div>
+                </button>
+              )}
+
+              {onOpenProjectFromRoot && (
+                <button
+                  onClick={onOpenProjectFromRoot}
+                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                >
+                  <FolderOpen className="w-4 h-4 text-amber-400" />
+                  <div>
+                    <div className="font-semibold">Open from Root Folder...</div>
+                    <div className="text-[10px] text-zinc-500">Browse .uuda files in the selected folder</div>
+                  </div>
+                </button>
+              )}
 
               {onSaveAsTemplate && (
                 <button
@@ -317,6 +346,30 @@ export const Header: React.FC<HeaderProps> = ({
                   <div>
                     <div className="font-semibold">Save as Template...</div>
                     <div className="text-[10px] text-zinc-500">Keep tracks, effects and ducking, no audio</div>
+                  </div>
+                </button>
+              )}
+
+              <button
+                onClick={onSaveProjectToFile}
+                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+              >
+                <Save className="w-4 h-4 text-indigo-400" />
+                <div>
+                  <div className="font-semibold">Save Project to Computer</div>
+                  <div className="text-[10px] text-zinc-500">Save project and referenced audio as .uuda</div>
+                </div>
+              </button>
+
+              {onSaveProjectAs && (
+                <button
+                  onClick={onSaveProjectAs}
+                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                >
+                  <Save className="w-4 h-4 text-indigo-400" />
+                  <div>
+                    <div className="font-semibold">Save As...</div>
+                    <div className="text-[10px] text-zinc-500">Choose a .uuda destination</div>
                   </div>
                 </button>
               )}
