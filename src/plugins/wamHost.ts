@@ -4,7 +4,8 @@
  * Bypasses React state engines for direct AudioWorklet parameter automation events.
  */
 
-import { PluginDescriptor, PluginInstance } from './types';
+import { PluginDescriptor, PluginInstance, StoredPluginState } from './types';
+import { createMissingPlugin } from './missingPlugin';
 
 // WAM 2.0 Standard Host Group Identifier
 const WAM_HOST_GROUP_ID = 'uuda-studio-wam-host';
@@ -102,25 +103,35 @@ export async function loadThirdPartyWamPlugin(
 
     wamInstance = await PluginFactory.createInstance(WAM_HOST_GROUP_ID, audioCtx, initialState);
   } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
     console.warn(`Dynamic WAM load error for ${descriptor.name}:`, err);
-    // Offline / fallback mode: construct virtual pass-through node
-    const fallbackNode = audioCtx.createGain();
-    fallbackNode.gain.setValueAtTime(1.0, audioCtx.currentTime);
 
-    inputNode.connect(fallbackNode);
-    fallbackNode.connect(wetNode);
-    wetNode.connect(outputNode);
+    // A failed module load must be represented as Missing, not as a normal plugin.
+    // Otherwise export cannot report the skipped effect and its saved settings are lost.
+    try {
+      inputNode.disconnect();
+      dryNode.disconnect();
+      wetNode.disconnect();
+      outputNode.disconnect();
+    } catch {
+      // Nodes may not all be connected yet.
+    }
 
-    return createFallbackInstance(
-      instanceId,
-      trackId,
-      descriptor,
-      inputNode,
-      outputNode,
-      fallbackNode,
-      initialState,
-      err instanceof Error ? err.message : String(err)
+    const state = initialState || {};
+    const parameters = Object.fromEntries(
+      Object.entries(state).filter((entry): entry is [string, number] => typeof entry[1] === 'number')
     );
+    const stored: StoredPluginState = {
+      instanceId,
+      pluginId: descriptor.id,
+      isBypassed: true,
+      dryWet: 1,
+      parameters,
+      customState: state,
+      moduleUrl: descriptor.moduleUrl,
+    };
+
+    return createMissingPlugin(audioCtx, trackId, stored, `Third-party plugin failed to load: ${reason}`);
   }
 
   // Connect WAM audioNode into track effects graph
@@ -326,76 +337,5 @@ export async function loadThirdPartyWamPlugin(
     setParameter,
     getParameter,
     renderGUI,
-  };
-}
-
-/**
- * Creates a clean pass-through instance when an external WAM URL is temporarily unavailable or offline
- */
-function createFallbackInstance(
-  instanceId: string,
-  trackId: string,
-  descriptor: PluginDescriptor,
-  inputNode: AudioNode,
-  outputNode: AudioNode,
-  fallbackGain: GainNode,
-  initialState: Record<string, unknown> | undefined,
-  errorMsg: string
-): PluginInstance {
-  const fallbackState: Record<string, number> = {};
-  for (const [pid, value] of Object.entries(initialState ?? {})) {
-    if (typeof value === 'number') fallbackState[pid] = value;
-  }
-  for (const [pid, def] of Object.entries(descriptor.parameters)) {
-    if (fallbackState[pid] === undefined) {
-      fallbackState[pid] = def.defaultValue;
-    }
-  }
-
-  const getParameter = (paramId: string) => fallbackState[paramId] ?? 0;
-  const setParameter = (paramId: string, value: number) => {
-    fallbackState[paramId] = value;
-  };
-
-  const getState = async () => ({ ...fallbackState, fallback: true, missing: true });
-  const setState = async (state: Record<string, unknown>) => {
-    for (const [k, v] of Object.entries(state)) {
-      if (typeof v === 'number') fallbackState[k] = v;
-    }
-  };
-
-  return {
-    instanceId,
-    trackId,
-    descriptor,
-    missing: true,
-    isBypassed: true,
-    dryWet: 1.0,
-    audioNode: outputNode,
-    inputNode,
-    outputNode,
-    destroy: () => {
-      try {
-        inputNode.disconnect();
-        fallbackGain.disconnect();
-        outputNode.disconnect();
-      } catch {}
-    },
-    getState,
-    setState,
-    setParameter,
-    getParameter,
-    renderGUI: async (container: HTMLElement) => {
-      container.innerHTML = `
-        <div class="p-3 rounded-lg bg-amber-950/30 border border-amber-800 text-xs text-amber-200">
-          <div class="font-bold flex items-center gap-1.5 text-amber-300">
-            <span>⚠ Plugin In Offline Fallback Mode</span>
-          </div>
-          <p class="text-[11px] text-zinc-400 mt-1">
-            Could not dynamically load WAM module script: ${errorMsg}. Track signal is bypassed safely.
-          </p>
-        </div>
-      `;
-    },
   };
 }

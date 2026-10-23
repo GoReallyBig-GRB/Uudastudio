@@ -190,12 +190,6 @@ export function isVerifiedWamUrl(url: string): boolean {
 
 export const isModuleOriginWhitelisted = isVerifiedWamUrl;
 
-/** Resolves only built-in reviewed third-party descriptors, ignoring caller-supplied URLs. */
-export function resolveVerifiedThirdPartyPlugin(descriptor: PluginDescriptor): PluginDescriptor | undefined {
-  if (descriptor.type !== 'third-party-wam') return undefined;
-  return VERIFIED_THIRD_PARTY_PLUGINS.find((plugin) => plugin.id === descriptor.id);
-}
-
 /**
  * Registry Lookup by Plugin ID
  */

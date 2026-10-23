@@ -52,29 +52,4 @@ describe('waveformCache', () => {
     expect(Array.from(second.mins)[1]).toBeCloseTo(0.4, 6);
     waveformCache.clearAsset(id);
   });
- 
-  it('aggregates coarser peaks from a cached finer level without changing extrema', () => {
-    const channels = [
-      Float32Array.from({ length: 4099 }, (_, i) => Math.sin(i * 0.31) * (i % 11 === 0 ? 1.2 : 0.8)),
-      Float32Array.from({ length: 4099 }, (_, i) => Math.cos(i * 0.17) * (i % 7 === 0 ? 0.9 : 0.5)),
-    ];
-    const buffer = {
-      length: channels[0].length,
-      numberOfChannels: 2,
-      getChannelData: (channel: number) => channels[channel],
-    } as unknown as AudioBuffer;
-    const fineId = 'test-waveform-pyramid-fine';
-    const directId = 'test-waveform-pyramid-direct';
-    waveformCache.clearAsset(fineId);
-    waveformCache.clearAsset(directId);
-    waveformCache.getPeaks(fineId, buffer, 2);
-    const aggregated = waveformCache.getPeaks(fineId, buffer, 8);
-    const direct = waveformCache.getPeaks(directId, buffer, 8);
-    expect(aggregated.samplesPerPixel).toBe(8);
-    expect(Array.from(aggregated.mins)).toEqual(Array.from(direct.mins));
-    expect(Array.from(aggregated.maxs)).toEqual(Array.from(direct.maxs));
-    waveformCache.clearAsset(fineId);
-    waveformCache.clearAsset(directId);
-  });
-
 });

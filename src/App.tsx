@@ -56,6 +56,8 @@ import { SignInPage } from './components/auth/SignInPage';
 import { UserDashboard } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
+import { pluginManager } from './plugins/pluginManager';
+import { withPluginStates, restorePluginStates, hasSavedPlugins } from './plugins/projectPlugins';
 import { TemplatesModal } from './components/TemplatesModal';
 import { SaveTemplateModal } from './components/SaveTemplateModal';
 import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, UudaTemplate } from './templates/template';
