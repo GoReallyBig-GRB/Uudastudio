@@ -125,6 +125,7 @@ const MainStudio: React.FC = () => {
   // Audio IDs remain here until their IndexedDB write succeeds. Autosave omits only
   // clips whose audio is not durable, avoiding saved projects with dangling asset refs.
   const unsavedAssetIdsRef = useRef<Set<string>>(new Set());
+  const autosaveFailureNotifiedRef = useRef<boolean>(false);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
   // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
@@ -422,9 +423,21 @@ const MainStudio: React.FC = () => {
           }))
           .filter((track, index) => track.clips.length > 0 || snapshot.tracks[index].clips.length === 0);
         await saveProjectToDB({ ...snapshot, tracks: safeTracks });
+        autosaveFailureNotifiedRef.current = false;
         setLastSavedAt(new Date());
-      } catch {
-        // Autosave error handled silently or quietly
+      } catch (error) {
+        // Quota/permission failures must not silently imply that local recovery is current.
+        if (!autosaveFailureNotifiedRef.current) {
+          autosaveFailureNotifiedRef.current = true;
+          addToast({
+            type: 'warning',
+            title: 'Local Recovery Save Failed',
+            message: error instanceof Error
+              ? `IndexedDB could not save the latest recovery snapshot: ${error.message}. Use Project → Save to keep a portable copy.`
+              : 'IndexedDB could not save the latest recovery snapshot. Use Project → Save to keep a portable copy.',
+            duration: 0,
+          });
+        }
       } finally {
         saveInFlight = false;
         setIsAutosaving(false);
@@ -432,7 +445,7 @@ const MainStudio: React.FC = () => {
     }, 4000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [addToast]);
 
   // 3. Connect audio engine time update & playback ended listeners
   useEffect(() => {
