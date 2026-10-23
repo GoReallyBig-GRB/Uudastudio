@@ -214,3 +214,6 @@ Latest browser-feedback follow-up CI passed at commit `4f9c2945322882c9e63f661d5
 
 - [x] Existing sync-vs-async loudness tests cover short clips and block/hop boundaries after the rolling-window implementation changed.
 - [ ] Profile CPU time for true-peak, RMS, K-weighting, gating, OfflineAudioContext rendering, and limiter separately on the 57-minute reference file.
+
+- [x] Existing limiter reference-equivalence tests cover short, boundary, empty, and peak-heavy signals after block-loop/index changes.
+- [ ] Browser: confirm fractional limiter progress visibly advances during the 57-minute mastering run and does not regress between channels/stages.
