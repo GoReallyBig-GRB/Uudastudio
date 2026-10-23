@@ -48,7 +48,6 @@ export interface PluginInstance {
   audioNode: AudioNode;
   inputNode: AudioNode;
   outputNode: AudioNode;
-  missing?: boolean;
   guiElement?: HTMLElement | null;
   destroy: () => void;
   getState: () => Promise<Record<string, unknown>>;
@@ -56,6 +55,9 @@ export interface PluginInstance {
   setParameter: (paramId: string, value: number) => void;
   getParameter: (paramId: string) => number;
   renderGUI?: (container: HTMLElement) => Promise<HTMLElement | void>;
+  /** True for a stand-in that passes audio through because the real plugin could not be loaded */
+  missing?: boolean;
+  missingReason?: string;
 }
 
 export interface StoredPluginState {

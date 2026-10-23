@@ -5,9 +5,10 @@
  */
 
 import { PluginDescriptor, PluginInstance, StoredPluginState } from './types';
-import { NATIVE_STEM_PLUGINS, VERIFIED_THIRD_PARTY_PLUGINS, findPluginDescriptor } from './registry';
+import { NATIVE_STEM_PLUGINS, VERIFIED_THIRD_PARTY_PLUGINS, findPluginDescriptor, resolveVerifiedThirdPartyPlugin } from './registry';
 import { loadThirdPartyWamPlugin } from './wamHost';
 import { createNativePlugin } from './nativeFactories';
+import { createMissingPlugin } from './missingPlugin';
 
 export class PluginManager {
   private static instance: PluginManager;
@@ -17,6 +18,12 @@ export class PluginManager {
 
   // Listeners for UI state synchronizations (rack updates, add/remove/bypass)
   private changeListeners: Set<() => void> = new Set();
+
+  // Listeners told about every edit, including parameter drags (the UI listeners above skip those for speed)
+  private editListeners: Set<() => void> = new Set();
+
+  /** How long a third-party plugin gets to load when a project is restored, before its slot becomes "Missing" */
+  public thirdPartyLoadTimeoutMs = 8000;
 
   private constructor() {}
 
@@ -32,7 +39,24 @@ export class PluginManager {
     return () => this.changeListeners.delete(listener);
   }
 
+  /** Fires on every change to any chain: add, remove, reorder, bypass, mix, parameters, restore, clear */
+  public subscribeEdits(listener: () => void): () => void {
+    this.editListeners.add(listener);
+    return () => this.editListeners.delete(listener);
+  }
+
+  private edited() {
+    for (const listener of this.editListeners) {
+      try {
+        listener();
+      } catch (err) {
+        console.error('PluginManager edit listener error:', err);
+      }
+    }
+  }
+
   private notify() {
+    this.edited();
     for (const listener of this.changeListeners) {
       try {
         listener();
@@ -66,8 +90,10 @@ export class PluginManager {
     if (descriptor.type === 'native') {
       return await createNativePlugin(descriptor.id, audioCtx, trackId, initialState);
     } else {
-      // Third-party WAM 2.0 plugin
-      return await loadThirdPartyWamPlugin(audioCtx, trackId, descriptor, initialState);
+      // Resolve against the reviewed catalogue; never trust a module URL from project state.
+      const trustedDescriptor = resolveVerifiedThirdPartyPlugin(descriptor);
+      if (!trustedDescriptor) throw new Error(`Unapproved third-party plugin: ${descriptor.id}`);
+      return await loadThirdPartyWamPlugin(audioCtx, trackId, trustedDescriptor, initialState);
     }
   }
 
@@ -153,6 +179,7 @@ export class PluginManager {
     const plugin = current.find((p) => p.instanceId === instanceId);
     if (plugin) {
       plugin.setParameter(paramId, value);
+      this.edited();
     }
   }
 
@@ -267,14 +294,18 @@ export class PluginManager {
             }
           : undefined);
 
-      if (descriptor) {
+      if (!descriptor) {
+        // Unknown plugin: keep the slot (and its settings) as a pass-through instead of dropping it
+        const current = this.trackPlugins.get(trackId) || [];
+        current.push(createMissingPlugin(audioCtx, trackId, stored, 'This plugin is not installed or not approved.'));
+        this.trackPlugins.set(trackId, current);
+      } else {
         try {
-          const instance = await this.instantiatePlugin(
-            audioCtx,
-            trackId,
-            descriptor,
-            stored.parameters || stored.customState
-          );
+          const loading = this.instantiatePlugin(audioCtx, trackId, descriptor, stored.parameters || stored.customState);
+          const instance =
+            descriptor.type === 'native'
+              ? await loading
+              : await this.withTimeout(loading, this.thirdPartyLoadTimeoutMs, `${stored.pluginId} took too long to load`);
           instance.isBypassed = stored.isBypassed;
           instance.dryWet = stored.dryWet;
           const current = this.trackPlugins.get(trackId) || [];
@@ -282,12 +313,32 @@ export class PluginManager {
           this.trackPlugins.set(trackId, current);
         } catch (err) {
           console.warn(`Failed to restore plugin ${stored.pluginId}:`, err);
+          const current = this.trackPlugins.get(trackId) || [];
+          current.push(createMissingPlugin(audioCtx, trackId, stored, 'This plugin failed to load.'));
+          this.trackPlugins.set(trackId, current);
         }
       }
     }
 
     this.rebuildTrackAudioGraph(trackId);
     this.notify();
+  }
+
+  /** A plugin module that never answers must not hold up the whole project */
+  private withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), ms);
+      promise.then(
+        (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(timer);
+          reject(e);
+        }
+      );
+    });
   }
 
   /** Destroys every plugin on one track (used when the track itself is deleted) */
