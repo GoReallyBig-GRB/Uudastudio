@@ -822,6 +822,93 @@ export function exportAudioBufferToWav(buffer: AudioBuffer, bitDepth: 16 | 24 = 
   return new Blob([arrayBuffer], { type: 'audio/wav' });
 }
 
+
+/**
+ * Responsive WAV encoder for long exports. PCM is converted into approximately
+ * one-second chunks so the encoder can yield to the browser between blocks rather
+ * than allocate one multi-gigabyte contiguous ArrayBuffer and block the main thread.
+ * The final Blob still necessarily retains the encoded file bytes.
+ */
+export async function exportAudioBufferToWavAsync(
+  buffer: AudioBuffer,
+  bitDepth: 16 | 24 = 16,
+  onProgress?: (progress: ExportProgress) => void
+): Promise<Blob> {
+  const channels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const length = buffer.length;
+  if (channels < 1 || channels > 2) throw new Error(`WAV export supports mono or stereo audio; received ${channels} channels.`);
+  if (bitDepth !== 16 && bitDepth !== 24) throw new Error('WAV bit depth must be 16 or 24.');
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = channels * bytesPerSample;
+  const dataSize = length * blockAlign;
+  if (!Number.isSafeInteger(dataSize) || dataSize > 0xffffffff - 36) {
+    throw new Error('This WAV export exceeds the RIFF/WAVE 4 GiB size limit. Export a shorter range or use a future RF64-capable format.');
+  }
+
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  const channelData = Array.from({ length: channels }, (_, channel) => buffer.getChannelData(channel));
+  const framesPerChunk = Math.max(1, sampleRate); // approximately one second per retained chunk
+  const parts: BlobPart[] = [new Uint8Array(header)];
+  const totalChunks = Math.ceil(length / framesPerChunk);
+
+  onProgress?.({ stage: 'encoding', percent: 80, message: `Encoding ${bitDepth}-bit PCM WAV in bounded blocks...` });
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+    const frameStart = chunkIndex * framesPerChunk;
+    const frameCount = Math.min(framesPerChunk, length - frameStart);
+    const bytes = new Uint8Array(frameCount * blockAlign);
+    const chunkView = new DataView(bytes.buffer);
+    let offset = 0;
+
+    for (let frame = 0; frame < frameCount; frame++) {
+      for (let channel = 0; channel < channels; channel++) {
+        const raw = channelData[channel][frameStart + frame];
+        const sample = Number.isFinite(raw) ? Math.max(-1, Math.min(1, raw)) : 0;
+        if (bitDepth === 16) {
+          const integer = Math.floor(sample < 0 ? sample * 0x8000 : sample * 0x7fff);
+          chunkView.setInt16(offset, integer, true);
+          offset += 2;
+        } else {
+          const integer = Math.floor(sample < 0 ? sample * 0x800000 : sample * 0x7fffff);
+          chunkView.setUint8(offset, integer & 0xff);
+          chunkView.setUint8(offset + 1, (integer >> 8) & 0xff);
+          chunkView.setUint8(offset + 2, (integer >> 16) & 0xff);
+          offset += 3;
+        }
+      }
+    }
+
+    parts.push(bytes);
+    const ratio = (chunkIndex + 1) / Math.max(1, totalChunks);
+    onProgress?.({
+      stage: 'encoding',
+      percent: Math.min(94, Math.round(80 + ratio * 14)),
+      message: `Encoding WAV blocks... ${Math.round(ratio * 100)}% (${chunkIndex + 1}/${totalChunks})`
+    });
+    // Let the browser paint progress and handle input between PCM blocks.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+
+  const blob = new Blob(parts, { type: 'audio/wav' });
+  if (blob.size !== 44 + dataSize) throw new Error('WAV encoder produced an unexpected file size.');
+  return blob;
+}
+
 function writeString(view: DataView, offset: number, string: string): void {
   for (let i = 0; i < string.length; i++) {
     view.setUint8(offset + i, string.charCodeAt(i));
