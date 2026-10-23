@@ -120,6 +120,7 @@ const MainStudio: React.FC = () => {
   const [adminCodePreview, setAdminCodePreview] = useState<string | undefined>(undefined);
 
   const [project, setProject] = useState<Project>(DEFAULT_PROJECT);
+  const [, setTimelineRefreshVersion] = useState<number>(0);
   const projectRef = useRef<Project>(DEFAULT_PROJECT);
   const savedProjectRef = useRef<Project>(DEFAULT_PROJECT);
   // Audio IDs remain here until their IndexedDB write succeeds. Autosave omits only
@@ -2197,8 +2198,9 @@ const MainStudio: React.FC = () => {
         onToggleDucking={handleToggleDucking}
         onUpdateDuckingDb={handleUpdateDuckingDb}
         onManualRefresh={() => {
-          // Trigger manual re-render
-          setProject((p) => ({ ...p }));
+          // Force the view to render without replacing project identity, recording history,
+          // or incorrectly marking the project dirty for portable-save purposes.
+          setTimelineRefreshVersion((version) => version + 1);
           addToast({ type: 'info', title: 'Timeline Refreshed', message: 'Manual redraw completed.' });
         }}
         onClearSession={handleClearSession}
