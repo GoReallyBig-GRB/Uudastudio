@@ -517,7 +517,7 @@ const MainStudio: React.FC = () => {
         message: 'Ready for recording, voiceover, and sound design.',
       });
     }
-  }, [project.tracks.length, createBlankProject, addToast]);
+  }, [project, createBlankProject, addToast]);
 
   const handleSaveProjectToFile = useCallback(async (forceSaveAs = false): Promise<boolean> => {
     try {
@@ -1817,7 +1817,7 @@ const MainStudio: React.FC = () => {
         message: 'Empty project session is ready.',
       });
     }
-  }, [project.tracks.length, handleExecuteResetSession, addToast]);
+  }, [project, handleExecuteResetSession, addToast]);
 
   const handleSaveAndResetSession = useCallback(async () => {
     const saved = await handleSaveProjectToFile();
