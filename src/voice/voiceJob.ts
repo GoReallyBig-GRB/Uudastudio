@@ -225,9 +225,19 @@ class VoiceJobStore {
         voiceMetadata: meta,
       };
       audioEngine.registerAsset(asset);
-      await saveAssetToDB(asset);
 
-      this.set({ status: 'ready', asset, meta, progressMsg: '', startedAt: null });
+      // Make the finished voice available to the user immediately. IndexedDB writes can
+      // be slow or fail under quota pressure; persistence must not discard a valid TTS result.
+      this.set({ status: 'ready', asset, meta, progressMsg: '', startedAt: null, error: null });
+      void saveAssetToDB(asset).then(() => {
+        this.set({ notice: 'Voiceover is saved locally.' });
+      }).catch((persistError: unknown) => {
+        this.set({
+          notice: persistError instanceof Error
+            ? `Voiceover is ready, but local recovery could not save it: ${persistError.message}. Add it to the timeline and save a project copy.`
+            : 'Voiceover is ready, but local recovery could not save it. Add it to the timeline and save a project copy.',
+        });
+      });
 
       // The sidebar adds straight to the timeline; the modal waits for the user
       if (req.origin === 'panel' && this.commitHandler) this.commit();
