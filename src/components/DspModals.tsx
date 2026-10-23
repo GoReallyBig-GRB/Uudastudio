@@ -466,8 +466,8 @@ export const DspModals: React.FC<DspModalsProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg bg-[#0e0e14] border border-cyan-500/30 rounded-xl shadow-2xl overflow-hidden flex flex-col text-xs text-zinc-200 animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-2 sm:p-4">
+      <div className="w-full max-w-lg max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] bg-[#0e0e14] border border-cyan-500/30 rounded-xl shadow-2xl overflow-hidden flex flex-col text-xs text-zinc-200 animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 bg-[#161622]">
           <div className="flex items-center gap-2">
@@ -505,7 +505,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
         )}
 
         {/* Body */}
-        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+        <div className="p-3 sm:p-5 space-y-4 min-h-0 flex-1 overflow-y-auto">
           {/* Target clip banner */}
           <div className="flex items-center justify-between px-3 py-1.5 rounded bg-zinc-900/80 border border-zinc-800 text-[11px] text-zinc-400">
             <span>
@@ -607,7 +607,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-[11px]">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 text-[11px]">
                 <div>
                   <div className="flex justify-between text-zinc-400 mb-0.5">
                     <span>Threshold</span>
@@ -841,7 +841,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                   <div className="text-[10px] text-zinc-500 mt-0.5">Amount of background attenuation applied between words</div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 pt-1">
                   <div>
                     <div className="flex justify-between text-zinc-400 mb-0.5 text-[10px]">
                       <span>Attack Speed</span>

@@ -37,13 +37,6 @@ export function useAuth() {
     };
   }, []);
 
-  const signInWithGoogle = useCallback(
-    async (payload: { googleId: string; email: string; displayName: string; photoUrl: string }) => {
-      return authService.signInWithGoogle(payload);
-    },
-    []
-  );
-
   const signOut = useCallback(async () => {
     return authService.signOut();
   }, []);
@@ -73,7 +66,6 @@ export function useAuth() {
     isAdmin: user?.role === 'admin',
     isAdminVerified,
     unreadTicketsCount,
-    signInWithGoogle,
     signOut,
     updateProfile,
     deleteAccount,

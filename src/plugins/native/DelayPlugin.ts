@@ -4,6 +4,7 @@
  */
 
 import { PluginDescriptor, PluginInstance } from '../types';
+import { makeNativeInstance } from './instance';
 import { buildDelayNode } from '../../audio/effects/dspChain';
 import { DelayParams } from '../../types';
 
@@ -134,18 +135,18 @@ export class NativeDelayPlugin {
 
     const getState = async () => ({ ...params });
 
-    return {
+    return makeNativeInstance({
       instanceId,
+      trackId,
       descriptor: DELAY_DESCRIPTOR,
       inputNode,
       outputNode,
-      isBypassed: false,
-      dryWet: params.dryWet,
+      params,
       setParameter,
       getParameter,
       applyBypass,
       destroy,
       getState,
-    };
+    });
   }
 }

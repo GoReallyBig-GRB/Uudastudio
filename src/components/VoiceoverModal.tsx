@@ -27,12 +27,14 @@ import {
   ArrowRight,
   ShieldCheck,
   Mic,
+  Lock,
 } from 'lucide-react';
 import { Asset, VoiceMetadata } from '../types';
 import { audioEngine } from '../audio/engine';
 import { saveAssetToDB } from '../storage/db';
 import { authService } from '../services/authService';
 import { useVoiceSession, CustomPrecept } from '../voice/voiceSession';
+import { useVoiceJob, voiceJob, parseScriptAndInstructionClient } from '../voice/voiceJob';
 
 interface VoiceItem {
   name: string;
@@ -42,7 +44,7 @@ interface VoiceItem {
 }
 
 const EXTENDED_GEMINI_VOICES: VoiceItem[] = [
-  // Female voices
+  // Female voices (13)
   { name: 'Zephyr', gender: 'Female', descriptor: 'Bright, upbeat & clear', tags: ['Commercial', 'Promo', 'Upbeat'] },
   { name: 'Kore', gender: 'Female', descriptor: 'Calm, balanced & articulate', tags: ['Narrator', 'Podcast', 'Calm'] },
   { name: 'Aoede', gender: 'Female', descriptor: 'Expressive & melodic', tags: ['Creative', 'Dramatic', 'Melodic'] },
@@ -57,18 +59,24 @@ const EXTENDED_GEMINI_VOICES: VoiceItem[] = [
   { name: 'Vindemiatrix', gender: 'Female', descriptor: 'Polished & broadcast-ready', tags: ['Radio Imaging', 'Broadcast', 'Polished'] },
   { name: 'Sulafat', gender: 'Female', descriptor: 'Airy & friendly', tags: ['Commercial', 'Light', 'Friendly'] },
 
-  // Male voices
+  // Male voices (17)
   { name: 'Puck', gender: 'Male', descriptor: 'Playful, engaging & dynamic', tags: ['Promo', 'Stinger', 'Dynamic'] },
   { name: 'Fenrir', gender: 'Male', descriptor: 'Authoritative & resonant', tags: ['Movie Trailer', 'Broadcast', 'Resonant'] },
   { name: 'Charon', gender: 'Male', descriptor: 'Informative & professional broadcaster', tags: ['News', 'Radio Imaging', 'Informative'] },
-  { name: 'Enceladus', gender: 'Male', descriptor: 'Warm, grounded & friendly', tags: ['Podcast Host', 'Warm', 'Friendly'] },
-  { name: 'Iapetus', gender: 'Male', descriptor: 'Classic radio announcer & trailer', tags: ['Radio ID', 'Classic', 'Deep'] },
-  { name: 'Orus', gender: 'Male', descriptor: 'Deep, resonant & dramatic', tags: ['Dramatic', 'Trailer', 'Low Pitch'] },
-  { name: 'Alcor', gender: 'Male', descriptor: 'Youthful & energetic delivery', tags: ['Commercial', 'Energetic', 'Modern'] },
-  { name: 'Caph', gender: 'Male', descriptor: 'Calm, measured & technical', tags: ['Explainer', 'Tech', 'Articulate'] },
-  { name: 'Mira', gender: 'Male', descriptor: 'Inspiring & motivational storyteller', tags: ['Inspirational', 'Story', 'Warm'] },
-  { name: 'Schedar', gender: 'Male', descriptor: 'Commanding, firm & punchy', tags: ['Urgent', 'Imaging', 'Commanding'] },
-  { name: 'Tegmine', gender: 'Male', descriptor: 'Crisp & neutral corporate', tags: ['Corporate', 'Clear', 'Neutral'] },
+  { name: 'Orus', gender: 'Male', descriptor: 'Deep & resonant', tags: ['Dramatic', 'Trailer', 'Low Pitch'] },
+  { name: 'Enceladus', gender: 'Male', descriptor: 'Warm, relatable & conversational', tags: ['Podcast Host', 'Warm', 'Friendly'] },
+  { name: 'Iapetus', gender: 'Male', descriptor: 'Classic radio announcer', tags: ['Radio ID', 'Classic', 'Deep'] },
+  { name: 'Umbriel', gender: 'Male', descriptor: 'Grave & dramatic', tags: ['Documentary', 'Dramatic', 'Serious'] },
+  { name: 'Algieba', gender: 'Male', descriptor: 'Bright & charismatic', tags: ['Commercial', 'Upbeat', 'Charismatic'] },
+  { name: 'Algenib', gender: 'Male', descriptor: 'Bold & persuasive', tags: ['Advertising', 'Bold', 'Persuasive'] },
+  { name: 'Rasalgethi', gender: 'Male', descriptor: 'Documentary & narrator style', tags: ['Documentary', 'Narrator', 'Steady'] },
+  { name: 'Alnilam', gender: 'Male', descriptor: 'Smooth & measured', tags: ['Technical', 'Smooth', 'Measured'] },
+  { name: 'Schedar', gender: 'Male', descriptor: 'Commanding & cinematic', tags: ['Urgent', 'Imaging', 'Commanding'] },
+  { name: 'Pulcherrima', gender: 'Male', descriptor: 'Rich & warm baritone', tags: ['Podcast', 'Warm Baritone', 'Deep'] },
+  { name: 'Achird', gender: 'Male', descriptor: 'Casual & friendly', tags: ['Interview', 'Casual', 'Friendly'] },
+  { name: 'Zubenelgenubi', gender: 'Male', descriptor: 'Steady & informative', tags: ['News', 'Informative', 'Steady'] },
+  { name: 'Sadachbia', gender: 'Male', descriptor: 'Clear & articulate', tags: ['Explainer', 'Corporate', 'Articulate'] },
+  { name: 'Sadaltager', gender: 'Male', descriptor: 'Measured & reflective', tags: ['Storyteller', 'Reflective', 'Calm'] },
 ];
 
 
@@ -76,13 +84,13 @@ const EXTENDED_GEMINI_VOICES: VoiceItem[] = [
 interface VoiceoverModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddVoiceTrack: (asset: Asset, voiceMeta: VoiceMetadata) => void;
+  /** Kept for compatibility; the finished voiceover is added through the shared job's commit handler (see App) */
+  onAddVoiceTrack?: (asset: Asset, voiceMeta: VoiceMetadata) => void;
 }
 
 export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
   isOpen,
   onClose,
-  onAddVoiceTrack,
 }) => {
   const {
     script,
@@ -106,123 +114,27 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
   const [newPreceptTitle, setNewPreceptTitle] = useState<string>('');
   const [slotNotice, setSlotNotice] = useState<string | null>(null);
 
-  // Audition state
-  const [auditioningVoice, setAuditioningVoice] = useState<string | null>(null);
-  const [isAuditionLoading, setIsAuditionLoading] = useState<boolean>(false);
-  const previewSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const auditionTimeoutRef = useRef<number | null>(null);
-
-  // Generation status
-  const [status, setStatus] = useState<'idle' | 'sending' | 'decoding' | 'ready'>('idle');
-  const [progressMsg, setProgressMsg] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [generatedAsset, setGeneratedAsset] = useState<Asset | null>(null);
-  const [isPlayingGenerated, setIsPlayingGenerated] = useState<boolean>(false);
-  const generatedAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Stop audition playback on modal close or unmount
+  // Ensure selectedVoice is always a valid voice from the verified lineup
   useEffect(() => {
-    return () => {
-      if (previewSourceRef.current) {
-        try {
-          previewSourceRef.current.stop();
-        } catch {}
-        previewSourceRef.current = null;
-      }
-      if (auditionTimeoutRef.current !== null) {
-        window.clearTimeout(auditionTimeoutRef.current);
-      }
-      if (generatedAudioSourceRef.current) {
-        try {
-          generatedAudioSourceRef.current.stop();
-        } catch {}
-      }
-    };
-  }, []);
+    const isValid = EXTENDED_GEMINI_VOICES.some((v) => v.name === selectedVoice);
+    if (!isValid) {
+      setSelectedVoice('Zephyr');
+    }
+  }, [selectedVoice, setSelectedVoice]);
+
+  // Generation, finished voiceover and audition are one shared job (voice/voiceJob.ts), identical to the sidebar
+  const job = useVoiceJob();
+  const { status, progressMsg, auditioningVoice, isAuditionLoading } = job;
+  const errorMessage = job.error;
+  const generatedAsset = job.asset;
+  const isPlayingGenerated = job.isPlayingGenerated;
+  const setErrorMessage = (message: string | null) => voiceJob.setError(message);
+  const isBusy = status === 'sending' || status === 'decoding';
 
   if (!isOpen) return null;
 
-  // Audition sample player with safety timeout and Web Audio buffer source
-  const handleAuditionVoice = async (voiceName: string) => {
-    if (auditioningVoice === voiceName) {
-      if (previewSourceRef.current) {
-        try {
-          previewSourceRef.current.stop();
-        } catch {}
-        previewSourceRef.current = null;
-      }
-      if (auditionTimeoutRef.current !== null) {
-        window.clearTimeout(auditionTimeoutRef.current);
-      }
-      setAuditioningVoice(null);
-      setIsAuditionLoading(false);
-      return;
-    }
-
-    if (previewSourceRef.current) {
-      try {
-        previewSourceRef.current.stop();
-      } catch {}
-      previewSourceRef.current = null;
-    }
-
-    setAuditioningVoice(voiceName);
-    setIsAuditionLoading(true);
-
-    // Safety timeout: 40 seconds to allow cold inference under variable network latency
-    if (auditionTimeoutRef.current !== null) {
-      window.clearTimeout(auditionTimeoutRef.current);
-    }
-    auditionTimeoutRef.current = window.setTimeout(() => {
-      setIsAuditionLoading(false);
-      setAuditioningVoice(null);
-    }, 40000);
-
-    try {
-      const res = await fetch(`/api/voice/preview?voice=${encodeURIComponent(voiceName)}`, {
-        headers: authService.getAuthHeaders(),
-      });
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Audition request failed (${res.status})`);
-      }
-      const data = await res.json();
-      if (!data.audioBase64) {
-        throw new Error('No audio returned for preview');
-      }
-
-      const binaryStr = atob(data.audioBase64);
-      const len = binaryStr.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-
-      const decodedBuffer = await audioEngine.decodeAudio(bytes.buffer);
-      const ctx = await audioEngine.init();
-
-      const src = ctx.createBufferSource();
-      src.buffer = decodedBuffer;
-      src.connect(ctx.destination);
-
-      src.onended = () => {
-        setAuditioningVoice(null);
-        setIsAuditionLoading(false);
-        if (auditionTimeoutRef.current !== null) window.clearTimeout(auditionTimeoutRef.current);
-      };
-
-      previewSourceRef.current = src;
-      src.start();
-      setIsAuditionLoading(false);
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      console.warn('Audition error:', msg);
-      setErrorMessage(msg);
-      setIsAuditionLoading(false);
-      setAuditioningVoice(null);
-      if (auditionTimeoutRef.current !== null) window.clearTimeout(auditionTimeoutRef.current);
-    }
+  const handleAuditionVoice = (voiceName: string) => {
+    void voiceJob.audition(voiceName);
   };
 
   // Precept slot clicks
@@ -276,143 +188,20 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
     setScript(script.trim() + ' ... ');
   };
 
-  // Generate Voiceover
-  const handleGenerate = async () => {
-    if (!script.trim() || status !== 'idle') return;
-
-    setErrorMessage(null);
-    setStatus('sending');
-    setProgressMsg('Connecting to Gemini Voice Synthesis...');
-    setGeneratedAsset(null);
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    try {
-      const response = await fetch('/api/voice/generate', {
-        method: 'POST',
-        headers: authService.getAuthHeaders(),
-        signal: controller.signal,
-        body: JSON.stringify({
-          script: script.trim(),
-          voiceName: selectedVoice,
-          modelId: selectedModel,
-          instruction: deliveryInstruction.trim(),
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        if (response.status === 401) {
-          throw new Error('Sign in with Google is required to generate voiceovers.');
-        }
-        if (response.status === 403) {
-          throw new Error(errorData.error || 'This account has been blocked.');
-        }
-        if (response.status === 429) {
-          throw new Error(
-            errorData.error || 'Gemini TTS rate limit reached. Please wait a moment and retry.'
-          );
-        }
-        throw new Error(errorData.error || `Voice synthesis failed (${response.status})`);
-      }
-
-      setStatus('decoding');
-      setProgressMsg('Decoding 24kHz audio buffer to timeline waveform...');
-
-      const result = await response.json();
-      const base64Data = result.audioBase64;
-      if (!base64Data) {
-        throw new Error('Engine returned empty audio payload.');
-      }
-
-      const binaryStr = atob(base64Data);
-      const len = binaryStr.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-
-      const decodedBuffer = await audioEngine.decodeAudio(bytes.buffer);
-      if (!decodedBuffer || decodedBuffer.duration <= 0.2) {
-        throw new Error('The voice engine returned empty audio. Nothing was added to the timeline. Please try again.');
-      }
-
-      const newAssetId = `vo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const voiceMeta: VoiceMetadata = {
-        script: script.trim(),
-        voiceName: selectedVoice,
-        model: selectedModel,
-        deliveryInstruction: deliveryInstruction.trim(),
-      };
-
-      const newAsset: Asset = {
-        id: newAssetId,
-        name: `VO - ${selectedVoice}`,
-        kind: 'voice',
-        buffer: decodedBuffer,
-        sampleRate: decodedBuffer.sampleRate,
-        durationSeconds: decodedBuffer.duration,
-        numberOfChannels: decodedBuffer.numberOfChannels,
-        voiceMetadata: voiceMeta,
-      };
-
-      audioEngine.registerAsset(newAsset);
-      await saveAssetToDB(newAsset);
-
-      setGeneratedAsset(newAsset);
-      setStatus('ready');
-      setProgressMsg('');
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        setStatus('idle');
-        setProgressMsg('');
-        return;
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      setErrorMessage(msg);
-      setStatus('idle');
-      setProgressMsg('');
-    } finally {
-      abortControllerRef.current = null;
-    }
-  };
-
-  // Audition generated audio
-  const handleTogglePlayGenerated = () => {
-    if (!generatedAsset) return;
-    const ctx = audioEngine.getContext();
-    if (!ctx) return;
-
-    if (isPlayingGenerated) {
-      if (generatedAudioSourceRef.current) {
-        try {
-          generatedAudioSourceRef.current.stop();
-        } catch {}
-      }
-      setIsPlayingGenerated(false);
-      return;
-    }
-
-    const src = ctx.createBufferSource();
-    src.buffer = generatedAsset.buffer;
-    src.connect(ctx.destination);
-    src.onended = () => setIsPlayingGenerated(false);
-    generatedAudioSourceRef.current = src;
-    src.start();
-    setIsPlayingGenerated(true);
-  };
-
-  // Commit to Timeline
-  const handleCommitToTimeline = () => {
-    if (!generatedAsset) return;
-    const voiceMeta: VoiceMetadata = {
-      script: script.trim(),
+  const handleGenerate = () => {
+    void voiceJob.generate({
+      origin: 'modal',
+      script,
       voiceName: selectedVoice,
-      model: selectedModel,
-      deliveryInstruction: deliveryInstruction.trim(),
-    };
-    onAddVoiceTrack(generatedAsset, voiceMeta);
+      modelId: selectedModel,
+      instruction: deliveryInstruction,
+    });
+  };
+
+  const handleTogglePlayGenerated = () => voiceJob.togglePlayGenerated();
+
+  const handleCommitToTimeline = () => {
+    voiceJob.commit();
     onClose();
   };
 
@@ -431,9 +220,9 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md select-none animate-in fade-in duration-200">
-      <div className="w-full max-w-6xl h-[92vh] bg-[#0E0E14] border border-zinc-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100">
+      <div className="w-full max-w-6xl h-[calc(100dvh-1.5rem)] md:h-[92dvh] bg-[#0E0E14] border border-zinc-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100">
         {/* Workspace Top Header */}
-        <div className="h-14 px-6 border-b border-zinc-800 flex items-center justify-between bg-[#12121A] shrink-0">
+        <div className="h-14 px-3 sm:px-6 border-b border-zinc-800 flex items-center justify-between bg-[#12121A] shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-indigo-600 flex items-center justify-center text-white shadow-[0_0_15px_rgba(0,240,255,0.35)]">
               <Mic className="w-4 h-4" />
@@ -487,7 +276,7 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-cyan-400" />
                   <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-                    Script Text
+                    ### [Script] — Spoken Audio Content
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-xs">
@@ -518,8 +307,22 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
 
               <textarea
                 value={script}
-                onChange={(e) => setScript(e.target.value)}
-                placeholder="Type or paste your broadcast voiceover script here..."
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (
+                    /(?:^|\n)\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:/i.test(val) ||
+                    /(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:/i.test(val)
+                  ) {
+                    const parsed = parseScriptAndInstructionClient(val, deliveryInstruction);
+                    setScript(parsed.cleanScript);
+                    if (parsed.directorNotes) {
+                      setDeliveryInstruction(parsed.directorNotes);
+                    }
+                  } else {
+                    setScript(val);
+                  }
+                }}
+                placeholder="The actual text you must speak (e.g. paste your script or format as ### [Script]: &quot;...&quot; and ### [Instruction]: &quot;...&quot;)"
                 className="flex-1 w-full min-h-[160px] bg-[#0A0A0E] border border-zinc-700/80 rounded-xl p-4 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-cyan-500 leading-relaxed font-sans resize-none transition-colors"
               />
             </div>
@@ -530,7 +333,7 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-amber-400" />
                   <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-                    Director's Delivery Instruction
+                    ### [Instruction] — Director's Voice Engine Directives
                   </span>
                 </div>
                 {deliveryInstruction && (
@@ -543,11 +346,14 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                   </button>
                 )}
               </div>
+              <p className="text-[11px] text-zinc-500 mb-1.5 leading-relaxed">
+                Directives on HOW to speak it (tone, emotion, pace, accent, pitch, texture). Applied strictly as voice profile boundaries — never read aloud.
+              </p>
               <textarea
                 value={deliveryInstruction}
                 onChange={(e) => setDeliveryInstruction(e.target.value)}
                 rows={2}
-                placeholder="Eg: professional radio broadcast style with energetic stinger delivery"
+                placeholder="Directives on HOW to speak it (e.g., tone, emotion, pace, accent, warmth, texture)"
                 className="w-full bg-[#0A0A0E] border border-zinc-700/80 rounded-xl p-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-400 leading-relaxed font-sans resize-none transition-colors"
               />
             </div>
@@ -722,6 +528,41 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                 </div>
               </div>
 
+              {/* Pinned selected voice: stays visible while browsing the list */}
+              {(() => {
+                const picked = EXTENDED_GEMINI_VOICES.find((v) => v.name === selectedVoice);
+                const pickedAuditioning = auditioningVoice === selectedVoice;
+                return (
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-cyan-950/50 border border-cyan-400">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-cyan-300 font-bold">
+                        <Lock className="w-3 h-3" />
+                        <span>Selected voice{isBusy ? ' (locked while generating)' : ''}</span>
+                      </div>
+                      <div className="text-sm font-bold text-white truncate">
+                        {selectedVoice}
+                        {picked && <span className="ml-2 text-[11px] font-medium text-zinc-400">{picked.gender} - {picked.descriptor}</span>}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAuditionVoice(selectedVoice)}
+                      disabled={isAuditionLoading && !pickedAuditioning}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-100 cursor-pointer disabled:opacity-50 shrink-0"
+                    >
+                      {isAuditionLoading && pickedAuditioning ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : pickedAuditioning ? (
+                        <Pause className="w-3.5 h-3.5" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5" />
+                      )}
+                      <span>{pickedAuditioning ? 'Stop' : 'Audition'}</span>
+                    </button>
+                  </div>
+                );
+              })()}
+
               {/* Scrollable Voice Grid */}
               <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto pr-1">
                 {filteredVoices.map((v) => {
@@ -731,7 +572,9 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                   return (
                     <div
                       key={v.name}
-                      onClick={() => setSelectedVoice(v.name)}
+                      onClick={() => {
+                        if (!isBusy) setSelectedVoice(v.name);
+                      }}
                       className={`p-3 rounded-xl border transition-all flex items-center justify-between cursor-pointer ${
                         isSelected
                           ? 'bg-cyan-950/40 border-cyan-400 shadow-[0_0_12px_rgba(0,240,255,0.2)]'
@@ -903,10 +746,10 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
               <button
                 type="button"
                 onClick={handleGenerate}
-                disabled={status !== 'idle' || !script.trim()}
+                disabled={isBusy || !script.trim()}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold text-xs hover:from-cyan-400 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_15px_rgba(0,240,255,0.35)] transition-all cursor-pointer"
               >
-                {status !== 'idle' ? (
+                {isBusy ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span>Synthesizing...</span>

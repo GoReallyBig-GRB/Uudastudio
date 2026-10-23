@@ -41,6 +41,7 @@ import {
 } from '../audio/effects/dspChain';
 import { audioEngine } from '../audio/engine';
 import { formatTimecode } from '../utils/formatters';
+import { getTrackLabel } from '../utils/tracks';
 
 interface EffectsModalProps {
   isOpen: boolean;
@@ -201,10 +202,10 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   // List all available clips in project
   const allClips = useMemo(() => {
     const list: { trackId: string; trackName: string; clip: Clip; asset: Asset | null }[] = [];
-    for (const track of project.tracks) {
+    for (const [trackIndex, track] of project.tracks.entries()) {
       for (const c of track.clips) {
         const ast = audioEngine.getAsset(c.assetId) || null;
-        list.push({ trackId: track.id, trackName: track.name, clip: c, asset: ast });
+        list.push({ trackId: track.id, trackName: getTrackLabel(track, trackIndex), clip: c, asset: ast });
       }
     }
     return list;
@@ -417,8 +418,8 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 select-none animate-in fade-in duration-100">
-      <div className="w-full max-w-xl bg-[#101016] border border-cyan-500/50 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col text-xs text-zinc-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-2 sm:p-4 select-none animate-in fade-in duration-100">
+      <div className="w-full max-w-xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] bg-[#101016] border border-cyan-500/50 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col text-xs text-zinc-200">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 bg-[#161622]">
           <div className="flex items-center gap-2">
@@ -509,7 +510,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
         </div>
 
         {/* Effect Parameters Body */}
-        <div className="p-5 space-y-4 max-h-[58vh] overflow-y-auto">
+        <div className="p-3 sm:p-5 space-y-4 min-h-0 flex-1 overflow-y-auto">
           {/* Preset Selector & Bypass Switch */}
           <div className="flex items-center justify-between bg-zinc-900/80 p-2.5 rounded-xl border border-zinc-800">
             <div className="flex items-center gap-2">
@@ -597,7 +598,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                 <div>
                   <div className="flex justify-between text-zinc-400 mb-1 text-[10px]">
                     <span>High-Pass Filter</span>
@@ -741,7 +742,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                 <div>
                   <div className="flex justify-between text-zinc-400 mb-1 text-[10px]">
                     <span>Stereo Spread</span>
@@ -900,7 +901,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                 <div>
                   <div className="flex justify-between text-zinc-400 mb-1 text-[10px]">
                     <span>Pre-Delay</span>

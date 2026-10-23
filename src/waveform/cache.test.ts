@@ -1,32 +1,55 @@
 import { describe, expect, it } from 'vitest';
 import { waveformCache } from './cache';
 
-function makeStereoBuffer(length: number): AudioBuffer {
-  const left = Float32Array.from({ length }, (_, i) => Math.sin(i * 0.31) * (i % 11 === 0 ? 1.2 : 0.8));
-  const right = Float32Array.from({ length }, (_, i) => Math.cos(i * 0.17) * (i % 7 === 0 ? 0.9 : 0.5));
-  const channels = [left, right];
+function audioBuffer(channels: number[][]): AudioBuffer {
+  const length = channels[0]?.length ?? 0;
   return {
     length,
-    numberOfChannels: 2,
-    getChannelData: (channel: number) => channels[channel],
+    numberOfChannels: channels.length,
+    getChannelData: (channel: number) => new Float32Array(channels[channel]),
   } as unknown as AudioBuffer;
 }
 
-describe('waveform peak cache', () => {
-  it('aggregates a coarser level from cached finer peaks without changing extrema', () => {
-    const buffer = makeStereoBuffer(4099);
-    waveformCache.clearAsset('waveform-fine');
-    waveformCache.clearAsset('waveform-direct');
+describe('waveformCache', () => {
+  it('extracts min/max peaks from mono and averages multichannel audio', () => {
+    const monoId = 'test-mono-peaks';
+    const mono = waveformCache.getPeaks(monoId, audioBuffer([[-0.8, 0.2, 0.6, -0.1]]), 2);
+    expect(Array.from(mono.mins)[0]).toBeCloseTo(-0.8, 6);
+    expect(Array.from(mono.mins)[1]).toBeCloseTo(-0.1, 6);
+    expect(Array.from(mono.maxs)[0]).toBeCloseTo(0.2, 6);
+    expect(Array.from(mono.maxs)[1]).toBeCloseTo(0.6, 6);
 
-    waveformCache.getPeaks('waveform-fine', buffer, 2);
-    const aggregated = waveformCache.getPeaks('waveform-fine', buffer, 8);
-    const direct = waveformCache.getPeaks('waveform-direct', buffer, 8);
+    const stereoId = 'test-stereo-peaks';
+    const stereo = waveformCache.getPeaks(stereoId, audioBuffer([
+      [-1, 0.5, 1, -0.5],
+      [1, 0.5, -1, -0.5],
+    ]), 1);
+    expect(Array.from(stereo.mins)).toEqual([0, 0.5, 0, -0.5]);
+    expect(Array.from(stereo.maxs)).toEqual([0, 0.5, 0, -0.5]);
 
-    expect(aggregated.samplesPerPixel).toBe(8);
-    expect(Array.from(aggregated.mins)).toEqual(Array.from(direct.mins));
-    expect(Array.from(aggregated.maxs)).toEqual(Array.from(direct.maxs));
+    waveformCache.clearAsset(monoId);
+    waveformCache.clearAsset(stereoId);
+  });
 
-    waveformCache.clearAsset('waveform-fine');
-    waveformCache.clearAsset('waveform-direct');
+  it('normalizes invalid resolutions and reuses cached peaks', () => {
+    const id = 'test-cache-hit';
+    const buffer = audioBuffer([[-0.25, 0.75]]);
+    const first = waveformCache.getPeaks(id, buffer, 0);
+    const second = waveformCache.getPeaks(id, buffer, Number.NaN);
+    expect(first.samplesPerPixel).toBe(1);
+    expect(second).toBe(first);
+    waveformCache.clearAsset(id);
+  });
+
+  it('clears cached peaks and mono data for an asset', () => {
+    const id = 'test-clear-asset';
+    const buffer = audioBuffer([[-0.4, 0.4]]);
+    const first = waveformCache.getPeaks(id, buffer, 1);
+    waveformCache.clearAsset(id);
+    const second = waveformCache.getPeaks(id, buffer, 1);
+    expect(second).not.toBe(first);
+    expect(Array.from(second.mins)[0]).toBeCloseTo(-0.4, 6);
+    expect(Array.from(second.mins)[1]).toBeCloseTo(0.4, 6);
+    waveformCache.clearAsset(id);
   });
 });

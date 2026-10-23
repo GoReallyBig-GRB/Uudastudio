@@ -13,7 +13,8 @@
 import { Mp3Encoder } from '@breezystack/lamejs';
 import { Project } from '../types';
 import { audioEngine } from './engine';
-import { pluginManager } from '../plugins/pluginManager';
+import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
+import { buildDuckCurve, scheduleDuckCurve } from './ducking';
 
 export type MasteringProfileType = 'podcast' | 'broadcast' | 'music' | 'custom' | 'bypass';
 export type BroadcastPreset = 'ebu_r128' | 'atsc_a85' | 'hot_commercial';
@@ -346,6 +347,49 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
 }
 
 /**
+ * Builds the active (non-bypassed) plugins of one chain inside an offline context and wires them in series after
+ * `source`. Returns the last node. A plugin that fails to load is skipped, so one bad module never blocks an export.
+ * chainId is a track id or MASTER_TRACK_ID.
+ */
+/** A plugin the export had to pass through unchanged */
+export interface SkippedPlugin {
+  chainId: string;
+  name: string;
+  reason: 'missing' | 'failed';
+}
+
+export async function appendOfflinePlugins(
+  offlineCtx: OfflineAudioContext,
+  chainId: string,
+  source: AudioNode,
+  skipped?: SkippedPlugin[]
+): Promise<AudioNode> {
+  let output: AudioNode = source;
+  for (const plugin of pluginManager.getPluginsForTrack(chainId)) {
+    if (plugin.isBypassed) continue;
+    if (plugin.missing) {
+      skipped?.push({ chainId, name: plugin.descriptor.name, reason: 'missing' });
+      continue;
+    }
+    try {
+      const offlineInst = await pluginManager.instantiatePlugin(
+        offlineCtx,
+        chainId,
+        plugin.descriptor,
+        await plugin.getState()
+      );
+      offlineInst.dryWet = plugin.dryWet;
+      output.connect(offlineInst.inputNode);
+      output = offlineInst.outputNode;
+    } catch (err) {
+      console.warn(`Plugin ${plugin.descriptor.name} fallback to pass-through in offline export:`, err);
+      skipped?.push({ chainId, name: plugin.descriptor.name, reason: 'failed' });
+    }
+  }
+  return output;
+}
+
+/**
  * Offline render with OfflineAudioContext honouring:
  * - All tracks (respects mute, solo, track volume, track pan)
  * - All clips (respects clip gain, start position, offset, duration, fade-in, fade-out, fade-shape)
@@ -387,6 +431,13 @@ export async function renderProjectOffline(
   masterNode.gain.setValueAtTime(masterFaderGain, 0);
   masterNode.connect(offlineCtx.destination);
 
+  // Master bus effects (whole-mix chain): every track sums into masterBusIn, passes through the chain, then the fader.
+  // This mirrors the live engine, so an exported file matches what you hear.
+  const masterBusIn = offlineCtx.createGain();
+  const skippedPlugins: SkippedPlugin[] = [];
+  const masterBusOut = await appendOfflinePlugins(offlineCtx, MASTER_TRACK_ID, masterBusIn, skippedPlugins);
+  masterBusOut.connect(masterNode);
+
   let processedClips = 0;
   const totalClipsCount = project.tracks.reduce((acc, t) => acc + t.clips.length, 0);
 
@@ -404,27 +455,24 @@ export async function renderProjectOffline(
     trackGain.connect(trackPan);
 
     // Route track effect plugins in offline context with graceful fallback
-    let trackOutput: AudioNode = trackPan;
-    const trackPlugins = pluginManager.getPluginsForTrack(track.id);
+    const trackOutput = await appendOfflinePlugins(offlineCtx, track.id, trackPan, skippedPlugins);
 
-    for (const plugin of trackPlugins) {
-      if (plugin.isBypassed) continue;
-      try {
-        const offlineInst = await pluginManager.instantiatePlugin(
-          offlineCtx,
-          track.id,
-          plugin.descriptor,
-          await plugin.getState()
-        );
-        offlineInst.dryWet = plugin.dryWet;
-        trackOutput.connect(offlineInst.inputNode);
-        trackOutput = offlineInst.outputNode;
-      } catch (err) {
-        console.warn(`Plugin ${plugin.descriptor.name} fallback to pass-through in offline export:`, err);
-      }
+    // Automatic ducking: the same precomputed curve the live engine uses
+    const duckCurve = buildDuckCurve(project, track, (id) => {
+      const b = audioEngine.getAsset(id)?.buffer;
+      if (!b) return null;
+      const channels: Float32Array[] = [];
+      for (let c = 0; c < b.numberOfChannels; c++) channels.push(b.getChannelData(c));
+      return { channels, sampleRate: b.sampleRate };
+    });
+    if (duckCurve) {
+      const duckNode = offlineCtx.createGain();
+      scheduleDuckCurve(duckNode.gain, duckCurve, rangeStart, 0);
+      trackOutput.connect(duckNode);
+      duckNode.connect(masterBusIn);
+    } else {
+      trackOutput.connect(masterBusIn);
     }
-
-    trackOutput.connect(masterNode);
 
     for (const clip of track.clips) {
       if (clip.muted) continue;
@@ -478,6 +526,11 @@ export async function renderProjectOffline(
     }
   }
 
+  if (skippedPlugins.length > 0 && typeof window !== 'undefined') {
+    // The export carries on with those plugins passed through; the app tells the user which ones
+    window.dispatchEvent(new CustomEvent('uuda:export-skipped-plugins', { detail: { plugins: skippedPlugins } }));
+  }
+
   onProgress?.({ stage: 'rendering', percent: 40, message: 'Rendering offline audio graph...' });
   const renderedBuffer = await offlineCtx.startRendering();
   onProgress?.({ stage: 'rendering', percent: 60, message: 'Mixdown complete.' });
@@ -525,8 +578,7 @@ export async function measureAndApplyMastering(
     profile,
     targetLufs,
     ceilingDbTP,
-    gainAdjustmentDb,
-    onProgress
+    gainAdjustmentDb
   );
 
   onProgress?.({ stage: 'mastering', percent: 85, message: 'Verifying post-mastering compliance...' });
@@ -549,74 +601,6 @@ export async function measureAndApplyMastering(
 }
 
 /**
- * Apply the channel limiter using a monotonic sliding maximum. This is linear-time in
- * sample count and keeps temporary state proportional to the lookahead window, not the file.
- */
-export async function applyLookaheadLimiterChannel(
-  inData: Float32Array,
-  outData: Float32Array,
-  ceilingLinear: number,
-  lookaheadSamples: number,
-  releaseCoeff: number,
-  onProgress?: (progress: ExportProgress) => void,
-  progressBase = 0,
-  progressSpan = 1
-): Promise<void> {
-  const length = inData.length;
-  if (outData.length < length) throw new Error('Limiter output buffer is shorter than its input.');
-  const windowSize = Math.max(1, lookaheadSamples);
-  const yieldEverySamples = 1_048_576;
-  const deque = new Int32Array(windowSize + 1);
-  const capacity = deque.length;
-  let head = 0;
-  let count = 0;
-  const pushIndex = (index: number) => {
-    const value = Math.abs(inData[index]);
-    while (count > 0) {
-      const tail = (head + count - 1) % capacity;
-      if (Math.abs(inData[deque[tail]]) > value) break;
-      count--;
-    }
-    deque[(head + count) % capacity] = index;
-    count++;
-  };
-
-  for (let i = 0; i < Math.min(length, windowSize); i++) pushIndex(i);
-  let envelope = 0;
-
-  for (let i = 0; i < length; i++) {
-    const maxFuture = count > 0 ? Math.abs(inData[deque[head]]) : 0;
-    if (maxFuture > envelope) envelope = maxFuture;
-    else envelope = maxFuture + releaseCoeff * (envelope - maxFuture);
-
-    const gain = envelope > ceilingLinear ? ceilingLinear / envelope : 1;
-    let sample = inData[i] * gain;
-    if (sample > ceilingLinear) sample = ceilingLinear;
-    if (sample < -ceilingLinear) sample = -ceilingLinear;
-    outData[i] = sample;
-
-    // Advance the window for the next sample.
-    while (count > 0 && deque[head] <= i) {
-      head = (head + 1) % capacity;
-      count--;
-    }
-    const nextIndex = i + windowSize;
-    if (nextIndex < length) pushIndex(nextIndex);
-
-    if ((i + 1) % yieldEverySamples === 0) {
-      const completed = progressBase + ((i + 1) / Math.max(1, length)) * progressSpan;
-      onProgress?.({
-        stage: 'mastering',
-        percent: Math.min(84, 75 + Math.floor(completed * 9)),
-        message: `Applying lookahead limiter (${Math.round(completed * 100)}%)...`,
-      });
-      // Let the browser paint and process input during long limiter passes.
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    }
-  }
-}
-
-/**
  * Mastering DSP Chain:
  * Presence Filter -> Multi-stage Compression -> Normalization -> Lookahead True Peak Limiter
  */
@@ -625,8 +609,7 @@ export async function applyMasteringChain(
   profile: MasteringProfileConfig,
   targetLufs: number,
   ceilingDbTP: number,
-  initialGainDb: number = 0,
-  onProgress?: (progress: ExportProgress) => void
+  initialGainDb: number = 0
 ): Promise<AudioBuffer> {
   if (profile.type === 'bypass') {
     return inputBuffer;
@@ -687,16 +670,43 @@ export async function applyMasteringChain(
   const releaseCoeff = Math.exp(-1 / (0.05 * sampleRate)); // 50ms release
 
   for (let c = 0; c < channels; c++) {
-    await applyLookaheadLimiterChannel(
-      renderedIntermediate.getChannelData(c),
-      outBuffer.getChannelData(c),
-      ceilingLinear,
-      lookaheadSamples,
-      releaseCoeff,
-      onProgress,
-      c / channels,
-      1 / channels
-    );
+    const inData = renderedIntermediate.getChannelData(c);
+    const outData = outBuffer.getChannelData(c);
+
+    // Compute peak envelope with lookahead
+    let envelope = 0;
+    const gainReduction = new Float32Array(length);
+
+    for (let i = 0; i < length; i++) {
+      // Lookahead peak
+      let maxFuture = 0;
+      const endLook = Math.min(length, i + lookaheadSamples);
+      for (let j = i; j < endLook; j++) {
+        const v = Math.abs(inData[j]);
+        if (v > maxFuture) maxFuture = v;
+      }
+
+      if (maxFuture > envelope) {
+        envelope = maxFuture;
+      } else {
+        envelope = maxFuture + releaseCoeff * (envelope - maxFuture);
+      }
+
+      if (envelope > ceilingLinear) {
+        gainReduction[i] = ceilingLinear / envelope;
+      } else {
+        gainReduction[i] = 1.0;
+      }
+    }
+
+    // Apply limiting gain curve
+    for (let i = 0; i < length; i++) {
+      let sample = inData[i] * gainReduction[i];
+      // Hard clamp safety to absolute ceiling
+      if (sample > ceilingLinear) sample = ceilingLinear;
+      if (sample < -ceilingLinear) sample = -ceilingLinear;
+      outData[i] = sample;
+    }
   }
 
   return outBuffer;
@@ -779,62 +789,104 @@ function writeString(view: DataView, offset: number, string: string): void {
 }
 
 /**
- * Encode AudioBuffer to MP3 entirely in the browser.
- * Audio is never uploaded to the server for format conversion. PCM is converted in bounded
- * encoder-sized blocks so a second full-length Int16 copy is not allocated.
+ * Encode AudioBuffer to MP3 Blob.
+ * Primary: Backend native FFmpeg + libmp3lame (POST /api/export/mp3).
+ * Client fallback: @breezystack/lamejs (bundler-safe, no MPEGMode issues).
  */
 export async function exportAudioBufferToMp3(
   buffer: AudioBuffer,
   kbps: 128 | 192 | 256 | 320 = 320,
   onProgress?: (progress: ExportProgress) => void
 ): Promise<Blob> {
-  const numChannels = buffer.numberOfChannels;
-  if (numChannels < 1 || numChannels > 2) {
-    throw new Error(`MP3 export supports mono or stereo audio; received ${numChannels} channels.`);
-  }
-
-  const sampleRate = buffer.sampleRate;
-  const length = buffer.length;
-  const leftChannel = buffer.getChannelData(0);
-  const rightChannel = numChannels > 1 ? buffer.getChannelData(1) : null;
-  const mp3encoder = new Mp3Encoder(numChannels, sampleRate, kbps);
-  const mp3Data: Uint8Array[] = [];
-  const sampleBlockSize = 1152;
-  onProgress?.({ stage: 'encoding', percent: 70, message: `Encoding MP3 locally (${kbps} kbps)...` });
-
-  for (let i = 0; i < length; i += sampleBlockSize) {
-    const blockLength = Math.min(sampleBlockSize, length - i);
-    const leftChunk = new Int16Array(blockLength);
-    const rightChunk = rightChannel ? new Int16Array(blockLength) : undefined;
-
-    for (let j = 0; j < blockLength; j++) {
-      const left = Math.max(-1, Math.min(1, leftChannel[i + j]));
-      leftChunk[j] = left < 0 ? left * 0x8000 : left * 0x7fff;
-      if (rightChunk && rightChannel) {
-        const right = Math.max(-1, Math.min(1, rightChannel[i + j]));
-        rightChunk[j] = right < 0 ? right * 0x8000 : right * 0x7fff;
-      }
+  // 1. Primary: Try backend native FFmpeg + libmp3lame
+  try {
+    if (onProgress) {
+      onProgress({
+        stage: 'encoding',
+        percent: 75,
+        message: `Encoding with FFmpeg libmp3lame (${kbps} kbps)...`,
+      });
     }
 
-    const mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
-    if (mp3buf.length > 0) mp3Data.push(new Uint8Array(mp3buf));
+    const wavBlob = exportAudioBufferToWav(buffer, 16);
+    const formData = new FormData();
+    formData.append('audio', wavBlob, 'mixdown.wav');
+    formData.append('bitrate', String(kbps));
+    formData.append('sampleRate', String(buffer.sampleRate));
+    formData.append('channels', String(buffer.numberOfChannels));
+    formData.append('filename', 'uuda_mixdown.mp3');
 
+    const res = await fetch('/api/export/mp3', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (res.ok) {
+      const mp3Blob = await res.blob();
+      if (mp3Blob && mp3Blob.size > 0) {
+        if (onProgress) {
+          onProgress({
+            stage: 'encoding',
+            percent: 100,
+            message: 'FFmpeg MP3 export completed.',
+          });
+        }
+        return mp3Blob;
+      }
+    }
+  } catch (backendErr) {
+    console.warn('Backend FFmpeg MP3 encoding fallback to client WASM/JS:', backendErr);
+  }
+
+  // 2. Client Fallback: @breezystack/lamejs bundler-safe encoder
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const length = buffer.length;
+
+  const leftChannel = buffer.getChannelData(0);
+  const rightChannel = numChannels > 1 ? buffer.getChannelData(1) : leftChannel;
+
+  // Convert Float32Array [-1.0, 1.0] to Int16Array [-32768, 32767]
+  const leftInt16 = new Int16Array(length);
+  const rightInt16 = new Int16Array(length);
+
+  for (let i = 0; i < length; i++) {
+    let l = Math.max(-1, Math.min(1, leftChannel[i]));
+    let r = Math.max(-1, Math.min(1, rightChannel[i]));
+    leftInt16[i] = l < 0 ? l * 0x8000 : l * 0x7fff;
+    rightInt16[i] = r < 0 ? r * 0x8000 : r * 0x7fff;
+  }
+
+  const mp3encoder = new Mp3Encoder(numChannels, sampleRate, kbps);
+  const mp3Data: Uint8Array[] = [];
+
+  const sampleBlockSize = 1152;
+  const totalChunks = Math.ceil(length / sampleBlockSize);
+
+  for (let i = 0; i < length; i += sampleBlockSize) {
     const chunkIndex = Math.floor(i / sampleBlockSize);
-    if (chunkIndex % 10 === 0 || i + blockLength >= length) {
-      const ratio = Math.min(1, (i + blockLength) / Math.max(1, length));
-      onProgress?.({
+    if (chunkIndex % 10 === 0 && onProgress) {
+      const pct = Math.min(99, Math.round(70 + (chunkIndex / totalChunks) * 28));
+      onProgress({
         stage: 'encoding',
-        percent: Math.min(99, Math.round(70 + ratio * 29)),
-        message: `Encoding MP3 locally... ${Math.round(ratio * 100)}%`,
+        percent: pct,
+        message: `Encoding MP3 (${kbps} kbps)... ${Math.round((chunkIndex / totalChunks) * 100)}%`,
       });
-      // Allow the browser to repaint progress during long encodes.
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+
+    const leftChunk = leftInt16.subarray(i, i + sampleBlockSize);
+    const rightChunk = numChannels > 1 ? rightInt16.subarray(i, i + sampleBlockSize) : undefined;
+    const mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+    if (mp3buf.length > 0) {
+      mp3Data.push(new Uint8Array(mp3buf));
     }
   }
 
   const endBuf = mp3encoder.flush();
-  if (endBuf.length > 0) mp3Data.push(new Uint8Array(endBuf));
-  onProgress?.({ stage: 'encoding', percent: 100, message: 'Local MP3 encoding completed.' });
+  if (endBuf.length > 0) {
+    mp3Data.push(new Uint8Array(endBuf));
+  }
+
   return new Blob(mp3Data as unknown as BlobPart[], { type: 'audio/mp3' });
 }
 

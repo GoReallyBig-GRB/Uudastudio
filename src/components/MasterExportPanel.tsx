@@ -43,6 +43,7 @@ import {
 import { Project, Track } from '../types';
 import { audioEngine, MasterLiveMetering } from '../audio/engine';
 import { formatVolumeDb, formatPan } from '../utils/formatters';
+import { getTrackLabel } from '../utils/tracks';
 import {
   MasteringProfileType,
   BroadcastPreset,
@@ -832,10 +833,10 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
                         </div>
 
                         <div
-                          title={isActive ? track.name : 'Empty Channel'}
+                          title={isActive ? getTrackLabel(track, chIdx) : 'Empty Channel'}
                           className="text-[10px] font-semibold truncate w-full text-zinc-200"
                         >
-                          {isActive ? track.name : 'Empty'}
+                          {isActive ? getTrackLabel(track, chIdx) : 'Empty'}
                         </div>
                       </div>
 

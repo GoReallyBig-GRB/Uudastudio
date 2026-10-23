@@ -135,9 +135,23 @@ export interface ClipVersion {
   operation: string;
 }
 
+/** Automatic ducking of a (music) track under chosen source tracks (the voice) */
+export interface DuckingSettings {
+  enabled: boolean;
+  /** Tracks whose level triggers the duck */
+  sourceTrackIds: string[];
+  thresholdDb: number; // -70 to -6: level that counts as "voice present"
+  amountDb: number; // -40 to 0: how far the track drops
+  attackMs: number; // how fast it drops (the drop starts this early, ahead of the voice)
+  holdMs: number; // stays down this long after the voice stops
+  releaseMs: number; // how slowly it comes back up
+}
+
 export interface Track {
   id: string;
   name: string;
+  /** True once the user typed a name. Until then "Track N" follows the track's position in the list. */
+  customName?: boolean;
   clips: Clip[];
   volume: number; // 0.0 to 1.5, default 1.0
   pan: number; // -1.0 to 1.0, default 0.0
@@ -145,6 +159,8 @@ export interface Track {
   solo: boolean;
   effects?: TrackEffect[];
   plugins?: import('../plugins/types').StoredPluginState[];
+  /** Auto-duck under other tracks; see audio/ducking.ts */
+  ducking?: DuckingSettings;
 }
 
 export * from '../plugins/types';
@@ -163,6 +179,8 @@ export interface Project {
   tracks: Track[];
   sampleRate: number;
   settings: ProjectSettings;
+  /** Master bus (whole mix) plugin chain, saved with the project. Track chains live on Track.plugins. */
+  masterPlugins?: import('../plugins/types').StoredPluginState[];
   updatedAt?: number;
 }
 
@@ -186,7 +204,7 @@ export interface StoredAsset {
   sampleRate: number;
   durationSeconds: number;
   numberOfChannels: number;
-  channels: ArrayBuffer[] | Float32Array[]; // Supports legacy ArrayBuffers and typed-array IndexedDB records
+  channels: ArrayBuffer[]; // ArrayBuffer of Float32Array channel data
   voiceMetadata?: VoiceMetadata;
 }
 
@@ -295,7 +313,7 @@ export interface SupportTicket {
   user_name: string;
   title: string;
   type: 'AI generation issue' | 'Account issue' | 'Workspace failure' | 'Technical issue' | 'Performance issue';
-  status: 'Open' | 'Resolved' | 'Closed';
+  status: 'Open' | 'Resolved' | 'Closed' | 'Archived';
   created_at: string;
   updated_at: string;
   has_unread_admin_reply: boolean;

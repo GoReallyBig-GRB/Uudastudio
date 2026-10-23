@@ -5,13 +5,14 @@
  */
 
 import React from 'react';
-import { Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Sparkles } from 'lucide-react';
+import { Layers, Mic, Music, MessageSquare, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Sparkles } from 'lucide-react';
 import { TrackListPanel } from './TrackListPanel';
 import { VoicePanel } from './VoicePanel';
 import { SoundLibraryPanel } from './SoundLibraryPanel';
+import { MessagesPanel } from './MessagesPanel';
 import { Track, Asset, VoiceMetadata, UserRecord } from '../types';
 
-export type SidebarTab = 'tracks' | 'voice' | 'library';
+export type SidebarTab = 'tracks' | 'voice' | 'library' | 'messages';
 
 interface LeftSidebarProps {
   activeTab: SidebarTab;
@@ -22,6 +23,7 @@ interface LeftSidebarProps {
   user: UserRecord | null;
   unreadTicketsCount?: number;
   onOpenDashboard: () => void;
+  onOpenSupport: () => void;
   onOpenAdmin: () => void;
   onOpenSignIn: () => void;
   // Plugins & Expanded Modals
@@ -35,6 +37,8 @@ interface LeftSidebarProps {
   onDeleteTrack: (trackId: string) => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
   onAddTrack: () => void;
+  onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
+  onRemoveEmptyTracks: () => void;
   // VoicePanel props
   onAddVoiceTrack: (asset: Asset, metadata: VoiceMetadata) => void;
   existingVoiceMetadata?: VoiceMetadata | null;
@@ -50,6 +54,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   user,
   unreadTicketsCount = 0,
   onOpenDashboard,
+  onOpenSupport,
   onOpenAdmin,
   onOpenSignIn,
   onOpenPlugins,
@@ -61,6 +66,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onDeleteTrack,
   onMoveTrack,
   onAddTrack,
+  onUpdateTrack,
+  onRemoveEmptyTracks,
   onAddVoiceTrack,
   existingVoiceMetadata,
   onAddLibraryTrack,
@@ -76,9 +83,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   const isAdmin = user?.role === 'admin';
 
   return (
-    <div className="flex h-full border-r border-zinc-700/80 bg-[#121216] select-none shrink-0 z-10">
+    <div className="relative flex h-full border-r border-zinc-700/80 bg-[#121216] select-none shrink-0 z-20">
       {/* Mini Icon Tab Switcher Strip (Sidebar Rail) */}
-      <div className="w-12 bg-[#0c0c10] border-r border-zinc-800 flex flex-col items-center py-3 gap-2 shrink-0 justify-between">
+      <div className="w-11 sm:w-12 bg-[#0c0c10] border-r border-zinc-800 flex flex-col items-center py-3 gap-2 shrink-0 justify-between overflow-y-auto overflow-x-hidden">
         {/* Top Studio Workspaces */}
         <div className="flex flex-col items-center gap-2">
           <button
@@ -118,6 +125,24 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             }`}
           >
             <Music className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabClick('messages')}
+            title="Messages from support"
+            className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+              activeTab === 'messages' && !isCollapsed
+                ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/60'
+                : 'text-zinc-500 hover:text-cyan-400 hover:bg-zinc-800/60'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            {(unreadTicketsCount || 0) > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-cyan-500 text-black text-[9px] font-bold flex items-center justify-center">
+                {unreadTicketsCount}
+              </span>
+            )}
           </button>
 
           {/* Modular Audio Plugins Rack button */}
@@ -199,7 +224,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
       {/* Main Panel Content Area (collapsed when isCollapsed is true) */}
       {!isCollapsed && (
-        <div className={`${activeTab === 'voice' ? 'w-96' : 'w-80'} h-full flex flex-col min-w-0 bg-[#121216] animate-in fade-in duration-150`}>
+        <div className={`${activeTab === 'voice' ? 'w-96' : 'w-80'} max-w-[calc(100vw-3rem)] h-full flex flex-col min-w-0 bg-[#121216] animate-in fade-in duration-150 max-md:absolute max-md:left-full max-md:top-0 max-md:border-r max-md:border-zinc-700 max-md:shadow-[8px_0_24px_rgba(0,0,0,0.6)]`}>
           {activeTab === 'tracks' && (
             <TrackListPanel
               tracks={tracks}
@@ -208,6 +233,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               onDeleteTrack={onDeleteTrack}
               onMoveTrack={onMoveTrack}
               onAddTrack={onAddTrack}
+              onUpdateTrack={onUpdateTrack}
+              onRemoveEmptyTracks={onRemoveEmptyTracks}
             />
           )}
 
@@ -217,6 +244,10 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               existingMetadata={existingVoiceMetadata}
               onClose={onToggleCollapse}
             />
+          )}
+
+          {activeTab === 'messages' && (
+            <MessagesPanel signedIn={!!user} onOpenSupport={onOpenSupport} onClose={onToggleCollapse} />
           )}
 
           {activeTab === 'library' && (

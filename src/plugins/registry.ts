@@ -10,14 +10,48 @@ import { DENOISER_DESCRIPTOR } from './native/DenoiserPlugin';
 import { EQ_DESCRIPTOR } from './native/FourBandEqPlugin';
 import { PITCH_TIME_DESCRIPTOR } from './native/PitchTimePlugin';
 import { REVERB_DESCRIPTOR } from './native/ReverbPlugin';
+import { AUTO_PAN_DESCRIPTOR } from './native/AutoPanPlugin';
+import { CHORUS_DESCRIPTOR } from './native/ChorusPlugin';
+import { DE_ESSER_DESCRIPTOR } from './native/DeEsserPlugin';
+import { DELAY_DESCRIPTOR } from './native/DelayPlugin';
+import { FLANGER_DESCRIPTOR } from './native/FlangerPlugin';
+import { GAIN_PAN_DESCRIPTOR } from './native/GainPanPlugin';
+import { LIMITER_DESCRIPTOR } from './native/LimiterPlugin';
+import { MULTIMODE_FILTER_DESCRIPTOR } from './native/MultimodeFilterPlugin';
+import { NOISE_GATE_DESCRIPTOR } from './native/NoiseGatePlugin';
+import { PARAMETRIC_EQ_DESCRIPTOR } from './native/ParametricEqPlugin';
+import { PHASER_DESCRIPTOR } from './native/PhaserPlugin';
+import { SATURATOR_DESCRIPTOR } from './native/SaturatorPlugin';
+import { STEREO_WIDENER_DESCRIPTOR } from './native/StereoWidenerPlugin';
+import { VOICE_ENHANCER_DESCRIPTOR } from './native/VoiceEnhancerPlugin';
 
-// 1. Native Stems (Built-in DSP Plugins)
+// 1. Native Stems (Built-in DSP Plugins). Every entry needs a factory in nativeFactories.ts (a test checks this).
 export const NATIVE_STEM_PLUGINS: PluginDescriptor[] = [
+  // Dynamics
   COMPRESSOR_DESCRIPTOR,
-  DENOISER_DESCRIPTOR,
+  DE_ESSER_DESCRIPTOR,
+  NOISE_GATE_DESCRIPTOR,
+  LIMITER_DESCRIPTOR,
+  // EQ and filters
   EQ_DESCRIPTOR,
-  PITCH_TIME_DESCRIPTOR,
+  PARAMETRIC_EQ_DESCRIPTOR,
+  MULTIMODE_FILTER_DESCRIPTOR,
+  // Spatial
   REVERB_DESCRIPTOR,
+  DELAY_DESCRIPTOR,
+  // Modulation
+  CHORUS_DESCRIPTOR,
+  FLANGER_DESCRIPTOR,
+  PHASER_DESCRIPTOR,
+  AUTO_PAN_DESCRIPTOR,
+  // Restoration and pitch
+  DENOISER_DESCRIPTOR,
+  PITCH_TIME_DESCRIPTOR,
+  // Utility
+  VOICE_ENHANCER_DESCRIPTOR,
+  SATURATOR_DESCRIPTOR,
+  STEREO_WIDENER_DESCRIPTOR,
+  GAIN_PAN_DESCRIPTOR,
 ];
 
 // 2. Verified Third-Party Web Audio Modules (WAM 2.0)
@@ -129,6 +163,8 @@ export const VERIFIED_THIRD_PARTY_PLUGINS: PluginDescriptor[] = [
 ];
 
 // Approved Origin Domains for Content Security Policy compliance
+// SECURITY TODO (release blocker for third-party plugins): trusting whole hosts is unsafe, because anyone can publish
+// to these. Replace with a hash-pinned, admin-approved catalogue. See docs/PLUGIN-HARDENING.md (PRD PL-3).
 export const APPROVED_WAM_ORIGINS = [
   'https://webaudiomodules.org',
   'https://cdn.jsdelivr.net',
@@ -153,6 +189,12 @@ export function isVerifiedWamUrl(url: string): boolean {
 }
 
 export const isModuleOriginWhitelisted = isVerifiedWamUrl;
+
+/** Resolves only built-in reviewed third-party descriptors, ignoring caller-supplied URLs. */
+export function resolveVerifiedThirdPartyPlugin(descriptor: PluginDescriptor): PluginDescriptor | undefined {
+  if (descriptor.type !== 'third-party-wam') return undefined;
+  return VERIFIED_THIRD_PARTY_PLUGINS.find((plugin) => plugin.id === descriptor.id);
+}
 
 /**
  * Registry Lookup by Plugin ID

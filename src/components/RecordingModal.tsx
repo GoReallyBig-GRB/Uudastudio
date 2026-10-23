@@ -397,9 +397,9 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 select-none animate-in fade-in duration-150">
-      <div className="bg-[#101016] border border-zinc-800 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-zinc-100 max-h-[92vh]">
+      <div className="bg-[#101016] border border-zinc-800 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-zinc-100 max-h-[calc(100dvh-1.5rem)] md:h-[92dvh]">
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-zinc-800/80 bg-[#13131c] flex items-center justify-between shrink-0">
+        <div className="px-3 sm:px-5 py-3.5 border-b border-zinc-800/80 bg-[#13131c] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center">
               <Mic className="w-4 h-4" />

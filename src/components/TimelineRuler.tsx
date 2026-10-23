@@ -3,9 +3,10 @@
  * Top time ruler header (340px) + time marker lane with interactive playhead scrubbing.
  */
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatTimecode } from '../utils/formatters';
+import { timeToViewportX, viewportXToTime } from '../utils/timelineCoordinates';
 
 interface TimelineRulerProps {
   pixelsPerSecond: number;
@@ -13,7 +14,6 @@ interface TimelineRulerProps {
   playheadSeconds: number;
   scrollLeft: number;
   onSeek: (seconds: number) => void;
-  timelineWidth: number;
   isControlsCollapsed?: boolean;
   onToggleCollapseControls?: () => void;
 }
@@ -24,13 +24,28 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   playheadSeconds,
   scrollLeft,
   onSeek,
-  timelineWidth,
   isControlsCollapsed = false,
   onToggleCollapseControls,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(1);
   const isScrubbingRef = useRef<boolean>(false);
-  const rulerViewportWidth = Math.max(100, timelineWidth);
+
+  // Keep the canvas's intrinsic coordinate space equal to the visible ruler lane.
+  // A project-sized canvas stretched into this viewport scales every tick and the playhead.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const width = Math.max(1, Math.round(entries[0]?.contentRect.width ?? viewport.clientWidth));
+      setViewportWidth((current) => current === width ? current : width);
+    });
+
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
 
   // Determine tick spacing based on zoom level (pixelsPerSecond)
   let majorStepSec = 1;
@@ -92,7 +107,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
 
     for (let t = firstMajor; t <= lastMajor; t += majorStepSec) {
       if (t < 0) continue;
-      const x = Math.round(t * pixelsPerSecond - scrollLeft);
+      const x = Math.round(timeToViewportX(t, pixelsPerSecond, scrollLeft));
 
       // Major tick mark (distinguishable, clean 1px line)
       ctx.strokeStyle = '#52525b';
@@ -112,7 +127,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       const minorStep = majorStepSec / minorTicks;
       for (let m = 1; m < minorTicks; m++) {
         const minorTime = t + m * minorStep;
-        const mx = Math.round(minorTime * pixelsPerSecond - scrollLeft);
+        const mx = Math.round(timeToViewportX(minorTime, pixelsPerSecond, scrollLeft));
         if (mx >= 0 && mx <= width) {
           ctx.strokeStyle = '#3f3f46';
           ctx.beginPath();
@@ -124,7 +139,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     }
 
     // Playhead marker on the ruler
-    const playheadX = playheadSeconds * pixelsPerSecond - scrollLeft;
+    const playheadX = timeToViewportX(playheadSeconds, pixelsPerSecond, scrollLeft);
     if (playheadX >= -10 && playheadX <= width + 10) {
       // Glow
       ctx.shadowColor = '#00F0FF';
@@ -149,20 +164,20 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
 
       ctx.shadowBlur = 0;
     }
-  }, [pixelsPerSecond, totalDurationSeconds, playheadSeconds, scrollLeft, rulerViewportWidth, majorStepSec, minorTicks, isControlsCollapsed]);
+  }, [pixelsPerSecond, totalDurationSeconds, playheadSeconds, scrollLeft, viewportWidth, majorStepSec, minorTicks]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     isScrubbingRef.current = true;
     const rect = e.currentTarget.getBoundingClientRect();
     const pixelX = e.clientX - rect.left;
-    const time = Math.max(0, (pixelX + scrollLeft) / pixelsPerSecond);
+    const time = viewportXToTime(pixelX, pixelsPerSecond, scrollLeft);
     onSeek(time);
 
     const onPointerMove = (moveEv: PointerEvent) => {
       if (!isScrubbingRef.current) return;
       const movePixelX = moveEv.clientX - rect.left;
-      const moveTime = Math.max(0, (movePixelX + scrollLeft) / pixelsPerSecond);
+      const moveTime = viewportXToTime(movePixelX, pixelsPerSecond, scrollLeft);
       onSeek(moveTime);
     };
 
@@ -217,10 +232,10 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       )}
 
       {/* Ruler canvas */}
-      <div className="flex-1 overflow-hidden relative cursor-ew-resize">
+      <div ref={viewportRef} className="flex-1 overflow-hidden relative cursor-ew-resize">
         <canvas
           ref={canvasRef}
-          width={rulerViewportWidth}
+          width={viewportWidth}
           height={28}
           onPointerDown={handlePointerDown}
           className="w-full h-full block"

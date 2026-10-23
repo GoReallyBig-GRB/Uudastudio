@@ -17,13 +17,14 @@ import { TimelineRuler } from './TimelineRuler';
 import { ClipActionStrip } from './ClipActionStrip';
 import { waveformCache } from '../waveform/cache';
 import { audioEngine } from '../audio/engine';
+import { pluginManager } from '../plugins/pluginManager';
+import { pruneEmptiedTracks, getTrackLabel } from '../utils/tracks';
 import { formatTimecode } from '../utils/formatters';
 
 interface TimelineProps {
   project: Project;
   playheadSeconds: number;
   pixelsPerSecond: number;
-  onViewportWidthChange?: (width: number) => void;
   selectedTrackId: string | null;
   selectedClipIds: Set<string>;
   onSelectTrack: (trackId: string) => void;
@@ -31,6 +32,8 @@ interface TimelineProps {
   onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
   onDeleteTrack: (trackId: string) => void;
   onUpdateProject: (newProject: Project) => void;
+  /** Lanes that were emptied by a clip move and removed (untouched default lanes only) */
+  onTracksAutoRemoved?: (trackIds: string[]) => void;
   onSeek: (seconds: number) => void;
   onSplitClip: (clipId: string) => void;
   onDeleteClip: (clipId: string) => void;
@@ -90,7 +93,6 @@ export const Timeline: React.FC<TimelineProps> = ({
   project,
   playheadSeconds,
   pixelsPerSecond,
-  onViewportWidthChange,
   selectedTrackId,
   selectedClipIds,
   onSelectTrack,
@@ -98,6 +100,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   onUpdateTrack,
   onDeleteTrack,
   onUpdateProject,
+  onTracksAutoRemoved,
   onSeek,
   onSplitClip,
   onDeleteClip,
@@ -196,34 +199,19 @@ export const Timeline: React.FC<TimelineProps> = ({
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const w = entry.contentRect.width;
-        const viewportWidth = Math.max(100, Math.floor(w));
-        setTimelineWidth(Math.max(100, viewportWidth - currentHeaderWidth));
-        onViewportWidthChange?.(viewportWidth);
+        setTimelineWidth(Math.max(w, lanePixelWidth));
       }
     });
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [lanePixelWidth, onViewportWidthChange, currentHeaderWidth]);
+  }, [lanePixelWidth]);
 
   // Synchronize horizontal & vertical scroll
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     setScrollLeft(e.currentTarget.scrollLeft);
     setScrollTop(e.currentTarget.scrollTop);
   };
-
-  // Keep the playhead in view during playback without forcing continuous scrolling.
-  useEffect(() => {
-    if (!audioEngine.getIsPlaying()) return;
-    const viewport = laneScrollContainerRef.current;
-    if (!viewport) return;
-    const playheadX = currentHeaderWidth + playheadSeconds * pixelsPerSecond;
-    const viewportRight = viewport.scrollLeft + viewport.clientWidth;
-    const rightSafetyMargin = 64;
-    if (playheadX > viewportRight - rightSafetyMargin) {
-      viewport.scrollLeft = Math.max(0, playheadX - viewport.clientWidth + rightSafetyMargin * 2);
-    }
-  }, [playheadSeconds, pixelsPerSecond, currentHeaderWidth]);
 
   // Keyboard navigation & Shortcuts (S=split, Ctrl+C=copy, etc.)
   useEffect(() => {
@@ -269,21 +257,17 @@ export const Timeline: React.FC<TimelineProps> = ({
       const width = canvas.width;
       const height = canvas.height;
       ctx.clearRect(0, 0, width, height);
-      // The canvas is positioned at scrollLeft inside the full-width lane. Translate
-      // timeline-space drawing into this viewport-sized canvas.
-      ctx.save();
-      ctx.translate(-scrollLeft, 0);
 
-      // Background lane color, in timeline coordinates.
+      // Background lane color
       ctx.fillStyle = trackIndex % 2 === 0 ? '#0B0B10' : '#0E0E14';
-      ctx.fillRect(scrollLeft, 0, width, height);
+      ctx.fillRect(0, 0, width, height);
 
       // Subtle horizontal centerline
       ctx.strokeStyle = '#181822';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(scrollLeft, height / 2 + 0.5);
-      ctx.lineTo(scrollLeft + width, height / 2 + 0.5);
+      ctx.moveTo(0, height / 2 + 0.5);
+      ctx.lineTo(width, height / 2 + 0.5);
       ctx.stroke();
 
       try {
@@ -491,8 +475,6 @@ export const Timeline: React.FC<TimelineProps> = ({
         }
       } catch (renderError) {
         console.error('Fatal render error in track waveform canvas:', renderError);
-      } finally {
-        ctx.restore();
       }
     },
     [project.tracks, selectedClipIds, draggingClips, pixelsPerSecond, scrollLeft, timelineWidth]
@@ -826,7 +808,14 @@ export const Timeline: React.FC<TimelineProps> = ({
             targetTrack.clips.sort((a, b) => a.startSeconds - b.startSeconds);
           }
 
-          onUpdateProject({ ...project, tracks: newTracks });
+          // A lane emptied by this move that was never renamed, mixed or given effects would be left as an orphan
+          const { tracks: tidyTracks, removedIds } = pruneEmptiedTracks(
+            project.tracks,
+            newTracks,
+            (id) => pluginManager.getPluginsForTrack(id).length > 0
+          );
+          onUpdateProject({ ...project, tracks: tidyTracks });
+          if (removedIds.length > 0) onTracksAutoRemoved?.(removedIds);
         }
         setDraggingClips(null);
       }
@@ -857,6 +846,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     onSelectClips,
     onUpdateClip,
     onUpdateProject,
+    onTracksAutoRemoved,
   ]);
 
   // Double click on lane: opens quick-action strip
@@ -931,7 +921,6 @@ export const Timeline: React.FC<TimelineProps> = ({
         playheadSeconds={playheadSeconds}
         scrollLeft={scrollLeft}
         onSeek={onSeek}
-        timelineWidth={timelineWidth}
         isControlsCollapsed={isControlsCollapsed}
         onToggleCollapseControls={handleToggleControls}
       />
@@ -969,7 +958,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 left: `${currentHeaderWidth + playheadSeconds * pixelsPerSecond}px`,
                 height: `${project.tracks.length * ROW_HEIGHT}px`,
               }}
-              className="absolute top-0 w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF] z-20 pointer-events-none transition-[left] duration-100 linear"
+              className="absolute top-0 w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF] z-20 pointer-events-none"
             />
 
             {/* Marquee Selection Rectangle Box */}
@@ -1040,7 +1029,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           className="timeline-context-menu-container fixed z-40 bg-[#14141c]/95 border border-cyan-500/60 rounded-xl shadow-[0_12px_36px_rgba(0,0,0,0.85),0_0_16px_rgba(0,240,255,0.2)] py-1.5 px-1 text-xs text-zinc-200 min-w-[210px] animate-in fade-in zoom-in-95 duration-100 backdrop-blur-md select-none"
         >
           <div className="px-2.5 py-1 text-[10px] font-mono text-zinc-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
-            <span className="truncate max-w-[120px] text-zinc-300 font-semibold">{contextMenu.track.name}</span>
+            <span className="truncate max-w-[120px] text-zinc-300 font-semibold">{getTrackLabel(contextMenu.track, Math.max(0, project.tracks.findIndex((t) => t.id === contextMenu.track.id)))}</span>
             <span className="text-cyan-400 font-bold">{contextMenu.timeSeconds.toFixed(3)}s</span>
           </div>
 
