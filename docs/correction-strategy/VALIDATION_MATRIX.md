@@ -119,3 +119,10 @@ Run `npm run lint`, `npm test`, and `npm run build` where the repository environ
 - Async loudness analysis now computes K-weighted samples into a 400ms ring and accumulates each overlapping window without storing full-length filtered audio.
 - Sync/async parity test must pass before merge. CI: **PENDING** for this candidate.
 - This bounds the K-weighting intermediate but does not bound the rendered/mastered AudioBuffers or final encoded Blob. V-07 and the 60-/90-minute targets remain **NOT VERIFIED** pending named-machine runtime profiling.
+
+
+## Merge reconciliation — 2026-10-23
+
+Implementation merges: [PR #20](https://github.com/GoReallyBig-GRB/Uudastudio/pull/20), [PR #21](https://github.com/GoReallyBig-GRB/Uudastudio/pull/21), [PR #23](https://github.com/GoReallyBig-GRB/Uudastudio/pull/23), [PR #24](https://github.com/GoReallyBig-GRB/Uudastudio/pull/24), and [PR #25](https://github.com/GoReallyBig-GRB/Uudastudio/pull/25). CI passed for each candidate before merge. No browser profiling, audio listening/equivalence on real exports, long-file memory run, or AI Studio staging test is claimed from those CI results.
+
+**Current priority:** establish a reproducible browser baseline and run V-04/V-05, V-07/V-08/V-09, V-10/V-11, and the root-folder checks in AI Studio when staging becomes available. Until then, continue safe code-level work and keep CS-00/04/06/09/10/12/13/15/16 open or partial.
