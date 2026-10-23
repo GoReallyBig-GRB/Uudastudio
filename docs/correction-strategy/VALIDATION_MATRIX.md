@@ -119,3 +119,10 @@ Run `npm run lint`, `npm test`, and `npm run build` where the repository environ
 - Async loudness analysis now computes K-weighted samples into a 400ms ring and accumulates each overlapping window without storing full-length filtered audio.
 - Sync/async parity test must pass before merge. CI: **PENDING** for this candidate.
 - This bounds the K-weighting intermediate but does not bound the rendered/mastered AudioBuffers or final encoded Blob. V-07 and the 60-/90-minute targets remain **NOT VERIFIED** pending named-machine runtime profiling.
+
+
+## Continued correction work — 2026-10-23 (yielding export verification)
+
+- The read-back verification path now yields during loudness/true-peak analysis and publishes verification progress after decode.
+- Full-mix measurement and the acceptance suite's initial 60-second analysis use the yielding API.
+- CI pending for this candidate. V-07/V-08 remain **NOT VERIFIED** until browser timing, peak memory, and actual export comparison/listening are recorded.
