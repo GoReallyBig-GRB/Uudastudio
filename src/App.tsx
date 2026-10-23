@@ -27,7 +27,9 @@ import {
   loadProjectFromDB,
   saveAssetToDB,
   loadAllAssetsFromDB,
-  clearAllProjectData,
+  clearCurrentProjectData,
+  cleanupOrphanedAssets,
+  startNewProjectSession,
 } from './storage/db';
 import { Header } from './components/Header';
 import { LeftSidebar, SidebarTab } from './components/LeftSidebar';
@@ -112,6 +114,8 @@ const MainStudio: React.FC = () => {
   const [adminCodePreview, setAdminCodePreview] = useState<string | undefined>(undefined);
 
   const [project, setProject] = useState<Project>(DEFAULT_PROJECT);
+  const projectRef = useRef<Project>(DEFAULT_PROJECT);
+  const savedProjectRef = useRef<Project>(DEFAULT_PROJECT);
   // Audio IDs remain here until their IndexedDB write succeeds. Autosave omits only
   // clips whose audio is not durable, avoiding saved projects with dangling asset refs.
   const unsavedAssetIdsRef = useRef<Set<string>>(new Set());
@@ -302,6 +306,21 @@ const MainStudio: React.FC = () => {
     []
   );
 
+  // Keep a current project reference for unload protection without a stale event-handler closure.
+  useEffect(() => { projectRef.current = project; }, [project]);
+
+  // Protect unsaved portable project changes when the tab is closed or navigated away.
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (projectRef.current !== savedProjectRef.current) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
   // 1. Restore project and stored assets from IndexedDB on initial mount
   useEffect(() => {
     let isMounted = true;
@@ -312,6 +331,8 @@ const MainStudio: React.FC = () => {
         const urlParams = new URLSearchParams(window.location.search);
         const isForcedNew = urlParams.get('new') === '1' || urlParams.get('new_project') === '1';
         if (isForcedNew) {
+          startNewProjectSession();
+          await cleanupOrphanedAssets().catch(() => ({ removedAssets: 0 }));
           window.history.replaceState({}, '', window.location.pathname);
           if (isMounted) {
             addToast({
@@ -323,17 +344,18 @@ const MainStudio: React.FC = () => {
           return;
         }
 
-        // Load stored audio assets into audio engine
+        // Resolve this tab's project slot first, then prune stale snapshots/orphaned assets
+        // before loading PCM. The cleanup keeps every fresh tab's referenced assets intact.
+        const savedProject = await loadProjectFromDB();
+        await cleanupOrphanedAssets().catch(() => ({ removedAssets: 0 }));
+
         const restoredAssets = await loadAllAssetsFromDB(audioEngine);
         if (isMounted) {
-          for (const asset of restoredAssets) {
-            audioEngine.registerAsset(asset);
-          }
+          for (const asset of restoredAssets) audioEngine.registerAsset(asset);
         }
 
-        // Load project metadata
-        const savedProject = await loadProjectFromDB();
         if (isMounted && savedProject) {
+          savedProjectRef.current = savedProject;
           setProject(savedProject);
           historyManagerRef.current.reset(savedProject);
           updateHistoryFlags();
@@ -477,6 +499,7 @@ const MainStudio: React.FC = () => {
       },
       updatedAt: Date.now(),
     };
+    savedProjectRef.current = blankProject;
     setProjectWithHistory(blankProject);
     setSelectedTrackId(null);
     setSelectedClipIds(new Set());
@@ -484,7 +507,7 @@ const MainStudio: React.FC = () => {
   }, [isPlaying, setProjectWithHistory]);
 
   const handleNewProject = useCallback(() => {
-    if (project.tracks.length > 0) {
+    if (project !== savedProjectRef.current) {
       setIsNewProjectModalOpen(true);
     } else {
       createBlankProject();
@@ -494,7 +517,7 @@ const MainStudio: React.FC = () => {
         message: 'Ready for recording, voiceover, and sound design.',
       });
     }
-  }, [project.tracks.length, createBlankProject, addToast]);
+  }, [project, createBlankProject, addToast]);
 
   const handleSaveProjectToFile = useCallback(async (forceSaveAs = false): Promise<boolean> => {
     try {
@@ -558,6 +581,7 @@ const MainStudio: React.FC = () => {
           message: `Downloaded self-contained project "${fileName}".`,
         });
       }
+      savedProjectRef.current = project;
       return true;
     } catch (err) {
       addToast({
@@ -659,6 +683,7 @@ const MainStudio: React.FC = () => {
         }
       }
 
+      savedProjectRef.current = loadedProject;
       setProjectWithHistory(loadedProject);
       setSelectedTrackId(loadedProject.tracks[0]?.id || null);
       setSelectedClipIds(new Set());
@@ -1757,7 +1782,7 @@ const MainStudio: React.FC = () => {
     audioEngine.seek(0);
     playheadSecondsRef.current = 0;
     setPlayheadSeconds(0);
-    await clearAllProjectData().catch(() => {});
+    await clearCurrentProjectData().catch(() => {});
     const freshProject: Project = {
       id: `project-${Date.now()}`,
       name: 'Untitled Project',
@@ -1771,6 +1796,7 @@ const MainStudio: React.FC = () => {
       },
       updatedAt: Date.now(),
     };
+    savedProjectRef.current = freshProject;
     setProject(freshProject);
     historyManagerRef.current.reset(freshProject);
     updateHistoryFlags();
@@ -1781,7 +1807,7 @@ const MainStudio: React.FC = () => {
 
   const handleClearSession = useCallback(() => {
     // If tracks or clips exist, prompt the user with modal to save their work before resetting
-    if (project.tracks.length > 0) {
+    if (project !== savedProjectRef.current) {
       setIsResetSessionModalOpen(true);
     } else {
       handleExecuteResetSession();
@@ -1791,7 +1817,7 @@ const MainStudio: React.FC = () => {
         message: 'Empty project session is ready.',
       });
     }
-  }, [project.tracks.length, handleExecuteResetSession, addToast]);
+  }, [project, handleExecuteResetSession, addToast]);
 
   const handleSaveAndResetSession = useCallback(async () => {
     const saved = await handleSaveProjectToFile();

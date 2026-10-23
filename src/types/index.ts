@@ -206,6 +206,8 @@ export interface StoredAsset {
   numberOfChannels: number;
   channels: Float32Array[]; // structured-cloned PCM channel data
   voiceMetadata?: VoiceMetadata;
+  /** IndexedDB persistence timestamp used for conservative orphan cleanup. */
+  storedAt?: number;
 }
 
 export interface VoiceMetadata {
