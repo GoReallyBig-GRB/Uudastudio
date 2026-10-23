@@ -136,3 +136,22 @@ Still mandatory and not marked Done: CS-00, CS-04, CS-06, CS-09, CS-10, CS-12, C
 - Regression coverage includes empty/short clips, 400 ms block boundaries, 100 ms hop boundaries, async/sync parity, and progress during long true-peak scans.
 - Export verification progress is forwarded to the export progress UI.
 - Automated checks and browser/runtime memory measurements must be recorded from the resulting candidate before this correction is considered complete. No unperformed browser or long-duration memory test is claimed as passed.
+
+## Consolidated open-task execution branch — 2026-10-23
+
+Working branch: `correction/open-partial-tasks` (based on main at `51df2b8241a855ee4e16be7b8865752d1524bcb5`). This branch consolidates remaining code-level regression work; it does not imply that runtime acceptance has passed.
+
+### Still open / partial after source-level implementation
+
+- **CS-00 / CS-15 — baseline and long-duration targets:** open. No named reference machine, memory cap, or measured 60-/90-minute result is recorded. Establish the environment and collect import, waveform, export and recovery metrics before setting targets.
+- **CS-04 — React render/playhead behavior:** partial. Ref-based playhead and throttled parent state updates exist; React Profiler and actual interaction traces are still required.
+- **CS-06 — waveform cache/viewport:** code and unit coverage exist. Profile repeated zoom/scroll and cache allocation on long stereo audio; prove cache misses do not rescan the full source on every gesture.
+- **CS-09 — mastering/export correctness:** limiter reference test exists. Still require approved/reference render comparison, boundary listening, loudness/true-peak verification on real exported files.
+- **CS-10 / CS-12 — export memory/progress:** chunked WAV, local block MP3 and yielding analysis exist. Automated WAV byte-equivalence coverage is added on this branch; full export memory remains unbounded by design at the final Blob/rendered AudioBuffer stages and requires profiling.
+- **CS-13 — project lifecycle:** `.uuda` reader/writer and exact-sample unit test exist. Full app build, browser save/open, corrupt/missing asset, permission, interruption and large-file tests remain open.
+- **CS-16 — root-folder workflow:** source is implemented. Browser tests for permission restoration, cancellation/error paths and save/open round trip remain open.
+- **CS-14 — parallel rendering:** deferred until serial baselines and correctness/memory limits are established.
+
+### Branch implementation scope
+
+Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV output byte-for-byte with the synchronous encoder at 16- and 24-bit depth, validate RIFF/data lengths, exercise progress monotonicity, and reject unsupported channel counts and RIFF-size overflow before sample access. This is a regression-test addition, not proof that tests have run in this environment. Continue with `npm run lint`, `npm test`, and `npm run build` in a dependency-complete checkout, then record results and browser evidence in the validation matrix.
