@@ -1186,7 +1186,8 @@ export async function exportAudioBufferToMp3(
 export async function verifyExportedBlob(
   blob: Blob,
   targetLufs: number,
-  ceilingDbTP: number = -1.0
+  ceilingDbTP: number = -1.0,
+  onProgress?: (progress: ExportProgress) => void
 ): Promise<{
   integratedLUFS: number;
   truePeakDbTP: number;
@@ -1198,7 +1199,18 @@ export async function verifyExportedBlob(
   const ctx = await audioEngine.init();
   const decodedBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
 
-  const stats = measureLoudness(decodedBuffer);
+  const stats = await measureLoudnessAsync(
+    decodedBuffer,
+    (progress) => {
+      onProgress?.({
+        stage: 'verifying',
+        percent: Math.min(99, 95 + Math.round(progress.percent / 100 * 4)),
+        message: 'Verifying decoded export loudness and true peak...',
+      });
+    },
+    0,
+    100
+  );
   const passedLoudness = Math.abs(stats.integratedLUFS - targetLufs) <= 1.0;
   const passedTruePeak = stats.truePeakDbTP <= (ceilingDbTP + 0.1);
 
