@@ -55,6 +55,9 @@ export interface PluginInstance {
   setParameter: (paramId: string, value: number) => void;
   getParameter: (paramId: string) => number;
   renderGUI?: (container: HTMLElement) => Promise<HTMLElement | void>;
+  /** True for a stand-in that passes audio through because the real plugin could not be loaded */
+  missing?: boolean;
+  missingReason?: string;
 }
 
 export interface StoredPluginState {

@@ -351,14 +351,26 @@ export function measureLoudness(buffer: AudioBuffer): LoudnessStats {
  * `source`. Returns the last node. A plugin that fails to load is skipped, so one bad module never blocks an export.
  * chainId is a track id or MASTER_TRACK_ID.
  */
+/** A plugin the export had to pass through unchanged */
+export interface SkippedPlugin {
+  chainId: string;
+  name: string;
+  reason: 'missing' | 'failed';
+}
+
 export async function appendOfflinePlugins(
   offlineCtx: OfflineAudioContext,
   chainId: string,
-  source: AudioNode
+  source: AudioNode,
+  skipped?: SkippedPlugin[]
 ): Promise<AudioNode> {
   let output: AudioNode = source;
   for (const plugin of pluginManager.getPluginsForTrack(chainId)) {
     if (plugin.isBypassed) continue;
+    if (plugin.missing) {
+      skipped?.push({ chainId, name: plugin.descriptor.name, reason: 'missing' });
+      continue;
+    }
     try {
       const offlineInst = await pluginManager.instantiatePlugin(
         offlineCtx,
@@ -371,6 +383,7 @@ export async function appendOfflinePlugins(
       output = offlineInst.outputNode;
     } catch (err) {
       console.warn(`Plugin ${plugin.descriptor.name} fallback to pass-through in offline export:`, err);
+      skipped?.push({ chainId, name: plugin.descriptor.name, reason: 'failed' });
     }
   }
   return output;
@@ -421,7 +434,8 @@ export async function renderProjectOffline(
   // Master bus effects (whole-mix chain): every track sums into masterBusIn, passes through the chain, then the fader.
   // This mirrors the live engine, so an exported file matches what you hear.
   const masterBusIn = offlineCtx.createGain();
-  const masterBusOut = await appendOfflinePlugins(offlineCtx, MASTER_TRACK_ID, masterBusIn);
+  const skippedPlugins: SkippedPlugin[] = [];
+  const masterBusOut = await appendOfflinePlugins(offlineCtx, MASTER_TRACK_ID, masterBusIn, skippedPlugins);
   masterBusOut.connect(masterNode);
 
   let processedClips = 0;
@@ -441,7 +455,7 @@ export async function renderProjectOffline(
     trackGain.connect(trackPan);
 
     // Route track effect plugins in offline context with graceful fallback
-    const trackOutput = await appendOfflinePlugins(offlineCtx, track.id, trackPan);
+    const trackOutput = await appendOfflinePlugins(offlineCtx, track.id, trackPan, skippedPlugins);
 
     // Automatic ducking: the same precomputed curve the live engine uses
     const duckCurve = buildDuckCurve(project, track, (id) => {
@@ -510,6 +524,11 @@ export async function renderProjectOffline(
       sourceNode.start(renderStartTime, effectiveOffset, effectiveDuration);
       processedClips++;
     }
+  }
+
+  if (skippedPlugins.length > 0 && typeof window !== 'undefined') {
+    // The export carries on with those plugins passed through; the app tells the user which ones
+    window.dispatchEvent(new CustomEvent('uuda:export-skipped-plugins', { detail: { plugins: skippedPlugins } }));
   }
 
   onProgress?.({ stage: 'rendering', percent: 40, message: 'Rendering offline audio graph...' });

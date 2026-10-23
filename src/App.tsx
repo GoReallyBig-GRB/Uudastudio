@@ -243,6 +243,22 @@ const MainStudio: React.FC = () => {
     []
   );
 
+  // The export passes unavailable plugins through; say which ones, so a missing effect is never a surprise
+  useEffect(() => {
+    const onSkipped = (e: Event) => {
+      const list = (e as CustomEvent).detail?.plugins as Array<{ name: string; reason: string }> | undefined;
+      if (!list || list.length === 0) return;
+      const names = Array.from(new Set(list.map((p) => p.name))).join(', ');
+      addToast({
+        type: 'warning',
+        title: 'Export skipped some plugins',
+        message: `${names} could not be applied, so the audio passes through unchanged.`,
+      });
+    };
+    window.addEventListener('uuda:export-skipped-plugins', onSkipped);
+    return () => window.removeEventListener('uuda:export-skipped-plugins', onSkipped);
+  }, [addToast]);
+
   // Plugin chains in undo/redo: edits are written into the project (one history step per burst of edits)
   const projectRef = useRef<Project>(project);
   useEffect(() => {
