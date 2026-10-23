@@ -13,6 +13,7 @@ const STORE_PROJECT = 'project';
 const LEGACY_PROJECT_KEY = 'active_session';
 const PROJECT_KEY_PREFIX = 'session:';
 const SESSION_ID_STORAGE_KEY = 'uuda_project_session_id';
+const LEGACY_MIGRATION_FLAG = 'uuda_project_legacy_migrated';
 const ORPHAN_ASSET_GRACE_MS = 24 * 60 * 60 * 1000;
 let fallbackSessionId: string | null = null;
 
@@ -27,6 +28,7 @@ export function startNewProjectSession(): void {
   fallbackSessionId = id;
   try {
     window.sessionStorage.setItem(SESSION_ID_STORAGE_KEY, id);
+    window.sessionStorage.setItem(LEGACY_MIGRATION_FLAG, 'true');
   } catch {
     // The in-memory fallback still isolates writes for this live page if storage is blocked.
   }
@@ -203,7 +205,14 @@ export async function loadProjectFromDB(): Promise<Project | null> {
           void validateSessionProject(db, currentKey, current).then(resolve, reject);
           return;
         }
-        // One-time compatibility read for sessions saved by the older shared-key implementation.
+        // Migrate the old shared key once per tab. Explicit new-tab sessions set this
+        // marker already, so they can never fall back into another tab's legacy project.
+        let alreadyMigrated = false;
+        try { alreadyMigrated = window.sessionStorage.getItem(LEGACY_MIGRATION_FLAG) === 'true'; } catch {}
+        if (alreadyMigrated) {
+          resolve(null);
+          return;
+        }
         const legacyReq = store.get(LEGACY_PROJECT_KEY);
         legacyReq.onsuccess = () => {
           const legacy = legacyReq.result as (Project & { updatedAt?: number }) | undefined;
@@ -211,7 +220,19 @@ export async function loadProjectFromDB(): Promise<Project | null> {
             resolve(null);
             return;
           }
-          void validateSessionProject(db, LEGACY_PROJECT_KEY, legacy).then(resolve, reject);
+          void validateSessionProject(db, LEGACY_PROJECT_KEY, legacy).then(async (valid) => {
+            if (!valid) {
+              resolve(null);
+              return;
+            }
+            try {
+              await saveProjectToDB(valid);
+              window.sessionStorage.setItem(LEGACY_MIGRATION_FLAG, 'true');
+            } catch {
+              // The compatibility read still works for this page if migration storage fails.
+            }
+            resolve(valid);
+          }, reject);
         };
         legacyReq.onerror = () => reject(legacyReq.error);
       };
@@ -257,36 +278,29 @@ export async function clearCurrentProjectData(): Promise<void> {
  * remaining per-tab project snapshot. Newly written audio gets a 24-hour grace period to
  * avoid racing another tab between asset persistence and its next autosave.
  */
-export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removedProjects: number; removedAssets: number }> {
+export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removedAssets: number }> {
   const db = await openDB();
-  let removedProjects = 0;
   let removedAssets = 0;
 
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction([STORE_PROJECT, STORE_ASSETS], 'readwrite');
     const projectStore = tx.objectStore(STORE_PROJECT);
     const assetStore = tx.objectStore(STORE_ASSETS);
-    const keysRequest = projectStore.getAllKeys();
     const projectsRequest = projectStore.getAll();
     const assetsRequest = assetStore.getAll();
     let ready = 0;
-    let projectKeys: IDBValidKey[] = [];
     let projects: Array<(Project & { updatedAt?: number }) | undefined> = [];
     let assets: Array<StoredAsset & { storedAt?: number }> = [];
 
     const processIfReady = () => {
       ready++;
-      if (ready !== 3) return;
+      if (ready !== 2) return;
 
+      // Include all saved tabs, including stale snapshots, before deciding whether an
+      // asset is orphaned. Never delete another tab's recovery data as a side effect.
       const referencedAssetIds = new Set<string>();
-      for (let i = 0; i < projects.length; i++) {
-        const project = projects[i];
-        const key = projectKeys[i];
-        if (!project || !Number.isFinite(project.updatedAt) || now - (project.updatedAt || 0) > MAX_SESSION_AGE_MS) {
-          projectStore.delete(key);
-          removedProjects++;
-          continue;
-        }
+      for (const project of projects) {
+        if (!project) continue;
         for (const track of project.tracks || []) {
           for (const clip of track.clips || []) {
             if (clip.assetId) referencedAssetIds.add(clip.assetId);
@@ -304,14 +318,13 @@ export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removed
       }
     };
 
-    keysRequest.onsuccess = () => { projectKeys = keysRequest.result; processIfReady(); };
     projectsRequest.onsuccess = () => { projects = projectsRequest.result; processIfReady(); };
     assetsRequest.onsuccess = () => { assets = assetsRequest.result; processIfReady(); };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 
-  return { removedProjects, removedAssets };
+  return { removedAssets };
 }
 
 export async function clearAllProjectData(): Promise<void> {
