@@ -179,3 +179,5 @@ The checked items above describe added test coverage, not a claim that CI has pa
 - [ ] Large `.uuda` open check: confirm timeline becomes available before IndexedDB asset writes finish; verify failed writes warn and recovery autosave omits non-durable audio references.
 
 - [x] Added automated cases for truncated UUDA PCM payload and invalid manifest length; run them in branch CI before handoff.
+
+- [ ] Dirty-state browser check: manual timeline refresh alone must not trigger an unsaved-project prompt; actual edits must still trigger it until a portable save succeeds.
