@@ -175,3 +175,5 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **UUDA corruption regressions:** added tests for truncated PCM payloads (reported as missing referenced audio rather than crashing) and invalid manifest lengths (rejected before payload reads). CI must run these tests before the branch is handed over.
 
 - **Dirty-state accuracy:** manual timeline refresh now uses a view-only render counter rather than replacing the project object, so a redraw does not falsely mark the portable project as modified or trigger project-change side effects.
+
+- **Open-project loss prevention:** opening another `.uuda`/legacy project now asks before replacing the current workspace when it differs from the last portable save. Cancel leaves the current project intact.
