@@ -163,6 +163,8 @@ export const VERIFIED_THIRD_PARTY_PLUGINS: PluginDescriptor[] = [
 ];
 
 // Approved Origin Domains for Content Security Policy compliance
+// SECURITY TODO (release blocker for third-party plugins): trusting whole hosts is unsafe, because anyone can publish
+// to these. Replace with a hash-pinned, admin-approved catalogue. See docs/PLUGIN-HARDENING.md (PRD PL-3).
 export const APPROVED_WAM_ORIGINS = [
   'https://webaudiomodules.org',
   'https://cdn.jsdelivr.net',
@@ -187,6 +189,12 @@ export function isVerifiedWamUrl(url: string): boolean {
 }
 
 export const isModuleOriginWhitelisted = isVerifiedWamUrl;
+
+/** Resolves only built-in reviewed third-party descriptors, ignoring caller-supplied URLs. */
+export function resolveVerifiedThirdPartyPlugin(descriptor: PluginDescriptor): PluginDescriptor | undefined {
+  if (descriptor.type !== 'third-party-wam') return undefined;
+  return VERIFIED_THIRD_PARTY_PLUGINS.find((plugin) => plugin.id === descriptor.id);
+}
 
 /**
  * Registry Lookup by Plugin ID

@@ -6,6 +6,7 @@
 
 import { Project, Track, Clip, Asset } from '../types';
 import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
+import { buildDuckCurve, duckCurveKey, scheduleDuckCurve, clearDuck, normalizeDucking } from './ducking';
 
 export interface MeterData {
   peak: number; // 0 to 1+
@@ -64,7 +65,14 @@ export class AudioEngine {
     gainNode: GainNode;
     panNode: StereoPannerNode;
     analyserNode: AnalyserNode;
+    /** Automatic ducking under other tracks (unity unless the track has it switched on) */
+    duckNode: GainNode;
   }> = new Map();
+
+  /** Duck curves already worked out, by track, so playing again does not re-measure the audio */
+  private duckCache: Map<string, { key: string; curve: Float32Array | null }> = new Map();
+  /** Curve key each track currently has scheduled, so a live refresh only touches tracks that changed */
+  private duckApplied: Map<string, string> = new Map();
 
   // Active playing source nodes & clip gain nodes to stop on pause/seek
   private activeSources: Array<{
@@ -377,6 +385,7 @@ export class AudioEngine {
           nodes.gainNode.disconnect();
           nodes.panNode.disconnect();
           nodes.analyserNode.disconnect();
+          nodes.duckNode.disconnect();
         } catch {
           // ignore disconnect errors
         }
@@ -396,12 +405,15 @@ export class AudioEngine {
         analyserNode.fftSize = 512;
         analyserNode.smoothingTimeConstant = 0.7;
 
-        // Path: Track Sources -> GainNode -> Plugins -> PanNode -> AnalyserNode -> MasterGain
+        const duckNode = this.ctx.createGain();
+
+        // Path: Track Sources -> GainNode -> Plugins -> PanNode -> DuckNode -> AnalyserNode -> MasterGain
         pluginManager.connectPluginChain(track.id, gainNode, panNode as unknown as AudioNode);
-        (panNode as unknown as AudioNode).connect(analyserNode);
+        (panNode as unknown as AudioNode).connect(duckNode);
+        duckNode.connect(analyserNode);
         analyserNode.connect(this.masterGain);
 
-        nodes = { gainNode, panNode, analyserNode };
+        nodes = { gainNode, panNode, analyserNode, duckNode };
         this.trackNodes.set(track.id, nodes);
       }
 
@@ -439,6 +451,53 @@ export class AudioEngine {
       nodes.panNode.pan.cancelScheduledValues(now);
       nodes.panNode.pan.setValueAtTime(track.pan, now);
     }
+  }
+
+  private getChannelsForDuck = (assetId: string): { channels: Float32Array[]; sampleRate: number } | null => {
+    const buf = this.assets.get(assetId)?.buffer;
+    if (!buf || typeof buf.getChannelData !== 'function') return null;
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) channels.push(buf.getChannelData(c));
+    return { channels, sampleRate: buf.sampleRate };
+  };
+
+  /** Applies each ducking track's gain curve from the given project time */
+  private scheduleDucking(project: Project, fromSeconds: number, onlyChanged = false): void {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    for (const track of project.tracks) {
+      const nodes = this.trackNodes.get(track.id);
+      if (!nodes) continue;
+      if (!normalizeDucking(track.ducking).enabled) {
+        if (!onlyChanged || this.duckApplied.has(track.id)) clearDuck(nodes.duckNode.gain, now);
+        this.duckApplied.delete(track.id);
+        this.duckCache.delete(track.id);
+        continue;
+      }
+      const key = duckCurveKey(project, track);
+      if (onlyChanged && this.duckApplied.get(track.id) === key) continue;
+      this.duckApplied.set(track.id, key);
+      let entry = this.duckCache.get(track.id);
+      if (!entry || entry.key !== key) {
+        entry = { key, curve: buildDuckCurve(project, track, this.getChannelsForDuck) };
+        this.duckCache.set(track.id, entry);
+      }
+      if (entry.curve) scheduleDuckCurve(nodes.duckNode.gain, entry.curve, fromSeconds, now);
+      else clearDuck(nodes.duckNode.gain, now);
+    }
+  }
+
+  private clearAllDucks(): void {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    for (const nodes of this.trackNodes.values()) clearDuck(nodes.duckNode.gain, now);
+    this.duckApplied.clear();
+  }
+
+  /** Call after ducking settings or source clips change: re-applies the curves from the current position */
+  public refreshDucking(project: Project): void {
+    if (!this.ctx || !this.isPlaying) return;
+    this.scheduleDucking(project, this.updateCurrentPosition(), true);
   }
 
   /**
@@ -480,6 +539,8 @@ export class AudioEngine {
     this.playStartTimeCtx = ctx.currentTime;
     this.playheadStartOffset = this.playheadSeconds;
     this.isPlaying = true;
+
+    this.scheduleDucking(project, fromTime);
 
     // Schedule all active clips in all tracks
     for (const track of project.tracks) {
@@ -675,6 +736,7 @@ export class AudioEngine {
 
   private stopSources(): void {
     this.clearScheduledStop();
+    this.clearAllDucks();
     for (const item of this.activeSources) {
       try {
         item.gainNode.gain.cancelScheduledValues(0);

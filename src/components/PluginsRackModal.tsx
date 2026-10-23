@@ -41,6 +41,8 @@ import { getTrackLabel } from '../utils/tracks';
 import { PluginPanel } from './plugins/PluginPanel';
 import { PluginPopout } from './plugins/PluginPopout';
 import { PreviewButton } from './plugins/PreviewButton';
+import { DuckingPanel } from './plugins/DuckingPanel';
+import { normalizeDucking } from '../audio/ducking';
 
 interface PluginsRackModalProps {
   isOpen: boolean;
@@ -50,6 +52,7 @@ interface PluginsRackModalProps {
   project: Project;
   selectedTrackId: string | null;
   onSelectTrack: (trackId: string) => void;
+  onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -70,6 +73,7 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
   project,
   selectedTrackId,
   onSelectTrack,
+  onUpdateTrack,
 }) => {
   // 'Master bus' is a local target, so the app's selected track is left alone
   const [masterTarget, setMasterTarget] = useState<boolean>(false);
@@ -504,6 +508,16 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
               </span>
             </div>
 
+            {!masterTarget && activeIndex >= 0 && (
+              <DuckingPanel
+                track={tracks[activeIndex]}
+                tracks={tracks}
+                onChange={(u) =>
+                  onUpdateTrack(tracks[activeIndex].id, { ducking: normalizeDucking({ ...tracks[activeIndex].ducking, ...u }) })
+                }
+              />
+            )}
+
             {activePlugins.length === 0 ? (
               <div className="flex-1 min-h-[220px] border border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center p-6 text-center gap-3">
                 <Sliders className="w-7 h-7 text-zinc-600" />
@@ -527,6 +541,7 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                   const hasMix = 'dryWet' in descriptor.parameters;
                   const ownsGui = descriptor.type === 'third-party-wam' && descriptor.hasCustomGui && !!plugin.renderGUI;
                   const panelOpen = !!openPanels[plugin.instanceId];
+                  const isMissing = !!plugin.missing;
 
                   return (
                     <div
@@ -566,15 +581,23 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 min-w-0">
                               <span className="text-xs font-bold text-zinc-100 truncate">{descriptor.name}</span>
-                              <span
-                                className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-sm font-mono font-bold shrink-0 ${
-                                  isNative ? 'bg-purple-500/15 text-purple-300' : 'bg-cyan-500/15 text-cyan-300'
-                                }`}
-                              >
-                                {isNative ? 'Native' : 'WAM'}
-                              </span>
+                              {isMissing ? (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-sm font-mono font-bold shrink-0 bg-amber-500/20 text-amber-300">
+                                  Missing
+                                </span>
+                              ) : (
+                                <span
+                                  className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-sm font-mono font-bold shrink-0 ${
+                                    isNative ? 'bg-purple-500/15 text-purple-300' : 'bg-cyan-500/15 text-cyan-300'
+                                  }`}
+                                >
+                                  {isNative ? 'Native' : 'WAM'}
+                                </span>
+                              )}
                             </div>
-                            <span className="text-[10px] text-zinc-500 truncate block">{descriptor.vendor}</span>
+                            <span className={`text-[10px] truncate block ${isMissing ? 'text-amber-400' : 'text-zinc-500'}`}>
+                              {isMissing ? `${plugin.missingReason || 'Not available'} Audio passes through; settings are kept.` : descriptor.vendor}
+                            </span>
                           </div>
                         </div>
 
@@ -602,6 +625,7 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                             </label>
                           )}
 
+                          {!isMissing && (
                           <button
                             type="button"
                             onClick={() => handleToggleBypass(plugin)}
@@ -616,7 +640,9 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                             <Power className="w-3.5 h-3.5" />
                             <span className="hidden sm:inline">{plugin.isBypassed ? 'Off' : 'On'}</span>
                           </button>
+                          )}
 
+                          {!isMissing && (
                           <button
                             type="button"
                             onClick={() => setOpenPanels((prev) => ({ ...prev, [plugin.instanceId]: !prev[plugin.instanceId] }))}
@@ -627,8 +653,9 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                           >
                             {panelOpen ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                           </button>
+                          )}
 
-                          {!ownsGui && (
+                          {!ownsGui && !isMissing && (
                             <button
                               type="button"
                               onClick={() => setPopoutId(plugin.instanceId)}

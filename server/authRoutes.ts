@@ -11,6 +11,7 @@ import { store } from './store';
 import { verifyFirebaseIdToken } from './firebaseAdmin';
 import { adminCodeEmail, sendMail, MailNotConfiguredError } from './mail';
 import { SESSION_COOKIE, parseCookies, setSessionCookie, clearSessionCookie, rateLimit } from './http';
+import { isDevAuthBypassEnabled } from './authSecurity';
 
 export const authRouter = Router();
 
@@ -140,7 +141,6 @@ authRouter.post(
         console.warn('[AUTH] ID token rejected:', errMsg);
         res.status(401).json({
           error: 'Google sign-in could not be verified. Please try again.',
-          details: errMsg,
         });
         return;
       }
@@ -203,37 +203,23 @@ authRouter.post(
 
       // Admins get a one-time code on every sign-in.
       let adminCodeSent = false;
-      let adminCodeFallback: string | null = null;
       if (user.role === 'admin') {
         try {
           const code = await store.createAdminConnectionCode(user.email);
           const mail = adminCodeEmail(code);
           const mailResult = await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
-          adminCodeSent = true;
-          if (!mailResult.delivered) {
-            console.info(`[AUTH] Admin connection code for ${user.email}: ${code}`);
-            adminCodeFallback = code;
-          }
+          adminCodeSent = mailResult.delivered;
+          if (!mailResult.delivered) console.error('[AUTH] Admin connection code email delivery failed. Check SMTP configuration.');
         } catch (mailErr) {
           console.error('[AUTH] Admin code handling error:', mailErr instanceof Error ? mailErr.message : mailErr);
-          adminCodeSent = true;
         }
       }
-
-      res.json({
-        user,
-        sessionToken,
-        isNew,
-        adminCodeSent,
-        ...(adminCodeFallback ? { adminCodeFallback } : {}),
-        message: isNew ? 'Welcome to Uuda Studio!' : 'Signed in successfully.',
-      });
+      res.json({ user, sessionToken, isNew, adminCodeSent, message: isNew ? 'Welcome to Uuda Studio!' : 'Signed in successfully.' });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error('Google sign in error:', errMsg);
       res.status(500).json({
         error: 'Failed to process Google sign-in.',
-        details: errMsg,
       });
     }
   }
@@ -254,7 +240,7 @@ const DEV_TESTER = {
 };
 
 function devBypassEnabled(): boolean {
-  return process.env.DEV_AUTH_BYPASS === 'true' || process.env.NODE_ENV !== 'production';
+  return isDevAuthBypassEnabled();
 }
 
 let devBypassWarned = false;
@@ -531,16 +517,12 @@ authRouter.post(
       const code = await store.createAdminConnectionCode(user.email);
       const mail = adminCodeEmail(code);
       const mailResult = await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
-      if (mailResult.delivered) {
-        res.json({ success: true, message: `A new 6-digit code was sent to ${user.email}.` });
-      } else {
-        console.info(`[ADMIN CODE RESEND] Fallback code for ${user.email}: ${code}`);
-        res.json({
-          success: true,
-          message: `Email delivery unavailable (SMTP unconfigured or invalid login). Fallback code: ${code}`,
-          code,
-        });
+      if (!mailResult.delivered) {
+        console.error('[ADMIN CODE RESEND] Email delivery failed. Check SMTP configuration.');
+        res.status(503).json({ error: 'Email delivery is unavailable. Please contact the administrator.' });
+        return;
       }
+      res.json({ success: true, message: `A new 6-digit code was sent to ${user.email}.` });
     } catch (err) {
       console.error('[AUTH] Admin code generation failed:', err instanceof Error ? err.message : err);
       res.status(500).json({
