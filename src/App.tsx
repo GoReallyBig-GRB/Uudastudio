@@ -394,13 +394,18 @@ const MainStudio: React.FC = () => {
     };
   }, [addToast, updateHistoryFlags]);
 
-  // 2. Periodic Autosave to IndexedDB
+  // 2. Periodic Autosave to IndexedDB. Read the latest project ref on each tick so
+  // project edits do not continually tear down/recreate the timer or queue stale snapshots.
   useEffect(() => {
+    let saveInFlight = false;
     const timer = setInterval(async () => {
+      if (saveInFlight) return;
+      saveInFlight = true;
       try {
         setIsAutosaving(true);
+        const snapshot = projectRef.current;
         const unsavedAssetIds = unsavedAssetIdsRef.current;
-        const safeTracks = project.tracks
+        const safeTracks = snapshot.tracks
           .map((track) => ({
             ...track,
             clips: track.clips
@@ -415,18 +420,19 @@ const MainStudio: React.FC = () => {
                 ),
               })),
           }))
-          .filter((track, index) => track.clips.length > 0 || project.tracks[index].clips.length === 0);
-        await saveProjectToDB({ ...project, tracks: safeTracks });
+          .filter((track, index) => track.clips.length > 0 || snapshot.tracks[index].clips.length === 0);
+        await saveProjectToDB({ ...snapshot, tracks: safeTracks });
         setLastSavedAt(new Date());
       } catch {
         // Autosave error handled silently or quietly
       } finally {
+        saveInFlight = false;
         setIsAutosaving(false);
       }
     }, 4000);
 
     return () => clearInterval(timer);
-  }, [project]);
+  }, []);
 
   // 3. Connect audio engine time update & playback ended listeners
   useEffect(() => {
