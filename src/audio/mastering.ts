@@ -928,7 +928,7 @@ export async function applyLookaheadLimiterChannel(
     const completed = progressBase + (blockEnd / Math.max(1, length)) * progressSpan;
     onProgress?.({
       stage: 'mastering',
-      percent: Math.min(84, 75 + Math.floor(completed * 9)),
+      percent: Math.min(84, Math.round((75 + completed * 9) * 100) / 100),
       message: `Applying lookahead limiter (${Math.round(completed * 100)}%)...`,
     });
     // Let the browser paint and process input during long limiter passes.
