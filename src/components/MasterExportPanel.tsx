@@ -56,7 +56,7 @@ import {
   renderProjectOffline,
   measureLoudness,
   measureAndApplyMastering,
-  exportAudioBufferToWav,
+  exportAudioBufferToWavAsync,
   exportAudioBufferToMp3,
   verifyExportedBlob,
   triggerFileDownload,
@@ -469,7 +469,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
 
       if (exportFormat === 'wav') {
         setExportProgress({ stage: 'encoding', percent: 85, message: `3/4 Encoding ${wavBitDepth}-bit PCM WAV...` });
-        exportedBlob = exportAudioBufferToWav(result.masteredBuffer, wavBitDepth);
+        exportedBlob = await exportAudioBufferToWavAsync(result.masteredBuffer, wavBitDepth, setExportProgress);
         filename = `${cleanName}_${profileType}_${wavBitDepth}bit.wav`;
         bitDepthOrBitrate = `${wavBitDepth}-bit PCM`;
       } else {
