@@ -773,8 +773,18 @@ export async function measureAndApplyMastering(
   const targetLufs = customTargetLufs ?? profile.targetLufs;
   const ceilingDbTP = customCeilingDbTP ?? profile.ceilingDbTP;
 
-  onProgress?.({ stage: 'mastering', percent: 65, message: 'Measuring initial mix loudness...' });
-  const preStats = await measureLoudnessAsync(inputBuffer, onProgress, 60, 69);
+  // Keep the public progress stream monotonic across nested analysis/DSP stages.
+  // Previously the 65% banner was immediately followed by analysis starting at 60%,
+  // making the meter appear to jump backwards before long true-peak scans.
+  let lastReportedPercent = 0;
+  const reportProgress = (progress: ExportProgress) => {
+    const percent = Math.max(lastReportedPercent, Math.min(100, progress.percent));
+    lastReportedPercent = percent;
+    onProgress?.({ ...progress, percent });
+  };
+
+  reportProgress({ stage: 'mastering', percent: 60, message: 'Measuring initial mix loudness...' });
+  const preStats = await measureLoudnessAsync(inputBuffer, reportProgress, 60, 69);
 
   // Compute required gain
   let gainAdjustmentDb = 0;
@@ -782,7 +792,7 @@ export async function measureAndApplyMastering(
     gainAdjustmentDb = targetLufs - preStats.integratedLUFS;
   }
 
-  onProgress?.({
+  reportProgress({
     stage: 'mastering',
     percent: 75,
     message: `Applying ${profile.name} (Gain: ${gainAdjustmentDb >= 0 ? '+' : ''}${gainAdjustmentDb.toFixed(1)} dB)...`,
@@ -795,11 +805,11 @@ export async function measureAndApplyMastering(
     targetLufs,
     ceilingDbTP,
     gainAdjustmentDb,
-    onProgress
+    reportProgress
   );
 
-  onProgress?.({ stage: 'mastering', percent: 85, message: 'Verifying post-mastering compliance...' });
-  const postStats = await measureLoudnessAsync(masteredBuffer, onProgress, 85, 92);
+  reportProgress({ stage: 'mastering', percent: 85, message: 'Verifying post-mastering compliance...' });
+  const postStats = await measureLoudnessAsync(masteredBuffer, reportProgress, 85, 92);
 
   const passedLoudness = Math.abs(postStats.integratedLUFS - targetLufs) <= 1.0;
   const passedTruePeak = postStats.truePeakDbTP <= (ceilingDbTP + 0.1);
