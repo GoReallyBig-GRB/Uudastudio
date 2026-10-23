@@ -546,11 +546,13 @@ const MainStudio: React.FC = () => {
       updatedAt: Date.now(),
     };
     savedProjectRef.current = blankProject;
-    setProjectWithHistory(blankProject);
+    setProject(blankProject);
+    historyManagerRef.current.reset(blankProject);
+    updateHistoryFlags();
     setSelectedTrackId(null);
     setSelectedClipIds(new Set());
     saveProjectToDB(blankProject).catch(() => {});
-  }, [isPlaying, setProjectWithHistory]);
+  }, [isPlaying, updateHistoryFlags]);
 
   const handleNewProject = useCallback(() => {
     if (project !== savedProjectRef.current) {
@@ -783,7 +785,9 @@ const MainStudio: React.FC = () => {
       }
 
       savedProjectRef.current = loadedProject;
-      setProjectWithHistory(loadedProject);
+      setProject(loadedProject);
+      historyManagerRef.current.reset(loadedProject);
+      updateHistoryFlags();
       setSelectedTrackId(loadedProject.tracks[0]?.id || null);
       setSelectedClipIds(new Set());
 
@@ -836,7 +840,7 @@ const MainStudio: React.FC = () => {
       });
       return false;
     }
-  }, [isPlaying, addToast, project, setProjectWithHistory]);
+  }, [isPlaying, addToast, project, updateHistoryFlags]);
 
 
   const handleOpenProjectFromRoot = useCallback(async () => {
