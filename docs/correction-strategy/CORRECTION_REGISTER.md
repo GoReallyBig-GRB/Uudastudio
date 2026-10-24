@@ -179,3 +179,26 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **Open-project loss prevention:** opening another `.uuda`/legacy project now asks before replacing the current workspace when it differs from the last portable save. Cancel leaves the current project intact.
 
 - **Undo history isolation:** creating a blank project or opening a portable project now resets the undo/redo history to that project's initial state rather than appending the new project to the previous project's history.
+
+
+## User testing feedback reconciliation — 2026-10-24
+
+Source: the user's latest manual test session with a 57-minute audio file and a two-track project approaching two hours. These are **observed symptoms**, not confirmed root causes. Do not mark any item Done from this report alone.
+
+| Feedback ID | Observation | Existing task mapping | Required follow-up | Status |
+|---|---|---|---|---|
+| TF-01 | App froze shortly after opening; expanding a minimized app view also caused several seconds of unresponsiveness. | CS-00, CS-04, CS-15 | Reproduce from cold start and while expanding; capture long tasks, render/heap profile, browser/OS/RAM and project state. | OPEN — no profile attached |
+| TF-02 | TTS audition took about 10 seconds to begin, and adding generated voiceover audio failed despite a recent fix. | Existing voice/TTS workflow; CS-00 baseline | Re-test audition and insert/add-to-timeline paths independently; capture console/network errors and confirm whether audio is generated, returned, persisted, and inserted. Do not change unrelated TTS code without a reproduced cause. | OPEN — regression reported, cause unknown |
+| TF-03 | First import of a 57-minute track took about 24 seconds to appear; after restart it took about 80 seconds. | CS-05, CS-06, CS-08, CS-15, CS-16 | Measure decode, timeline-visible, persistence-start and persistence-complete separately on cold/warm reload; record file metadata and IndexedDB state. | OPEN — timings are user observations, not a controlled baseline |
+| TF-04 | Loading and save notifications were absent or too brief/unclear; “saved locally” appeared to complete immediately and did not identify the destination. | CS-01, CS-08, CS-12, CS-16 | Verify notification lifecycle and accuracy against actual completion; distinguish decoding, playable-in-memory, durable IndexedDB persistence, and portable project save. Explain where each save goes. | OPEN — UI and persistence timing need verification |
+| TF-05 | On a project with two long clips, zoom initially jumped erratically; after moving one clip to a lower channel, zoom behaved better. Later the waveform disappeared/turned gray and did not recover; zoom-out let the playhead show through the track controls and then appear stationary. | CS-04, CS-05, CS-06, CS-07, CS-15 | Reproduce with two ~57-minute clips in separate lanes; capture zoom level, scroll offset, playhead time, canvas dimensions, cache state and profiler trace. Verify waveform recovery after zoom/scroll and playhead/ruler alignment at extreme zoom. | OPEN — critical long-session regression |
+| TF-06 | Exporting the long project stalled at 62% at “Measuring true peak,” before preview. The earlier report of 75% was incorrect. | CS-09, CS-10, CS-12, CS-15 | Record stage timings, progress updates, long tasks, memory and cancellation/responsiveness; verify async true-peak progress paints and export reaches preview. Keep 62% as the latest reported observation. | OPEN — export not completed |
+| TF-07 | The user could not find the root-folder selector and expected a one-time setup to choose where Uuda Studio saves files. | CS-16, CS-08 | Test discoverability, first-use prompt/menu location, persisted directory name/permission after reload, save/open round trip, and unsupported/cancel/denied fallbacks. Be explicit that IndexedDB assets are not automatically stored in the chosen folder. | OPEN — implementation does not prove discoverability |
+| TF-08 | Plugin enhancement appears lost after an older implementation was merged to main. | Baseline/regression audit; related plugin UI in current main | Compare the intended enhancement with current main and its merge history; record exact missing behavior and last known-good commit/PR before editing. Preserve all restoration work already on main. | INVESTIGATE — no code change authorized by this report |
+
+### Execution guardrails
+
+- Current main is authoritative, including restoration work merged after the branch-meltdown incident. Do not reintroduce a correction-branch version where it duplicates or rolls back those restorations.
+- Treat each feedback item as a reproducible acceptance task. A report is not proof of root cause, and source inspection is not runtime acceptance.
+- Keep the immediate work focused on testing feedback and the tasks in this correction-strategy directory. Do not make broad application edits as part of documenting these findings.
+- Do not label performance accepted until a named machine/browser profile, repeatable file metadata, stage timings and relevant memory/long-task evidence are recorded.
