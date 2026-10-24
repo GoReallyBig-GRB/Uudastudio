@@ -60,6 +60,7 @@ import { pluginManager } from './plugins/pluginManager';
 import { withPluginStates, restorePluginStates, hasSavedPlugins, isRestoringPlugins } from './plugins/projectPlugins';
 import { TemplatesModal } from './components/TemplatesModal';
 import { SaveTemplateModal } from './components/SaveTemplateModal';
+import { saveCloudTemplate, TemplateSyncError } from './templates/templateApi';
 import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, UudaTemplate } from './templates/template';
 import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
 import { VoiceoverModal } from './components/VoiceoverModal';
@@ -170,6 +171,7 @@ const MainStudio: React.FC = () => {
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState<boolean>(false);
   const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState<boolean>(false);
+  const [templateListVersion, setTemplateListVersion] = useState<number>(0);
   const [isResetSessionModalOpen, setIsResetSessionModalOpen] = useState<boolean>(false);
   const [isEffectsModalOpen, setIsEffectsModalOpen] = useState<boolean>(false);
   const [activeEffectType, setActiveEffectType] = useState<EffectType>('reverb');
@@ -720,21 +722,46 @@ const MainStudio: React.FC = () => {
   );
 
   const handleSaveAsTemplate = useCallback(
-    async (meta: { name: string; description: string; tags: string[] }) => {
+    async (meta: { name: string; description: string; tags: string[]; toFile: boolean; toAccount: boolean }) => {
       try {
         const full = await withPluginStates(project);
-        const template = templateFromProject(full, meta);
-        const blob = new Blob([serializeTemplate(template)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = templateFileName(template);
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const template = templateFromProject(full, { name: meta.name, description: meta.description, tags: meta.tags });
+        const done: string[] = [];
+        let accountError: string | null = null;
+
+        if (meta.toAccount) {
+          try {
+            await saveCloudTemplate(template);
+            setTemplateListVersion((v) => v + 1);
+            done.push('saved to your account');
+          } catch (err) {
+            accountError = err instanceof TemplateSyncError ? err.message : 'Could not save to your account.';
+          }
+        }
+        if (meta.toFile) {
+          const blob = new Blob([serializeTemplate(template)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = templateFileName(template);
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          done.push(`downloaded as "${templateFileName(template)}"`);
+        }
+
+        if (accountError && done.length === 0) {
+          // Nothing was saved: keep the window open so the user can try again or switch to a file
+          addToast({ type: 'error', title: 'Could Not Save Template', message: accountError });
+          return;
+        }
         setIsSaveTemplateModalOpen(false);
-        addToast({ type: 'success', title: 'Template Saved', message: `Downloaded "${templateFileName(template)}".` });
+        if (accountError) {
+          addToast({ type: 'warning', title: 'Saved to File Only', message: `The file was downloaded, but your account copy failed: ${accountError}` });
+        } else {
+          addToast({ type: 'success', title: 'Template Saved', message: `"${template.name}" ${done.join(' and ')}.` });
+        }
       } catch (err) {
         addToast({ type: 'error', title: 'Could Not Save Template', message: err instanceof Error ? err.message : 'Something went wrong.' });
       }
@@ -2458,13 +2485,14 @@ const MainStudio: React.FC = () => {
         lastSavedAt={lastSavedAt}
       />
 
-      <TemplatesModal isOpen={isTemplatesModalOpen} onClose={() => setIsTemplatesModalOpen(false)} hasWork={project.tracks.length > 0} projectName={project.name} onUseTemplate={handleUseTemplate} />
+      <TemplatesModal isOpen={isTemplatesModalOpen} onClose={() => setIsTemplatesModalOpen(false)} hasWork={project.tracks.length > 0} projectName={project.name} signedIn={!!user} refreshKey={templateListVersion} onUseTemplate={handleUseTemplate} />
       <SaveTemplateModal
         isOpen={isSaveTemplateModalOpen}
         onClose={() => setIsSaveTemplateModalOpen(false)}
         defaultName={project.name}
         trackCount={project.tracks.length}
         pluginCount={project.tracks.reduce((n, t) => n + (pluginManager.getPluginsForTrack(t.id).length || t.plugins?.length || 0), 0) + pluginManager.getPluginsForTrack('__master__').length}
+        signedIn={!!user}
         onSave={handleSaveAsTemplate}
       />
 

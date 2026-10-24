@@ -6,7 +6,6 @@
  * own Gemini key (which other routes need) is never sent here.
  */
 
-import { authService } from '../services/authService';
 import { parseTemplate, UudaTemplate } from './template';
 
 export interface CloudTemplate {
@@ -30,10 +29,14 @@ export interface TemplateApiDeps {
   getToken: () => string | null;
 }
 
-const defaultDeps = (): TemplateApiDeps => ({
-  fetchFn: (input, init) => fetch(input, init),
-  getToken: () => authService.getToken(),
-});
+// The sign-in service is loaded only when a real request is made, so this file stays light and easy to test
+const defaultDeps = async (): Promise<TemplateApiDeps> => {
+  const { authService } = await import('../services/authService');
+  return {
+    fetchFn: (input, init) => fetch(input, init),
+    getToken: () => authService.getToken(),
+  };
+};
 
 async function call(deps: TemplateApiDeps, method: 'GET' | 'POST' | 'DELETE', url: string, body?: unknown): Promise<unknown> {
   const headers: Record<string, string> = {};
@@ -84,20 +87,20 @@ function toCloud(item: unknown): CloudTemplate | null {
   };
 }
 
-export async function listCloudTemplates(deps: TemplateApiDeps = defaultDeps()): Promise<CloudTemplate[]> {
-  const payload = (await call(deps, 'GET', '/api/templates')) as { items?: unknown } | null;
+export async function listCloudTemplates(deps?: TemplateApiDeps): Promise<CloudTemplate[]> {
+  const payload = (await call(deps ?? (await defaultDeps()), 'GET', '/api/templates')) as { items?: unknown } | null;
   const items = payload && Array.isArray(payload.items) ? payload.items : [];
   return items.map(toCloud).filter((x): x is CloudTemplate => x !== null);
 }
 
-export async function saveCloudTemplate(template: UudaTemplate, deps: TemplateApiDeps = defaultDeps()): Promise<CloudTemplate> {
+export async function saveCloudTemplate(template: UudaTemplate, deps?: TemplateApiDeps): Promise<CloudTemplate> {
   const { builtIn: _drop, ...file } = template;
-  const payload = (await call(deps, 'POST', '/api/templates', { template: file })) as { item?: unknown } | null;
+  const payload = (await call(deps ?? (await defaultDeps()), 'POST', '/api/templates', { template: file })) as { item?: unknown } | null;
   const saved = toCloud(payload?.item);
   if (!saved) throw new TemplateSyncError('The server sent back something unexpected. Please try again.', 502);
   return saved;
 }
 
-export async function deleteCloudTemplate(id: string, deps: TemplateApiDeps = defaultDeps()): Promise<void> {
-  await call(deps, 'DELETE', `/api/templates/${encodeURIComponent(id)}`);
+export async function deleteCloudTemplate(id: string, deps?: TemplateApiDeps): Promise<void> {
+  await call(deps ?? (await defaultDeps()), 'DELETE', `/api/templates/${encodeURIComponent(id)}`);
 }
