@@ -140,6 +140,8 @@ const MainStudio: React.FC = () => {
   const projectFileHandleRef = useRef<ProjectFileHandle | null>(null);
   const projectRootDirectoryRef = useRef<ProjectDirectoryHandle | null>(null);
   const [projectRootDirectoryName, setProjectRootDirectoryName] = useState<string | null>(null);
+  const [hasCheckedProjectRoot, setHasCheckedProjectRoot] = useState<boolean>(false);
+  const [isFolderSetupDismissed, setIsFolderSetupDismissed] = useState<boolean>(false);
   const [pixelsPerSecond, setPixelsPerSecond] = useState<number>(60);
   const [timelineViewportWidth, setTimelineViewportWidth] = useState<number>(1200);
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
@@ -149,6 +151,7 @@ const MainStudio: React.FC = () => {
   const [dspTargetClipId, setDspTargetClipId] = useState<string | null>(null);
   const [isAutosaving, setIsAutosaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [audioImportStatus, setAudioImportStatus] = useState<string | null>(null);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('tracks');
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState<boolean>(false);
@@ -286,9 +289,12 @@ const MainStudio: React.FC = () => {
   useEffect(() => {
     let active = true;
     void loadProjectRootDirectory().then((directory) => {
-      if (!active || !directory) return;
-      projectRootDirectoryRef.current = directory;
-      setProjectRootDirectoryName(directory.name);
+      if (!active) return;
+      if (directory) {
+        projectRootDirectoryRef.current = directory;
+        setProjectRootDirectoryName(directory.name);
+      }
+      setHasCheckedProjectRoot(true);
     });
     return () => { active = false; };
   }, []);
@@ -1049,7 +1055,9 @@ const MainStudio: React.FC = () => {
       let trackAdded = false;
 
       try {
+        setAudioImportStatus(`Loading “${file.name}” — decoding audio. You can keep working while this runs.`);
         const audioBuffer = await audioEngine.decodeAudioFile(file);
+        setAudioImportStatus(`“${file.name}” decoded — adding it to the timeline.`);
         const assetId = `asset-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
         const asset: Asset = {
           id: assetId,
@@ -1096,6 +1104,7 @@ const MainStudio: React.FC = () => {
         trackAdded = true;
         removeToast(decodeToastId);
 
+        setAudioImportStatus(`“${file.name}” is ready to edit — saving a local recovery copy.`);
         persistenceToastId = addToast({
           type: 'info',
           title: 'Saving Local Audio...',
@@ -1126,6 +1135,7 @@ const MainStudio: React.FC = () => {
             : `${file.name}: ${err instanceof Error ? err.message : 'Unsupported or corrupted audio format.'}`,
         });
       } finally {
+        setAudioImportStatus(null);
         removeToast(decodeToastId);
         if (persistenceToastId) removeToast(persistenceToastId);
       }
@@ -2381,6 +2391,36 @@ const MainStudio: React.FC = () => {
       />
 
       {/* Selected Clip Toolbar (Permanent accessible fallback docked below Header) */}
+      {audioImportStatus && (
+        <div role="status" aria-live="polite" className="shrink-0 flex items-center gap-3 px-4 py-2.5 bg-cyan-950/80 border-y border-cyan-500/40 text-cyan-100">
+          <div className="h-4 w-4 shrink-0 rounded-full border-2 border-cyan-300/30 border-t-cyan-200 animate-spin" />
+          <div className="text-xs">{audioImportStatus}</div>
+        </div>
+      )}
+
+      {hasCheckedProjectRoot && !projectRootDirectoryName && !isFolderSetupDismissed && (
+        <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 bg-amber-950/70 border-y border-amber-500/40 text-amber-100">
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold">Set up your Uuda Studio folder</div>
+            <div className="text-[11px] text-amber-100/75">Choose where project files should be stored. You can reconnect this folder later from the Project menu.</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => { void handleChooseProjectRoot(); }}
+            className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold bg-amber-300 text-zinc-950 hover:bg-amber-200"
+          >
+            Select folder
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsFolderSetupDismissed(true)}
+            className="shrink-0 rounded-md px-2 py-1.5 text-xs text-amber-100/80 hover:text-white"
+          >
+            Not now
+          </button>
+        </div>
+      )}
+
       <ClipToolbar
         clip={selectedClip}
         canPaste={!!clipboardClip}
