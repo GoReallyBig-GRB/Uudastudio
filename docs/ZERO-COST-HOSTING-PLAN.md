@@ -10,6 +10,7 @@ Replaces the "proxy everything to Cloud Run" assumption in `docs/cloudflare-depl
 |---|---|---|
 | Devices and browsers | Mid-range devices and up. All Chromium browsers, plus Safari and Firefox. The app should **recommend** best browsers and device specs, while still letting weaker setups try | Capability tiers (section 5.6), not a hard block |
 | Longest file | **3 to 4 hours** | See below: this makes streaming (P-6) mandatory |
+| Tiered director notes (basic controls for all, natural-language direction only for GPU users running the helper) | **Accepted.** Cloning for accents is welcome and may be a selling point | Sections 5A.6 and 5A.7 |
 | Gemini voice | **Revised 2026-10-24:** Gemini TTS is not free in production and most users cannot pay. Voice generation moves to open-source engines that run on the user's own device, delivered as optional downloadable add-ons | New section 5A. Voice needs **no server and no sign-in**. Gemini stays only as an optional bring-your-own-key engine |
 | First release signed out? | Yes, local projects only. Voice no longer needs sign-in (section 5A) | **No Firebase, Firestore or auth port in the first release.** Static hosting plus one small Freesound proxy |
 
@@ -216,6 +217,56 @@ Rules for this:
 - **No false promise.** The Voiceover panel shows the director-notes field only for engines that support it. For tier 1 it shows the controls that actually do something.
 - **Listening test before we claim anything.** Before publishing a tier, run a fixed test script with six directions (for example calm, urgent, tense whisper, joyful, sad, with a named accent) on each engine and record whether listeners can hear the difference. A tier that fails is described as "reading with adjustable delivery," not as acting.
 - **Possible zero-cost GPU route (needs investigation, not a promise).** Users without a GPU might run the helper in a free notebook service (for example Google Colab or Kaggle). Their terms limit running public services and GPU time is not guaranteed ⚠ verify before offering it; do not build on it until the terms are confirmed.
+
+### 5A.7 Build complexity and memory load
+
+**Memory arithmetic (weights only = parameters × bytes per parameter; real use adds runtime overhead and working memory, so treat these as lower bounds, to be replaced by measurements).**
+
+| Engine and precision | Weights in memory | Where it lives |
+|---|---|---|
+| Kokoro-82M `fp32` | about 330 MB | Browser tab (WASM) or GPU memory (WebGPU) |
+| Kokoro-82M `fp16` | about 165 MB | same |
+| Kokoro-82M `q8` | about 82 MB | same |
+| Kokoro-82M `q4` | about 41 MB | same (quality loss to be judged by ear) |
+| Kitten TTS Nano | about 42 MB | Browser tab |
+| Supertonic (~99M) | about 100 MB to 260 MB | Browser tab |
+| Qwen3-TTS 0.6B, bf16 | about 1.2 GB | **Helper process, GPU memory** |
+| Qwen3-TTS 1.7B, bf16 | about 3.4 GB (about 1.7 GB if 8-bit) | **Helper process, GPU memory** |
+| Chatterbox Turbo (~350M) | about 0.7 GB | **Helper process** |
+
+On top of the weights: the runtime (WASM or ONNX runtime, a few tens of MB), the phonemizer, activation memory that grows with the length of text per call, and a **load-time peak of roughly twice the weights** while the file is read and copied into the runtime. A vendor benchmark measured about 2 GB peak for Kokoro on a desktop in Node, with its default settings; we expect far less with `q8` and short chunks but must measure it in a browser.
+
+The generated audio is small: Kokoro output is 24 kHz mono float32, about 5.8 MB per minute, so a 10-minute voiceover is about 58 MB. That is minor next to the editor's own buffers.
+
+**What the tab really pays.** With a quantised in-browser engine: roughly **100 to 400 MB on top of the editor**, only while the model is loaded. With the **helper**, the model sits in a separate process and GPU, so the tab pays almost nothing beyond the returned audio. The helper tiers are the best memory story; the in-browser tier is the one that needs care.
+
+**How to reduce it (in order of impact):**
+1. **Quantise.** Ship `q8` as the default in-browser build and offer `q4` for the smallest devices if listening tests allow. This is the biggest single saving (about 4x versus `fp32`).
+2. **Run in a Web Worker and terminate it when done.** WebAssembly memory cannot shrink inside a running worker, so "unloading" means ending the worker, which returns the whole heap to the browser. Load on demand, terminate after a short idle period.
+3. **Short chunks.** Split scripts by sentence and cap characters per call, so activation memory stays flat however long the script is. Write each finished chunk out immediately.
+4. **Stream the model load.** Read weights from the browser's cache in pieces rather than holding the file and the runtime copy at once, to flatten the load-time peak.
+5. **Don't compete with a long project.** The P-1 pre-flight blocks or downgrades the voice model on low-memory devices when a large project is open, and offers `q4`/Kitten instead.
+6. **Use the editor's streaming design.** Once long audio streams from disk (section 5, P-6), the editor's footprint falls to a few hundred MB, which leaves room for a voice model. The two pieces of work help each other.
+7. **WebGPU only where it helps.** On a discrete GPU, weights move off system RAM. On integrated graphics the memory is shared, so there is no saving; measure before recommending it.
+8. **Keep the heavy models out of the tab.** Anything over about 500 MB belongs in the helper.
+
+**Build complexity** (S = days of focused work, M = about a week or two, L = several weeks, with testing and support; relative sizes, not promises):
+
+| Piece | Size | Notes |
+|---|---|---|
+| Provider interface; refactor `voiceJob.ts` and the Voiceover panel | S to M | One seam today; well contained |
+| In-browser engine in a Worker: Kokoro `q8`, progress, cancel, sentence chunking | M | Library exists (`kokoro-js`); the work is the worker protocol, cancellation and error handling |
+| Add-on install flow: download with progress, cache, storage meter, remove, consent, content-security policy | M | Needed for every engine |
+| Device detection, tiers and pre-flight memory check | M | Shared with the performance work (section 5) |
+| Tier 1 controls: speed, pitch, pauses and emphasis markup, takes UI | M | Mostly app work, little model risk |
+| Cloning consent flow and reference-clip handling | S to M | Mostly UX and rules |
+| **Local helper: packaging, GPU detection, localhost protocol, Qwen3-TTS and Chatterbox wrappers, updates** | **L, the largest piece** | Cross-platform installers, CUDA setup and support burden are the hard part, not the model code. Start with an advanced-user install and improve later |
+| Listening-test harness and the six-direction test | S | Needs real listeners |
+| Tests | M | Engines cannot run in unit tests; use mocks, and run browser benchmarks in CI on CPU only. GPU engines are tested by hand on a real machine |
+
+**Suggested slices:** A) provider seam plus Kokoro `q8` in a Worker plus install flow, which delivers free voices to everyone; B) tier 1 controls and takes; C) helper MVP with one engine; D) cloning, then the second engine.
+
+**Risks to resolve early:** in-browser speed on mid-range devices (the table above says nothing about it); Safari and Firefox WebGPU and Worker behaviour; the model host's terms and uptime; the phonemizer that `kokoro-js` uses ships an `espeak-ng` build, and espeak-ng is GPL-3.0, so its licence obligations on a web app need a proper check ⚠ verify before shipping; and helper support load.
 
 ### 5A.5 Consequence for the rest of the plan
 
