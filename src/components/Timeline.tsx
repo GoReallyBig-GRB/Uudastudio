@@ -9,7 +9,8 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
+import { calculateZoomScrollLeft } from './timelineZoom';
 import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
@@ -192,6 +193,27 @@ export const Timeline: React.FC<TimelineProps> = ({
   }, [project.tracks]);
 
   const lanePixelWidth = Math.max(1200, Math.ceil(totalDurationSeconds * pixelsPerSecond));
+  const previousZoomRef = useRef<number>(pixelsPerSecond);
+
+  // Preserve the time at the viewport center when zoom changes and sync React state
+  // after layout so the waveform, ruler, and playhead use the same scroll offset.
+  useLayoutEffect(() => {
+    const previousZoom = previousZoomRef.current;
+    previousZoomRef.current = pixelsPerSecond;
+    if (previousZoom === pixelsPerSecond) return;
+    const viewport = laneScrollContainerRef.current;
+    if (!viewport) return;
+    const nextScrollLeft = calculateZoomScrollLeft({
+      scrollLeft: viewport.scrollLeft,
+      viewportWidth: viewport.clientWidth,
+      headerWidth: currentHeaderWidth,
+      previousZoom,
+      nextZoom: pixelsPerSecond,
+      maxScrollLeft: viewport.scrollWidth - viewport.clientWidth,
+    });
+    viewport.scrollLeft = nextScrollLeft;
+    setScrollLeft(nextScrollLeft);
+  }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth]);
 
   // ResizeObserver for canvas width
   useEffect(() => {
