@@ -7,7 +7,9 @@ import { Project, Asset, StoredAsset } from '../types';
 import { AudioEngine } from '../audio/engine';
 
 const DB_NAME = 'xpro_audio_db';
-const DB_VERSION = 1;
+// Version 2 adds a `storedAt` index so cleanup can read ages and ids without loading any audio.
+const DB_VERSION = 2;
+const INDEX_STORED_AT = 'storedAt';
 const STORE_ASSETS = 'assets';
 const STORE_PROJECT = 'project';
 const LEGACY_PROJECT_KEY = 'active_session';
@@ -60,8 +62,15 @@ function openDB(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = () => {
       const db = request.result;
+      let assetStore: IDBObjectStore | null = null;
       if (!db.objectStoreNames.contains(STORE_ASSETS)) {
-        db.createObjectStore(STORE_ASSETS, { keyPath: 'id' });
+        assetStore = db.createObjectStore(STORE_ASSETS, { keyPath: 'id' });
+      } else {
+        assetStore = request.transaction ? request.transaction.objectStore(STORE_ASSETS) : null;
+      }
+      // Built by the browser from existing records; no audio is read into the page.
+      if (assetStore && !assetStore.indexNames.contains(INDEX_STORED_AT)) {
+        assetStore.createIndex(INDEX_STORED_AT, INDEX_STORED_AT);
       }
       if (!db.objectStoreNames.contains(STORE_PROJECT)) {
         db.createObjectStore(STORE_PROJECT);
@@ -152,27 +161,100 @@ export async function deleteAssetFromDB(assetId: string): Promise<void> {
   });
 }
 
-export async function loadAllAssetsFromDB(engine: AudioEngine): Promise<Asset[]> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_ASSETS, 'readonly');
-    const req = tx.objectStore(STORE_ASSETS).getAll();
-
-    req.onsuccess = () => {
-      const storedList: StoredAsset[] = req.result || [];
-      const assets: Asset[] = [];
-      for (const item of storedList) {
-        try {
-          const asset = deserializeAsset(item, engine);
-          if (asset) assets.push(asset);
-        } catch {
-          // ignore individual asset decode failures
-        }
+/** Every asset id a project refers to: clips and their version history. Pure, so it can be tested. */
+export function collectProjectAssetIds(project: Pick<Project, 'tracks'> | null | undefined): Set<string> {
+  const ids = new Set<string>();
+  for (const track of project?.tracks || []) {
+    for (const clip of track.clips || []) {
+      if (clip.assetId) ids.add(clip.assetId);
+      for (const version of clip.versionHistory || []) {
+        if (version.assetId) ids.add(version.assetId);
       }
-      resolve(assets);
-    };
+    }
+  }
+  return ids;
+}
+
+/**
+ * Reads ONE stored asset by id and rebuilds its AudioBuffer. Only the requested record is read, so memory
+ * stays proportional to what the open project actually uses, never to everything ever saved.
+ */
+export async function loadAssetFromDB(assetId: string, engine: AudioEngine): Promise<Asset | null> {
+  const db = await openDB();
+  const stored = await new Promise<StoredAsset | undefined>((resolve, reject) => {
+    const tx = db.transaction(STORE_ASSETS, 'readonly');
+    const req = tx.objectStore(STORE_ASSETS).get(assetId);
+    req.onsuccess = () => resolve(req.result as StoredAsset | undefined);
     req.onerror = () => reject(req.error);
   });
+  if (!stored) return null;
+  try {
+    return deserializeAsset(stored, engine);
+  } catch {
+    return null;
+  }
+}
+
+/** How many assets are stored. Counts records without reading any audio. */
+export async function countStoredAssets(): Promise<number> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORE_ASSETS, 'readonly').objectStore(STORE_ASSETS).count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Restore safety brake: if the page was closed or killed while restoring audio, do not repeat the same
+// work on the next launch (which would freeze the computer again).
+// ---------------------------------------------------------------------------
+const RESTORE_PENDING_KEY = 'uuda:restore-pending';
+export const RESTORE_PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+type SimpleStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+function defaultStorage(): SimpleStorage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+// Identifies this page load, so a second restore attempt in the same page (for example React's development
+// double-mount) is never mistaken for an earlier launch that failed.
+const PAGE_LOAD_ID = createSessionId();
+
+export function markRestorePending(
+  now = Date.now(),
+  storage: SimpleStorage | null = defaultStorage(),
+  pageId = PAGE_LOAD_ID
+): void {
+  try { storage?.setItem(RESTORE_PENDING_KEY, `${pageId}|${now}`); } catch { /* storage may be blocked */ }
+}
+
+export function clearRestorePending(storage: SimpleStorage | null = defaultStorage()): void {
+  try { storage?.removeItem(RESTORE_PENDING_KEY); } catch { /* storage may be blocked */ }
+}
+
+/** True when an EARLIER page load started restoring audio and never finished. */
+export function didPreviousRestoreFail(
+  now = Date.now(),
+  storage: SimpleStorage | null = defaultStorage(),
+  pageId = PAGE_LOAD_ID
+): boolean {
+  try {
+    const raw = storage?.getItem(RESTORE_PENDING_KEY);
+    if (!raw) return false;
+    const [markedBy, stamp] = raw.split('|');
+    if (markedBy === pageId) return false;
+    const startedAt = Number(stamp);
+    if (!Number.isFinite(startedAt)) return false;
+    return now - startedAt >= 0 && now - startedAt < RESTORE_PENDING_MAX_AGE_MS;
+  } catch {
+    return false;
+  }
 }
 
 export const MAX_SESSION_AGE_MS = 5 * 60 * 1000; // 5 minutes
@@ -275,10 +357,69 @@ export async function clearCurrentProjectData(): Promise<void> {
   await cleanupOrphanedAssets();
 }
 
+export interface StoredAssetMeta {
+  id: string;
+  /** Missing on records written before the age marker existed; those are never auto-deleted. */
+  storedAt?: number;
+}
+
 /**
- * Removes expired project snapshots and old audio assets that are not referenced by any
- * remaining per-tab project snapshot. Newly written audio gets a 24-hour grace period to
- * avoid racing another tab between asset persistence and its next autosave.
+ * Pure cleanup plan: which snapshots have expired, and which stored audio is referenced by no live snapshot and is
+ * older than the grace period. Separate from IndexedDB so the rules can be tested.
+ */
+export function planCleanup(
+  projectKeys: IDBValidKey[],
+  projects: Array<(Pick<Project, 'tracks'> & { updatedAt?: number }) | undefined>,
+  assets: StoredAssetMeta[],
+  now: number,
+  graceMs = ORPHAN_ASSET_GRACE_MS
+): { expiredProjectKeys: IDBValidKey[]; orphanAssetIds: string[] } {
+  const expiredProjectKeys: IDBValidKey[] = [];
+  const referenced = new Set<string>();
+  for (let index = 0; index < projects.length; index++) {
+    const project = projects[index];
+    const key = projectKeys[index];
+    if (!project || key === undefined) continue;
+    // Expire stale per-tab snapshots before counting references, otherwise an abandoned tab's old
+    // snapshot could pin orphaned audio forever.
+    if (isSessionProjectExpired(project.updatedAt, now)) {
+      expiredProjectKeys.push(key);
+      continue;
+    }
+    for (const id of collectProjectAssetIds(project)) referenced.add(id);
+  }
+  const orphanAssetIds = assets
+    .filter((a) => !referenced.has(a.id) && typeof a.storedAt === 'number' && now - a.storedAt > graceMs)
+    .map((a) => a.id);
+  return { expiredProjectKeys, orphanAssetIds };
+}
+
+/** Reads asset ids and ages from the key index only. No audio data is read. */
+function readAssetMeta(assetStore: IDBObjectStore, done: (meta: StoredAssetMeta[]) => void, fail: (e: unknown) => void): void {
+  const keysReq = assetStore.getAllKeys();
+  keysReq.onerror = () => fail(keysReq.error);
+  keysReq.onsuccess = () => {
+    const ages = new Map<string, number>();
+    const cursorReq = assetStore.index(INDEX_STORED_AT).openKeyCursor();
+    cursorReq.onerror = () => fail(cursorReq.error);
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (cursor) {
+        if (typeof cursor.key === 'number') ages.set(String(cursor.primaryKey), cursor.key);
+        cursor.continue();
+        return;
+      }
+      done((keysReq.result as IDBValidKey[]).map((k) => ({ id: String(k), storedAt: ages.get(String(k)) })));
+    };
+  };
+}
+
+/**
+ * Removes expired project snapshots and old audio that no remaining snapshot references. Newly written audio gets a
+ * 24-hour grace period to avoid racing another tab between asset persistence and its next autosave.
+ *
+ * Memory: this used to read every stored audio record into the page just to look at its id and age, which could mean
+ * gigabytes at startup. It now reads only keys and the age index.
  */
 export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removedAssets: number }> {
   const db = await openDB();
@@ -288,54 +429,27 @@ export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removed
     const tx = db.transaction([STORE_PROJECT, STORE_ASSETS], 'readwrite');
     const projectStore = tx.objectStore(STORE_PROJECT);
     const assetStore = tx.objectStore(STORE_ASSETS);
-    const projectKeysRequest = projectStore.getAllKeys();
-    const projectsRequest = projectStore.getAll();
-    const assetsRequest = assetStore.getAll();
-    let ready = 0;
-    let projectKeys: IDBValidKey[] = [];
-    let projects: Array<(Project & { updatedAt?: number }) | undefined> = [];
-    let assets: Array<StoredAsset & { storedAt?: number }> = [];
-
-    const processIfReady = () => {
-      ready++;
-      if (ready !== 3) return;
-
-      // Expire stale per-tab snapshots before computing references. Otherwise an abandoned
-      // tab's old snapshot can pin orphaned audio forever. Active tabs refresh updatedAt on
-      // autosave; asset writes still receive a 24-hour grace period for in-flight imports.
-      const referencedAssetIds = new Set<string>();
-      for (let index = 0; index < projects.length; index++) {
-        const project = projects[index];
-        const key = projectKeys[index];
-        if (!project || key === undefined) continue;
-        if (isSessionProjectExpired(project.updatedAt, now)) {
-          projectStore.delete(key);
-          continue;
-        }
-        for (const track of project.tracks || []) {
-          for (const clip of track.clips || []) {
-            if (clip.assetId) referencedAssetIds.add(clip.assetId);
-            for (const version of clip.versionHistory || []) {
-              if (version.assetId) referencedAssetIds.add(version.assetId);
-            }
-          }
-        }
-      }
-
-      for (const asset of assets) {
-        if (!referencedAssetIds.has(asset.id) && typeof asset.storedAt === 'number' &&
-            now - asset.storedAt > ORPHAN_ASSET_GRACE_MS) {
-          assetStore.delete(asset.id);
-          removedAssets++;
-        }
-      }
-    };
-
-    projectKeysRequest.onsuccess = () => { projectKeys = projectKeysRequest.result; processIfReady(); };
-    projectsRequest.onsuccess = () => { projects = projectsRequest.result; processIfReady(); };
-    assetsRequest.onsuccess = () => { assets = assetsRequest.result; processIfReady(); };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+
+    const keysReq = projectStore.getAllKeys();
+    const projectsReq = projectStore.getAll();
+    let projectKeys: IDBValidKey[] | null = null;
+    let projects: Array<(Pick<Project, 'tracks'> & { updatedAt?: number }) | undefined> | null = null;
+    const proceed = () => {
+      if (!projectKeys || !projects) return;
+      readAssetMeta(assetStore, (meta) => {
+        const plan = planCleanup(projectKeys!, projects!, meta, now);
+        for (const key of plan.expiredProjectKeys) projectStore.delete(key);
+        for (const id of plan.orphanAssetIds) assetStore.delete(id);
+        removedAssets = plan.orphanAssetIds.length;
+      }, reject);
+    };
+    keysReq.onsuccess = () => { projectKeys = keysReq.result; proceed(); };
+    projectsReq.onsuccess = () => { projects = projectsReq.result; proceed(); };
+    keysReq.onerror = () => reject(keysReq.error);
+    projectsReq.onerror = () => reject(projectsReq.error);
   });
 
   return { removedAssets };
