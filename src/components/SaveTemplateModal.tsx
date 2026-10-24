@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { LayoutTemplate, X, Download } from 'lucide-react';
+import { LayoutTemplate, X, Download, Cloud } from 'lucide-react';
 
 interface SaveTemplateModalProps {
   isOpen: boolean;
@@ -12,19 +12,25 @@ interface SaveTemplateModalProps {
   defaultName: string;
   trackCount: number;
   pluginCount: number;
-  onSave: (meta: { name: string; description: string; tags: string[] }) => void;
+  /** Signed in: the template can also be kept on the user's account */
+  signedIn: boolean;
+  onSave: (meta: { name: string; description: string; tags: string[]; toFile: boolean; toAccount: boolean }) => void;
 }
 
-export const SaveTemplateModal: React.FC<SaveTemplateModalProps> = ({ isOpen, onClose, defaultName, trackCount, pluginCount, onSave }) => {
+export const SaveTemplateModal: React.FC<SaveTemplateModalProps> = ({ isOpen, onClose, defaultName, trackCount, pluginCount, signedIn, onSave }) => {
   const [name, setName] = useState(defaultName);
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
+  const [toFile, setToFile] = useState(true);
+  const [toAccount, setToAccount] = useState(true);
 
   useEffect(() => {
     if (isOpen) {
       setName(defaultName);
       setDescription('');
       setTags('');
+      setToFile(true);
+      setToAccount(true);
     }
   }, [isOpen, defaultName]);
 
@@ -41,11 +47,14 @@ export const SaveTemplateModal: React.FC<SaveTemplateModalProps> = ({ isOpen, on
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    const account = signedIn && toAccount;
+    if (!name.trim() || (!toFile && !account)) return;
     onSave({
       name: name.trim(),
       description: description.trim(),
       tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+      toFile,
+      toAccount: account,
     });
   };
 
@@ -83,6 +92,19 @@ export const SaveTemplateModal: React.FC<SaveTemplateModalProps> = ({ isOpen, on
             <span className="text-[11px] text-zinc-400">Tags, separated by commas (optional)</span>
             <input value={tags} maxLength={120} onChange={(e) => setTags(e.target.value)} className={field} />
           </label>
+          <fieldset className="space-y-1.5">
+            <legend className="text-[11px] text-zinc-400 mb-1">Where to save it</legend>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={toFile} onChange={(e) => setToFile(e.target.checked)} />
+              <Download className="w-3.5 h-3.5 text-zinc-400" />
+              <span>Download a template file</span>
+            </label>
+            <label className={`flex items-center gap-2 ${signedIn ? 'cursor-pointer' : 'opacity-60'}`}>
+              <input type="checkbox" disabled={!signedIn} checked={signedIn && toAccount} onChange={(e) => setToAccount(e.target.checked)} />
+              <Cloud className="w-3.5 h-3.5 text-zinc-400" />
+              <span>Save to my account{signedIn ? '' : ' (sign in to use this)'}</span>
+            </label>
+          </fieldset>
           <p className="text-[11px] text-zinc-500">
             Saves {trackCount} {trackCount === 1 ? 'track' : 'tracks'}, {pluginCount} {pluginCount === 1 ? 'plugin' : 'plugins'}, volumes, pan and auto-duck settings. No audio is saved.
           </p>
@@ -94,7 +116,7 @@ export const SaveTemplateModal: React.FC<SaveTemplateModalProps> = ({ isOpen, on
           </button>
           <button
             type="submit"
-            disabled={!name.trim() || trackCount === 0}
+            disabled={!name.trim() || trackCount === 0 || (!toFile && !(signedIn && toAccount))}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-sm bg-cyan-500 hover:bg-cyan-400 text-black font-bold cursor-pointer disabled:opacity-40 disabled:cursor-default"
           >
             <Download className="w-3.5 h-3.5" />

@@ -35,6 +35,8 @@ interface LeftSidebarProps {
   onDeleteTrack: (trackId: string) => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
   onAddTrack: () => void;
+  onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
+  onRemoveEmptyTracks: () => void;
   // VoicePanel props
   onAddVoiceTrack: (asset: Asset, metadata: VoiceMetadata) => void;
   existingVoiceMetadata?: VoiceMetadata | null;
@@ -61,6 +63,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onDeleteTrack,
   onMoveTrack,
   onAddTrack,
+  onUpdateTrack,
+  onRemoveEmptyTracks,
   onAddVoiceTrack,
   existingVoiceMetadata,
   onAddLibraryTrack,
@@ -76,9 +80,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   const isAdmin = user?.role === 'admin';
 
   return (
-    <div className="flex h-full border-r border-zinc-700/80 bg-[#121216] select-none shrink-0 z-10">
+    <div className="relative flex h-full border-r border-zinc-700/80 bg-[#121216] select-none shrink-0 z-20">
       {/* Mini Icon Tab Switcher Strip (Sidebar Rail) */}
-      <div className="w-12 bg-[#0c0c10] border-r border-zinc-800 flex flex-col items-center py-3 gap-2 shrink-0 justify-between">
+      <div className="w-11 sm:w-12 bg-[#0c0c10] border-r border-zinc-800 flex flex-col items-center py-3 gap-2 shrink-0 justify-between overflow-y-auto overflow-x-hidden">
         {/* Top Studio Workspaces */}
         <div className="flex flex-col items-center gap-2">
           <button
@@ -199,7 +203,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
       {/* Main Panel Content Area (collapsed when isCollapsed is true) */}
       {!isCollapsed && (
-        <div className={`${activeTab === 'voice' ? 'w-96' : 'w-80'} h-full flex flex-col min-w-0 bg-[#121216] animate-in fade-in duration-150`}>
+        <div className={`${activeTab === 'voice' ? 'w-96' : 'w-80'} max-w-[calc(100vw-3rem)] h-full flex flex-col min-w-0 bg-[#121216] animate-in fade-in duration-150 max-md:absolute max-md:left-full max-md:top-0 max-md:border-r max-md:border-zinc-700 max-md:shadow-[8px_0_24px_rgba(0,0,0,0.6)]`}>
           {activeTab === 'tracks' && (
             <TrackListPanel
               tracks={tracks}
@@ -208,6 +212,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               onDeleteTrack={onDeleteTrack}
               onMoveTrack={onMoveTrack}
               onAddTrack={onAddTrack}
+              onUpdateTrack={onUpdateTrack}
+              onRemoveEmptyTracks={onRemoveEmptyTracks}
             />
           )}
 
