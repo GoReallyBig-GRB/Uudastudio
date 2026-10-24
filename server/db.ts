@@ -87,6 +87,17 @@ export interface ServerProject {
   updated_at: string;
 }
 
+/** A saved project template (structure only, no audio). `data` is a validated UudaTemplate. */
+export interface ServerTemplate {
+  id: string;
+  user_id: string;
+  name: string;
+  size_bytes: number;
+  data: any;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AdminCodeEntry {
   email: string;
   /** HMAC-SHA256 of the code with a per-code random salt; the code itself is never stored */
@@ -109,6 +120,7 @@ interface DatabaseSchema {
   generations: GenerationLog[];
   tickets: SupportTicket[];
   projects: ServerProject[];
+  templates: ServerTemplate[];
   adminCodes: Record<string, AdminCodeEntry>;
   verifiedAdminSessions: Record<string, number>; // session token -> verified-until (epoch ms)
   sessions: Record<string, { userId: string; createdAt: number }>;
@@ -143,6 +155,7 @@ class DatabaseService {
           generations: parsed.generations || [],
           tickets: parsed.tickets || [],
           projects: parsed.projects || [],
+          templates: parsed.templates || [],
           adminCodes: parsed.adminCodes || {},
           // Older files stored an array with no expiry; those verifications are dropped on purpose
           verifiedAdminSessions: Array.isArray(parsed.verifiedAdminSessions) ? {} : parsed.verifiedAdminSessions || {},
@@ -160,6 +173,7 @@ class DatabaseService {
       generations: [],
       tickets: [],
       projects: [],
+      templates: [],
       adminCodes: {},
       verifiedAdminSessions: {},
       sessions: {},
@@ -365,6 +379,8 @@ class DatabaseService {
     this.data.tickets = this.data.tickets.filter((t) => t.user_id !== userId);
     // Delete projects
     this.data.projects = this.data.projects.filter((p) => p.user_id !== userId);
+    // Delete templates
+    this.data.templates = this.data.templates.filter((t) => t.user_id !== userId);
     // Delete generations
     this.data.generations = this.data.generations.filter((g) => g.user_id !== userId);
     this.save();
@@ -622,6 +638,38 @@ class DatabaseService {
     const initialLen = this.data.projects.length;
     this.data.projects = this.data.projects.filter((p) => !(p.id === projectId && p.user_id === userId));
     const deleted = this.data.projects.length < initialLen;
+    if (deleted) this.save();
+    return deleted;
+  }
+
+  // Templates
+  public saveTemplate(userId: string, templateId: string, name: string, data: any): ServerTemplate {
+    const now = new Date().toISOString();
+    const sizeBytes = Buffer.byteLength(JSON.stringify(data), 'utf8');
+    let tpl = this.data.templates.find((t) => t.id === templateId && t.user_id === userId);
+    if (tpl) {
+      tpl.name = name;
+      tpl.data = data;
+      tpl.size_bytes = sizeBytes;
+      tpl.updated_at = now;
+    } else {
+      tpl = { id: templateId, user_id: userId, name, size_bytes: sizeBytes, data, created_at: now, updated_at: now };
+      this.data.templates.unshift(tpl);
+    }
+    this.save();
+    return tpl;
+  }
+
+  public getTemplatesForUser(userId: string): ServerTemplate[] {
+    return this.data.templates
+      .filter((t) => t.user_id === userId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
+
+  public deleteTemplate(userId: string, templateId: string): boolean {
+    const before = this.data.templates.length;
+    this.data.templates = this.data.templates.filter((t) => !(t.id === templateId && t.user_id === userId));
+    const deleted = this.data.templates.length < before;
     if (deleted) this.save();
     return deleted;
   }

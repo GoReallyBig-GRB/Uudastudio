@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import { store, initStore } from './store';
 import { authRouter, getAuthenticatedUser, checkBurstLimit } from './authRoutes';
+import { templateRouter } from './templateRoutes';
 import { audioJobsRouter } from './audioJobs';
 import { rateLimit, requireSameOrigin } from './http';
 import {
@@ -88,6 +89,7 @@ app.use(requireSameOrigin);
 
 // Mount Auth, User Dashboard, Support & Admin Routes
 app.use(authRouter);
+app.use(templateRouter);
 
 // Heavy audio jobs (FFmpeg denoise and MP3 export) are off unless ENABLE_AUDIO_JOBS=true: the app does these in the
 // browser, and the Cloud Run image does not ship FFmpeg. When enabled, a signed-in user is required.

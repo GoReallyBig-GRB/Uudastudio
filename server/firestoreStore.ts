@@ -19,6 +19,7 @@ import {
   GenerationLog,
   SupportTicket,
   ServerProject,
+  ServerTemplate,
   AdminRecord,
   AuditEntry,
   ADMIN_CODE_TTL_MS,
@@ -56,6 +57,7 @@ export function createFirestoreStore(): DataStore {
   const generations = fs.collection('generations');
   const tickets = fs.collection('tickets');
   const projects = fs.collection('projects');
+  const templates = fs.collection('templates');
   const admins = fs.collection('admins');
   const audit = fs.collection('audit');
 
@@ -160,6 +162,7 @@ export function createFirestoreStore(): DataStore {
       await Promise.all([
         deleteWhere(tickets, 'user_id', userId),
         deleteWhere(projects, 'user_id', userId),
+        deleteWhere(templates, 'user_id', userId),
         deleteWhere(generations, 'user_id', userId),
         deleteWhere(sessions, 'user_id', userId),
       ]);
@@ -417,6 +420,34 @@ export function createFirestoreStore(): DataStore {
       if (!snap.exists) return false;
       await ref.delete();
       await bucket().file(objectPath(userId, projectId)).delete({ ignoreNotFound: true });
+      return true;
+    },
+    // ---- templates (small documents, kept whole in Firestore; one document per template, id = <uid>__<templateId>)
+    async saveTemplate(userId, templateId, name, data) {
+      const ref = templates.doc(`${userId}__${templateId}`);
+      const now = new Date().toISOString();
+      const snap = await ref.get();
+      const doc: ServerTemplate = {
+        id: templateId,
+        user_id: userId,
+        name,
+        size_bytes: Buffer.byteLength(JSON.stringify(data ?? null), 'utf8'),
+        data,
+        created_at: snap.exists ? (snap.data() as ServerTemplate).created_at : now,
+        updated_at: now,
+      };
+      await ref.set(doc);
+      return doc;
+    },
+    async getTemplatesForUser(userId) {
+      const q = await templates.where('user_id', '==', userId).get();
+      return q.docs.map((d) => d.data() as ServerTemplate).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    },
+    async deleteTemplate(userId, templateId) {
+      const ref = templates.doc(`${userId}__${templateId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return false;
+      await ref.delete();
       return true;
     },
     async duplicateProject(userId, projectId) {

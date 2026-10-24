@@ -5,9 +5,10 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { LayoutTemplate, X, Upload, Mic, Music, Volume2, Layers, ArrowDownToLine, SlidersHorizontal, AlertTriangle } from 'lucide-react';
+import { LayoutTemplate, X, Upload, Cloud, Trash2, Mic, Music, Volume2, Layers, ArrowDownToLine, SlidersHorizontal, AlertTriangle } from 'lucide-react';
 import { BUILT_IN_TEMPLATES } from '../templates/builtIn';
 import { parseTemplate, TrackRole, UudaTemplate } from '../templates/template';
+import { CloudTemplate, listCloudTemplates, deleteCloudTemplate, TemplateSyncError } from '../templates/templateApi';
 
 interface TemplatesModalProps {
   isOpen: boolean;
@@ -15,6 +16,10 @@ interface TemplatesModalProps {
   /** The current project has tracks, so using a template replaces something */
   hasWork: boolean;
   projectName: string;
+  /** Signed in: templates saved to the account are listed too */
+  signedIn: boolean;
+  /** Bump to reload the account list (after saving one) */
+  refreshKey?: number;
   onUseTemplate: (template: UudaTemplate, saveFirst: boolean) => void;
 }
 
@@ -27,11 +32,48 @@ const ROLE_ICON: Record<TrackRole, React.ReactNode> = {
 
 const ROLE_LABEL: Record<TrackRole, string> = { voice: 'Voice', music: 'Music', sfx: 'Effects', other: 'Track' };
 
-export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose, hasWork, projectName, onUseTemplate }) => {
+export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose, hasWork, projectName, signedIn, refreshKey = 0, onUseTemplate }) => {
   const [fromFiles, setFromFiles] = useState<UudaTemplate[]>([]);
   const [selectedId, setSelectedId] = useState<string>(BUILT_IN_TEMPLATES[0].id);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [cloud, setCloud] = useState<CloudTemplate[]>([]);
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Load the account's templates each time the window opens (and when one has just been saved)
+  useEffect(() => {
+    if (!isOpen || !signedIn) {
+      setCloud([]);
+      setCloudError(null);
+      return;
+    }
+    let cancelled = false;
+    setCloudLoading(true);
+    setCloudError(null);
+    listCloudTemplates()
+      .then((items) => { if (!cancelled) setCloud(items); })
+      .catch((err) => { if (!cancelled) setCloudError(err instanceof TemplateSyncError ? err.message : 'Could not load your saved templates.'); })
+      .finally(() => { if (!cancelled) setCloudLoading(false); });
+    return () => { cancelled = true; };
+  }, [isOpen, signedIn, refreshKey]);
+
+  const removeCloud = async (id: string) => {
+    setDeletingId(id);
+    setCloudError(null);
+    try {
+      await deleteCloudTemplate(id);
+      setCloud((prev) => prev.filter((t) => t.id !== id));
+      setSelectedId((cur) => (cur === id ? BUILT_IN_TEMPLATES[0].id : cur));
+      setConfirmDeleteId(null);
+    } catch (err) {
+      setCloudError(err instanceof TemplateSyncError ? err.message : 'Could not delete that template.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -45,7 +87,8 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
 
   if (!isOpen) return null;
 
-  const all = [...BUILT_IN_TEMPLATES, ...fromFiles];
+  const all = [...BUILT_IN_TEMPLATES, ...cloud.map((c) => c.template), ...fromFiles];
+  const cloudIds = new Set(cloud.map((c) => c.id));
   const selected = all.find((t) => t.id === selectedId) || all[0];
 
   const handleFile = async (file: File | undefined) => {
@@ -106,6 +149,8 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
                   <span className="font-bold text-zinc-100 truncate">{t.name}</span>
                   {t.builtIn ? (
                     <span className="text-[9px] px-1 py-0.5 rounded-sm bg-purple-500/15 text-purple-300 font-mono font-bold shrink-0">Starter</span>
+                  ) : cloudIds.has(t.id) ? (
+                    <span className="text-[9px] px-1 py-0.5 rounded-sm bg-cyan-500/15 text-cyan-300 font-mono font-bold shrink-0">Account</span>
                   ) : (
                     <span className="text-[9px] px-1 py-0.5 rounded-sm bg-zinc-800 text-zinc-300 font-mono font-bold shrink-0">File</span>
                   )}
@@ -131,6 +176,19 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
                 e.target.value = '';
               }}
             />
+            {!signedIn && (
+              <p className="flex gap-1.5 text-[11px] text-zinc-500 px-1 pt-1">
+                <Cloud className="w-3.5 h-3.5 shrink-0 mt-px" />
+                Sign in to keep templates on your account.
+              </p>
+            )}
+            {signedIn && cloudLoading && <p className="text-[11px] text-zinc-500 px-1 pt-1">Loading your templates…</p>}
+            {cloudError && (
+              <p role="alert" className="flex gap-1.5 text-[11px] text-rose-300 px-1 pt-1">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                {cloudError}
+              </p>
+            )}
             {error && (
               <p role="alert" className="flex gap-1.5 text-[11px] text-rose-300 px-1 pt-1">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
@@ -142,7 +200,24 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
           {/* Preview */}
           <div className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-5 space-y-3">
             <div>
-              <h3 className="text-sm font-bold text-white">{selected.name}</h3>
+              <div className="flex items-start gap-2">
+                <h3 className="flex-1 min-w-0 text-sm font-bold text-white">{selected.name}</h3>
+                {cloudIds.has(selected.id) && (
+                  confirmDeleteId === selected.id ? (
+                    <span className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[11px] text-rose-300">Delete from your account?</span>
+                      <button type="button" disabled={deletingId === selected.id} onClick={() => void removeCloud(selected.id)} className="px-2 py-1 rounded-sm bg-rose-500 text-white font-bold cursor-pointer disabled:opacity-50">
+                        {deletingId === selected.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                      <button type="button" onClick={() => setConfirmDeleteId(null)} className="px-2 py-1 rounded-sm text-zinc-400 hover:text-white hover:bg-zinc-800 cursor-pointer">Keep</button>
+                    </span>
+                  ) : (
+                    <button type="button" onClick={() => setConfirmDeleteId(selected.id)} aria-label="Delete this template from your account" title="Delete from your account" className="p-1.5 rounded-sm text-zinc-400 hover:text-rose-300 hover:bg-zinc-800 cursor-pointer shrink-0">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )
+                )}
+              </div>
               {selected.description && <p className="text-zinc-400 mt-1">{selected.description}</p>}
               {selected.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
