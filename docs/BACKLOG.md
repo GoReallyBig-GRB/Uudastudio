@@ -112,6 +112,20 @@ Phones are the main guest device, so the guest UI adapts to what a phone can do,
 | P-7 | Capability tiers wired to limits (published supported length per tier) | S | P-0, BR-2 | Published numbers match measurements |
 | P-8 | Fill the performance register in `VALIDATION_MATRIX.md` with real numbers | S | P-0 | No "Open" rows left without a reason |
 
+## Epic 4B. Saving, backup and recovery (decided 2026-10-24: files are the durable copy, the browser is only a short safety net)
+
+Finding behind this epic: the browser store (IndexedDB) restores a project only if it was saved within the last **5 minutes** (`MAX_SESSION_AGE_MS`); the 24-hour figure is only a grace period before unused audio is deleted, not a feature. Every import, recording, voice take and clip-processing result is also written in full to IndexedDB at the moment it is created (about 11 call sites in `App.tsx`), which doubles disk use and blocks on large files. No automatic backup to a file exists today. Browser storage can also be evicted by the browser, so it must never be the long-term copy.
+
+| ID | Item | Size | Depends on | Acceptance |
+|---|---|---|---|---|
+| PS-1 | Shorten the unused-audio grace period from 24 hours to about 1 hour (it only protects an in-flight import from another tab) | S | startup fix merged | Orphaned audio disappears within the hour; no race with a second tab in a test |
+| PS-2 | **Optional auto-backup to file**, off by default, **per project**: interval chosen by the user (for example 5, 10, 15, 30 minutes), writes the `.uuda` to the project folder; skips when nothing changed or while playing, recording or exporting; keeps the last N rolling copies; shows "last backed up" and any failure | M | RS-1 | Backup runs on the interval on Chromium with a folder chosen; nothing is written when unchanged; a failed write is shown, never silent |
+| PS-3 | Auto-backup on browsers without folder access (Firefox, Safari, phones): no silent downloads; a periodic "save your project" reminder instead | S | PS-2, BR-2 | Reminder appears at the chosen interval when there are unsaved changes |
+| PS-4 | **Recovery prompt**: on launch, if a recent unsaved session exists, ask "Recover unsaved session?" with project name and time, instead of restoring silently or not at all | S to M | none | User can recover or discard; discarded audio is released |
+| PS-5 | Show storage used by the browser store, a "clear stored session audio" action, and request persistent storage so the browser is less likely to evict | S | none | Numbers shown without loading audio; clearing works |
+| PS-6 | **Retire full audio copies in the browser store** once streaming import lands: keep the original file on disk (file handle or origin-private storage) and peaks, not a 32-bit float copy; irreplaceable audio (recordings, voice takes) is protected first | L | P-6 | A 3 to 4 hour import writes no multi-gigabyte float copy to the browser store |
+| PS-7 | Backup size strategy for large projects: checkpoint the small project data separately from the unchanged audio so a backup does not rewrite gigabytes every interval | M to L | PS-2, P-6 | A 4-hour project backs up in seconds after the first full save |
+
 ## Epic 5. App-wide testing (as requested, after Epic 2 features exist)
 
 | ID | Item | Size | Depends on | Acceptance |
