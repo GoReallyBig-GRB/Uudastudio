@@ -185,3 +185,35 @@ The checked items above describe added unit-test coverage. Latest branch CI pass
 - [ ] Open-loss prevention: with unsaved edits, cancel the replacement confirmation and verify the active project remains unchanged; confirm replacement only after explicit approval.
 
 - [ ] Project replacement undo isolation: create edits, open a different project (or create a new blank one), and verify Undo cannot restore clips/tracks from the previous project.
+
+
+## Latest manual testing feedback — 2026-10-24 (observed; not a passing run)
+
+### Session context
+
+- User tested a 57-minute audio track, then duplicated it into a project approaching two hours.
+- Reported import-to-visible time: approximately 24 seconds on the first attempt and approximately 80 seconds after restarting. These are observations from one session, not controlled benchmarks.
+- Export stalled at 62% with the stage text “Measuring true peak.” The user's earlier report of 75% was explicitly corrected; use 62% as the latest report.
+- No browser/version, OS/RAM, exact file format/sample rate, console trace, memory profile, or screen recording was attached to this session. Do not infer a pass/fail against performance targets from these timings alone.
+
+### Added regression gates
+
+| Gate | Test | Pass condition | Evidence to keep | Status |
+|---|---|---|---|---|
+| V-13 TTS audition and insertion | Start a voice audition; then generate a voiceover and add it to the timeline. Repeat after reload. | Audition begins within an agreed measured target; generated audio is returned and inserted once; errors are surfaced and actionable. | Stage timings, console/network trace, generated asset/timeline state. | OPEN — reported ~10 s audition start and failed insertion; not reproduced in a controlled run |
+| V-14 Long-project zoom/playhead/waveform recovery | Use two ~57-minute clips in separate lanes; zoom in/out repeatedly, scroll, let playhead-follow activate, and move playhead after extreme zoom. | Zoom remains stable; playhead stays aligned and advances; waveform remains visible or recovers after navigation; track controls are not overdrawn. | Recording, project/file metadata, zoom/scroll/playhead values, canvas dimensions, cache metrics and profiler trace. | OPEN — observed instability, waveform loss and stationary playhead |
+| V-15 Loading/persistence feedback | Import a long file on cold and warm starts; observe status from decode through durable persistence; minimize/restore the app during loading. | User can distinguish loading, playable-in-memory, persistence in progress, persistence success/failure, and portable save destination; progress notifications remain truthful. | Timestamped event log and screen recording correlated with actual decode/IndexedDB/file-save completion. | OPEN — status was absent or appeared misleading |
+| V-16 Long-file export stage progress | Export the same long project; observe true-peak measurement and all later stages; test responsiveness and cancellation where supported. | Progress advances only with completed work, paints during long analysis, reaches preview or reports a clear failure, and the app remains responsive within agreed limits. | Per-stage wall time, long-task trace, peak memory, progress timestamps and outcome. | OPEN — export reportedly stalled at 62% (“Measuring true peak”) |
+| V-17 Root-folder setup discoverability | Fresh browser profile: locate and choose a root folder; reload; save/open a project; test cancel, denied permission and unsupported browser. | Setup and current folder are discoverable; selection/permission restoration is clear; save/open round trip succeeds or a clear fallback is provided. | Browser/version, permission state, selected-folder label and round-trip result. | OPEN — user did not notice the selector; implementation status alone is insufficient |
+| V-18 Plugin enhancement regression | Compare current main behavior against the intended plugin enhancement and the last known-good PR/commit. | Expected search/category/count behavior is present; any missing behavior is specified and covered by a regression test without reverting restoration work. | Exact behavior checklist, merge/commit references, screenshot or test output. | INVESTIGATE — report says enhancement was lost; exact missing behavior not yet isolated |
+
+### Required run procedure for the reported long-session regressions
+
+1. Record the commit SHA, browser/version, OS, RAM, file format, duration, sample rate, channels, clip/track count, enabled effects/plugins, cache state, and IndexedDB state.
+2. Run a cold-start import and a warm reload separately. Time decode, timeline visibility, persistence start, and persistence completion independently.
+3. With two long clips in separate lanes, repeat zoom in/out and horizontal scroll; observe playhead-follow and waveform visibility before, during, and after extreme zoom.
+4. Run mastering/export and record every progress-stage transition, especially true-peak analysis; capture UI long tasks, peak memory, and whether the process reaches preview.
+5. Test TTS audition and voiceover insertion separately from timeline/export tests so one failing subsystem does not mask another.
+6. Attach logs/recordings and update the matching correction-register rows. Keep all browser-only gates OPEN until the evidence exists.
+
+These gates supplement V-01–V-12. They do not supersede existing CS-00/04/05/06/07/08/09/10/12/15/16 work, and they do not claim that any reported regression has already been fixed.
