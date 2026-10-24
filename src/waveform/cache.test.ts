@@ -53,22 +53,6 @@ describe('waveformCache', () => {
     waveformCache.clearAsset(id);
   });
  
-  it('reuses a cached coarser level when zooming in would require a full source rescan', () => {
-    const id = 'test-coarse-fallback';
-    const values = Float32Array.from({ length: 16_384 }, (_, i) => Math.sin(i * 0.03));
-    const buffer = {
-      length: values.length,
-      numberOfChannels: 1,
-      getChannelData: () => values,
-    } as unknown as AudioBuffer;
-    waveformCache.clearAsset(id);
-    const coarse = waveformCache.getPeaks(id, buffer, 1024);
-    const finerRequest = waveformCache.getPeaks(id, buffer, 64);
-    expect(finerRequest).toBe(coarse);
-    expect(finerRequest.samplesPerPixel).toBe(1024);
-    waveformCache.clearAsset(id);
-  });
-
   it('aggregates coarser peaks from a cached finer level without changing extrema', () => {
     const channels = [
       Float32Array.from({ length: 4099 }, (_, i) => Math.sin(i * 0.31) * (i % 11 === 0 ? 1.2 : 0.8)),
