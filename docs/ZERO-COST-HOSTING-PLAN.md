@@ -10,8 +10,8 @@ Replaces the "proxy everything to Cloud Run" assumption in `docs/cloudflare-depl
 |---|---|---|
 | Devices and browsers | Mid-range devices and up. All Chromium browsers, plus Safari and Firefox. The app should **recommend** best browsers and device specs, while still letting weaker setups try | Capability tiers (section 5.6), not a hard block |
 | Longest file | **3 to 4 hours** | See below: this makes streaming (P-6) mandatory |
-| Gemini voice on day one | Yes | Stays in phase 4, ahead of auth work; needs sign-in |
-| First release signed out? | Yes, local projects only. Only Gemini voice needs sign-in | Account port shrinks to identity plus voice usage (section 4.1) |
+| Gemini voice | **Revised 2026-10-24:** Gemini TTS is not free in production and most users cannot pay. Voice generation moves to open-source engines that run on the user's own device, delivered as optional downloadable add-ons | New section 5A. Voice needs **no server and no sign-in**. Gemini stays only as an optional bring-your-own-key engine |
+| First release signed out? | Yes, local projects only. Voice no longer needs sign-in (section 5A) | **No Firebase, Firestore or auth port in the first release.** Static hosting plus one small Freesound proxy |
 
 **What 3 to 4 hour files do to the plan.** Four hours of 48 kHz stereo float32 is about **5.5 GB** decoded; mono at 44.1 kHz is still about **2.5 GB**. No browser tab on a mid-range device can hold that as one decoded buffer, and the Web Audio `decodeAudioData` call decodes the whole file at once. So P-1 to P-4 alone cannot reach this target. **P-6 (streamed decoding and playback) is now required, not optional**, and it moves to the front of the performance work. The design shifts from "hold the audio in memory" to "hold peaks and a small window in memory, read the rest from disk on demand":
 
@@ -45,7 +45,7 @@ These come from reading the repo at `main` (ac43c0d).
 |---|---|---|---|
 | Front end hosting | Cloudflare Workers static assets (already in `wrangler.jsonc`) | Free plan; static asset requests are not metered in the same way as Worker CPU ⚠ | Confirm the Workers Free plan needs no card to deploy |
 | URL | `uudastudio.goreallybig.com` if the zone is on Cloudflare (DNS is free), otherwise the free `*.workers.dev` name | No extra cost beyond the domain the owner already holds | `workers_dev` is `false` today; flip it to test without DNS |
-| Sign-in | Firebase Auth on the **Spark** (no-card) plan | Spark has no billing account at all | Spark cannot use anything that needs Blaze; Google sign-in only ⚠ |
+| Sign-in (later, not in the first release) | Firebase Auth on the **Spark** (no-card) plan | Spark has no billing account at all | Spark cannot use anything that needs Blaze; Google sign-in only ⚠ |
 | Data (users, projects, tickets, templates) | Firestore on Spark, via its REST API from Workers | Spark quotas are hard limits: when exceeded, requests fail, nothing is billed ⚠ | Daily read/write quota is small; see budgets below |
 | API | Worker handlers (section 4) | Free plan has a hard daily request cap and small per-request CPU ⚠ | Light routes only; no FFmpeg, no filesystem |
 | Email (admin codes, ticket replies) | An HTTP email API with a no-card free tier (Brevo or Resend) ⚠ | Replaces Gmail SMTP, which Workers cannot speak | Check daily send limit and sender-domain rules |
@@ -59,23 +59,14 @@ These come from reading the repo at `main` (ac43c0d).
 
 ### 4.1 Sign-in scope for the first release
 
-The first release is **signed out, local projects only**: projects, audio and templates live in the browser and in `.uuda` files. Sign-in exists only for **Gemini voice**. That removes the projects, tickets, admin and cloud-template routes from the critical path (they stay on the roadmap), and the server-side data shrinks to a small identity record plus voice usage counters, if usage needs limiting at all.
-
-For voice there are two zero-cost designs, to be chosen with the owner:
-- **Shared server key (needs sign-in):** a Worker holds one `GEMINI_API_KEY`, signed-in users call it, and usage is metered per user. Simple for users, but the key's own free quota is shared by everyone and is the real limit. ⚠ verify
-- **User's own key (could skip sign-in):** the user pastes their own Gemini key, kept in their browser, and the browser calls Gemini directly or through a thin pass-through Worker. No server-side account data at all, and each user spends their own quota. The existing dashboard already supports a personal key.
-
-Recommended default: signed-in shared-key voice with a modest per-user limit, plus the personal-key option for heavy users.
-
-
-Counted from `server/*.ts` at `main`.
+The first release is **signed out, local projects only**: projects, audio, templates and voiceovers live in the browser and in `.uuda` files. Because voice generation now runs on the user's device (section 5A), **nothing in the first release needs a sign-in**, so the Auth, Firestore, projects, tickets and admin routes all leave the critical path and stay on the roadmap. The only server-side piece left is a small Freesound proxy (its API credentials must not ship in the browser).
 
 | Area | Routes (examples) | Needs today | Decision |
 |---|---|---|---|
 | Audio jobs | `/api/audio/*`, `/api/export/mp3` | native FFmpeg, temp files | **Delete or keep disabled.** Not called by the client; browser does this. |
 | Health | `/api/health` | nothing | Worker handler. |
 | Templates | `/api/templates` | store + `templateService.ts` (framework-independent) | Worker handler reusing `templateService.ts`. First to move. |
-| Voice | `/api/voice/voices`, `/preview`, `/generate`, `/diagnose` | Gemini API via `fetch`; per-user key header | Worker handler. The user's key stays in a request header and is never stored. Waiting on Google is I/O, not CPU, so it suits the free CPU budget. ⚠ check a long TTS call against the Worker wall-clock limit |
+| Voice | `/api/voice/voices`, `/preview`, `/generate`, `/diagnose` | Gemini API, which is paid | **Retire from the server.** Replaced by on-device engines (section 5A). Optional bring-your-own-key Gemini can call Google straight from the browser. |
 | Freesound | `/api/freesound/*` | `fetch`, server API key | Worker handler. Large downloads should be redirected, not proxied. |
 | Auth | `/api/auth/*`, `requireAuth` | `firebase-admin` `verifyIdToken`, `crypto`, own session tokens | **Rework.** `firebase-admin` does not run on Workers. Verify Firebase ID tokens with Web Crypto against Google's public keys, then drop the custom `uuda_sess_` tokens if possible. Highest-risk part of the move. |
 | Projects, tickets, usage, admin | `/api/projects*`, `/api/tickets*`, `/api/usage/my`, `/api/admin/*` | Firestore through `firebase-admin`, `nodemailer` | **Rework.** Firestore REST with a service-account JWT signed in the Worker, held as a Worker secret. Email via HTTP API. |
@@ -144,6 +135,72 @@ A "Best experience" note lists recommended browsers and minimum specs, but nothi
 
 The supported envelope is shown in the app (for example: "Tested up to X minutes on this device class"). Over the limit, the user gets a clear message and a choice (downmix, split, or cancel), never a frozen tab.
 
+## 5A. Voice generation without paid services
+
+**Why.** Gemini TTS is free inside AI Studio but is a paid API in production, and most Uuda users cannot pay for it. Free voiceovers are core to Uuda's value, so the default engine must run at no cost to the owner or the user.
+
+**Principle.** The voice engine runs **on the user's own device**. The owner pays for no inference, the server holds no voice key, and no sign-in is needed. Engines are optional **add-ons** the user chooses to download, shown with their size and a device recommendation.
+
+### 5A.1 Candidate engines (facts from the sources listed below; ⚠ verify before building)
+
+| Engine | Licence | Size / memory (vendor benchmark, Node, not a browser) | Fits as | Notes |
+|---|---|---|---|---|
+| **Kokoro-82M** | Apache-2.0 | ~341 MB model, ~2.0 GB peak RAM, slower than real time on one CPU core in the benchmark | In-browser add-on via `kokoro-js` (Transformers.js): WebGPU or WASM, `fp32`/`fp16`/`q8`/`q4` | Good quality for its size; 28 English voices listed (American and British); no instruction following like Gemini's director notes |
+| **Kitten TTS Nano** | Apache-2.0 | ~42 MB, ~320 MB RAM, no streaming | Low-memory in-browser add-on | Smallest option; the lowest-spec device tier |
+| **Supertonic TTS 2** | MIT | ~262 MB, ~450 MB RAM, ~0.5x core-hour ratio | In-browser add-on candidate; browser support is claimed | Faster than Kokoro on CPU in the benchmark |
+| **Piper** | MIT (original) / GPLv3 (current fork) | ~61 MB model, ~2.6 GB peak RAM in the benchmark | Local helper add-on, not bundled | 100+ voices across 30+ languages; the GPL fork has obligations, so ship it only as a separate download with its own licence |
+| **Chatterbox-Turbo** | MIT | ~3 GB model, ~7.5 GB RAM, heavy | Optional **desktop helper** for capable PCs, voice cloning | Too heavy for the browser; strong-PC add-on only |
+| **Coqui XTTS v2** | **CPML: non-commercial only** (covers the model *and its outputs*) | Not stated; GPU strongly recommended | **Do not use** | See below |
+
+**XTTS v2 is not suitable.** Its licence allows only non-commercial use of the model and its outputs, Coqui shut down in December 2023, and there is no confirmed route to a commercial licence. A user who uploads a voiceover made with it to a monetised podcast or video would be outside the licence, and Uuda would be distributing it. For a product whose users are creators, that is a legal risk the owner should not take. Chatterbox (MIT) covers the voice-cloning need without that problem.
+
+### 5A.2 How the add-ons plug in
+
+The app has one voice seam today: `src/voice/voiceJob.ts` posts to `/api/voice/generate` and expects WAV audio back. The change is a **provider interface**:
+
+```
+VoiceProvider {
+  id, name, license, downloadSizeMb, minimumDevice
+  status(): 'not-installed' | 'downloading' | 'ready' | 'loading' | 'error'
+  install(onProgress), remove()
+  voices(): Voice[]
+  generate({ script, voiceId, speed, signal, onChunk }): Promise<AudioBuffer>
+}
+```
+
+- **In-browser providers** (Kokoro, Kitten, Supertonic) run in a **dedicated Web Worker**, never on the main thread, so the editor stays responsive.
+- **Local-helper providers** (Chatterbox, Piper) are separate programs the user installs; the page talks to them on `127.0.0.1`. Browser rules for a secure page calling localhost differ by browser (Safari restricts it; recent Chromium versions add a permission prompt) ⚠ verify, so helpers are an **extra** path, not the default.
+- **Gemini** becomes an optional provider using the user's own key, called from the browser. Nothing is stored on a server. It is clearly labelled as paid by Google.
+- Model files download **straight from their public host** (for example Hugging Face) to the user's browser and are cached in browser storage (Cache API or origin-private storage). Our free Worker never proxies them, so they cost no bandwidth quota. The page's content-security policy must allow that host. ⚠ verify host terms and CORS.
+- The user sees the download size and a device recommendation **before** installing, can remove the model, and storage use is visible.
+- Long scripts are split by sentence, generated chunk by chunk, and written out as they finish, so memory stays bounded and progress is real.
+
+### 5A.3 The memory problem (the real risk)
+
+The voice model competes for memory with the editor, and the editor is already memory-constrained (section 5). Rules to protect it:
+
+1. **Load on demand, unload when idle.** The model is loaded when the user generates and released after a short idle period or on a memory warning.
+2. **One heavy thing at a time on small devices.** The P-1 pre-flight (section 5.3) accounts for the voice model: on a low-memory device it can say "close the long project, or use the small voice."
+3. **Tier the engine to the device (section 5.6):**
+   - Low memory, no WebGPU: Kitten TTS Nano (or Supertonic) on WASM.
+   - Mid-range: Kokoro quantised (`q8` or `q4`) on WASM.
+   - Capable with WebGPU: Kokoro `fp32` on WebGPU.
+   - Strong desktop with a GPU: optional helper (Chatterbox) for cloning.
+4. **Measure, don't trust the table.** The numbers above are from one vendor's Node benchmark on a desktop CPU. In-browser speed and memory must come from our own benchmark on mid-range devices (section 5.4). A rough check: if Kokoro `q8` on a mid-range laptop takes longer than a set multiple of the audio length per sentence, that tier is demoted or the engine is offered only as "slow but free".
+
+### 5A.4 What changes for users (be upfront in the app)
+
+- **Voices will sound different from Gemini's, and there are no "director notes."** The open engines read the text with a chosen voice and speed; they don't follow style instructions. The Voiceover panel should remove or hide that field for them.
+- **Language coverage is narrower.** The listed Kokoro voices are English; other languages vary by engine ⚠ verify. Languages the owner's users need (for example Nigerian languages) are probably **not** covered by any of these engines. This needs a decision (see section 9).
+- **The first generation includes a model download.** Hundreds of MB the first time, then cached.
+- The server-side Gemini checks in `server/voiceService.ts` (transcribe and word-error-rate verification, banned-phrase checks) depend on paid calls and don't carry over. Local engines need cheaper checks (empty or clipped audio) instead.
+
+### 5A.5 Consequence for the rest of the plan
+
+Voice no longer needs a server, a key or sign-in. That removes the last reason for Firebase or Firestore in the first release. The deployment becomes **static hosting on Cloudflare plus one small Freesound proxy**, which is both the cheapest and the simplest version of this plan.
+
+Sources checked: [kokoro-js on npm](https://www.npmjs.com/package/kokoro-js) (Apache-2.0, WASM/WebGPU, dtype options, 28 listed voices), [XTTS v2 review](https://www.promptquorum.com/power-local-llm/xtts-v2-review) (CPML non-commercial, Coqui shutdown, GPU recommended), [Picovoice on-device TTS benchmark](https://picovoice.ai/blog/on-device-tts/) (sizes, memory and licences in the table; the author sells a competing product and ran Node on one desktop CPU).
+
 ## 6. Stop conditions and fallbacks
 
 If a gate fails, the answer is to **narrow the supported envelope**, not to ship and hope. Examples:
@@ -169,8 +226,8 @@ If a gate fails, the answer is to **narrow the supported envelope**, not to ship
 | 1 | Static front end on Cloudflare (free), API temporarily wherever it runs now, then **delete the dead FFmpeg routes** | Site loads from Cloudflare; no change in audio behaviour |
 | 2 | Benchmark harness in CI, baseline measured, budgets set (section 5.4) | `VALIDATION_MATRIX.md` performance register filled in with real numbers |
 | 3 | P-1, P-2, P-4: pre-flight check, bounded caches, workers | Gates pass at the envelope we choose to publish |
-| 4 | Port light routes to Workers (health, templates, voice, Freesound) | Each ported route has tests and a quota budget |
-| 5 | Auth and Firestore access from Workers; email over HTTP | Sign-in, projects and tickets work with no Node server |
+| 4 | **Voice add-ons** (section 5A): provider interface, Kokoro in a Worker on WASM, device tiers, model download and cache, then a Freesound proxy Worker | A voiceover generated fully on-device on a mid-range test device, within the memory budget; no server voice call |
+| 5 | (After first release) Auth and Firestore access from Workers; email over HTTP; cloud templates and projects | Sign-in, projects and tickets work with no Node server |
 | 6 | Turn off the old API host | No remaining dependency on a billed service |
 | 7 | P-3, P-5, then P-6 if needed | Larger envelope, only if measurements justify it |
 
@@ -184,6 +241,6 @@ Original questions:
 
 1. Which devices and browsers must work? (This sets the envelope: a desktop-only podcast editor is a much easier target than a phone-friendly one.)
 2. What is the longest file a typical user imports (minutes, mono or stereo)? Hour-long episodes drive P-6; 20-minute segments do not.
-3. Is the Gemini voice feature required on day one? It is the route most exposed to a free-tier wall-clock limit.
+3. **Answered:** voice moves to on-device open-source engines (section 5A). New questions: (a) which languages must voices cover? (b) is voice cloning needed, or are fixed voices enough? (c) is it acceptable that voices sound different from Gemini's and have no director notes?
 4. (Reworded) Do you want projects, templates and support tickets saved on our servers for signed-in users in the first release, or kept only on the user's device? The signed-out first release implies device-only.
 5. Is sign-in required for the first release, or can the app run signed-out with local projects only? A signed-out release would remove the entire Auth/Firestore port from the critical path.
