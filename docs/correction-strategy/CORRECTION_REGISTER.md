@@ -19,7 +19,7 @@ Status labels: **Open** = not yet implemented/verified in this plan; **Investiga
 | CS-12 | P2 | Progress reporting | Progress may stall while synchronous work blocks paint | `src/components/MasterExportPanel.tsx` | Stage-weighted progress tied to completed operations; worker messaging where appropriate | WAV encoding and loudness analysis yield with progress updates; remaining synchronous DSP/verification and browser paint behavior need profiling | Partial; CI PASS; runtime NOT VERIFIED |
 | CS-13 | P1 | Project format | PRD describes `.uuda` with audio, but the original snapshot only saved JSON | `src/storage/projectFile.ts`; `src/App.tsx`; `src/components/Header.tsx` | Implement versioned self-contained binary container, legacy JSON reader, Save/Save As/Open, shortcuts, unsupported-version refusal, missing-audio warning, and round-trip tests | Standalone stereo sample round-trip harness passed; Vitest, full app build, browser and large-file memory checks remain | Partial; NOT VERIFIED |
 | CS-14 | P2 | Parallel render | Parallel segments can break stateful effects or increase memory pressure | Export/render graph; DSP/effects implementations | Profile first; classify stateful stages; benchmark 1/2/4 workers only after serial correctness | Reference-equivalent output, clean joins, measured speedup and bounded memory | Blocked by CS-09/10 |
-| CS-15 | P1 | Performance targets | 90-minute target lacks measurable thresholds; stale baseline docs may conflict with current cache limits | `docs/` if present; PRD; `src/waveform/cache.ts` | Define 60-/90-minute responsiveness, memory, storage, and export targets; reconcile stale docs | Approved target table and reproducible reference-machine report | Open |
+| CS-15 | P1 | Performance targets | Long-session performance lacks measurable thresholds across project durations | `docs/correction-strategy/LONG_SESSION_THRESHOLDS.md`; `src/waveform/cache.ts`; mastering/export/persistence paths | Define and run 15-/30-/60-/90-/120-minute browser endurance tiers; baseline responsiveness, peak/post-operation memory, export timing, integrity and recovery; optimize measured bottlenecks without arbitrary duration caps | Named-machine reports for each tier; automated checks and browser evidence; no tier marked passed from documentation or source inspection alone | Plan defined; baseline and runtime acceptance Open |
 
 ## First correction batch — implementation record (2026-10-22)
 
@@ -179,3 +179,29 @@ Added `src/audio/masteringExport.test.ts` to compare asynchronous chunked WAV ou
 - **Open-project loss prevention:** opening another `.uuda`/legacy project now asks before replacing the current workspace when it differs from the last portable save. Cancel leaves the current project intact.
 
 - **Undo history isolation:** creating a blank project or opening a portable project now resets the undo/redo history to that project's initial state rather than appending the new project to the previous project's history.
+
+
+## Browser feedback follow-up — 2026-10-23
+
+- **Mastering progress/responsiveness:** true-peak analysis now yields every 65,536 samples instead of every 8,192 and reports advancing fractional progress across the analysis window rather than remaining at 62%. Added a regression test for advancing progress on a long sample buffer.
+- **Waveform zoom safety:** when zooming in on a long source without a finer cached peak level, reuse the nearest cached coarser envelope rather than synchronously rescanning the entire audio buffer on the UI thread. This prioritizes a visible, interactive waveform; high-zoom detail may be coarser until an asynchronous finer-level renderer is implemented.
+- **TTS resilience:** a generated voiceover becomes available immediately after decode. IndexedDB persistence runs in the background and reports failure without discarding the generated audio.
+- **Loading feedback:** audio import now shows a persistent in-app status banner through decoding, timeline insertion, and local recovery saving.
+- **Folder discoverability:** if no root folder is configured, show a first-use setup banner with a direct folder-picker action and a “Not now” option. No microphone permission is requested by this banner.
+- **Validation:** unit tests and latest branch CI must pass. Browser checks for long-track zoom/waveform detail, TTS insertion, export duration, root-folder selection and microphone prompt behavior remain open.
+
+- **Zoom anchoring:** timeline zoom changes preserve the time at the viewport center and explicitly sync the clamped scroll offset back into React state, reducing stale canvas/playhead offsets when zooming out on long timelines.
+
+
+## Mastering and timeline hardening follow-up — 2026-10-23
+
+- **Progress contract:** mastering now uses a monotonic progress reporter across nested analysis, DSP, and compliance stages. This prevents the progress percentage from moving backwards when the initial banner and first analysis updates overlap.
+- **True-peak performance:** the asynchronous 4x Hermite scan now processes bounded 65,536-sample blocks, yields between blocks, hoists interpolation weights out of the hot loop, and avoids per-sample modulo/iterator overhead. Automated parity coverage compares the optimized async result with the synchronous reference.
+- **Honest offline-render feedback:** `OfflineAudioContext.startRendering()` does not expose a standard progress callback. The UI now retains the true 75% stage and reports elapsed time rather than inventing progress while the browser renders the effect graph.
+- **Zoom hardening:** zoom anchoring is calculated by a finite-safe, clamped helper and applied in a layout effect before paint, using the updated browser scroll bounds. Unit tests cover zoom-in, zoom-out, boundary clamps, and invalid geometry.
+- **Installable DAW direction:** the PRD describes a browser-based workstation and identifies Web Worker DSP and OPFS streaming as the next architectural steps for heavy offline processing and large local audio. Native desktop packaging is not yet specified; it must be planned explicitly rather than inferred from the browser build.
+- **Validation:** unit tests and CI must pass on the current head. The 57-minute mastering and repeated-zoom browser acceptance tests remain open; no claim is made that the full long-file mastering run is already fixed.
+
+- **Loudness hot-loop hardening:** RMS and K-weighting passes now iterate in explicit 262,144-sample blocks with progress/yields at block boundaries. The rolling window uses a maintained ring index and next-window counter instead of per-sample modulo checks. Existing sync-vs-async boundary tests protect loudness statistics.
+
+- **Limiter progress/performance:** the long lookahead-limiter pass now yields at explicit 1,048,576-sample block boundaries, uses wraparound index checks instead of per-sample modulo operations, and reports fractional progress so a long pass does not appear flat at 75% for an extended interval.
