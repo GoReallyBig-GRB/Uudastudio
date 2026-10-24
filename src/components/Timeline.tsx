@@ -17,6 +17,8 @@ import { TimelineRuler } from './TimelineRuler';
 import { ClipActionStrip } from './ClipActionStrip';
 import { waveformCache } from '../waveform/cache';
 import { audioEngine } from '../audio/engine';
+import { pluginManager } from '../plugins/pluginManager';
+import { pruneEmptiedTracks, getTrackLabel } from '../utils/tracks';
 import { formatTimecode } from '../utils/formatters';
 
 interface TimelineProps {
@@ -31,6 +33,8 @@ interface TimelineProps {
   onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
   onDeleteTrack: (trackId: string) => void;
   onUpdateProject: (newProject: Project) => void;
+  /** Lanes that were emptied by a clip move and removed (untouched default lanes only) */
+  onTracksAutoRemoved?: (trackIds: string[]) => void;
   onSeek: (seconds: number) => void;
   onSplitClip: (clipId: string) => void;
   onDeleteClip: (clipId: string) => void;
@@ -98,6 +102,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   onUpdateTrack,
   onDeleteTrack,
   onUpdateProject,
+  onTracksAutoRemoved,
   onSeek,
   onSplitClip,
   onDeleteClip,
@@ -826,7 +831,14 @@ export const Timeline: React.FC<TimelineProps> = ({
             targetTrack.clips.sort((a, b) => a.startSeconds - b.startSeconds);
           }
 
-          onUpdateProject({ ...project, tracks: newTracks });
+          // A lane emptied by this move that was never renamed, mixed or given effects would be left as an orphan
+          const { tracks: tidyTracks, removedIds } = pruneEmptiedTracks(
+            project.tracks,
+            newTracks,
+            (id) => pluginManager.getPluginsForTrack(id).length > 0
+          );
+          onUpdateProject({ ...project, tracks: tidyTracks });
+          if (removedIds.length > 0) onTracksAutoRemoved?.(removedIds);
         }
         setDraggingClips(null);
       }
@@ -857,6 +869,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     onSelectClips,
     onUpdateClip,
     onUpdateProject,
+    onTracksAutoRemoved,
   ]);
 
   // Double click on lane: opens quick-action strip
@@ -931,7 +944,6 @@ export const Timeline: React.FC<TimelineProps> = ({
         playheadSeconds={playheadSeconds}
         scrollLeft={scrollLeft}
         onSeek={onSeek}
-        timelineWidth={timelineWidth}
         isControlsCollapsed={isControlsCollapsed}
         onToggleCollapseControls={handleToggleControls}
       />
@@ -1040,7 +1052,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           className="timeline-context-menu-container fixed z-40 bg-[#14141c]/95 border border-cyan-500/60 rounded-xl shadow-[0_12px_36px_rgba(0,0,0,0.85),0_0_16px_rgba(0,240,255,0.2)] py-1.5 px-1 text-xs text-zinc-200 min-w-[210px] animate-in fade-in zoom-in-95 duration-100 backdrop-blur-md select-none"
         >
           <div className="px-2.5 py-1 text-[10px] font-mono text-zinc-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
-            <span className="truncate max-w-[120px] text-zinc-300 font-semibold">{contextMenu.track.name}</span>
+            <span className="truncate max-w-[120px] text-zinc-300 font-semibold">{getTrackLabel(contextMenu.track, Math.max(0, project.tracks.findIndex((t) => t.id === contextMenu.track.id)))}</span>
             <span className="text-cyan-400 font-bold">{contextMenu.timeSeconds.toFixed(3)}s</span>
           </div>
 
