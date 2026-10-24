@@ -50,4 +50,20 @@ describe('applyLookaheadLimiterChannel', () => {
     const expected = referenceLimiter(input, 0.8, 97, 0.99);
     for (let i = 0; i < actual.length; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
   });
+
+  it('reports fractional, monotonic progress through a long limiter pass', async () => {
+    const input = new Float32Array(1_100_000);
+    input.fill(0.4);
+    const output = new Float32Array(input.length);
+    const percentages: number[] = [];
+
+    await applyLookaheadLimiterChannel(input, output, 0.89125, 96, 0.995, (progress) => {
+      percentages.push(progress.percent);
+    });
+
+    expect(percentages.length).toBeGreaterThanOrEqual(2);
+    expect(percentages[0]).toBeGreaterThan(75);
+    expect(percentages[percentages.length - 1]).toBe(84);
+    expect(percentages.every((value, index) => index === 0 || value >= percentages[index - 1])).toBe(true);
+  });
 });
