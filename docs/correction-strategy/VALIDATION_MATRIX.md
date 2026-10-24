@@ -185,3 +185,42 @@ The checked items above describe added unit-test coverage. Latest branch CI pass
 - [ ] Open-loss prevention: with unsaved edits, cancel the replacement confirmation and verify the active project remains unchanged; confirm replacement only after explicit approval.
 
 - [ ] Project replacement undo isolation: create edits, open a different project (or create a new blank one), and verify Undo cannot restore clips/tracks from the previous project.
+
+## Browser feedback regression coverage
+
+- [x] Unit test: true-peak analysis progress advances on a long sample buffer.
+- [x] Unit test: waveform cache reuses an existing coarser peak level instead of rescanning the source on zoom-in.
+- [ ] Browser: import a 57-minute recording and verify loading status remains visible while the UI stays usable.
+- [ ] Browser: zoom in/out repeatedly on a long track; verify waveform remains visible and playhead position stays aligned.
+- [ ] Browser: process long-file mastering and verify progress advances past true-peak measurement without locking the app.
+- [ ] Browser: generate a TTS voiceover, audition it, place it on a new timeline track, and reload to check persistence warnings.
+- [ ] Browser: first-use folder banner appears without requesting microphone access; folder selection persists/reconnects as supported by the browser.
+- [ ] Browser: confirm plugin enhancement is present compared with the last known-good version.
+
+
+Latest browser-feedback follow-up CI passed at commit `4f9c2945322882c9e63f661d52435757826598f7`: type-check, tests, and application/server build all passed. This is automated validation only; the browser acceptance items above remain unchecked until re-tested.
+
+
+## Mastering and zoom hardening follow-up
+
+- [x] Unit test: optimized async true-peak calculation matches synchronous reference on a representative signal.
+- [x] Unit test: progress reporter never moves backwards across nested mastering stages.
+- [x] Unit test: loudness-analysis progress is monotonic across true peak, RMS, filtering and gating phases.
+- [x] Unit test: zoom anchoring clamps offsets and handles invalid geometry without NaN.
+- [ ] Browser: process the same 57-minute project; verify true-peak analysis completes, progress remains monotonic, and offline-render elapsed feedback continues until the effect graph completes.
+- [ ] Browser: repeat zoom in/out at different scroll positions while playing and stopped; verify waveform and playhead remain aligned and playback remains stable.
+- [ ] Performance profile: measure mastering time and peak memory for 57-/60-/90-minute projects. If processing or memory remains excessive, move heavy offline DSP into a Web Worker and implement OPFS-backed large-file streaming per PRD before considering WASM/native ports.
+- [ ] Product decision: specify whether “installable DAW” means installable PWA first or a native desktop package; do not mark desktop packaging complete until target platforms and file/audio permissions are defined.
+
+- [x] Existing sync-vs-async loudness tests cover short clips and block/hop boundaries after the rolling-window implementation changed.
+- [ ] Profile CPU time for true-peak, RMS, K-weighting, gating, OfflineAudioContext rendering, and limiter separately on the 57-minute reference file.
+
+- [x] Existing limiter reference-equivalence tests cover short, boundary, empty, and peak-heavy signals after block-loop/index changes.
+- [ ] Browser: confirm fractional limiter progress visibly advances during the 57-minute mastering run and does not regress between channels/stages.
+
+- [x] Unit test: long limiter pass emits fractional, monotonic progress and reaches the end of the limiter stage.
+
+
+## Long-session acceptance tiers — 2026-10-23
+
+The five required duration tiers are now defined in [LONG_SESSION_THRESHOLDS.md](./LONG_SESSION_THRESHOLDS.md): **15, 30, 60, 90 and 120 minutes**. They are test tiers, not maximum supported durations. The plan defines provisional responsiveness targets, memory-sizing references, phase gates and the evidence record needed for each run. Targets remain unratified until a named-machine baseline is captured; none of the tiers is marked passed by this documentation change.
