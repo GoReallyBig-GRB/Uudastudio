@@ -26,7 +26,11 @@ import {
   saveProjectToDB,
   loadProjectFromDB,
   saveAssetToDB,
-  loadAllAssetsFromDB,
+  loadAssetFromDB,
+  collectProjectAssetIds,
+  markRestorePending,
+  clearRestorePending,
+  didPreviousRestoreFail,
   clearCurrentProjectData,
   cleanupOrphanedAssets,
   startNewProjectSession,
@@ -131,6 +135,9 @@ const MainStudio: React.FC = () => {
   const autosaveFailureNotifiedRef = useRef<boolean>(false);
   // If restore fails, do not autosave the blank fallback over a potentially recoverable project.
   const storageRestoreBlockedRef = useRef<boolean>(false);
+  // True until the first restore attempt finishes, so autosave never writes a blank project over a snapshot that
+  // is still being restored.
+  const restoreInProgressRef = useRef<boolean>(true);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
   // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
@@ -438,9 +445,39 @@ const MainStudio: React.FC = () => {
         const savedProject = await loadProjectFromDB();
         await cleanupOrphanedAssets().catch(() => ({ removedAssets: 0 }));
 
-        const restoredAssets = await loadAllAssetsFromDB(audioEngine);
-        if (isMounted) {
-          for (const asset of restoredAssets) audioEngine.registerAsset(asset);
+        // Load only the audio the restored project actually uses, one file at a time, and let the browser breathe
+        // between files. Anything else saved in local storage is left alone: it costs disk, not memory.
+        const neededAssetIds = savedProject ? [...collectProjectAssetIds(savedProject)] : [];
+        let restoreSkipped = false;
+        if (neededAssetIds.length > 0) {
+          if (didPreviousRestoreFail()) {
+            // The last launch started restoring audio and never finished (closed or killed). Do not repeat
+            // the same work and freeze the computer again.
+            restoreSkipped = true;
+            clearRestorePending();
+          } else {
+            markRestorePending();
+            for (const assetId of neededAssetIds) {
+              if (!isMounted) break;
+              const asset = await loadAssetFromDB(assetId, audioEngine);
+              if (asset && isMounted) audioEngine.registerAsset(asset);
+              await new Promise<void>((resolve) => setTimeout(resolve, 0));
+            }
+            clearRestorePending();
+          }
+        }
+
+        if (restoreSkipped) {
+          clearCurrentProjectData().catch(() => {});
+          if (isMounted) {
+            addToast({
+              type: 'warning',
+              title: 'Last Session Not Restored',
+              message: 'Restoring the previous session did not finish last time, so it was skipped to keep the app responsive. Open your saved .uuda file to continue.',
+              duration: 0,
+            });
+          }
+          return;
         }
 
         if (isMounted && savedProject) {
@@ -482,7 +519,9 @@ const MainStudio: React.FC = () => {
       }
     }
 
-    restoreSession();
+    restoreSession().finally(() => {
+      restoreInProgressRef.current = false;
+    });
     return () => {
       isMounted = false;
     };
@@ -493,7 +532,7 @@ const MainStudio: React.FC = () => {
   useEffect(() => {
     let saveInFlight = false;
     const timer = setInterval(async () => {
-      if (storageRestoreBlockedRef.current || saveInFlight) return;
+      if (storageRestoreBlockedRef.current || restoreInProgressRef.current || saveInFlight) return;
       saveInFlight = true;
       try {
         setIsAutosaving(true);
