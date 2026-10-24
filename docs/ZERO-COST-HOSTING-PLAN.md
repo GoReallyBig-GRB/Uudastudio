@@ -150,6 +150,11 @@ The supported envelope is shown in the app (for example: "Tested up to X minutes
 | **Supertonic TTS 2** | MIT | ~262 MB, ~450 MB RAM, ~0.5x core-hour ratio | In-browser add-on candidate; browser support is claimed | Faster than Kokoro on CPU in the benchmark |
 | **Piper** | MIT (original) / GPLv3 (current fork) | ~61 MB model, ~2.6 GB peak RAM in the benchmark | Local helper add-on, not bundled | 100+ voices across 30+ languages; the GPL fork has obligations, so ship it only as a separate download with its own licence |
 | **Chatterbox-Turbo** | MIT | ~3 GB model, ~7.5 GB RAM, heavy | Optional **desktop helper** for capable PCs, voice cloning | Too heavy for the browser; strong-PC add-on only |
+| **Qwen3-TTS** (0.6B / 1.7B) | Apache-2.0 | Not stated; GPU (CUDA) expected, slow without one | Local-helper add-on for PCs with a GPU | **Plain-language direction of timbre, emotion and prosody** ("tense, whispering, urgent"); voice design from a text description; 3-second voice cloning; 10 languages. Accent by instruction is not documented, only preset dialect voices |
+| **Chatterbox (Nano / Turbo / Multilingual)** | MIT | Nano ~110M (CPU, about 3x slower than real time on 8 cores per one review); Turbo ~350M and Multilingual ~500M want a GPU | Helper add-on; Nano may reach the browser later | Emotion "exaggeration" control, paralinguistic tags (laugh, sigh), cloning from a short reference clip, which is the practical route to a specific accent |
+| **Supertonic 3** | OpenRAIL-M (use restrictions apply; one benchmark listed Supertonic TTS 2 as MIT, so check the exact version) | ~99M, designed for CPU | In-browser candidate | About ten inline expression tags (laugh, sigh and similar); 31 languages listed |
+| **Orpheus / Dia** | Apache-2.0 (Orpheus also carries Meta's Llama terms) | GPU-class | Not recommended for v1 | Emotion tags / nonverbal cues, English-centred |
+| **IndexTTS 2.5, Fish Audio S2 Pro** | Not cleared for commercial use | GPU-class | **Do not use** | Strong emotion control, but the licences do not allow Uuda's use |
 | **Coqui XTTS v2** | **CPML: non-commercial only** (covers the model *and its outputs*) | Not stated; GPU strongly recommended | **Do not use** | See below |
 
 **XTTS v2 is not suitable.** Its licence allows only non-commercial use of the model and its outputs, Coqui shut down in December 2023, and there is no confirmed route to a commercial licence. A user who uploads a voiceover made with it to a monetised podcast or video would be outside the licence, and Uuda would be distributing it. For a product whose users are creators, that is a legal risk the owner should not take. Chatterbox (MIT) covers the voice-cloning need without that problem.
@@ -190,10 +195,27 @@ The voice model competes for memory with the editor, and the editor is already m
 
 ### 5A.4 What changes for users (be upfront in the app)
 
-- **Voices will sound different from Gemini's, and there are no "director notes."** The open engines read the text with a chosen voice and speed; they don't follow style instructions. The Voiceover panel should remove or hide that field for them.
+- **Director notes need their own design (section 5A.6).** On a typical CPU or browser the open engines cannot follow free-text direction the way Gemini does.
 - **Language coverage is narrower.** The listed Kokoro voices are English; other languages vary by engine ⚠ verify. Languages the owner's users need (for example Nigerian languages) are probably **not** covered by any of these engines. This needs a decision (see section 9).
 - **The first generation includes a model download.** Hundreds of MB the first time, then cached.
 - The server-side Gemini checks in `server/voiceService.ts` (transcribe and word-error-rate verification, banned-phrase checks) depend on paid calls and don't carry over. Local engines need cheaper checks (empty or clipped audio) instead.
+
+### 5A.6 Director notes: what is possible for free
+
+Director notes (emotion, tension, tone, accent) are central to voiceover, and a plain reader is not enough. Honest position: **no permissively licensed model today gives Gemini-like free-text direction on an ordinary CPU or inside a browser.** The ones that follow plain-language direction (Qwen3-TTS) want a CUDA GPU. So direction is delivered in tiers, and the app must say which tier a user is on:
+
+| Tier | Engines | What direction the user gets | Who it reaches |
+|---|---|---|---|
+| **1. Performance controls (everyone, in browser)** | Kokoro, Supertonic, Kitten | Voice choice, speed, pitch shift, per-sentence pauses and emphasis markup, expression tags where the engine has them (laugh, sigh), and **takes**: generate several variations and keep the best. Uuda's own editing tools (timing, EQ, effects, ducking) do the rest | Every device. Real but limited: this shapes delivery, it does not understand "say it like a frightened whisper" |
+| **2. Natural-language direction (GPU desktop helper)** | Qwen3-TTS (Apache-2.0) | Free-text director notes for emotion, tone and pacing, plus voice design from a description | Users with an NVIDIA-class GPU who install the helper |
+| **3. Emotion slider, tags and cloning (helper)** | Chatterbox (MIT) | Emotion exaggeration, laugh/sigh tags, and **accent through cloning**: the user supplies a short reference clip of the voice or accent they want | Capable PCs; Nano may run on CPU slowly |
+| **4. Gemini (optional, paid by the user)** | Gemini TTS through the user's own key | The current director-notes experience | Only users willing to pay Google; clearly labelled |
+
+Rules for this:
+- **Cloning and accents.** Cloning needs a reference clip. The app must ask the user to confirm they have the right to use that voice, and must not ship cloned or celebrity voices.
+- **No false promise.** The Voiceover panel shows the director-notes field only for engines that support it. For tier 1 it shows the controls that actually do something.
+- **Listening test before we claim anything.** Before publishing a tier, run a fixed test script with six directions (for example calm, urgent, tense whisper, joyful, sad, with a named accent) on each engine and record whether listeners can hear the difference. A tier that fails is described as "reading with adjustable delivery," not as acting.
+- **Possible zero-cost GPU route (needs investigation, not a promise).** Users without a GPU might run the helper in a free notebook service (for example Google Colab or Kaggle). Their terms limit running public services and GPU time is not guaranteed ⚠ verify before offering it; do not build on it until the terms are confirmed.
 
 ### 5A.5 Consequence for the rest of the plan
 
@@ -241,6 +263,6 @@ Original questions:
 
 1. Which devices and browsers must work? (This sets the envelope: a desktop-only podcast editor is a much easier target than a phone-friendly one.)
 2. What is the longest file a typical user imports (minutes, mono or stereo)? Hour-long episodes drive P-6; 20-minute segments do not.
-3. **Answered:** voice moves to on-device open-source engines (section 5A). New questions: (a) which languages must voices cover? (b) is voice cloning needed, or are fixed voices enough? (c) is it acceptable that voices sound different from Gemini's and have no director notes?
+3. **Answered:** voice moves to on-device open-source engines (section 5A). New questions: (a) which languages must voices cover? (b) is voice cloning needed, or are fixed voices enough? (c) given section 5A.6, is tiered direction acceptable: basic controls for everyone, full natural-language direction only for GPU users running the helper? (d) is cloning needed for accents?
 4. (Reworded) Do you want projects, templates and support tickets saved on our servers for signed-in users in the first release, or kept only on the user's device? The signed-out first release implies device-only.
 5. Is sign-in required for the first release, or can the app run signed-out with local projects only? A signed-out release would remove the entire Auth/Firestore port from the critical path.
