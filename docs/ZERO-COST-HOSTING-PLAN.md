@@ -399,3 +399,9 @@ Decision: ship **S3-compatible** first; treat Drive and Dropbox as later connect
 1. Confirm free terms for TURN and for R2 activation ⚠.
 2. Confirm that AI Studio's staged app can open a WebSocket for the staging signalling twin.
 3. Browser support: microphone capture and WebRTC work on all major browsers, but AudioWorklet and file-handle behaviour differ on Safari and Firefox, so the guest page needs a tested fallback and a clear "use Chrome or Edge" note.
+
+## 11. Incremental backup (decided 2026-10-25)
+
+Backup must not save the same material again: it writes the whole project **in chunks** until complete, then **only new additions**, and the next run starts a chosen time (default 5 minutes) after the **last successful** backup finished. The design (immutable chunk files per audio asset, a journal of completed parts with checksums, small rolling project checkpoints, resume after interruption, no rewriting of old audio) and its acceptance tests are in `docs/BACKLOG.md`, Epic 4B, items PS-2 to PS-9. Rolling copies apply only to the small checkpoints; the audio is stored once.
+
+Tests required before shipping: resume after an interrupted chunk; a second run writes only new assets (byte-count assertion); deleting a clip causes no audio rewrite; a partial checkpoint is skipped on restore; restore reproduces identical samples; export of a single `.uuda` from the backup opens identically.
