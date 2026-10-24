@@ -187,7 +187,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             <ZoomOut className="w-3 h-3" />
           </button>
           <span className="text-[10px] font-mono text-zinc-400 px-1 min-w-[42px] text-center select-none">
-            {Math.round(pixelsPerSecond)}px/s
+            {pixelsPerSecond >= 10 ? Math.round(pixelsPerSecond) : pixelsPerSecond.toFixed(1)}px/s
           </span>
           <button
             onClick={onZoomIn}

@@ -358,11 +358,17 @@ export const Timeline: React.FC<TimelineProps> = ({
           try {
             const asset = audioEngine.getAsset(clip.assetId);
             const samplesPerPixel = Math.max(1, (asset?.sampleRate || 48000) / pixelsPerSecond);
-            const peaks = asset?.buffer ? waveformCache.getPeaks(clip.assetId, asset.buffer, samplesPerPixel) : null;
+            const clipSampleRate = asset?.sampleRate || 48000;
+            const visStartPx = Math.max(0, Math.floor(scrollLeft - renderX));
+            const visEndPx = Math.min(renderW, Math.ceil(scrollLeft + timelineWidth - renderX));
+            const visStartSample = ((clip.offsetSeconds || 0) + (visStartPx / pixelsPerSecond)) * clipSampleRate;
+            const visEndSample = ((clip.offsetSeconds || 0) + (visEndPx / pixelsPerSecond)) * clipSampleRate;
+            const peaks = asset?.buffer
+              ? waveformCache.getPeaksForRange(clip.assetId, asset.buffer, visStartSample, visEndSample, samplesPerPixel)
+              : null;
 
             if (peaks && peaks.mins.length > 0) {
               const sampleRate = asset?.sampleRate || 48000;
-              const durSec = clip.durationSeconds;
               const offsetSec = clip.offsetSeconds || 0;
               const fadeInSec = clip.fadeInSeconds || 0;
               const fadeOutSec = clip.fadeOutSeconds || 0;
@@ -378,23 +384,34 @@ export const Timeline: React.FC<TimelineProps> = ({
               ctx.lineWidth = 1;
               ctx.beginPath();
 
-              const startBucket = Math.floor((offsetSec * sampleRate) / peaks.samplesPerPixel);
               const startPx = Math.max(0, Math.floor(scrollLeft - renderX));
               const endPx = Math.min(renderW, Math.ceil(scrollLeft + timelineWidth - renderX));
+              const step = peaks.samplesPerPixel;
+              const firstBucket = peaks.firstBucket || 0;
+              const samplesPerPx = sampleRate / pixelsPerSecond;
 
+              // One column per screen pixel, aggregated over exactly the samples that pixel covers.
               for (let px = startPx; px < endPx; px++) {
-                const bucket = startBucket + Math.floor((px / renderW) * (durSec * sampleRate / peaks.samplesPerPixel));
-                if (bucket >= 0 && bucket < peaks.mins.length) {
-                  const minVal = peaks.mins[bucket];
-                  const maxVal = peaks.maxs[bucket];
+                const s0 = offsetSec * sampleRate + px * samplesPerPx;
+                const s1 = s0 + samplesPerPx;
+                const b0 = Math.floor(s0 / step) - firstBucket;
+                const b1 = Math.max(b0, Math.ceil(s1 / step) - 1 - firstBucket);
+                if (b1 < 0 || b0 >= peaks.mins.length) continue;
+                let minVal = Infinity;
+                let maxVal = -Infinity;
+                const lo = Math.max(0, b0);
+                const hi = Math.min(peaks.mins.length - 1, b1);
+                for (let b = lo; b <= hi; b++) {
+                  if (peaks.mins[b] < minVal) minVal = peaks.mins[b];
+                  if (peaks.maxs[b] > maxVal) maxVal = peaks.maxs[b];
+                }
 
-                  if (Number.isFinite(minVal) && Number.isFinite(maxVal)) {
-                    const y1 = midY - maxVal * maxAmp;
-                    const y2 = midY - minVal * maxAmp;
+                if (Number.isFinite(minVal) && Number.isFinite(maxVal)) {
+                  const y1 = midY - maxVal * maxAmp;
+                  const y2 = midY - minVal * maxAmp;
 
-                    ctx.moveTo(renderX + px + 0.5, Math.min(midY - 0.5, y1));
-                    ctx.lineTo(renderX + px + 0.5, Math.max(midY + 0.5, y2));
-                  }
+                  ctx.moveTo(renderX + px + 0.5, Math.min(midY - 0.5, y1));
+                  ctx.lineTo(renderX + px + 0.5, Math.max(midY + 0.5, y2));
                 }
               }
               ctx.stroke();
