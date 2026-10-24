@@ -217,7 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
         className="hidden"
       />
 
-      {/* Brand & Project Name & Project Menu */}
+      {/* Brand, File Menu, and Project Name */}
       <div className="flex items-center gap-3 min-w-0 shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-md bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-[0_0_12px_rgba(0,240,255,0.4)]">
@@ -230,18 +230,18 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="h-4 w-px bg-zinc-800" />
 
-        {/* Project Menu Dropdown */}
+        {/* File Menu Dropdown */}
         <div className="relative">
           <button
             onClick={() => {
               setIsProjectMenuOpen(!isProjectMenuOpen);
               setIsEditMenuOpen(false);
             }}
-            title="Project Menu: New, Open from Computer, Save to Computer"
+            title="File Menu: Open, Save, Import, and Export"
             className="flex items-center gap-1.5 text-xs text-zinc-200 hover:text-cyan-300 px-2 py-1 rounded bg-[#161622] hover:bg-[#1c1c2a] border border-zinc-700/80 transition-colors font-medium cursor-pointer"
           >
             <FolderArchive className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Project</span>
+            <span>File</span>
             <ChevronDown className="w-3 h-3 opacity-60" />
           </button>
 

@@ -57,10 +57,11 @@ import { UserDashboard } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
 import { pluginManager } from './plugins/pluginManager';
-import { withPluginStates, restorePluginStates, hasSavedPlugins } from './plugins/projectPlugins';
+import { withPluginStates, restorePluginStates, hasSavedPlugins, isRestoringPlugins } from './plugins/projectPlugins';
 import { TemplatesModal } from './components/TemplatesModal';
 import { SaveTemplateModal } from './components/SaveTemplateModal';
 import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, UudaTemplate } from './templates/template';
+import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
 import { VoiceoverModal } from './components/VoiceoverModal';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
 
@@ -329,6 +330,80 @@ const MainStudio: React.FC = () => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
+  // The export passes unavailable plugins through; say which ones, so a missing effect is never a surprise
+  useEffect(() => {
+    const onSkipped = (e: Event) => {
+      const list = (e as CustomEvent).detail?.plugins as Array<{ name: string; reason: string }> | undefined;
+      if (!list || list.length === 0) return;
+      const names = Array.from(new Set(list.map((p) => p.name))).join(', ');
+      addToast({
+        type: 'warning',
+        title: 'Export skipped some plugins',
+        message: `${names} could not be applied, so the audio passes through unchanged.`,
+      });
+    };
+    window.addEventListener('uuda:export-skipped-plugins', onSkipped);
+    return () => window.removeEventListener('uuda:export-skipped-plugins', onSkipped);
+  }, [addToast]);
+
+  // Plugin chains in undo/redo: edits are written into the project (one history step per burst of edits)
+  const applyingPluginsRef = useRef<boolean>(false);
+  const pluginCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const commitPluginEdits = useCallback(async () => {
+    if (applyingPluginsRef.current || isRestoringPlugins()) return;
+    const live = await collectLive(projectRef.current);
+    if (applyingPluginsRef.current || isRestoringPlugins()) return;
+    setProjectWithHistory((prev) => {
+      const next = attachLive(prev, live);
+      return pluginSignature(next) === pluginSignature(prev) ? prev : next;
+    });
+  }, [setProjectWithHistory]);
+
+  /** Records any pending plugin edit right now (before undo, before deleting a track) */
+  const flushPluginEdits = useCallback(async () => {
+    if (pluginCommitTimerRef.current) {
+      clearTimeout(pluginCommitTimerRef.current);
+      pluginCommitTimerRef.current = null;
+    }
+    await commitPluginEdits();
+  }, [commitPluginEdits]);
+
+  useEffect(() => {
+    const unsubscribe = pluginManager.subscribeEdits(() => {
+      if (applyingPluginsRef.current || isRestoringPlugins()) return;
+      if (pluginCommitTimerRef.current) clearTimeout(pluginCommitTimerRef.current);
+      // A knob drag is many edits; wait for it to settle so it is one undo step
+      pluginCommitTimerRef.current = setTimeout(() => {
+        pluginCommitTimerRef.current = null;
+        void commitPluginEdits();
+      }, 350);
+    });
+    return () => {
+      unsubscribe();
+      if (pluginCommitTimerRef.current) clearTimeout(pluginCommitTimerRef.current);
+    };
+  }, [commitPluginEdits]);
+
+  /** After undo/redo: make the live chains match the snapshot, without adding a history step of their own */
+  const syncPluginsToSnapshot = useCallback(async (snapshot: Project) => {
+    applyingPluginsRef.current = true;
+    try {
+      const rebuilt = await applySnapshot(audioEngine.init(), snapshot);
+      if (rebuilt) {
+        // Rebuilt chains can differ in tiny ways (clamped values): rebase quietly so redo is not lost
+        const live = await collectLive(projectRef.current);
+        const rebased = attachLive(projectRef.current, live);
+        historyManagerRef.current.setPresent(rebased);
+        setProject(rebased);
+      }
+    } catch (err) {
+      console.warn('Could not rebuild plugin chains after undo/redo:', err);
+    } finally {
+      applyingPluginsRef.current = false;
+    }
+  }, []);
+
   // 1. Restore project and stored assets from IndexedDB on initial mount
   useEffect(() => {
     let isMounted = true;
@@ -369,6 +444,13 @@ const MainStudio: React.FC = () => {
           updateHistoryFlags();
           setLastSavedAt(new Date());
 
+          // Rebuild the saved plugin chains in the background (the audio context may wait for the first click)
+          if (hasSavedPlugins(savedProject)) {
+            restorePluginStates(audioEngine.init(), savedProject).catch((err) =>
+              console.warn('Could not restore plugin chains:', err)
+            );
+          }
+
           if (savedProject.tracks.length > 0) {
             addToast({
               type: 'info',
@@ -406,7 +488,7 @@ const MainStudio: React.FC = () => {
             clips: track.clips.filter((clip) => !unsavedAssetIds.has(clip.assetId)),
           }))
           .filter((track, index) => track.clips.length > 0 || project.tracks[index].clips.length === 0);
-        await saveProjectToDB({ ...project, tracks: safeTracks });
+        await saveProjectToDB(await withPluginStates({ ...project, tracks: safeTracks }));
         setLastSavedAt(new Date());
       } catch {
         // Autosave error handled silently or quietly
@@ -439,7 +521,9 @@ const MainStudio: React.FC = () => {
   // Sync track gain and pan nodes with audio engine when project tracks change
   useEffect(() => {
     audioEngine.syncTracks(project.tracks);
-  }, [project.tracks]);
+    // Ducking settings or source clips may have changed mid-playback: re-apply only the curves that did
+    audioEngine.refreshDucking(project);
+  }, [project]);
 
   // 4. Playback Handlers
   const handlePlay = async () => {
@@ -494,6 +578,7 @@ const MainStudio: React.FC = () => {
     audioEngine.seek(0);
     playheadSecondsRef.current = 0;
     setPlayheadSeconds(0);
+    pluginManager.clearAll();
     const blankProject: Project = {
       id: `project-${Date.now()}`,
       name: 'Untitled Project',
@@ -532,6 +617,8 @@ const MainStudio: React.FC = () => {
       // The .uuda file is the portable project backup: project JSON plus every referenced
       // audio asset in a single binary container. IndexedDB remains the recovery autosave.
       // Use bounded writes when a file handle is available; build a Blob only for download fallback.
+      // Include the plugin chains so a reopened file sounds the same
+      const fullProject = await withPluginStates(project);
       const fileName = `${project.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Session'}.uuda`;
       const pickerWindow = window as WindowWithProjectFilePicker;
       let fileHandle = !forceSaveAs ? projectFileHandleRef.current : null;
@@ -560,7 +647,7 @@ const MainStudio: React.FC = () => {
       if (fileHandle) {
         const writable = await fileHandle.createWritable();
         try {
-          await writeProjectFileToWritable(project, (assetId) => audioEngine.getAsset(assetId), writable);
+          await writeProjectFileToWritable(fullProject, (assetId) => audioEngine.getAsset(assetId), writable);
           await writable.close();
         } catch (err) {
           if (writable.abort) {
@@ -576,7 +663,7 @@ const MainStudio: React.FC = () => {
         });
       } else {
         // Non-Chromium fallback: downloads remain the supported save mechanism.
-        const blob = encodeProjectFile(project, (assetId) => audioEngine.getAsset(assetId));
+        const blob = encodeProjectFile(fullProject, (assetId) => audioEngine.getAsset(assetId));
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -746,7 +833,13 @@ const MainStudio: React.FC = () => {
       }
 
       savedProjectRef.current = loadedProject;
+      pluginManager.clearAll();
       setProjectWithHistory(loadedProject);
+      if (hasSavedPlugins(loadedProject)) {
+        restorePluginStates(audioEngine.init(), loadedProject).catch((err) =>
+          console.warn('Could not restore plugin chains:', err)
+        );
+      }
       setSelectedTrackId(loadedProject.tracks[0]?.id || null);
       setSelectedClipIds(new Set());
 
@@ -1170,7 +1263,10 @@ const MainStudio: React.FC = () => {
     }));
   };
 
-  const handleDeleteTrack = (trackId: string) => {
+  const handleDeleteTrack = async (trackId: string) => {
+    // Record the track's chain in history first, so undoing the delete brings its plugins back
+    await flushPluginEdits();
+    pluginManager.clearTrack(trackId);
     setProjectWithHistory((prev) => ({
       ...prev,
       tracks: prev.tracks.filter((t) => t.id !== trackId),
@@ -1182,6 +1278,35 @@ const MainStudio: React.FC = () => {
       type: 'info',
       title: 'Track Deleted',
       message: 'Track removed from session.',
+    });
+  };
+
+  // Removes every empty lane that carries no effects (one undo step brings them back)
+  const handleRemoveEmptyTracks = () => {
+    const removable = project.tracks.filter(
+      (t) => t.clips.length === 0 && pluginManager.getPluginsForTrack(t.id).length === 0
+    );
+    if (removable.length === 0) return;
+    const ids = new Set(removable.map((t) => t.id));
+    setProjectWithHistory((prev) => ({
+      ...prev,
+      tracks: prev.tracks.filter((t) => !ids.has(t.id)),
+    }));
+    if (selectedTrackId && ids.has(selectedTrackId)) setSelectedTrackId(null);
+    addToast({
+      type: 'info',
+      title: removable.length === 1 ? 'Empty track removed' : `${removable.length} empty tracks removed`,
+      message: 'Press Ctrl+Z to bring them back.',
+    });
+  };
+
+  // Called by the timeline when a drag emptied lanes that were never touched and removed them
+  const handleTracksAutoRemoved = (ids: string[]) => {
+    if (selectedTrackId && ids.includes(selectedTrackId)) setSelectedTrackId(null);
+    addToast({
+      type: 'info',
+      title: ids.length === 1 ? 'Empty track removed' : `${ids.length} empty tracks removed`,
+      message: 'The lane was left empty by the move. Press Ctrl+Z to undo.',
     });
   };
 
@@ -1800,19 +1925,25 @@ const MainStudio: React.FC = () => {
   };
 
   // 8. Undo / Redo
-  const handleUndo = () => {
+  const handleUndo = async () => {
+    await flushPluginEdits();
     const previous = historyManagerRef.current.undo();
     if (previous) {
       setProject(previous);
+      projectRef.current = previous;
+      void syncPluginsToSnapshot(previous);
       updateHistoryFlags();
       addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
     }
   };
 
-  const handleRedo = () => {
+  const handleRedo = async () => {
+    await flushPluginEdits();
     const next = historyManagerRef.current.redo();
     if (next) {
       setProject(next);
+      projectRef.current = next;
+      void syncPluginsToSnapshot(next);
       updateHistoryFlags();
       addToast({ type: 'info', title: 'Redo', message: 'Reapplied change.' });
     }
@@ -1845,6 +1976,7 @@ const MainStudio: React.FC = () => {
     playheadSecondsRef.current = 0;
     setPlayheadSeconds(0);
     await clearCurrentProjectData().catch(() => {});
+    pluginManager.clearAll();
     const freshProject: Project = {
       id: `project-${Date.now()}`,
       name: 'Untitled Project',
@@ -2208,6 +2340,8 @@ const MainStudio: React.FC = () => {
           onDeleteTrack={handleDeleteTrack}
           onMoveTrack={handleMoveTrack}
           onAddTrack={handleAddEmptyTrack}
+          onUpdateTrack={handleUpdateTrack}
+          onRemoveEmptyTracks={handleRemoveEmptyTracks}
           onAddVoiceTrack={handleAddVoiceTrack}
           onAddLibraryTrack={handleAddLibraryTrack}
         />
@@ -2259,6 +2393,7 @@ const MainStudio: React.FC = () => {
               onDeleteTrack={handleDeleteTrack}
               onMoveTrack={handleMoveTrack}
               onUpdateProject={(p) => setProjectWithHistory(p)}
+              onTracksAutoRemoved={handleTracksAutoRemoved}
               onSeek={handleSeek}
               onSplitClip={handleSplitClip}
               onDeleteClip={handleDeleteClip}
@@ -2396,8 +2531,10 @@ const MainStudio: React.FC = () => {
         isOpen={isPluginsRackModalOpen}
         onClose={() => setIsPluginsRackModalOpen(false)}
         tracks={project.tracks}
+        project={project}
         selectedTrackId={selectedTrackId}
         onSelectTrack={(id) => setSelectedTrackId(id)}
+        onUpdateTrack={handleUpdateTrack}
       />
 
       {/* Expanded Multi-Pane Broadcast Voiceover Studio Workspace Modal */}
