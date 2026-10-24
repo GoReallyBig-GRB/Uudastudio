@@ -6,6 +6,8 @@ Replaces the "proxy everything to Cloud Run" assumption in `docs/cloudflare-depl
 
 ## 0. Owner decisions (2026-10-24)
 
+**Sequencing (2026-10-24):** open-source voice (section 5A) is **parked** until the current app is running smoothly in AI Studio: guest invite, app-wide testing and UI optimisation come first. This plan stays as the reference for when voice work resumes.
+
 | Question | Answer | Consequence |
 |---|---|---|
 | Devices and browsers | Mid-range devices and up. All Chromium browsers, plus Safari and Firefox. The app should **recommend** best browsers and device specs, while still letting weaker setups try | Capability tiers (section 5.6), not a hard block |
