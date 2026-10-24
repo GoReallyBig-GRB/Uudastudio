@@ -12,7 +12,9 @@ One list of everything to build, in order, so nothing gets skipped. Source docum
 - **Size:** S = days, M = about a week or two, L = several weeks. Relative, not promises.
 - **Zero-cost rule:** no item may require a billing account or card. If one would, stop and raise it.
 
-Device set for "Verified" (to be confirmed with the owner): one mid-range Windows laptop (Chrome and Firefox), one Mac (Safari and Chrome), one mid-range Android phone (Chrome), one iPhone (Safari). Add a low-memory device if available.
+Device set for "Verified" (confirmed by the owner 2026-10-24): one **Windows laptop**, one **Android phone**, one **iPhone**. Browsers per device: Chrome and Edge (and Firefox if installed) on Windows, Chrome on Android, Safari on iPhone.
+
+**Known gaps in that set:** there is no Mac, so **desktop Safari cannot be marked Verified**; the iPhone covers Apple's engine for mobile only, and desktop Safari stays "Works with limits, unverified" until someone with a Mac checks it. There is no low-memory device, so low-memory limits come from measured numbers on the Android phone and from the pre-flight estimates, and the tiers must say so. Record the exact model, OS and browser version of each device in the item's evidence.
 
 ---
 
@@ -57,8 +59,8 @@ Backlog order follows plan section 10.6. All guest screens are **mobile-first** 
 
 | ID | Item | Size | Depends on | Acceptance |
 |---|---|---|---|---|
-| GI-1 | Guest link model: token (128-bit), expiry, use limit, revoke, mode (Offline / Live), script text; "Invite guest voice" on a track | M | RS-1 | Link created, copied, revoked; expired link shows a clear message |
-| GI-2 | `/join/<token>` page shell (no sign-in), session name and script display | S to M | GI-1, BR-5 | Opens on phone and desktop; in-app webview shows the open-in-browser notice |
+| GI-1 | Guest link model: token (128-bit), expiry, use limit, revoke, mode (Offline / Live), script text with director notes and target duration (GM-14); "Invite guest voice" on a track | M | RS-1 | Link created, copied, revoked; expired link shows a clear message |
+| GI-2 | `/join/<token>` page shell (no sign-in), session name and script preview (opens the full-screen script view, GM-11) | S to M | GI-1, BR-5 | Opens on phone and desktop; in-app webview shows the open-in-browser notice |
 | GI-3 | Guest capture: microphone permission flow, device choice, level meter, record raw audio to a WAV with chunks saved to origin-private storage as it records | M to L | GI-2 | A 10-minute recording survives a tab reload; file plays back correctly; no dropped chunks |
 | GI-4 | Preview, re-record, discard; trim silence ends optional | S to M | GI-3 | Guest hears the exact take that will be sent |
 | GI-5 | **Manual file send (path C):** download the WAV with a clear filename, instructions to send it | S | GI-3 | File opens in Uuda and in a normal audio player |
@@ -88,6 +90,12 @@ Phones are the main guest device, so the guest UI adapts to what a phone can do,
 | GM-7 | **Cap recording length by device** (from measurement) and warn before the cap; allow splitting into takes | S to M | GI-3, P-1 | A long take on a phone is split or stopped safely, never lost |
 | GM-8 | Accessibility basics: labels, focus order, contrast, screen-reader names on record controls | S | GM-1 | Checked with a screen reader on one phone |
 | GM-9 | Low-bandwidth friendliness: the guest page loads small (no editor code) and works on slow connections | M | GI-2 | Page weight budget set and met; loads on a throttled connection |
+| GM-11 | **Script view:** for scripted offline takes, one tap on the script preview opens a **full-screen, scrollable script**; one tap brings back the full recording screen. Switching is instant and animated, never interrupts the recording (recording state lives outside the screen, so nothing is unmounted), and keeps the scroll position in both directions. Taps are told apart from scrolls (touch-slop) so scrolling never toggles the view by accident | M | GI-3 | On the iPhone and Android phone, 20 switches during a recording lose no audio, drop no frames of the level meter, and never stop the take |
+| GM-12 | **Timing display, visible on both screens:** record indicator, elapsed time, and remaining time against a target (producer-set, or estimated from the script's word count at an assumed pace the guest can adjust); shows ahead or behind pace as a calm cue, not an alarm | S to M | GM-11, GI-1 | Timer matches the recorded file length to within a small tolerance; stays readable in the full-screen script view |
+| GM-13 | **Script reading comfort:** adjustable text size, light or dark background, line spacing, current-line highlight; optional **auto-scroll** (teleprompter) with speed control and pause by tap; portrait and landscape | M | GM-11 | A 500-word script is comfortably readable at arm's length on a phone; auto-scroll can be paused and resumed without losing the place |
+| GM-14 | **Script format from the producer:** plain text with sections, and **director notes in brackets** shown in a different style and **not counted as words to read**; producer can set a target duration; preview of how it will look on a phone | M | GI-1 | Notes render differently from spoken lines; word count and estimate ignore notes |
+| GM-15 | **Take markers:** one tap during recording drops a marker (for a retake or a flubbed line) saved with the take; markers sent to the producer and shown on the timeline ruler | S to M | GM-11, GI-6 | Markers appear at the right times on the producer side |
+| GM-16 | **Accidental-stop protection:** stop control large but guarded (press and hold, or confirm) in both views; screen-off and orientation changes never end a take | S | GM-11, GM-3 | Pocket-touch test does not stop a recording |
 | GM-10 | Live room on phones: audio only, headphone advice, battery warning, simple mute and leave | M | GI-10 | Phone joins a four-person room and stays stable for the test length |
 
 ## Epic 4. Performance and long-audio (plan section 5; target 3 to 4 hour files)
@@ -111,7 +119,7 @@ Phones are the main guest device, so the guest UI adapts to what a phone can do,
 | TS-1 | Run `VALIDATION_MATRIX.md` gates V-01 to V-11 on the device set; record results | M | RS-1 | Each gate Pass, Fail or Not applicable, with evidence |
 | TS-2 | End-to-end browser tests for the main flows (import, edit, undo, plugins, templates, export, save and reopen) | M to L | P-0 | Run in CI on Chromium |
 | TS-3 | Regression checks for audio integrity: export length, channels, loudness, round trip | M | TS-2 | Golden files pass |
-| TS-4 | Guest flow tests (offline, live) on real phones, including the interruption and in-app-browser cases | M | GI-12, GM-* | Evidence per phone |
+| TS-4 | Guest flow tests (offline, live) on the iPhone and Android phone, including the interruption, script-view switching and in-app-browser cases | M | GI-12, GM-* | Evidence per phone |
 | TS-5 | Cross-browser pass (Firefox, Safari) with the limits listed | M | BR-6 | Matrix updated |
 | TS-6 | Security review of guest and plugin surfaces | M | GI-14, RS-5 | Findings fixed or tracked |
 

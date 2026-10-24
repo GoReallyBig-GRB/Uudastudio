@@ -344,7 +344,7 @@ Delivery of takes: **direct browser-to-browser by default**, an **optional produ
 ### 10.2 Offline guest (single record, preview, send)
 
 1. Producer: "Invite guest voice" on a track, optional script and expiry; the app creates the link.
-2. Guest opens the link, sees the session name and script, tests the microphone with a level meter and picks the input device.
+2. Guest opens the link, sees the session name and a script preview, tests the microphone with a level meter and picks the input device. Offline takes are usually **scripted**, so one tap on the preview opens a **full-screen scrollable script** and one tap returns to the recording screen, with elapsed and remaining time visible on both (backlog GM-11 to GM-16).
 3. Guest records, **previews** the take, can re-record, then presses Send.
 4. **Delivery, in this order:**
    - **A. Direct.** If the producer's Uuda tab is open, the take travels over a WebRTC data channel to the producer, in chunks, with progress and resume.
