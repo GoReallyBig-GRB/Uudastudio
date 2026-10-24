@@ -40,6 +40,32 @@ import { Project } from '../types';
 import { audioEngine } from '../audio/engine';
 import { formatTimecode } from '../utils/formatters';
 
+type RecentProjectEntry = {
+  id: string;
+  name: string;
+  lastOpenedAt: number;
+  trackCount: number;
+};
+
+const RECENT_PROJECTS_STORAGE_KEY = 'uuda_recent_projects_v1';
+const MAX_RECENT_PROJECTS = 5;
+
+function readRecentProjects(): RecentProjectEntry[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_PROJECTS_STORAGE_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is RecentProjectEntry =>
+      !!entry &&
+      typeof entry.id === 'string' &&
+      typeof entry.name === 'string' &&
+      typeof entry.lastOpenedAt === 'number' &&
+      typeof entry.trackCount === 'number'
+    ).slice(0, MAX_RECENT_PROJECTS);
+  } catch {
+    return [];
+  }
+}
+
 interface HeaderProps {
   project: Project;
   isPlaying: boolean;
@@ -158,10 +184,34 @@ export const Header: React.FC<HeaderProps> = ({
   const [isEffectsMenuOpen, setIsEffectsMenuOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [recentProjects, setRecentProjects] = useState<RecentProjectEntry[]>(() => readRecentProjects());
 
   useEffect(() => {
     setProjectName(project.name);
   }, [project.name]);
+
+  // Keep a small local index only; project/audio data remains in the existing save systems.
+  useEffect(() => {
+    if (!project.id || !project.name.trim()) return;
+
+    const nextEntry: RecentProjectEntry = {
+      id: project.id,
+      name: project.name.trim(),
+      lastOpenedAt: Date.now(),
+      trackCount: project.tracks.length,
+    };
+    const next = [
+      nextEntry,
+      ...readRecentProjects().filter((entry) => entry.id !== nextEntry.id),
+    ].slice(0, MAX_RECENT_PROJECTS);
+
+    try {
+      localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Recent-project tracking is optional and must never block editing or autosave.
+    }
+    setRecentProjects(next);
+  }, [project.id, project.name, project.tracks.length]);
 
   const handleNameSubmit = () => {
     setIsEditingName(false);
@@ -248,7 +298,7 @@ export const Header: React.FC<HeaderProps> = ({
           {isProjectMenuOpen && (
             <div
               onClick={() => setIsProjectMenuOpen(false)}
-              className="absolute left-0 top-full mt-1.5 w-64 bg-[#14141e] border border-zinc-700/90 rounded-xl shadow-[0_16px_40px_rgba(0,0,0,0.85)] py-1.5 z-50 text-xs text-zinc-200 animate-in fade-in duration-100"
+              className="absolute left-0 top-full mt-1.5 w-64 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:rgba(113,113,122,0.65)_transparent] bg-[#14141e] border border-zinc-700/90 rounded-xl shadow-[0_16px_40px_rgba(0,0,0,0.85)] py-1.5 z-50 text-xs text-zinc-200 animate-in fade-in duration-100"
             >
               <button
                 onClick={onNewProject}
@@ -336,6 +386,32 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                 </button>
               )}
+
+              <div className="h-px bg-zinc-800 my-1" />
+              <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">
+                Recent Projects
+              </div>
+              {recentProjects.length > 0 ? recentProjects.map((recent) => (
+                <button
+                  key={recent.id}
+                  onClick={() => projectFileInputRef.current?.click()}
+                  title={`Choose the saved .uuda file for “${recent.name}”`}
+                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                >
+                  <FolderOpen className="w-4 h-4 text-zinc-400 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold truncate">{recent.name}</div>
+                    <div className="text-[10px] text-zinc-500">
+                      {recent.trackCount} {recent.trackCount === 1 ? 'track' : 'tracks'} · {new Date(recent.lastOpenedAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                </button>
+              )) : (
+                <div className="px-3 py-2 text-[10px] text-zinc-500">Projects you open will appear here.</div>
+              )}
+              <div className="px-3 pb-1 text-[10px] text-zinc-600">
+                Recent names are stored locally; choose a saved .uuda file to reopen a project.
+              </div>
 
               {onSaveAsTemplate && (
                 <button
