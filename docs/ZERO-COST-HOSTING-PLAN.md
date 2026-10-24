@@ -319,3 +319,83 @@ Original questions:
 3. **Answered:** voice moves to on-device open-source engines (section 5A). New questions: (a) which languages must voices cover? (b) is voice cloning needed, or are fixed voices enough? (c) given section 5A.6, is tiered direction acceptable: basic controls for everyone, full natural-language direction only for GPU users running the helper? (d) is cloning needed for accents?
 4. (Reworded) Do you want projects, templates and support tickets saved on our servers for signed-in users in the first release, or kept only on the user's device? The signed-out first release implies device-only.
 5. Is sign-in required for the first release, or can the app run signed-out with local projects only? A signed-out release would remove the entire Auth/Firestore port from the critical path.
+
+## 10. Guest invite design (zero cost, decided 2026-10-24)
+
+Owner decisions: build the **zero-cost design now**, not the PRD's Cloud Storage design (PRD GC-1/GC-2). Two guest types:
+
+- **Offline guest (single record):** the guest opens a link, records, previews, then sends. Matches PRD GC-1.
+- **Live room:** audio-first WebRTC room for podcast-style sessions, **up to 4 participants**, with true live streaming (broadcast to many listeners) as a **later** addition. Matches PRD GC-2.
+
+Delivery of takes: **direct browser-to-browser by default**, an **optional producer-owned cloud storage** for when the producer is offline, and a **manual file fallback** (the guest downloads a WAV and sends it themselves) so a recording is never lost.
+
+### 10.1 Shared pieces
+
+| Piece | Design | Free-tier note |
+|---|---|---|
+| Invite link | `/join/<token>`, served by the existing single-page app. 128-bit random token; expiry (default 7 days), optional use limit, revocable, mode set by the producer (Offline or Live). Token is stored hashed wherever the server keeps it | Static hosting, no cost |
+| Signalling (who connects to whom) | A small Cloudflare Worker with one **Durable Object per room** (WebSocket, message relay only). In AI Studio staging the same message protocol runs on the Express server so the transport can be swapped without changing the client | Durable Objects are available on the Workers Free plan (SQLite backend only), with 100,000 requests a day and a hard stop when exceeded. Signalling messages are tiny, but each room's connect and relay messages count against that daily cap, so keep chatter low ⚠ verify the current limits |
+| NAT traversal | Public STUN for most connections. A relay (TURN) is needed when both sides sit behind strict or carrier-grade NAT, which is common on mobile networks | Cloudflare Realtime TURN lists a free allowance of 1,000 GB, but I could not confirm from its docs whether a payment method is needed to use it ⚠ verify. If TURN is not available at zero cost, the app falls back to the manual file path and says why |
+| Capture | Raw PCM through an `AudioWorklet`, written as WAV (16 or 24-bit), not the browser's compressed recorder. Chunks are saved to origin-private storage as they arrive, so a closed tab or crash does not lose the take | No server |
+| Sanity limits | Maximum duration and size per take, audio-only check, decode only (never execute), rate limits per link | |
+| Resampling | Takes at other sample rates are resampled offline to the project rate before placement (PRD RC-3) | |
+| Result on the timeline | A new track named "Guest: <name>" with the take, plus the invite's script and metadata | |
+
+### 10.2 Offline guest (single record, preview, send)
+
+1. Producer: "Invite guest voice" on a track, optional script and expiry; the app creates the link.
+2. Guest opens the link, sees the session name and script, tests the microphone with a level meter and picks the input device.
+3. Guest records, **previews** the take, can re-record, then presses Send.
+4. **Delivery, in this order:**
+   - **A. Direct.** If the producer's Uuda tab is open, the take travels over a WebRTC data channel to the producer, in chunks, with progress and resume.
+   - **B. Producer-owned storage (optional).** If the producer configured a bucket (10.4), the guest uploads straight to it with a time-limited upload URL carried in the invite.
+   - **C. Manual file.** The guest downloads the WAV and sends it themselves, and the producer drops it on the timeline.
+5. The guest sees a clear "sent" or "not sent yet, here is why" state. Nothing is ever shown as sent when it was not.
+
+Without a server holding files, **A needs the producer online** and **B is what covers an offline producer**. That is why B exists.
+
+### 10.3 Live room (up to 4 participants)
+
+- **Topology:** a peer-to-peer mesh. Up to 4 people means each browser holds 3 audio connections. Opus voice at a normal bitrate is a few tens of kbit/s per stream, so CPU and bandwidth are small. No media server is needed at this size.
+- **Double-ender recording:** each participant's browser records their own microphone locally at full quality (the call is only for talking). When the session ends, each take is delivered by the same A/B/C paths as the offline guest, so tracks stay separate and uncompressed.
+- **Sync:** the producer's start command carries a shared timestamp; each take is saved with its local start time. On arrival the tracks are placed using those offsets, with an optional shared marker (a short beep) for fine alignment and the existing latency handling.
+- **Protection against loss:** local capture is persisted in chunks while recording, and the guest page keeps the take until delivery is confirmed.
+- **Quality advice shown in the room:** use headphones (echo), a wired or stable connection, close heavy tabs. The room shows each participant's connection state.
+- **Later: true live streaming** (one-to-many broadcast) needs a media relay (an SFU). That is the first point where free tiers may not be enough. Keep the room protocol compatible with it, and decide the hosting for it when the feature is scoped.
+
+### 10.4 Producer-owned cloud storage (option B)
+
+The owner asked which storage services work, whether Google Drive is usable, and whether Cloudflare R2 is a good free pointer. Findings:
+
+| Service | Fit | Notes |
+|---|---|---|
+| **S3-compatible bucket** (Cloudflare R2, Backblaze B2 and others) | **Best technical fit, supported first** | The producer pastes the bucket endpoint and an access key limited to that bucket. The producer's own browser signs **time-limited upload URLs** and puts them in the invite, so no Uuda server holds anything. The guest uploads directly. The producer sets the bucket's cross-origin rule once. Keys stay in the producer's browser (same rule as the Gemini key: never sent to us) |
+| **Cloudflare R2** | Works as above, generous free tier: about 10 GB storage and no download fees | One source says Cloudflare **may require a payment method** to enable R2 even for the free tier ⚠ verify. If so, it is free to use but not "no card", and the app must say so before pointing anyone there |
+| **Google Drive** | Possible, weaker fit | Drive uploads need the producer signed in with Google. A short-lived token in the producer's browser can start an upload session whose URL is handed to the guest, but token lifetime, browser cross-origin behaviour and Google's app-verification rules make it more fragile ⚠ verify. Free space is 15 GB shared with the producer's Gmail |
+| **Dropbox** | Possible later | Offers one-time upload links, but the free tier is small (about 2 GB) and linking needs an OAuth flow ⚠ verify |
+
+Decision: ship **S3-compatible** first; treat Drive and Dropbox as later connectors behind the same interface. Producers who need option B maintain their own storage and cost, as the owner stated.
+
+### 10.5 Security rules (apply to every path)
+
+- A guest can reach one thing only: send audio for that one link. No project data, no other guest's take.
+- All received audio is untrusted: size and duration caps, decode in a worker, reject non-audio.
+- Link tokens are random, expiring and revocable. Rate limits per link and per address.
+- Producer storage keys never leave the producer's browser. Upload URLs expire quickly and are scoped to one object name.
+- The guest page asks for the microphone and says plainly what is recorded and where it goes.
+- Consent notice in live rooms that every participant is recorded locally.
+
+### 10.6 Build order
+
+1. **Link and guest page shell:** `/join/<token>`, mic test, record to local storage, preview, manual-file send (path C). Works with no network service at all.
+2. **Signalling Worker plus Express staging twin;** direct delivery (path A) for offline guests.
+3. **Producer-side inbox:** accept takes, resample, place on the timeline.
+4. **Live room** (mesh, up to 4) with local recording and the same delivery paths.
+5. **Producer-owned S3-compatible storage** (path B).
+6. **TURN fallback** once its free terms are confirmed; live streaming later.
+
+### 10.7 Open items before building
+
+1. Confirm free terms for TURN and for R2 activation ⚠.
+2. Confirm that AI Studio's staged app can open a WebSocket for the staging signalling twin.
+3. Browser support: microphone capture and WebRTC work on all major browsers, but AudioWorklet and file-handle behaviour differ on Safari and Firefox, so the guest page needs a tested fallback and a clear "use Chrome or Edge" note.
