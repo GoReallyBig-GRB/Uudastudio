@@ -4,6 +4,27 @@ Status: plan for review. Nothing in this document has been built or measured. Ev
 
 Replaces the "proxy everything to Cloud Run" assumption in `docs/cloudflare-deployment.md`.
 
+## 0. Owner decisions (2026-10-24)
+
+| Question | Answer | Consequence |
+|---|---|---|
+| Devices and browsers | Mid-range devices and up. All Chromium browsers, plus Safari and Firefox. The app should **recommend** best browsers and device specs, while still letting weaker setups try | Capability tiers (section 5.6), not a hard block |
+| Longest file | **3 to 4 hours** | See below: this makes streaming (P-6) mandatory |
+| Gemini voice on day one | Yes | Stays in phase 4, ahead of auth work; needs sign-in |
+| First release signed out? | Yes, local projects only. Only Gemini voice needs sign-in | Account port shrinks to identity plus voice usage (section 4.1) |
+
+**What 3 to 4 hour files do to the plan.** Four hours of 48 kHz stereo float32 is about **5.5 GB** decoded; mono at 44.1 kHz is still about **2.5 GB**. No browser tab on a mid-range device can hold that as one decoded buffer, and the Web Audio `decodeAudioData` call decodes the whole file at once. So P-1 to P-4 alone cannot reach this target. **P-6 (streamed decoding and playback) is now required, not optional**, and it moves to the front of the performance work. The design shifts from "hold the audio in memory" to "hold peaks and a small window in memory, read the rest from disk on demand":
+
+- Keep the imported file on disk (a `File` or origin-private file handle) and read byte ranges with `slice()`, never the whole file.
+- Decode in windows (for example 30 to 60 seconds) with WebCodecs `AudioDecoder` where available, with a chunked WAV reader for WAV files. Support in Safari and Firefox for audio decoding is uneven, so each browser gets its own tier ⚠ verify.
+- Precompute multi-resolution waveform peaks once, in a Worker, store them (IndexedDB), and draw only the visible region.
+- Edits stay non-destructive: a clip is a reference to a time range of the source, so splitting and moving never copies audio.
+- Playback schedules the current window plus a look-ahead buffer; seeking decodes the target window.
+- Export streams: render in chunks and write each chunk out (File System Access write stream where available, otherwise assembled Blob parts), so peak memory is the chunk size, not the project length. A 4-hour WAV is still about 2.8 GB on disk; browsers without a streaming file write may not be able to produce it, which the tiers must say plainly.
+- Effects that need the whole clip (loudness, denoise profile learning) must run in a streaming pass.
+
+This is the largest single piece of work in the plan. Until it is built and measured, the honest published limit is whatever P-1 to P-4 can carry, not 4 hours.
+
 ## 1. Goal and hard constraints
 
 1. **No card, no bill, ever.** The app is pre-traction and has no revenue; the owner wants to run it without any billing account attached.
@@ -35,6 +56,17 @@ These come from reading the repo at `main` (ac43c0d).
 **Not allowed to creep in:** a billing account on any provider, a "pay as you go" upgrade, Cloud Run, Cloud Functions (Blaze only), Cloud Storage for user audio, any paid DNS or email add-on.
 
 ## 4. Route inventory and decision
+
+### 4.1 Sign-in scope for the first release
+
+The first release is **signed out, local projects only**: projects, audio and templates live in the browser and in `.uuda` files. Sign-in exists only for **Gemini voice**. That removes the projects, tickets, admin and cloud-template routes from the critical path (they stay on the roadmap), and the server-side data shrinks to a small identity record plus voice usage counters, if usage needs limiting at all.
+
+For voice there are two zero-cost designs, to be chosen with the owner:
+- **Shared server key (needs sign-in):** a Worker holds one `GEMINI_API_KEY`, signed-in users call it, and usage is metered per user. Simple for users, but the key's own free quota is shared by everyone and is the real limit. ⚠ verify
+- **User's own key (could skip sign-in):** the user pastes their own Gemini key, kept in their browser, and the browser calls Gemini directly or through a thin pass-through Worker. No server-side account data at all, and each user spends their own quota. The existing dashboard already supports a personal key.
+
+Recommended default: signed-in shared-key voice with a modest per-user limit, plus the personal-key option for heavy users.
+
 
 Counted from `server/*.ts` at `main`.
 
@@ -85,9 +117,9 @@ Decoded audio is held as 32-bit float. From `docs/performance/long-timeline-base
 | P-3 | **Decode-and-downmix options** for long speech: import a long file at lower sample rate and/or mono if the user opts in (speech does not need 48 kHz stereo) | Halves or quarters memory for the common podcast case | Medium |
 | P-4 | **Move heavy loops to Web Workers**: waveform peak generation, MP3 encoding, loudness analysis | Keeps the UI thread free so the app stays responsive | Medium |
 | P-5 | **Chunked/streamed export** so peak memory during export is bounded by chunk size, not by project length | Makes long exports possible on small machines | Larger |
-| P-6 | **Streaming playback** of long sources (decode in windows) instead of holding the full `AudioBuffer` | Removes the 1.38 GB ceiling entirely; the real fix for hour-long files | Largest; do only if the envelope from P-1 to P-4 is not enough |
+| P-6 | **Streaming import, playback and export** of long sources (decode in windows, peaks precomputed, non-destructive clip references) instead of holding the full `AudioBuffer` | Removes the memory ceiling entirely; the only route to 3 to 4 hour files | Largest. **Required** (owner target is 3 to 4 hours) |
 
-Order: P-1, then P-2, then P-4, then P-3, then P-5. Decide on P-6 from measurements, not from guesswork.
+Order: P-1 (safety net first), then P-6 and P-4 together (they share the peaks and worker design), then P-2, P-5 and P-3. P-1 to P-4 remain useful as the fallback for browsers where streaming decode is unavailable.
 
 ### 5.4 How we prove it (CI gates)
 
@@ -95,6 +127,18 @@ Order: P-1, then P-2, then P-4, then P-3, then P-5. Decide on P-6 from measureme
 - **Thresholds are set from the first baseline, not guessed.** `VALIDATION_MATRIX.md` and the baseline doc deliberately refuse to invent numbers; this plan keeps that rule. After the baseline run, each metric gets a budget with headroom and the job fails if it is exceeded.
 - Chromium is the only browser the CI job can drive well. Safari and Firefox need manual spot checks on a real device. State this limit openly rather than claim coverage.
 - Phones and low-memory devices get a lower envelope than desktops. The P-1 check must use the device's memory, not the same number everywhere.
+
+### 5.6 Capability tiers (recommend, don't block)
+
+On first load the app checks the browser and device (`navigator.deviceMemory`, hardware threads, WebCodecs audio support, File System Access write streams, storage quota) and shows a tier:
+
+| Tier | Meaning | Typical match | What the app does |
+|---|---|---|---|
+| Recommended | Streaming decode and streamed export available, enough memory | Desktop Chromium (Chrome, Edge, Brave, Opera) with 8 GB or more | Full envelope, including 3 to 4 hour files |
+| Supported | Works, with a lower or slower envelope | Safari, Firefox, mid-range laptops, tablets | Lower published file length; falls back to windowed or downsampled paths; clear note on what is limited |
+| Limited | Will run, but long files are unlikely to succeed | Low-memory phones, older browsers | Pre-flight (P-1) warns before every large import; offers downmix, split, or cancel |
+
+A "Best experience" note lists recommended browsers and minimum specs, but nothing blocks a user from trying. The thresholds are set from the benchmark baseline (section 5.4), not guessed here. Browser support facts above are marked ⚠ verify and must be confirmed per browser before the tier table is published.
 
 ### 5.5 What the user sees
 
@@ -134,8 +178,12 @@ Phases 2 and 3 can run in parallel with 4 to 6, because audio performance does n
 
 ## 9. Open questions for the owner
 
+**Answered, see section 0.** Remaining open items are 4 (explained below) and the voice-key design in section 4.1.
+
+Original questions:
+
 1. Which devices and browsers must work? (This sets the envelope: a desktop-only podcast editor is a much easier target than a phone-friendly one.)
 2. What is the longest file a typical user imports (minutes, mono or stereo)? Hour-long episodes drive P-6; 20-minute segments do not.
 3. Is the Gemini voice feature required on day one? It is the route most exposed to a free-tier wall-clock limit.
-4. Is it acceptable that account data (projects, tickets) lives on Firestore Spark while Google Auth stays, or should accounts be removed from the first release so there is no server data at all?
+4. (Reworded) Do you want projects, templates and support tickets saved on our servers for signed-in users in the first release, or kept only on the user's device? The signed-out first release implies device-only.
 5. Is sign-in required for the first release, or can the app run signed-out with local projects only? A signed-out release would remove the entire Auth/Firestore port from the critical path.
