@@ -141,6 +141,18 @@ export interface ExportProgress {
   message: string;
 }
 
+/** Create a progress callback that never reports a lower percentage than its previous update. */
+export function createMonotonicProgressReporter(
+  onProgress?: (progress: ExportProgress) => void
+): (progress: ExportProgress) => void {
+  let lastReportedPercent = 0;
+  return (progress) => {
+    const percent = Math.max(lastReportedPercent, Math.min(100, progress.percent));
+    lastReportedPercent = percent;
+    onProgress?.({ ...progress, percent });
+  };
+}
+
 export interface ExportSummary {
   filename: string;
   format: 'wav' | 'mp3';
@@ -158,6 +170,24 @@ export interface ExportSummary {
 }
 
 /**
+ * Shared 4x Hermite interpolation coefficients. Calculate once so both synchronous
+ * and yielding true-peak scans use exactly the same reference values.
+ */
+const truePeakInterpolationWeights = [0.25, 0.5, 0.75].map((t) => {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return [
+    0.5 * (-t + 2 * t2 - t3),
+    0.5 * (2 - 5 * t2 + 3 * t3),
+    0.5 * (t + 4 * t2 - 3 * t3),
+    0.5 * (-t2 + t3),
+  ] as const;
+});
+const [w00, w01, w02, w03] = truePeakInterpolationWeights[0];
+const [w10, w11, w12, w13] = truePeakInterpolationWeights[1];
+const [w20, w21, w22, w23] = truePeakInterpolationWeights[2];
+
+/**
  * 4x Oversampled True Peak detection using cubic Hermite interpolation
  * Catches inter-sample peaks exceeding digital full scale according to ITU-R BS.1770-4
  */
@@ -166,67 +196,84 @@ export function calculateTruePeak(channelData: Float32Array): number {
   const len = channelData.length;
 
   for (let i = 0; i < len; i++) {
-    const s0 = channelData[Math.max(0, i - 1)];
+    const s0 = channelData[i > 0 ? i - 1 : 0];
     const s1 = channelData[i];
-    const s2 = channelData[Math.min(len - 1, i + 1)];
-    const s3 = channelData[Math.min(len - 1, i + 2)];
+    const s2 = channelData[i + 1 < len ? i + 1 : len - 1];
+    const s3 = channelData[i + 2 < len ? i + 2 : len - 1];
 
     const abs1 = Math.abs(s1);
     if (abs1 > peak) peak = abs1;
 
-    // 4x sub-sample points: t = 0.25, 0.5, 0.75
-    for (let sub = 1; sub <= 3; sub++) {
-      const t = sub * 0.25;
-      const t2 = t * t;
-      const t3 = t2 * t;
-      // Hermite cubic polynomial
-      const inter = 0.5 * (
-        (2 * s1) +
-        (-s0 + s2) * t +
-        (2 * s0 - 5 * s1 + 4 * s2 - s3) * t2 +
-        (-s0 + 3 * s1 - 3 * s2 + s3) * t3
-      );
-      const absInter = Math.abs(inter);
-      if (absInter > peak) peak = absInter;
-    }
+    // Same 4x Hermite interpolation, with coefficients hoisted out of the hot loop
+    // and no per-sample iterator/destructuring allocations.
+    const inter1 = w00 * s0 + w01 * s1 + w02 * s2 + w03 * s3;
+    const absInter1 = Math.abs(inter1);
+    if (absInter1 > peak) peak = absInter1;
+
+    const inter2 = w10 * s0 + w11 * s1 + w12 * s2 + w13 * s3;
+    const absInter2 = Math.abs(inter2);
+    if (absInter2 > peak) peak = absInter2;
+
+    const inter3 = w20 * s0 + w21 * s1 + w22 * s2 + w23 * s3;
+    const absInter3 = Math.abs(inter3);
+    if (absInter3 > peak) peak = absInter3;
   }
 
   return peak;
 }
 
-async function calculateTruePeakAsync(channelData: Float32Array, onProgress?: (progress: ExportProgress) => void, progressPercent = 62): Promise<number> {
+export async function calculateTruePeakAsync(
+  channelData: Float32Array,
+  onProgress?: (progress: ExportProgress) => void,
+  progressStart = 60,
+  progressEnd = 62
+): Promise<number> {
   let peak = 0;
   const len = channelData.length;
+  // Yield often enough to keep the UI responsive, but avoid a timer per 8K samples:
+  // a 57-minute stereo file otherwise incurs tens of thousands of timer waits.
+  const yieldBlockSamples = 65_536;
+  const reportBlockSamples = 1_048_576;
+  // Precompute the Hermite interpolation weights once. The old inner loop recomputed
+  // t²/t³ and several common expressions for every one of billions of sub-samples on
+  // long stereo projects.
+  for (let blockStart = 0; blockStart < len; blockStart += yieldBlockSamples) {
+    const blockEnd = Math.min(len, blockStart + yieldBlockSamples);
+    for (let i = blockStart; i < blockEnd; i++) {
+      const s0 = channelData[i > 0 ? i - 1 : 0];
+      const s1 = channelData[i];
+      const s2 = channelData[i + 1 < len ? i + 1 : len - 1];
+      const s3 = channelData[i + 2 < len ? i + 2 : len - 1];
 
-  for (let i = 0; i < len; i++) {
-    if ((i + 1) % 8192 === 0) {
-      if ((i + 1) % 1_048_576 === 0) {
-        onProgress?.({ stage: 'mastering', percent: progressPercent, message: 'Measuring true peak...' });
-      }
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const abs1 = Math.abs(s1);
+      if (abs1 > peak) peak = abs1;
+
+      // 4x Hermite interpolation with precomputed coefficients and no allocations.
+      const inter1 = w00 * s0 + w01 * s1 + w02 * s2 + w03 * s3;
+      const absInter1 = Math.abs(inter1);
+      if (absInter1 > peak) peak = absInter1;
+
+      const inter2 = w10 * s0 + w11 * s1 + w12 * s2 + w13 * s3;
+      const absInter2 = Math.abs(inter2);
+      if (absInter2 > peak) peak = absInter2;
+
+      const inter3 = w20 * s0 + w21 * s1 + w22 * s2 + w23 * s3;
+      const absInter3 = Math.abs(inter3);
+      if (absInter3 > peak) peak = absInter3;
     }
-    const s0 = channelData[Math.max(0, i - 1)];
-    const s1 = channelData[i];
-    const s2 = channelData[Math.min(len - 1, i + 1)];
-    const s3 = channelData[Math.min(len - 1, i + 2)];
 
-    const abs1 = Math.abs(s1);
-    if (abs1 > peak) peak = abs1;
-
-    // 4x sub-sample points: t = 0.25, 0.5, 0.75
-    for (let sub = 1; sub <= 3; sub++) {
-      const t = sub * 0.25;
-      const t2 = t * t;
-      const t3 = t2 * t;
-      // Hermite cubic polynomial
-      const inter = 0.5 * (
-        (2 * s1) +
-        (-s0 + s2) * t +
-        (2 * s0 - 5 * s1 + 4 * s2 - s3) * t2 +
-        (-s0 + 3 * s1 - 3 * s2 + s3) * t3
-      );
-      const absInter = Math.abs(inter);
-      if (absInter > peak) peak = absInter;
+    const processed = blockEnd;
+    if (processed % reportBlockSamples === 0 || processed === len) {
+      const ratio = processed / Math.max(1, len);
+      onProgress?.({
+        stage: 'mastering',
+        percent: Math.round((progressStart + ratio * (progressEnd - progressStart)) * 100) / 100,
+        message: 'Measuring true peak...',
+      });
+    }
+    // Yield between bounded blocks so input, paint and progress updates can run.
+    if (processed < len) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
   }
 
@@ -393,20 +440,31 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
   for (let c = 0; c < numChannels; c++) {
     const data = buffer.getChannelData(c);
     channelData.push(data);
+    const truePeakPhaseStart = progressStart + (progressEnd - progressStart) * (0.2 * c / numChannels);
+    const truePeakPhaseEnd = progressStart + (progressEnd - progressStart) * (0.2 * (c + 1) / numChannels);
     const tp = await calculateTruePeakAsync(
       data,
       onProgress,
-      Math.round(progressStart + (progressEnd - progressStart) * 0.2)
+      truePeakPhaseStart,
+      truePeakPhaseEnd
     );
     if (tp > maxTruePeakLinear) maxTruePeakLinear = tp;
 
-    for (let i = 0; i < length; i++) {
-      if ((i + 1) % 262144 === 0) {
-        const ratio = (c * length + i + 1) / Math.max(1, length * numChannels);
-        onProgress?.({ stage: 'mastering', percent: Math.round(progressStart + (0.2 + ratio * 0.2) * (progressEnd - progressStart)), message: 'Analyzing loudness in yielding blocks...' });
+    const analysisBlockSamples = 262_144;
+    for (let blockStart = 0; blockStart < length; blockStart += analysisBlockSamples) {
+      const blockEnd = Math.min(length, blockStart + analysisBlockSamples);
+      for (let i = blockStart; i < blockEnd; i++) {
+        totalSumSq += data[i] * data[i];
+      }
+      const ratio = (c * length + blockEnd) / Math.max(1, length * numChannels);
+      onProgress?.({
+        stage: 'mastering',
+        percent: Math.round(progressStart + (0.2 + ratio * 0.2) * (progressEnd - progressStart)),
+        message: 'Analyzing loudness in yielding blocks...',
+      });
+      if (blockEnd < length || c < numChannels - 1) {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
-      totalSumSq += data[i] * data[i];
     }
   }
 
@@ -442,44 +500,51 @@ export async function measureLoudnessAsync(buffer: AudioBuffer, onProgress?: (pr
     const input = channelData[c];
     const squareRing = new Float64Array(effectiveBlockSize);
     let rollingSum = 0;
+    let ringIndex = 0;
+    let nextWindowEnd = effectiveBlockSize - 1;
     let x1_hs = 0, x2_hs = 0, y1_hs = 0, y2_hs = 0;
     let x1_hp = 0, x2_hp = 0, y1_hp = 0, y2_hp = 0;
 
-    for (let i = 0; i < length; i++) {
-      const x = input[i];
-      const y_hs = b0_hs * x + b1_hs * x1_hs + b2_hs * x2_hs - a1_hs * y1_hs - a2_hs * y2_hs;
-      x2_hs = x1_hs;
-      x1_hs = x;
-      y2_hs = y1_hs;
-      y1_hs = y_hs;
+    const filterBlockSamples = 262_144;
+    for (let blockStart = 0; blockStart < length; blockStart += filterBlockSamples) {
+      const blockEnd = Math.min(length, blockStart + filterBlockSamples);
+      for (let i = blockStart; i < blockEnd; i++) {
+        const x = input[i];
+        const y_hs = b0_hs * x + b1_hs * x1_hs + b2_hs * x2_hs - a1_hs * y1_hs - a2_hs * y2_hs;
+        x2_hs = x1_hs;
+        x1_hs = x;
+        y2_hs = y1_hs;
+        y1_hs = y_hs;
 
-      const y_hp = b0_hp * y_hs + b1_hp * x1_hp + b2_hp * x2_hp - a1_hp * y1_hp - a2_hp * y2_hp;
-      x2_hp = x1_hp;
-      x1_hp = y_hs;
-      y2_hp = y1_hp;
-      y1_hp = y_hp;
+        const y_hp = b0_hp * y_hs + b1_hp * x1_hp + b2_hp * x2_hp - a1_hp * y1_hp - a2_hp * y2_hp;
+        x2_hp = x1_hp;
+        x1_hp = y_hs;
+        y2_hp = y1_hp;
+        y1_hp = y_hp;
 
-      const ringIndex = i % effectiveBlockSize;
-      const squared = y_hp * y_hp;
-      if (i >= effectiveBlockSize) rollingSum -= squareRing[ringIndex];
-      squareRing[ringIndex] = squared;
-      rollingSum += squared;
+        const squared = y_hp * y_hp;
+        if (i >= effectiveBlockSize) rollingSum -= squareRing[ringIndex];
+        squareRing[ringIndex] = squared;
+        rollingSum += squared;
 
-      const windowStart = i - effectiveBlockSize + 1;
-      if (windowStart >= 0 && windowStart % effectiveHopSize === 0) {
-        const blockIndex = windowStart / effectiveHopSize;
-        if (blockIndex < blockPowers.length) {
-          blockPowers[blockIndex] += rollingSum / effectiveBlockSize;
+        if (i === nextWindowEnd) {
+          const blockIndex = (i - effectiveBlockSize + 1) / effectiveHopSize;
+          if (blockIndex < blockPowers.length) {
+            blockPowers[blockIndex] += rollingSum / effectiveBlockSize;
+          }
+          nextWindowEnd += effectiveHopSize;
         }
+        ringIndex++;
+        if (ringIndex === effectiveBlockSize) ringIndex = 0;
       }
 
-      if ((i + 1) % 262144 === 0) {
-        const ratio = (c * length + i + 1) / Math.max(1, length * numChannels);
-        onProgress?.({
-          stage: 'mastering',
-          percent: Math.round(progressStart + (0.4 + ratio * 0.3) * (progressEnd - progressStart)),
-          message: 'Filtering audio in bounded memory blocks...'
-        });
+      const ratio = (c * length + blockEnd) / Math.max(1, length * numChannels);
+      onProgress?.({
+        stage: 'mastering',
+        percent: Math.round(progressStart + (0.4 + ratio * 0.3) * (progressEnd - progressStart)),
+        message: 'Filtering audio in bounded memory blocks...',
+      });
+      if (blockEnd < length || c < numChannels - 1) {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
     }
@@ -729,8 +794,27 @@ export async function renderProjectOffline(
     window.dispatchEvent(new CustomEvent('uuda:export-skipped-plugins', { detail: { plugins: skippedPlugins } }));
   }
 
-  onProgress?.({ stage: 'rendering', percent: 40, message: 'Rendering offline audio graph...' });
-  const renderedBuffer = await offlineCtx.startRendering();
+  // OfflineAudioContext does not expose exact render progress. Keep the stage honest
+  // while giving long exports a visible elapsed-time heartbeat instead of appearing frozen.
+  onProgress?.({ stage: 'rendering', percent: 40, message: 'Rendering offline audio graph; exact progress unavailable...' });
+  const renderStartedAt = Date.now();
+  const renderHeartbeat = setInterval(() => {
+    const elapsedSeconds = Math.max(1, Math.floor((Date.now() - renderStartedAt) / 1000));
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    onProgress?.({
+      stage: 'rendering',
+      percent: 40,
+      message: `Rendering offline audio graph... elapsed ${minutes > 0 ? `${minutes}m ` : ''}${seconds}s (exact progress unavailable)`,
+    });
+  }, 2000);
+
+  let renderedBuffer: AudioBuffer;
+  try {
+    renderedBuffer = await offlineCtx.startRendering();
+  } finally {
+    clearInterval(renderHeartbeat);
+  }
   onProgress?.({ stage: 'rendering', percent: 60, message: 'Mixdown complete.' });
 
   return renderedBuffer;
@@ -755,8 +839,11 @@ export async function measureAndApplyMastering(
   const targetLufs = customTargetLufs ?? profile.targetLufs;
   const ceilingDbTP = customCeilingDbTP ?? profile.ceilingDbTP;
 
-  onProgress?.({ stage: 'mastering', percent: 65, message: 'Measuring initial mix loudness...' });
-  const preStats = await measureLoudnessAsync(inputBuffer, onProgress, 60, 69);
+  // Keep the public progress stream monotonic across nested analysis/DSP stages.
+  const reportProgress = createMonotonicProgressReporter(onProgress);
+
+  reportProgress({ stage: 'mastering', percent: 60, message: 'Measuring initial mix loudness...' });
+  const preStats = await measureLoudnessAsync(inputBuffer, reportProgress, 60, 69);
 
   // Compute required gain
   let gainAdjustmentDb = 0;
@@ -764,7 +851,7 @@ export async function measureAndApplyMastering(
     gainAdjustmentDb = targetLufs - preStats.integratedLUFS;
   }
 
-  onProgress?.({
+  reportProgress({
     stage: 'mastering',
     percent: 75,
     message: `Applying ${profile.name} (Gain: ${gainAdjustmentDb >= 0 ? '+' : ''}${gainAdjustmentDb.toFixed(1)} dB)...`,
@@ -777,11 +864,11 @@ export async function measureAndApplyMastering(
     targetLufs,
     ceilingDbTP,
     gainAdjustmentDb,
-    onProgress
+    reportProgress
   );
 
-  onProgress?.({ stage: 'mastering', percent: 85, message: 'Verifying post-mastering compliance...' });
-  const postStats = await measureLoudnessAsync(masteredBuffer, onProgress, 85, 92);
+  reportProgress({ stage: 'mastering', percent: 85, message: 'Verifying post-mastering compliance...' });
+  const postStats = await measureLoudnessAsync(masteredBuffer, reportProgress, 85, 92);
 
   const passedLoudness = Math.abs(postStats.integratedLUFS - targetLufs) <= 1.0;
   const passedTruePeak = postStats.truePeakDbTP <= (ceilingDbTP + 0.1);
@@ -824,44 +911,51 @@ export async function applyLookaheadLimiterChannel(
   const pushIndex = (index: number) => {
     const value = Math.abs(inData[index]);
     while (count > 0) {
-      const tail = (head + count - 1) % capacity;
+      let tail = head + count - 1;
+      if (tail >= capacity) tail -= capacity;
       if (Math.abs(inData[deque[tail]]) > value) break;
       count--;
     }
-    deque[(head + count) % capacity] = index;
+    let writeIndex = head + count;
+    if (writeIndex >= capacity) writeIndex -= capacity;
+    deque[writeIndex] = index;
     count++;
   };
 
   for (let i = 0; i < Math.min(length, windowSize); i++) pushIndex(i);
   let envelope = 0;
 
-  for (let i = 0; i < length; i++) {
-    const maxFuture = count > 0 ? Math.abs(inData[deque[head]]) : 0;
-    if (maxFuture > envelope) envelope = maxFuture;
-    else envelope = maxFuture + releaseCoeff * (envelope - maxFuture);
+  for (let blockStart = 0; blockStart < length; blockStart += yieldEverySamples) {
+    const blockEnd = Math.min(length, blockStart + yieldEverySamples);
+    for (let i = blockStart; i < blockEnd; i++) {
+      const maxFuture = count > 0 ? Math.abs(inData[deque[head]]) : 0;
+      if (maxFuture > envelope) envelope = maxFuture;
+      else envelope = maxFuture + releaseCoeff * (envelope - maxFuture);
 
-    const gain = envelope > ceilingLinear ? ceilingLinear / envelope : 1;
-    let sample = inData[i] * gain;
-    if (sample > ceilingLinear) sample = ceilingLinear;
-    if (sample < -ceilingLinear) sample = -ceilingLinear;
-    outData[i] = sample;
+      const gain = envelope > ceilingLinear ? ceilingLinear / envelope : 1;
+      let sample = inData[i] * gain;
+      if (sample > ceilingLinear) sample = ceilingLinear;
+      if (sample < -ceilingLinear) sample = -ceilingLinear;
+      outData[i] = sample;
 
-    // Advance the window for the next sample.
-    while (count > 0 && deque[head] <= i) {
-      head = (head + 1) % capacity;
-      count--;
+      // Advance the window for the next sample without per-sample modulo operations.
+      while (count > 0 && deque[head] <= i) {
+        head++;
+        if (head === capacity) head = 0;
+        count--;
+      }
+      const nextIndex = i + windowSize;
+      if (nextIndex < length) pushIndex(nextIndex);
     }
-    const nextIndex = i + windowSize;
-    if (nextIndex < length) pushIndex(nextIndex);
 
-    if ((i + 1) % yieldEverySamples === 0) {
-      const completed = progressBase + ((i + 1) / Math.max(1, length)) * progressSpan;
-      onProgress?.({
-        stage: 'mastering',
-        percent: Math.min(84, 75 + Math.floor(completed * 9)),
-        message: `Applying lookahead limiter (${Math.round(completed * 100)}%)...`,
-      });
-      // Let the browser paint and process input during long limiter passes.
+    const completed = progressBase + (blockEnd / Math.max(1, length)) * progressSpan;
+    onProgress?.({
+      stage: 'mastering',
+      percent: Math.min(84, Math.round((75 + completed * 9) * 100) / 100),
+      message: `Applying lookahead limiter (${Math.round(completed * 100)}%)...`,
+    });
+    // Let the browser paint and process input during long limiter passes.
+    if (blockEnd < length) {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
   }
@@ -923,7 +1017,30 @@ export async function applyMasteringChain(
   lastNode.connect(offlineCtx.destination);
   sourceNode.start(0);
 
-  const renderedIntermediate = await offlineCtx.startRendering();
+  // OfflineAudioContext has no standard sample-progress callback. Keep the user informed
+  // during long renders without inventing a percentage that could falsely imply completion.
+  onProgress?.({
+    stage: 'mastering',
+    percent: 75,
+    message: 'Rendering offline effects; this browser does not expose exact render progress...',
+  });
+  const renderStartedAt = Date.now();
+  const renderHeartbeat = setInterval(() => {
+    const elapsedSeconds = Math.max(1, Math.floor((Date.now() - renderStartedAt) / 1000));
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    onProgress?.({
+      stage: 'mastering',
+      percent: 75,
+      message: `Rendering offline effects... elapsed ${minutes > 0 ? `${minutes}m ` : ''}${seconds}s (exact progress unavailable)`,
+    });
+  }, 2000);
+  let renderedIntermediate: AudioBuffer;
+  try {
+    renderedIntermediate = await offlineCtx.startRendering();
+  } finally {
+    clearInterval(renderHeartbeat);
+  }
 
   // 4. Brickwall True Peak Limiter with Lookahead & Soft-Knee Ceiling
   // Enforces true-peak <= ceilingDbTP (e.g. -1.0 dBTP = 0.89125 linear)
