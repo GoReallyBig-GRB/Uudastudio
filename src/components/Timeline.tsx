@@ -9,7 +9,7 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
@@ -20,6 +20,7 @@ import { audioEngine } from '../audio/engine';
 import { pluginManager } from '../plugins/pluginManager';
 import { pruneEmptiedTracks, getTrackLabel } from '../utils/tracks';
 import { formatTimecode } from '../utils/formatters';
+import { calculateZoomScrollLeft } from './timelineZoom';
 
 interface TimelineProps {
   project: Project;
@@ -192,6 +193,29 @@ export const Timeline: React.FC<TimelineProps> = ({
   }, [project.tracks]);
 
   const lanePixelWidth = Math.max(1200, Math.ceil(totalDurationSeconds * pixelsPerSecond));
+  const previousZoomRef = useRef<number>(pixelsPerSecond);
+
+  // Preserve the time at the viewport center when zoom changes. Keep main's newer
+  // track-pruning and plugin-aware behavior intact while syncing the scroll offset.
+  useLayoutEffect(() => {
+    const previousZoom = previousZoomRef.current;
+    previousZoomRef.current = pixelsPerSecond;
+    if (previousZoom === pixelsPerSecond) return;
+
+    const viewport = laneScrollContainerRef.current;
+    if (!viewport) return;
+
+    const nextScrollLeft = calculateZoomScrollLeft({
+      scrollLeft: viewport.scrollLeft,
+      viewportWidth: viewport.clientWidth,
+      headerWidth: currentHeaderWidth,
+      previousZoom,
+      nextZoom: pixelsPerSecond,
+      maxScrollLeft: viewport.scrollWidth - viewport.clientWidth,
+    });
+    viewport.scrollLeft = nextScrollLeft;
+    setScrollLeft(nextScrollLeft);
+  }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth]);
 
   // ResizeObserver for canvas width
   useEffect(() => {
