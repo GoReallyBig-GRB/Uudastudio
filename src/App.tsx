@@ -140,7 +140,7 @@ const MainStudio: React.FC = () => {
   // is still being restored.
   const restoreInProgressRef = useRef<boolean>(true);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [trackImportProgress, setTrackImportProgress] = useState<{ fileName: string; index: number; total: number; phase: 'Decoding' | 'Saving' } | null>(null);
+  const [trackImportProgress, setTrackImportProgress] = useState<{ progress: number } | null>(null);
   const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
   // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
   // cadence; committing every tick rerenders the entire studio tree and its expensive timeline.
@@ -1078,9 +1078,17 @@ const MainStudio: React.FC = () => {
   const handleImportFiles = async (files: FileList) => {
     if (files.length === 0) return;
 
+    const progressPerFile = 100 / files.length;
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      setTrackImportProgress({ fileName: file.name, index: i + 1, total: files.length, phase: 'Decoding' });
+      const fileProgressStart = i * progressPerFile;
+      const fileProgressEnd = (i + 1) * progressPerFile;
+      setTrackImportProgress({ progress: fileProgressStart });
+      const progressTimer = setInterval(() => {
+        setTrackImportProgress((current) => current
+          ? { progress: Math.min(fileProgressEnd - progressPerFile * 0.12, current.progress + Math.max(0.15, progressPerFile * 0.018)) }
+          : current);
+      }, 180);
       const decodeToastId = addToast({
         type: 'info',
         title: 'Decoding Audio...',
@@ -1138,7 +1146,7 @@ const MainStudio: React.FC = () => {
         trackAdded = true;
         removeToast(decodeToastId);
 
-        setTrackImportProgress({ fileName: file.name, index: i + 1, total: files.length, phase: 'Saving' });
+        setTrackImportProgress({ progress: fileProgressStart + progressPerFile * 0.78 });
         persistenceToastId = addToast({
           type: 'info',
           title: 'Saving Local Audio...',
@@ -1169,9 +1177,10 @@ const MainStudio: React.FC = () => {
             : `${file.name}: ${err instanceof Error ? err.message : 'Unsupported or corrupted audio format.'}`,
         });
       } finally {
+        clearInterval(progressTimer);
+        setTrackImportProgress(i === files.length - 1 ? null : { progress: fileProgressEnd });
         removeToast(decodeToastId);
         if (persistenceToastId) removeToast(persistenceToastId);
-        if (i === files.length - 1) setTrackImportProgress(null);
       }
     }
   };
@@ -2359,21 +2368,6 @@ const MainStudio: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0A0A0C] text-zinc-100 overflow-hidden select-none font-sans">
-      {trackImportProgress && (
-        <div
-          role="status"
-          aria-live="polite"
-          aria-label={`${trackImportProgress.phase} ${trackImportProgress.fileName}`}
-          className="fixed top-0 left-1/2 -translate-x-1/2 z-[100] w-64 max-w-[calc(100vw-2rem)] pt-2"
-        >
-          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800/95 ring-1 ring-white/10">
-            <div className="track-import-progress-fill h-full w-[38%] rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.55)]" />
-          </div>
-          <div className="mt-1 text-center text-[10px] leading-4 text-zinc-400 truncate">
-            {trackImportProgress.phase} track {trackImportProgress.index}/{trackImportProgress.total}
-          </div>
-        </div>
-      )}
       {/* Top Header Bar */}
       <Header
         project={project}
@@ -2502,6 +2496,26 @@ const MainStudio: React.FC = () => {
 
         {/* Center Workspace: Either Multi-Track Waveform Timeline OR Dedicated Editing & Mixing Desk */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-[#0A0A0C]">
+      {trackImportProgress && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label="Uploading..."
+          className="pointer-events-none absolute left-1/2 top-1/2 z-30 w-72 max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2"
+        >
+          <div className="rounded-xl border border-white/[0.08] bg-[#111116]/95 px-5 py-4 shadow-[0_12px_48px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+            <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800 ring-1 ring-white/[0.06]">
+              <div
+                className="track-import-progress-fill h-full rounded-full bg-emerald-400 shadow-[0_0_14px_rgba(52,211,153,0.38)]"
+                style={{ width: `${Math.max(0, Math.min(100, trackImportProgress.progress))}%` }}
+              />
+            </div>
+            <div className="mt-3 text-center text-[11px] font-medium tracking-[0.08em] text-zinc-300">
+              Uploading...
+            </div>
+          </div>
+        </div>
+      )}
           {isTimelineViewCollapsed ? (
             <div className="flex-1 flex flex-col h-full overflow-hidden p-3 bg-[#0c0c11]">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800">
