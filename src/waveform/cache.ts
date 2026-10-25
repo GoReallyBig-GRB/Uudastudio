@@ -13,6 +13,10 @@ export interface WaveformPeaks {
 
 /** Above this many source samples (frames x channels) a full-asset scan is too slow for the UI thread. */
 const FULL_SCAN_SAMPLE_LIMIT = 8_000_000;
+/** Overview level for long sources, built once in small time slices. Zoomed-out views aggregate from it. */
+export const BASE_LEVEL_SAMPLES_PER_PIXEL = 4096;
+/** Source frames processed per time slice while building the overview level (keeps each slice ~10-20 ms). */
+const BASE_BUILD_FRAMES_PER_SLICE = 1_000_000;
 
 const MAX_CACHE_BYTES = 64 * 1024 * 1024;
 
@@ -23,6 +27,8 @@ class WaveformCache {
 
   public clearAsset(assetId: string): void {
     this.lastWindow.delete(assetId);
+    const building = this.building.get(assetId);
+    if (building) { building.cancelled = true; this.building.delete(assetId); }
     for (const [key, peaks] of this.cache) {
       if (key.startsWith(`${assetId}:`)) {
         this.cacheBytes -= peaks.mins.byteLength + peaks.maxs.byteLength;
@@ -34,6 +40,74 @@ class WaveformCache {
   private quantizeSamplesPerPixel(samplesPerPixel: number): number {
     const safe = Math.max(1, Number.isFinite(samplesPerPixel) ? samplesPerPixel : 1);
     return Math.max(1, 2 ** Math.round(Math.log2(safe)));
+  }
+
+  private building = new Map<string, { cancelled: boolean }>();
+  private listeners = new Set<() => void>();
+
+  /** Called when a background overview level finishes so the timeline can redraw. */
+  public subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  private insertLevel(key: string, result: WaveformPeaks): void {
+    const bytes = result.mins.byteLength + result.maxs.byteLength;
+    if (bytes > MAX_CACHE_BYTES) return;
+    while (this.cacheBytes + bytes > MAX_CACHE_BYTES && this.cache.size > 0) {
+      const oldestKey = this.cache.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      const oldest = this.cache.get(oldestKey)!;
+      this.cacheBytes -= oldest.mins.byteLength + oldest.maxs.byteLength;
+      this.cache.delete(oldestKey);
+    }
+    this.cache.set(key, result);
+    this.cacheBytes += bytes;
+  }
+
+  /** True when the overview level exists, so zoomed-out views are cheap. */
+  public hasBaseLevel(assetId: string): boolean {
+    return this.cache.has(`${assetId}:${BASE_LEVEL_SAMPLES_PER_PIXEL}`);
+  }
+
+  /** Builds the overview level in small slices so the UI thread never blocks for long. */
+  public ensureBaseLevel(assetId: string, buffer: AudioBuffer): void {
+    if (this.hasBaseLevel(assetId) || this.building.has(assetId)) return;
+    const token = { cancelled: false };
+    this.building.set(assetId, token);
+    const step = BASE_LEVEL_SAMPLES_PER_PIXEL;
+    const total = buffer.length;
+    const numBuckets = Math.ceil(total / step);
+    const mins = new Float32Array(numBuckets);
+    const maxs = new Float32Array(numBuckets);
+    const channelsCount = Math.max(1, buffer.numberOfChannels);
+    const chans = Array.from({ length: channelsCount }, (_, c) => buffer.getChannelData(c));
+    const bucketsPerSlice = Math.max(1, Math.floor(BASE_BUILD_FRAMES_PER_SLICE / step));
+    let bucket = 0;
+    const slice = () => {
+      if (token.cancelled) { if (this.building.get(assetId) === token) this.building.delete(assetId); return; }
+      const end = Math.min(numBuckets, bucket + bucketsPerSlice);
+      for (; bucket < end; bucket++) {
+        const s = bucket * step;
+        const e = Math.min(s + step, total);
+        let min = Infinity;
+        let max = -Infinity;
+        for (let i = s; i < e; i++) {
+          let v = 0;
+          for (let c = 0; c < channelsCount; c++) v += chans[c][i];
+          v /= channelsCount;
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+        mins[bucket] = Number.isFinite(min) ? min : 0;
+        maxs[bucket] = Number.isFinite(max) ? max : 0;
+      }
+      if (bucket < numBuckets) { setTimeout(slice, 0); return; }
+      if (this.building.get(assetId) === token) this.building.delete(assetId);
+      this.insertLevel(`${assetId}:${step}`, { mins, maxs, samplesPerPixel: step });
+      this.listeners.forEach((l) => l());
+    };
+    setTimeout(slice, 0);
   }
 
   private hasExactOrFinerLevel(assetId: string, step: number): boolean {
@@ -56,12 +130,18 @@ class WaveformCache {
     startSample: number,
     endSample: number,
     samplesPerPixel: number
-  ): WaveformPeaks {
+  ): WaveformPeaks | null {
     const step = this.quantizeSamplesPerPixel(samplesPerPixel);
     const total = buffer.length;
     const channelsCount = Math.max(1, buffer.numberOfChannels);
     if (this.hasExactOrFinerLevel(assetId, step) || total * channelsCount <= FULL_SCAN_SAMPLE_LIMIT) {
       return this.getPeaks(assetId, buffer, step, false);
+    }
+    // Zoomed-out view of a long source: wait for the sliced overview build instead of scanning
+    // the whole file on the UI thread. Returns null until ready; subscribers are notified.
+    if (step >= BASE_LEVEL_SAMPLES_PER_PIXEL) {
+      this.ensureBaseLevel(assetId, buffer);
+      return null;
     }
     const first = Math.max(0, Math.floor(Math.max(0, startSample) / step) - 1);
     const last = Math.min(Math.ceil(total / step), Math.ceil(Math.max(startSample, endSample) / step) + 1);

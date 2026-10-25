@@ -102,7 +102,7 @@ describe('waveformCache', () => {
     waveformCache.clearAsset(id);
     const coarse = waveformCache.getPeaks(id, buffer, 4096);
     const start = 2_000_000;
-    const win = waveformCache.getPeaksForRange(id, buffer, start, start + 48 * 800, 48);
+    const win = waveformCache.getPeaksForRange(id, buffer, start, start + 48 * 800, 48)!;
     expect(win).not.toBe(coarse);
     expect(win.samplesPerPixel).toBe(32 * 2 >= 48 ? 64 : 32);
     expect(win.firstBucket).toBeGreaterThan(0);
@@ -114,6 +114,29 @@ describe('waveformCache', () => {
     }
     expect(win.mins[b]).toBeCloseTo(min, 6);
     expect(win.maxs[b]).toBeCloseTo(max, 6);
+    waveformCache.clearAsset(id);
+  });
+
+  it('builds the overview level of a long source in slices and then serves zoomed-out views from it', async () => {
+    const id = 'test-long-overview';
+    const length = 9_000_000;
+    const values = new Float32Array(length);
+    for (let i = 0; i < length; i++) values[i] = Math.sin(i * 0.001) * (0.2 + (i % 5000) / 6000);
+    const buffer = { length, numberOfChannels: 1, getChannelData: () => values } as unknown as AudioBuffer;
+    waveformCache.clearAsset(id);
+    const done = new Promise<void>((resolve) => {
+      const off = waveformCache.subscribe(() => { off(); resolve(); });
+    });
+    expect(waveformCache.getPeaksForRange(id, buffer, 0, length, 8192)).toBeNull();
+    await done;
+    expect(waveformCache.hasBaseLevel(id)).toBe(true);
+    const peaks = waveformCache.getPeaksForRange(id, buffer, 0, length, 8192);
+    expect(peaks === null).toBe(false);
+    expect(peaks!.samplesPerPixel).toBe(8192);
+    let min = Infinity; let max = -Infinity;
+    for (let i = 0; i < 8192; i++) { if (values[i] < min) min = values[i]; if (values[i] > max) max = values[i]; }
+    expect(peaks!.mins[0]).toBeCloseTo(min, 6);
+    expect(peaks!.maxs[0]).toBeCloseTo(max, 6);
     waveformCache.clearAsset(id);
   });
 
