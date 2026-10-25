@@ -196,8 +196,9 @@ export const Timeline: React.FC<TimelineProps> = ({
   const lanePixelWidth = Math.max(1200, Math.ceil(totalDurationSeconds * pixelsPerSecond));
   const previousZoomRef = useRef<number>(pixelsPerSecond);
 
-  // Preserve the time at the viewport center when zoom changes and sync React state
-  // after layout so the waveform, ruler, and playhead use the same scroll offset.
+  // Keep the visible timeline's left edge anchored during zoom. This prevents
+  // zoom-in from pulling time zero under the sticky controllers; the ruler,
+  // waveform, and playhead all continue to share the same scroll offset.
   useLayoutEffect(() => {
     const previousZoom = previousZoomRef.current;
     previousZoomRef.current = pixelsPerSecond;
@@ -1022,7 +1023,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 left: `${currentHeaderWidth + playheadSeconds * pixelsPerSecond}px`,
                 height: `${project.tracks.length * ROW_HEIGHT}px`,
               }}
-              className="absolute top-0 w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF] z-0 pointer-events-none transition-[left] duration-100 linear"
+              className="absolute top-0 w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF] z-10 pointer-events-none transition-[left] duration-100 linear"
             />
 
             {/* Marquee Selection Rectangle Box */}
