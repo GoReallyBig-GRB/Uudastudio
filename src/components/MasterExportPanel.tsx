@@ -511,7 +511,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
       });
 
       setExportProgress({ stage: 'complete', percent: 100, message: 'Export & verification complete!' });
-      setActiveTab('export');
+      onOpenExport?.();
     } catch (err) {
       console.error('Export error:', err);
       setErrorMessage(err instanceof Error ? err.message : 'Export failed.');
@@ -1518,7 +1518,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('export')}
+                    onClick={() => onOpenExport?.()}
                     className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer"
                   >
                     <span>Proceed to Export</span>
