@@ -8,23 +8,19 @@ export interface ZoomScrollInput {
 }
 
 /**
- * Keep the visible timeline area's center time fixed when zoom changes.
+ * Anchor zoom to the timeline's left edge instead of its center.
  *
- * scrollLeft belongs to the full scroll container, while the sticky controller
- * occupies headerWidth pixels and is not part of the timeline viewport. Compute
- * the center from the remaining timeline width; subtracting headerWidth from the
- * viewport center itself shifts the zoom anchor and compounds drift on each zoom.
+ * Scaling the existing scroll offset by the zoom ratio preserves the time
+ * already at the left edge. In particular, scrollLeft=0 stays at zero, so
+ * zooming in expands the timeline only to the right and cannot pull time zero
+ * underneath the sticky track controllers.
  */
 export function calculateZoomScrollLeft(input: ZoomScrollInput): number {
   const finite = (value: number, fallback: number) => Number.isFinite(value) ? value : fallback;
   const scrollLeft = Math.max(0, finite(input.scrollLeft, 0));
-  const viewportWidth = Math.max(0, finite(input.viewportWidth, 0));
-  const headerWidth = Math.min(viewportWidth, Math.max(0, finite(input.headerWidth, 0)));
   const previousZoom = Math.max(0.1, finite(input.previousZoom, 1));
   const nextZoom = Math.max(0.1, finite(input.nextZoom, previousZoom));
   const maxScrollLeft = Math.max(0, finite(input.maxScrollLeft, 0));
-  const timelineViewportWidth = Math.max(0, viewportWidth - headerWidth);
-  const centerTime = (scrollLeft + timelineViewportWidth / 2) / previousZoom;
-  const targetScrollLeft = centerTime * nextZoom - timelineViewportWidth / 2;
+  const targetScrollLeft = scrollLeft * (nextZoom / previousZoom);
   return Math.min(maxScrollLeft, Math.max(0, targetScrollLeft));
 }
