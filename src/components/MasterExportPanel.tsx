@@ -68,6 +68,7 @@ interface MasterExportPanelProps {
   project: Project;
   onClose?: () => void;
   onOpenExport?: () => void;
+  onMasteredBufferReady?: (buffer: AudioBuffer, sourceProject: Project) => void;
   isSidebarMode?: boolean;
   onUpdateTrack?: (trackId: string, updates: Partial<Track>) => void;
   onAddTrack?: () => void;
@@ -79,6 +80,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
   project,
   onClose,
   onOpenExport,
+  onMasteredBufferReady,
   isSidebarMode = true,
   onUpdateTrack,
   onAddTrack,
@@ -391,6 +393,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
       );
 
       setMeasureResult(result);
+      onMasteredBufferReady?.(result.masteredBuffer, project);
       setFullMixStats(result.postStats);
       setActiveTab('mastering');
     } catch (err) {
