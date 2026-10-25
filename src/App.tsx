@@ -2081,8 +2081,8 @@ const MainStudio: React.FC = () => {
   // breathing room. The minimum zoom is derived from the current mix duration.
   const minimumTimelineZoom = calculateMinimumTimelineZoom(usableTimelineWidth, totalDurationSeconds);
 
-  // If clips are added or extended while already zoomed out, enforce the new
-  // minimum immediately. Removing/shortening clips never forces an unwanted zoom-in.
+  // Recalculate the boundary when the mix duration or usable viewport changes.
+  // This also prevents a shortened mix from leaving excessive empty space visible.
   useEffect(() => {
     setPixelsPerSecond((prev) => Math.max(prev, minimumTimelineZoom));
   }, [minimumTimelineZoom]);
@@ -2096,7 +2096,7 @@ const MainStudio: React.FC = () => {
   };
 
   const handleZoomFit = () => {
-    setPixelsPerSecond(Math.max(minimumTimelineZoom, Math.min(1000, usableTimelineWidth / (Math.max(0, totalDurationSeconds) + 60))));
+    setPixelsPerSecond(minimumTimelineZoom);
   };
 
   // 10. Clear Session & Workspace Reset Handlers
