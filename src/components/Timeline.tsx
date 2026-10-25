@@ -1022,7 +1022,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 left: `${currentHeaderWidth + playheadSeconds * pixelsPerSecond}px`,
                 height: `${project.tracks.length * ROW_HEIGHT}px`,
               }}
-              className="absolute top-0 w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF] z-20 pointer-events-none transition-[left] duration-100 linear"
+              className="absolute top-0 w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF] z-0 pointer-events-none transition-[left] duration-100 linear"
             />
 
             {/* Marquee Selection Rectangle Box */}
