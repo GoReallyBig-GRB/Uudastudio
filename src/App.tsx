@@ -69,6 +69,7 @@ import { projectFromTemplate, templateFromProject, serializeTemplate, templateFi
 import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
 import { VoiceoverModal } from './components/VoiceoverModal';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
+import { calculateMinimumTimelineZoom } from './components/timelineZoom';
 
 
 interface ProjectFileWritable {
@@ -2074,19 +2075,28 @@ const MainStudio: React.FC = () => {
   };
 
   // 9. Zoom controls
+  const controlsWidthForZoom = isTimelineControlsCollapsed ? 32 : 272;
+  const usableTimelineWidth = Math.max(100, timelineViewportWidth - controlsWidthForZoom - 32);
+  // Keep the whole mix visible with at most one minute of intentional right-side
+  // breathing room. The minimum zoom is derived from the current mix duration.
+  const minimumTimelineZoom = calculateMinimumTimelineZoom(usableTimelineWidth, totalDurationSeconds);
+
+  // Recalculate the boundary when the mix duration or usable viewport changes.
+  // This also prevents a shortened mix from leaving excessive empty space visible.
+  useEffect(() => {
+    setPixelsPerSecond((prev) => Math.max(prev, minimumTimelineZoom));
+  }, [minimumTimelineZoom]);
+
   const handleZoomIn = () => {
     setPixelsPerSecond((prev) => Math.min(1000, prev * 1.3));
   };
 
   const handleZoomOut = () => {
-    setPixelsPerSecond((prev) => Math.max(0.1, prev / 1.3));
+    setPixelsPerSecond((prev) => Math.max(minimumTimelineZoom, prev / 1.3));
   };
 
   const handleZoomFit = () => {
-    const controlsWidth = isTimelineControlsCollapsed ? 32 : 272;
-    const usableWidth = Math.max(100, timelineViewportWidth - controlsWidth - 32);
-    const duration = Math.max(60, totalDurationSeconds) + 15;
-    setPixelsPerSecond(Math.max(0.1, Math.min(1000, usableWidth / duration)));
+    setPixelsPerSecond(minimumTimelineZoom);
   };
 
   // 10. Clear Session & Workspace Reset Handlers

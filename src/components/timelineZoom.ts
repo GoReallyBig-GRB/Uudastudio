@@ -18,9 +18,29 @@ export interface ZoomScrollInput {
 export function calculateZoomScrollLeft(input: ZoomScrollInput): number {
   const finite = (value: number, fallback: number) => Number.isFinite(value) ? value : fallback;
   const scrollLeft = Math.max(0, finite(input.scrollLeft, 0));
-  const previousZoom = Math.max(0.1, finite(input.previousZoom, 1));
-  const nextZoom = Math.max(0.1, finite(input.nextZoom, previousZoom));
+  const previousZoom = Math.max(MIN_PIXELS_PER_SECOND, finite(input.previousZoom, 1));
+  const nextZoom = Math.max(MIN_PIXELS_PER_SECOND, finite(input.nextZoom, previousZoom));
   const maxScrollLeft = Math.max(0, finite(input.maxScrollLeft, 0));
   const targetScrollLeft = scrollLeft * (nextZoom / previousZoom);
   return Math.min(maxScrollLeft, Math.max(0, targetScrollLeft));
+}
+
+
+const MIN_PIXELS_PER_SECOND = 0.001;
+const RIGHT_MARGIN_SECONDS = 60;
+
+/**
+ * Calculate the zoom-out boundary so the complete mix fits in the usable
+ * timeline width with no more than the requested seconds of trailing space.
+ */
+export function calculateMinimumTimelineZoom(
+  usableWidth: number,
+  mixDurationSeconds: number,
+  rightMarginSeconds = RIGHT_MARGIN_SECONDS,
+): number {
+  const finite = (value: number, fallback: number) => Number.isFinite(value) ? value : fallback;
+  const width = Math.max(1, finite(usableWidth, 1));
+  const duration = Math.max(0, finite(mixDurationSeconds, 0));
+  const margin = Math.max(0, finite(rightMarginSeconds, RIGHT_MARGIN_SECONDS));
+  return Math.min(1000, Math.max(MIN_PIXELS_PER_SECOND, width / Math.max(1, duration + margin)));
 }
