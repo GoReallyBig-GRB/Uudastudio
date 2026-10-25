@@ -187,6 +187,7 @@ const MainStudio: React.FC = () => {
   const [isTimelineViewCollapsed, setIsTimelineViewCollapsed] = useState<boolean>(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(false);
   const [activeMasterPanel, setActiveMasterPanel] = useState<'mastering' | 'export'>('mastering');
+  const [masteredExport, setMasteredExport] = useState<{ buffer: AudioBuffer; sourceProject: Project } | null>(null);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState<boolean>(false);
   const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState<boolean>(false);
@@ -2595,12 +2596,13 @@ const MainStudio: React.FC = () => {
 
               <div className="flex-1 overflow-hidden">
                 {activeMasterPanel === 'export' ? (
-                  <ExportPanel project={project} onClose={() => setActiveMasterPanel('mastering')} />
+                  <ExportPanel project={project} masteredBuffer={masteredExport?.sourceProject === project ? masteredExport.buffer : undefined} onClose={() => setActiveMasterPanel('mastering')} />
                 ) : (
                   <MasterExportPanel
                     project={project}
                     isSidebarMode={false}
                     onOpenExport={() => setActiveMasterPanel('export')}
+                    onMasteredBufferReady={(buffer, sourceProject) => setMasteredExport({ buffer, sourceProject })}
                     onUpdateTrack={handleUpdateTrack}
                     onAddTrack={handleAddEmptyTrack}
                     selectedTrackId={selectedTrackId}
@@ -2648,13 +2650,14 @@ const MainStudio: React.FC = () => {
           <div className="flex h-full shrink-0 z-20 relative animate-in slide-in-from-right duration-150">
             {activeMasterPanel === 'export' ? (
               <div className="w-[380px] max-w-[45vw] h-full">
-                <ExportPanel project={project} onClose={() => setIsRightSidebarOpen(false)} />
+                <ExportPanel project={project} masteredBuffer={masteredExport?.sourceProject === project ? masteredExport.buffer : undefined} onClose={() => setIsRightSidebarOpen(false)} />
               </div>
             ) : (
               <MasterExportPanel
                 project={project}
                 isSidebarMode={true}
                 onOpenExport={() => setActiveMasterPanel('export')}
+                onMasteredBufferReady={(buffer, sourceProject) => setMasteredExport({ buffer, sourceProject })}
                 onClose={() => setIsRightSidebarOpen(false)}
                 onUpdateTrack={handleUpdateTrack}
                 onAddTrack={handleAddEmptyTrack}
