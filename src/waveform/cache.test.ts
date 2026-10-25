@@ -93,4 +93,28 @@ describe('waveformCache', () => {
     waveformCache.clearAsset(directId);
   });
 
+  it('returns exact fine peaks for a window of a long source instead of a coarse block level', () => {
+    const id = 'test-window-fine';
+    const length = 5_000_000;
+    const values = new Float32Array(length);
+    for (let i = 0; i < length; i++) values[i] = Math.sin(i * 0.01) * 0.5;
+    const buffer = { length, numberOfChannels: 2, getChannelData: () => values } as unknown as AudioBuffer;
+    waveformCache.clearAsset(id);
+    const coarse = waveformCache.getPeaks(id, buffer, 4096);
+    const start = 2_000_000;
+    const win = waveformCache.getPeaksForRange(id, buffer, start, start + 48 * 800, 48);
+    expect(win).not.toBe(coarse);
+    expect(win.samplesPerPixel).toBe(32 * 2 >= 48 ? 64 : 32);
+    expect(win.firstBucket).toBeGreaterThan(0);
+    const b = Math.floor(start / win.samplesPerPixel) - (win.firstBucket || 0);
+    let min = Infinity; let max = -Infinity;
+    for (let i = 0; i < win.samplesPerPixel; i++) {
+      const v = values[Math.floor(start / win.samplesPerPixel) * win.samplesPerPixel + i];
+      if (v < min) min = v; if (v > max) max = v;
+    }
+    expect(win.mins[b]).toBeCloseTo(min, 6);
+    expect(win.maxs[b]).toBeCloseTo(max, 6);
+    waveformCache.clearAsset(id);
+  });
+
 });
