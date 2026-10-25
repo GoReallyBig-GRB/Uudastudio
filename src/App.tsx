@@ -140,6 +140,7 @@ const MainStudio: React.FC = () => {
   // is still being restored.
   const restoreInProgressRef = useRef<boolean>(true);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [trackImportProgress, setTrackImportProgress] = useState<{ fileName: string; index: number; total: number; phase: 'Decoding' | 'Saving' } | null>(null);
   const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
   // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
   // cadence; committing every tick rerenders the entire studio tree and its expensive timeline.
@@ -1079,6 +1080,7 @@ const MainStudio: React.FC = () => {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      setTrackImportProgress({ fileName: file.name, index: i + 1, total: files.length, phase: 'Decoding' });
       const decodeToastId = addToast({
         type: 'info',
         title: 'Decoding Audio...',
@@ -1136,6 +1138,7 @@ const MainStudio: React.FC = () => {
         trackAdded = true;
         removeToast(decodeToastId);
 
+        setTrackImportProgress({ fileName: file.name, index: i + 1, total: files.length, phase: 'Saving' });
         persistenceToastId = addToast({
           type: 'info',
           title: 'Saving Local Audio...',
@@ -1168,6 +1171,7 @@ const MainStudio: React.FC = () => {
       } finally {
         removeToast(decodeToastId);
         if (persistenceToastId) removeToast(persistenceToastId);
+        if (i === files.length - 1) setTrackImportProgress(null);
       }
     }
   };
@@ -2355,6 +2359,21 @@ const MainStudio: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0A0A0C] text-zinc-100 overflow-hidden select-none font-sans">
+      {trackImportProgress && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label={`${trackImportProgress.phase} ${trackImportProgress.fileName}`}
+          className="fixed top-0 left-1/2 -translate-x-1/2 z-[100] w-64 max-w-[calc(100vw-2rem)] pt-2"
+        >
+          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800/95 ring-1 ring-white/10">
+            <div className="track-import-progress-fill h-full w-[38%] rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.55)]" />
+          </div>
+          <div className="mt-1 text-center text-[10px] leading-4 text-zinc-400 truncate">
+            {trackImportProgress.phase} track {trackImportProgress.index}/{trackImportProgress.total}
+          </div>
+        </div>
+      )}
       {/* Top Header Bar */}
       <Header
         project={project}
