@@ -38,6 +38,7 @@ import {
 import { Header } from './components/Header';
 import { LeftSidebar, SidebarTab } from './components/LeftSidebar';
 import { MasterExportPanel } from './components/MasterExportPanel';
+import { ExportPanel } from './components/ExportPanel';
 import { Timeline } from './components/Timeline';
 import { StatusBar } from './components/StatusBar';
 import { RecordingModal } from './components/RecordingModal';
@@ -185,6 +186,7 @@ const MainStudio: React.FC = () => {
 
   const [isTimelineViewCollapsed, setIsTimelineViewCollapsed] = useState<boolean>(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(false);
+  const [activeMasterPanel, setActiveMasterPanel] = useState<'mastering' | 'export'>('mastering');
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState<boolean>(false);
   const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState<boolean>(false);
@@ -2458,7 +2460,7 @@ const MainStudio: React.FC = () => {
         onClearSession={handleClearSession}
         activeSidebarTab={sidebarTab}
         onSelectSidebarTab={setSidebarTab}
-        onOpenExport={() => setIsRightSidebarOpen(true)}
+        onOpenExport={() => { setActiveMasterPanel('export'); setIsRightSidebarOpen(true); }}
         onOpenPlugins={() => setIsPluginsRackModalOpen(true)}
         onOpenVoiceoverModal={() => setIsVoiceoverModalOpen(true)}
       />
@@ -2592,14 +2594,19 @@ const MainStudio: React.FC = () => {
               </div>
 
               <div className="flex-1 overflow-hidden">
-                <MasterExportPanel
-                  project={project}
-                  isSidebarMode={false}
-                  onUpdateTrack={handleUpdateTrack}
-                  onAddTrack={handleAddEmptyTrack}
-                  selectedTrackId={selectedTrackId}
-                  onSelectTrack={(id) => setSelectedTrackId(id)}
-                />
+                {activeMasterPanel === 'export' ? (
+                  <ExportPanel project={project} onClose={() => setActiveMasterPanel('mastering')} />
+                ) : (
+                  <MasterExportPanel
+                    project={project}
+                    isSidebarMode={false}
+                    onOpenExport={() => setActiveMasterPanel('export')}
+                    onUpdateTrack={handleUpdateTrack}
+                    onAddTrack={handleAddEmptyTrack}
+                    selectedTrackId={selectedTrackId}
+                    onSelectTrack={(id) => setSelectedTrackId(id)}
+                  />
+                )}
               </div>
             </div>
           ) : (
@@ -2639,23 +2646,30 @@ const MainStudio: React.FC = () => {
         {/* Right Dockable Sidebar: Master Bus & Export Inspector */}
         {!isTimelineViewCollapsed && isRightSidebarOpen && (
           <div className="flex h-full shrink-0 z-20 relative animate-in slide-in-from-right duration-150">
-            <MasterExportPanel
-              project={project}
-              isSidebarMode={true}
-              onClose={() => setIsRightSidebarOpen(false)}
-              onUpdateTrack={handleUpdateTrack}
-              onAddTrack={handleAddEmptyTrack}
-              selectedTrackId={selectedTrackId}
-              onSelectTrack={(id) => setSelectedTrackId(id)}
-            />
+            {activeMasterPanel === 'export' ? (
+              <div className="w-[380px] max-w-[45vw] h-full">
+                <ExportPanel project={project} onClose={() => setIsRightSidebarOpen(false)} />
+              </div>
+            ) : (
+              <MasterExportPanel
+                project={project}
+                isSidebarMode={true}
+                onOpenExport={() => setActiveMasterPanel('export')}
+                onClose={() => setIsRightSidebarOpen(false)}
+                onUpdateTrack={handleUpdateTrack}
+                onAddTrack={handleAddEmptyTrack}
+                selectedTrackId={selectedTrackId}
+                onSelectTrack={(id) => setSelectedTrackId(id)}
+              />
+            )}
           </div>
         )}
 
         {/* Right Sidebar Expand Tab (Shown when Master panel is collapsed) */}
         {!isTimelineViewCollapsed && !isRightSidebarOpen && (
           <button
-            onClick={() => setIsRightSidebarOpen(true)}
-            title="Expand Master Bus & Export Panel"
+            onClick={() => { setActiveMasterPanel('mastering'); setIsRightSidebarOpen(true); }}
+            title="Expand Mastering Console"
             className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-[#16161c] hover:bg-zinc-800 text-zinc-400 hover:text-emerald-300 border-l border-y border-zinc-700/80 rounded-l-md px-1 py-3 text-[10px] font-bold tracking-widest uppercase transition-all shadow-md flex flex-col items-center gap-1 cursor-pointer"
           >
             <ChevronLeft className="w-3.5 h-3.5 text-emerald-400" />
