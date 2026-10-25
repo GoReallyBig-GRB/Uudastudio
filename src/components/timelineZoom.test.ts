@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateZoomScrollLeft } from './timelineZoom';
+import { calculateMinimumTimelineZoom, calculateZoomScrollLeft } from './timelineZoom';
 
 describe('timeline zoom anchoring', () => {
   it('keeps time zero fixed and expands only to the right when zooming in', () => {
@@ -78,5 +78,28 @@ describe('timeline zoom anchoring', () => {
       maxScrollLeft: 1000,
     });
     expect(result).toBe(0);
+  });
+});
+
+
+describe('timeline minimum zoom-out boundary', () => {
+  it('fits the full mix with a one-minute right margin', () => {
+    expect(calculateMinimumTimelineZoom(900, 540)).toBeCloseTo(1.5);
+  });
+
+  it('adapts to the current mix duration', () => {
+    const shorterMix = calculateMinimumTimelineZoom(900, 240);
+    const longerMix = calculateMinimumTimelineZoom(900, 540);
+    expect(shorterMix).toBeGreaterThan(longerMix);
+  });
+
+  it('supports long mixes that require less than 0.1 pixels per second', () => {
+    expect(calculateMinimumTimelineZoom(900, 36000)).toBeCloseTo(900 / 36060);
+    expect(calculateMinimumTimelineZoom(900, 36000)).toBeLessThan(0.1);
+  });
+
+  it('handles empty mixes and invalid geometry without returning a non-finite zoom', () => {
+    expect(calculateMinimumTimelineZoom(900, 0)).toBe(15);
+    expect(Number.isFinite(calculateMinimumTimelineZoom(Number.NaN, Number.NaN))).toBe(true);
   });
 });
