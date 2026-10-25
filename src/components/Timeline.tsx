@@ -11,6 +11,7 @@
 
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { calculateZoomScrollLeft } from './timelineZoom';
+import { getVisibleClipPixelRange } from './timelineViewport';
 import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
@@ -296,21 +297,20 @@ export const Timeline: React.FC<TimelineProps> = ({
       const width = canvas.width;
       const height = canvas.height;
       ctx.clearRect(0, 0, width, height);
-      // The canvas is positioned at scrollLeft inside the full-width lane. Translate
-      // timeline-space drawing into this viewport-sized canvas.
+      // Draw exclusively in viewport-local coordinates. The canvas itself is positioned
+      // at scrollLeft inside the lane, so timeline x values are offset once here and nowhere else.
       ctx.save();
-      ctx.translate(-scrollLeft, 0);
 
-      // Background lane color, in timeline coordinates.
+      // Background and centerline use the same viewport-local coordinate system as clips.
       ctx.fillStyle = trackIndex % 2 === 0 ? '#0B0B10' : '#0E0E14';
-      ctx.fillRect(scrollLeft, 0, width, height);
+      ctx.fillRect(0, 0, width, height);
 
       // Subtle horizontal centerline
       ctx.strokeStyle = '#181822';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(scrollLeft, height / 2 + 0.5);
-      ctx.lineTo(scrollLeft + width, height / 2 + 0.5);
+      ctx.moveTo(0, height / 2 + 0.5);
+      ctx.lineTo(width, height / 2 + 0.5);
       ctx.stroke();
 
       try {
@@ -332,10 +332,11 @@ export const Timeline: React.FC<TimelineProps> = ({
             }
           }
 
-          const renderX = Math.round(renderStart * pixelsPerSecond);
+          const renderX = Math.round(renderStart * pixelsPerSecond) - scrollLeft;
           const renderW = Math.max(4, Math.round(renderDuration * pixelsPerSecond));
           const clipY = 4;
           const clipH = height - 8;
+          const visiblePixels = getVisibleClipPixelRange(renderX, renderW, width);
 
           // Clip Background Pill
           ctx.save();
@@ -359,8 +360,8 @@ export const Timeline: React.FC<TimelineProps> = ({
             const asset = audioEngine.getAsset(clip.assetId);
             const samplesPerPixel = Math.max(1, (asset?.sampleRate || 48000) / pixelsPerSecond);
             const clipSampleRate = asset?.sampleRate || 48000;
-            const visStartPx = Math.max(0, Math.floor(scrollLeft - renderX));
-            const visEndPx = Math.min(renderW, Math.ceil(scrollLeft + timelineWidth - renderX));
+            const visStartPx = visiblePixels.startPx;
+            const visEndPx = visiblePixels.endPx;
             const visStartSample = ((clip.offsetSeconds || 0) + (visStartPx / pixelsPerSecond)) * clipSampleRate;
             const visEndSample = ((clip.offsetSeconds || 0) + (visEndPx / pixelsPerSecond)) * clipSampleRate;
             const peaks = asset?.buffer
@@ -384,8 +385,8 @@ export const Timeline: React.FC<TimelineProps> = ({
               ctx.lineWidth = 1;
               ctx.beginPath();
 
-              const startPx = Math.max(0, Math.floor(scrollLeft - renderX));
-              const endPx = Math.min(renderW, Math.ceil(scrollLeft + timelineWidth - renderX));
+              const startPx = visiblePixels.startPx;
+              const endPx = visiblePixels.endPx;
               const step = peaks.samplesPerPixel;
               const firstBucket = peaks.firstBucket || 0;
               const samplesPerPx = sampleRate / pixelsPerSecond;

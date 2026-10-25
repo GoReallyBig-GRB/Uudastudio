@@ -11,7 +11,48 @@ describe('timeline zoom anchoring', () => {
       nextZoom: 4,
       maxScrollLeft: 5000,
     });
-    expect(result).toBe(2560);
+    expect(result).toBe(2680);
+  });
+
+  it('preserves the same time at the center of the usable timeline viewport', () => {
+    const viewportWidth = 1100;
+    const headerWidth = 272;
+    const scrollLeft = 1800;
+    const previousZoom = 3;
+    const nextZoom = 7;
+    const usableWidth = viewportWidth - headerWidth;
+    const beforeCenterTime = (scrollLeft + usableWidth / 2) / previousZoom;
+    const nextScrollLeft = calculateZoomScrollLeft({
+      scrollLeft,
+      viewportWidth,
+      headerWidth,
+      previousZoom,
+      nextZoom,
+      maxScrollLeft: 10000,
+    });
+    const afterCenterTime = (nextScrollLeft + usableWidth / 2) / nextZoom;
+    expect(afterCenterTime).toBeCloseTo(beforeCenterTime, 10);
+  });
+
+  it('accounts for the sticky controller width when preserving the zoom anchor', () => {
+    const narrowHeader = calculateZoomScrollLeft({
+      scrollLeft: 900,
+      viewportWidth: 1000,
+      headerWidth: 32,
+      previousZoom: 2,
+      nextZoom: 4,
+      maxScrollLeft: 5000,
+    });
+    const wideHeader = calculateZoomScrollLeft({
+      scrollLeft: 900,
+      viewportWidth: 1000,
+      headerWidth: 272,
+      previousZoom: 2,
+      nextZoom: 4,
+      maxScrollLeft: 5000,
+    });
+    expect(narrowHeader).toBe(2284);
+    expect(wideHeader).toBe(2164);
   });
 
   it('clamps zoom-out offsets to the browser scroll range', () => {

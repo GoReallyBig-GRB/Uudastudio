@@ -6,6 +6,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatTimecode } from '../utils/formatters';
+import { getRulerTickConfig } from './timelineRulerScale';
 
 interface TimelineRulerProps {
   pixelsPerSecond: number;
@@ -32,29 +33,9 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   const isScrubbingRef = useRef<boolean>(false);
   const rulerViewportWidth = Math.max(100, timelineWidth);
 
-  // Determine tick spacing based on zoom level (pixelsPerSecond)
-  let majorStepSec = 1;
-  let minorTicks = 5;
-
-  if (pixelsPerSecond >= 500) {
-    majorStepSec = 0.1;
-    minorTicks = 5;
-  } else if (pixelsPerSecond >= 200) {
-    majorStepSec = 0.5;
-    minorTicks = 5;
-  } else if (pixelsPerSecond >= 80) {
-    majorStepSec = 1;
-    minorTicks = 5;
-  } else if (pixelsPerSecond >= 30) {
-    majorStepSec = 5;
-    minorTicks = 5;
-  } else if (pixelsPerSecond >= 10) {
-    majorStepSec = 10;
-    minorTicks = 5;
-  } else {
-    majorStepSec = 30;
-    minorTicks = 6;
-  }
+  // One adaptive scale keeps labels readable from long tracks to sample-level zoom.
+  const { majorStepSeconds: majorStepSec, minorDivisions: minorTicks } =
+    getRulerTickConfig(pixelsPerSecond);
 
   // Draw ruler canvas
   useEffect(() => {
@@ -84,13 +65,14 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     const startTime = Math.max(0, scrollLeft / pixelsPerSecond);
     const endTime = startTime + width / pixelsPerSecond;
 
-    const firstMajor = Math.floor(startTime / majorStepSec) * majorStepSec;
-    const lastMajor = Math.ceil(endTime / majorStepSec) * majorStepSec;
+    const firstMajorIndex = Math.floor(startTime / majorStepSec);
+    const lastMajorIndex = Math.ceil(endTime / majorStepSec);
 
     ctx.font = '10px "JetBrains Mono", monospace';
     ctx.textBaseline = 'top';
 
-    for (let t = firstMajor; t <= lastMajor; t += majorStepSec) {
+    for (let tickIndex = firstMajorIndex; tickIndex <= lastMajorIndex; tickIndex++) {
+      const t = Number((tickIndex * majorStepSec).toPrecision(12));
       if (t < 0) continue;
       const x = Math.round(t * pixelsPerSecond - scrollLeft);
 
@@ -105,7 +87,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       // Timestamp label (crisp text with subtle cyan tint for whole 10s intervals)
       const isTenSec = Math.round(t) % 10 === 0 && t > 0;
       ctx.fillStyle = isTenSec ? '#38bdf8' : '#a1a1aa';
-      const label = formatTimecode(t).slice(3); // e.g. "01.000" or "10.000"
+      const label = formatTimecode(t); // Include minutes so long tracks remain unambiguous
       ctx.fillText(label, x + 4, 3);
 
       // Minor ticks
