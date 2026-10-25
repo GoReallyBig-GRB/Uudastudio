@@ -47,7 +47,7 @@ import { EffectsModal } from './components/EffectsModal';
 import { NewProjectModal } from './components/NewProjectModal';
 import { ResetSessionModal } from './components/ResetSessionModal';
 import { ToastProvider, useToast } from './components/Toast';
-import { ChevronLeft, Eye, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, Eye, SlidersHorizontal, X, XCircle } from 'lucide-react';
 import { processCompression } from './audio/dsp/compressor';
 import { processBasicDenoise } from './audio/dsp/denoiser';
 import { processPitchShift, processTimeStretch } from './audio/dsp/wsola';
@@ -140,7 +140,11 @@ const MainStudio: React.FC = () => {
   // is still being restored.
   const restoreInProgressRef = useRef<boolean>(true);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [trackImportProgress, setTrackImportProgress] = useState<{ progress: number } | null>(null);
+  const [trackImportProgress, setTrackImportProgress] = useState<{ progress: number; fileName: string } | null>(null);
+  const [isTrackImportIndicatorDismissed, setIsTrackImportIndicatorDismissed] = useState<boolean>(false);
+  const isTrackImportIndicatorDismissedRef = useRef<boolean>(false);
+  const trackImportProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const importCancelledRef = useRef<boolean>(false);
   const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
   // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
   // cadence; committing every tick rerenders the entire studio tree and its expensive timeline.
@@ -1078,17 +1082,22 @@ const MainStudio: React.FC = () => {
   const handleImportFiles = async (files: FileList) => {
     if (files.length === 0) return;
 
+    importCancelledRef.current = false;
+    isTrackImportIndicatorDismissedRef.current = false;
+    setIsTrackImportIndicatorDismissed(false);
     const progressPerFile = 100 / files.length;
     for (let i = 0; i < files.length; i++) {
+      if (importCancelledRef.current) break;
       const file = files[i];
       const fileProgressStart = i * progressPerFile;
       const fileProgressEnd = (i + 1) * progressPerFile;
-      setTrackImportProgress({ progress: fileProgressStart });
-      const progressTimer = setInterval(() => {
+      setTrackImportProgress({ progress: fileProgressStart, fileName: file.name });
+      const progressTimer = isTrackImportIndicatorDismissedRef.current ? null : setInterval(() => {
         setTrackImportProgress((current) => current
-          ? { progress: Math.min(fileProgressEnd - progressPerFile * 0.12, current.progress + Math.max(0.15, progressPerFile * 0.018)) }
+          ? { ...current, progress: Math.min(fileProgressEnd - progressPerFile * 0.12, current.progress + Math.max(0.15, progressPerFile * 0.018)) }
           : current);
       }, 180);
+      trackImportProgressTimerRef.current = progressTimer;
       const decodeToastId = addToast({
         type: 'info',
         title: 'Decoding Audio...',
@@ -1100,6 +1109,12 @@ const MainStudio: React.FC = () => {
 
       try {
         const audioBuffer = await audioEngine.decodeAudioFile(file);
+        // Audio decoding is not abortable through the current engine API. If cancelled meanwhile,
+        // discard the decoded buffer and do not add this file or continue with the batch.
+        if (importCancelledRef.current) {
+          removeToast(decodeToastId);
+          break;
+        }
         const assetId = `asset-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
         const asset: Asset = {
           id: assetId,
@@ -1146,7 +1161,12 @@ const MainStudio: React.FC = () => {
         trackAdded = true;
         removeToast(decodeToastId);
 
-        setTrackImportProgress({ progress: fileProgressStart + progressPerFile * 0.78 });
+        // The upload indicator represents getting the track onto the timeline, not disk persistence.
+        // Hide it immediately; IndexedDB saving continues independently below.
+        if (progressTimer) clearInterval(progressTimer);
+        if (trackImportProgressTimerRef.current === progressTimer) trackImportProgressTimerRef.current = null;
+        setTrackImportProgress(null);
+
         persistenceToastId = addToast({
           type: 'info',
           title: 'Saving Local Audio...',
@@ -1177,8 +1197,9 @@ const MainStudio: React.FC = () => {
             : `${file.name}: ${err instanceof Error ? err.message : 'Unsupported or corrupted audio format.'}`,
         });
       } finally {
-        clearInterval(progressTimer);
-        setTrackImportProgress(i === files.length - 1 ? null : { progress: fileProgressEnd });
+        if (progressTimer) clearInterval(progressTimer);
+        if (trackImportProgressTimerRef.current === progressTimer) trackImportProgressTimerRef.current = null;
+        setTrackImportProgress(null);
         removeToast(decodeToastId);
         if (persistenceToastId) removeToast(persistenceToastId);
       }
@@ -2496,22 +2517,58 @@ const MainStudio: React.FC = () => {
 
         {/* Center Workspace: Either Multi-Track Waveform Timeline OR Dedicated Editing & Mixing Desk */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-[#0A0A0C]">
-      {trackImportProgress && (
+      {trackImportProgress && !isTrackImportIndicatorDismissed && (
         <div
           role="status"
           aria-live="polite"
-          aria-label="Uploading..."
-          className="pointer-events-none absolute left-1/2 top-1/2 z-30 w-72 max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2"
+          aria-label={`Uploading ${trackImportProgress.fileName}`}
+          className="pointer-events-none absolute bottom-8 left-1/2 z-30 w-80 max-w-[calc(100%-2rem)] -translate-x-1/2"
         >
-          <div className="rounded-xl border border-white/[0.08] bg-[#111116]/95 px-5 py-4 shadow-[0_12px_48px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+          <div className="relative rounded-xl border border-white/[0.08] bg-[#111116]/95 px-5 pb-4 pt-5 shadow-[0_12px_48px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+            <button
+              type="button"
+              aria-label="Dismiss upload indicator"
+              title="Hide indicator; upload continues"
+              onClick={() => {
+                isTrackImportIndicatorDismissedRef.current = true;
+                setIsTrackImportIndicatorDismissed(true);
+                if (trackImportProgressTimerRef.current) {
+                  clearInterval(trackImportProgressTimerRef.current);
+                  trackImportProgressTimerRef.current = null;
+                }
+              }}
+              className="pointer-events-auto absolute right-2 top-2 rounded p-1 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+            <div className="mb-2 truncate pr-5 text-xs font-medium text-zinc-200" title={trackImportProgress.fileName}>
+              {trackImportProgress.fileName}
+            </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800 ring-1 ring-white/[0.06]">
               <div
                 className="track-import-progress-fill h-full rounded-full bg-emerald-400 shadow-[0_0_14px_rgba(52,211,153,0.38)]"
                 style={{ width: `${Math.max(0, Math.min(100, trackImportProgress.progress))}%` }}
               />
             </div>
-            <div className="mt-3 text-center text-[11px] font-medium tracking-[0.08em] text-zinc-300">
-              Uploading...
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="text-[11px] font-medium tracking-[0.08em] text-zinc-300">
+                Uploading...
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  importCancelledRef.current = true;
+                  if (trackImportProgressTimerRef.current) {
+                    clearInterval(trackImportProgressTimerRef.current);
+                    trackImportProgressTimerRef.current = null;
+                  }
+                  setTrackImportProgress(null);
+                }}
+                className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-red-400/20 px-2 py-1 text-[10px] font-semibold text-red-300 transition-colors hover:border-red-400/40 hover:bg-red-400/10 hover:text-red-200"
+              >
+                <XCircle className="h-3 w-3" />
+                Cancel upload
+              </button>
             </div>
           </div>
         </div>
