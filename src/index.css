@@ -35,3 +35,19 @@ input[type="range"] {
   font-family: 'JetBrains Mono', monospace;
   font-variant-numeric: tabular-nums;
 }
+
+/* Slim, indeterminate tube shown while an audio track is decoding or saving. */
+@keyframes track-import-progress-run {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(360%); }
+}
+
+.track-import-progress-fill {
+  animation: track-import-progress-run 1.15s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track-import-progress-fill {
+    animation-duration: 2.4s;
+  }
+}
