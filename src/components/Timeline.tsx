@@ -126,6 +126,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   const laneScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidth, setTimelineWidth] = useState<number>(1200);
   const [scrollLeft, setScrollLeft] = useState<number>(0);
+  const [waveformVersion, setWaveformVersion] = useState<number>(0);
+  useEffect(() => waveformCache.subscribe(() => setWaveformVersion((v) => v + 1)), []);
   const [scrollTop, setScrollTop] = useState<number>(0);
   const autoCenterPendingRef = useRef<boolean>(false);
   const autoCenterTargetRef = useRef<number | null>(null);
@@ -589,7 +591,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         ctx.restore();
       }
     },
-    [project.tracks, selectedClipIds, draggingClips, pixelsPerSecond, scrollLeft, timelineWidth]
+    [project.tracks, selectedClipIds, draggingClips, pixelsPerSecond, scrollLeft, timelineWidth, waveformVersion]
   );
 
   // Mouse hover over clip edges to show col-resize cursor
