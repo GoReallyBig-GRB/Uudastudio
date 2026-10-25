@@ -85,7 +85,7 @@ class WaveformCache {
     const bucketsPerSlice = Math.max(1, Math.floor(BASE_BUILD_FRAMES_PER_SLICE / step));
     let bucket = 0;
     const slice = () => {
-      if (token.cancelled) { this.building.delete(assetId); return; }
+      if (token.cancelled) { if (this.building.get(assetId) === token) this.building.delete(assetId); return; }
       const end = Math.min(numBuckets, bucket + bucketsPerSlice);
       for (; bucket < end; bucket++) {
         const s = bucket * step;
@@ -103,7 +103,7 @@ class WaveformCache {
         maxs[bucket] = Number.isFinite(max) ? max : 0;
       }
       if (bucket < numBuckets) { setTimeout(slice, 0); return; }
-      this.building.delete(assetId);
+      if (this.building.get(assetId) === token) this.building.delete(assetId);
       this.insertLevel(`${assetId}:${step}`, { mins, maxs, samplesPerPixel: step });
       this.listeners.forEach((l) => l());
     };
