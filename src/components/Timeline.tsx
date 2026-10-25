@@ -11,6 +11,7 @@
 
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { calculateZoomScrollLeft } from './timelineZoom';
+import { getVisibleClipPixelRange } from './timelineViewport';
 import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
@@ -335,6 +336,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           const renderW = Math.max(4, Math.round(renderDuration * pixelsPerSecond));
           const clipY = 4;
           const clipH = height - 8;
+          const visiblePixels = getVisibleClipPixelRange(renderX, renderW, width);
 
           // Clip Background Pill
           ctx.save();
@@ -358,8 +360,8 @@ export const Timeline: React.FC<TimelineProps> = ({
             const asset = audioEngine.getAsset(clip.assetId);
             const samplesPerPixel = Math.max(1, (asset?.sampleRate || 48000) / pixelsPerSecond);
             const clipSampleRate = asset?.sampleRate || 48000;
-            const visStartPx = Math.max(0, Math.floor(-renderX));
-            const visEndPx = Math.min(renderW, Math.ceil(width - renderX));
+            const visStartPx = visiblePixels.startPx;
+            const visEndPx = visiblePixels.endPx;
             const visStartSample = ((clip.offsetSeconds || 0) + (visStartPx / pixelsPerSecond)) * clipSampleRate;
             const visEndSample = ((clip.offsetSeconds || 0) + (visEndPx / pixelsPerSecond)) * clipSampleRate;
             const peaks = asset?.buffer
@@ -383,8 +385,8 @@ export const Timeline: React.FC<TimelineProps> = ({
               ctx.lineWidth = 1;
               ctx.beginPath();
 
-              const startPx = Math.max(0, Math.floor(-renderX));
-              const endPx = Math.min(renderW, Math.ceil(width - renderX));
+              const startPx = visiblePixels.startPx;
+              const endPx = visiblePixels.endPx;
               const step = peaks.samplesPerPixel;
               const firstBucket = peaks.firstBucket || 0;
               const samplesPerPx = sampleRate / pixelsPerSecond;
