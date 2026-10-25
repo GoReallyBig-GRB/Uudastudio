@@ -42,5 +42,5 @@ export function calculateMinimumTimelineZoom(
   const width = Math.max(1, finite(usableWidth, 1));
   const duration = Math.max(0, finite(mixDurationSeconds, 0));
   const margin = Math.max(0, finite(rightMarginSeconds, RIGHT_MARGIN_SECONDS));
-  return Math.max(MIN_PIXELS_PER_SECOND, width / Math.max(1, duration + margin));
+  return Math.min(1000, Math.max(MIN_PIXELS_PER_SECOND, width / Math.max(1, duration + margin)));
 }
