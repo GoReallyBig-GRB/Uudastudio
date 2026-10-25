@@ -127,6 +127,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   const [timelineWidth, setTimelineWidth] = useState<number>(1200);
   const [scrollLeft, setScrollLeft] = useState<number>(0);
   const [scrollTop, setScrollTop] = useState<number>(0);
+  const autoCenterPendingRef = useRef<boolean>(false);
 
   // Local controller collapse state if not driven by parent
   const [localControlsCollapsed, setLocalControlsCollapsed] = useState<boolean>(false);
@@ -241,18 +242,42 @@ export const Timeline: React.FC<TimelineProps> = ({
     setScrollTop(e.currentTarget.scrollTop);
   };
 
-  // Keep the playhead in view during playback without forcing continuous scrolling.
+  // Recenter the viewport smoothly when playback reaches either visible edge.
+  // The audio playhead keeps advancing; only the viewport scrolls around it.
   useEffect(() => {
-    if (!audioEngine.getIsPlaying()) return;
     const viewport = laneScrollContainerRef.current;
     if (!viewport) return;
-    const playheadX = currentHeaderWidth + playheadSeconds * pixelsPerSecond;
-    const viewportRight = viewport.scrollLeft + viewport.clientWidth;
-    const rightSafetyMargin = 64;
-    if (playheadX > viewportRight - rightSafetyMargin) {
-      viewport.scrollLeft = Math.max(0, playheadX - viewport.clientWidth + rightSafetyMargin * 2);
+    if (!audioEngine.getIsPlaying()) {
+      autoCenterPendingRef.current = false;
+      return;
     }
-  }, [playheadSeconds, pixelsPerSecond, currentHeaderWidth]);
+
+    const playheadX = currentHeaderWidth + playheadSeconds * pixelsPerSecond;
+    const playheadViewportX = playheadX - viewport.scrollLeft;
+    const edgeMargin = 72;
+    const centerBandStart = viewport.clientWidth * 0.35;
+    const centerBandEnd = viewport.clientWidth * 0.65;
+
+    // Do not issue repeated smooth-scroll requests while a recenter is underway.
+    if (autoCenterPendingRef.current) {
+      if (playheadViewportX >= centerBandStart && playheadViewportX <= centerBandEnd) {
+        autoCenterPendingRef.current = false;
+      }
+      return;
+    }
+
+    if (playheadViewportX <= edgeMargin || playheadViewportX >= viewport.clientWidth - edgeMargin) {
+      const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      const targetScrollLeft = Math.min(
+        maxScrollLeft,
+        Math.max(0, playheadX - viewport.clientWidth / 2),
+      );
+      if (Math.abs(targetScrollLeft - viewport.scrollLeft) > 1) {
+        autoCenterPendingRef.current = true;
+        viewport.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
+      }
+    }
+  }, [playheadSeconds, pixelsPerSecond, currentHeaderWidth, scrollLeft]);
 
   // Keyboard navigation & Shortcuts (S=split, Ctrl+C=copy, etc.)
   useEffect(() => {
@@ -990,6 +1015,17 @@ export const Timeline: React.FC<TimelineProps> = ({
         onToggleCollapseControls={handleToggleControls}
       />
 
+      {/* One continuous playhead line across the ruler and all track rows; no arrowhead. */}
+      {currentHeaderWidth + playheadSeconds * pixelsPerSecond - scrollLeft >= currentHeaderWidth && (
+        <div
+          aria-hidden="true"
+          style={{
+            left: `${currentHeaderWidth + playheadSeconds * pixelsPerSecond - scrollLeft}px`,
+          }}
+          className="absolute top-0 bottom-0 w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF] z-20 pointer-events-none transition-[left] duration-75 linear"
+        />
+      )}
+
       {/* Main Track Rows Scroll Container */}
       <div
         ref={laneScrollContainerRef}
@@ -1017,15 +1053,6 @@ export const Timeline: React.FC<TimelineProps> = ({
             style={{ width: `${currentHeaderWidth + lanePixelWidth}px` }}
             className="flex flex-col min-w-full relative"
           >
-            {/* Playhead vertical line across all track rows */}
-            <div
-              style={{
-                left: `${currentHeaderWidth + playheadSeconds * pixelsPerSecond}px`,
-                height: `${project.tracks.length * ROW_HEIGHT}px`,
-              }}
-              className="absolute top-0 w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF] z-10 pointer-events-none transition-[left] duration-100 linear"
-            />
-
             {/* Marquee Selection Rectangle Box */}
             {marquee && (
               <div
