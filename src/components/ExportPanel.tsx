@@ -6,9 +6,9 @@ import { encodeProjectFile } from '../storage/projectFile';
 import { audioEngine } from '../audio/engine';
 
 type ExportFormat = 'wav' | 'mp3' | 'uuda';
-type Mp3Bitrate = 96 | 128 | 160 | 192 | 224 | 256 | 320;
+type Mp3Bitrate = 128 | 192 | 320;
 
-const MP3_BITRATES: Mp3Bitrate[] = [96, 128, 160, 192, 224, 256, 320];
+const MP3_BITRATES: Mp3Bitrate[] = [128, 192, 320];
 
 interface ExportPanelProps {
   project: Project;
