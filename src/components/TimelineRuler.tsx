@@ -105,32 +105,6 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       }
     }
 
-    // Playhead marker on the ruler
-    const playheadX = playheadSeconds * pixelsPerSecond - scrollLeft;
-    if (playheadX >= -10 && playheadX <= width + 10) {
-      // Glow
-      ctx.shadowColor = '#00F0FF';
-      ctx.shadowBlur = 6;
-      ctx.fillStyle = '#00F0FF';
-
-      // Triangle head
-      ctx.beginPath();
-      ctx.moveTo(playheadX - 6, 0);
-      ctx.lineTo(playheadX + 6, 0);
-      ctx.lineTo(playheadX, 10);
-      ctx.closePath();
-      ctx.fill();
-
-      // Vertical line
-      ctx.strokeStyle = '#00F0FF';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(playheadX, 10);
-      ctx.lineTo(playheadX, height);
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-    }
   }, [pixelsPerSecond, totalDurationSeconds, playheadSeconds, scrollLeft, rulerViewportWidth, majorStepSec, minorTicks, isControlsCollapsed]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
