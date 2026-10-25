@@ -128,6 +128,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   const [scrollLeft, setScrollLeft] = useState<number>(0);
   const [scrollTop, setScrollTop] = useState<number>(0);
   const autoCenterPendingRef = useRef<boolean>(false);
+  const autoCenterTargetRef = useRef<number | null>(null);
 
   // Local controller collapse state if not driven by parent
   const [localControlsCollapsed, setLocalControlsCollapsed] = useState<boolean>(false);
@@ -236,11 +237,36 @@ export const Timeline: React.FC<TimelineProps> = ({
     return () => observer.disconnect();
   }, [lanePixelWidth, onViewportWidthChange, currentHeaderWidth]);
 
-  // Synchronize horizontal & vertical scroll
+  // Synchronize horizontal & vertical scroll. Keep the auto-center lock until
+  // the smooth-scroll destination is reached, not merely until the playhead
+  // passes through the center band (which can happen before scrolling finishes).
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    setScrollLeft(e.currentTarget.scrollLeft);
+    const nextScrollLeft = e.currentTarget.scrollLeft;
+    setScrollLeft(nextScrollLeft);
     setScrollTop(e.currentTarget.scrollTop);
+
+    const targetScrollLeft = autoCenterTargetRef.current;
+    if (targetScrollLeft !== null && Math.abs(nextScrollLeft - targetScrollLeft) <= 2) {
+      autoCenterPendingRef.current = false;
+      autoCenterTargetRef.current = null;
+    }
   };
+
+  // Release the auto-center lock when the browser finishes its smooth scroll.
+  // The scroll-position fallback in handleScroll also handles browsers/events that
+  // reach the target without dispatching scrollend.
+  useEffect(() => {
+    const viewport = laneScrollContainerRef.current;
+    if (!viewport) return;
+
+    const handleScrollEnd = () => {
+      autoCenterPendingRef.current = false;
+      autoCenterTargetRef.current = null;
+    };
+
+    viewport.addEventListener('scrollend', handleScrollEnd);
+    return () => viewport.removeEventListener('scrollend', handleScrollEnd);
+  }, []);
 
   // Recenter the viewport smoothly when playback reaches either visible edge.
   // The audio playhead keeps advancing; only the viewport scrolls around it.
@@ -249,22 +275,18 @@ export const Timeline: React.FC<TimelineProps> = ({
     if (!viewport) return;
     if (!audioEngine.getIsPlaying()) {
       autoCenterPendingRef.current = false;
+      autoCenterTargetRef.current = null;
       return;
     }
 
     const playheadX = currentHeaderWidth + playheadSeconds * pixelsPerSecond;
     const playheadViewportX = playheadX - viewport.scrollLeft;
     const edgeMargin = 72;
-    const centerBandStart = viewport.clientWidth * 0.35;
-    const centerBandEnd = viewport.clientWidth * 0.65;
 
-    // Do not issue repeated smooth-scroll requests while a recenter is underway.
-    if (autoCenterPendingRef.current) {
-      if (playheadViewportX >= centerBandStart && playheadViewportX <= centerBandEnd) {
-        autoCenterPendingRef.current = false;
-      }
-      return;
-    }
+    // Keep the lock for the entire scroll animation. Releasing it as soon as the
+    // moving playhead enters the center band can interrupt the animation with a
+    // second scrollTo request, producing the brief jerks before the smooth roll-back.
+    if (autoCenterPendingRef.current) return;
 
     if (playheadViewportX <= edgeMargin || playheadViewportX >= viewport.clientWidth - edgeMargin) {
       const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
@@ -274,6 +296,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       );
       if (Math.abs(targetScrollLeft - viewport.scrollLeft) > 1) {
         autoCenterPendingRef.current = true;
+        autoCenterTargetRef.current = targetScrollLeft;
         viewport.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
       }
     }
