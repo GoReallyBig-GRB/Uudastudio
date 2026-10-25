@@ -67,6 +67,8 @@ import {
 interface MasterExportPanelProps {
   project: Project;
   onClose?: () => void;
+  onOpenExport?: () => void;
+  onMasteredBufferReady?: (buffer: AudioBuffer, sourceProject: Project) => void;
   isSidebarMode?: boolean;
   onUpdateTrack?: (trackId: string, updates: Partial<Track>) => void;
   onAddTrack?: () => void;
@@ -77,6 +79,8 @@ interface MasterExportPanelProps {
 export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
   project,
   onClose,
+  onOpenExport,
+  onMasteredBufferReady,
   isSidebarMode = true,
   onUpdateTrack,
   onAddTrack,
@@ -389,6 +393,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
       );
 
       setMeasureResult(result);
+      onMasteredBufferReady?.(result.masteredBuffer, project);
       setFullMixStats(result.postStats);
       setActiveTab('mastering');
     } catch (err) {
@@ -509,7 +514,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
       });
 
       setExportProgress({ stage: 'complete', percent: 100, message: 'Export & verification complete!' });
-      setActiveTab('export');
+      onOpenExport?.();
     } catch (err) {
       console.error('Export error:', err);
       setErrorMessage(err instanceof Error ? err.message : 'Export failed.');
@@ -733,17 +738,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
           <span>Mastering Profiles</span>
         </button>
 
-        <button
-          onClick={() => setActiveTab('export')}
-          className={`flex items-center gap-1.5 py-2 px-3 border-b-2 transition-all cursor-pointer shrink-0 ${
-            activeTab === 'export'
-              ? 'border-indigo-400 text-indigo-300 bg-indigo-500/10'
-              : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Export File</span>
-        </button>
+
 
         <button
           onClick={() => setActiveTab('tests')}
@@ -1279,7 +1274,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
 
               <button
                 type="button"
-                onClick={() => setActiveTab('export')}
+                onClick={() => onOpenExport?.()}
                 className="py-2.5 px-3 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-[0_0_12px_rgba(16,185,129,0.25)] transition-all cursor-pointer"
               >
                 <Download className="w-4 h-4" />
@@ -1526,7 +1521,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('export')}
+                    onClick={() => onOpenExport?.()}
                     className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer"
                   >
                     <span>Proceed to Export</span>
@@ -1538,209 +1533,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
           </div>
         )}
 
-        {/* =========================================================================
-            TAB 3: EXPORT (WAV 16/24-bit, MP3 with lamejs, Range, Real Progress)
-           ========================================================================= */}
-        {activeTab === 'export' && (
-          <div className="space-y-4">
-            {/* Format Selection: WAV or MP3 */}
-            <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider block mb-1.5">
-                Output Format
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setExportFormat('wav')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
-                    exportFormat === 'wav'
-                      ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-[0_0_12px_rgba(0,240,255,0.2)]'
-                      : 'bg-[#15151c] border-zinc-800 text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  <div className="text-xs font-bold">Broadcast WAV</div>
-                  <div className="text-[9px] text-zinc-400 mt-0.5">Uncompressed RIFF PCM Audio</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setExportFormat('mp3')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
-                    exportFormat === 'mp3'
-                      ? 'bg-indigo-500/20 border-indigo-400 text-white shadow-[0_0_12px_rgba(99,102,241,0.2)]'
-                      : 'bg-[#15151c] border-zinc-800 text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  <div className="text-xs font-bold">MPEG Layer 3 (MP3)</div>
-                  <div className="text-[9px] text-zinc-400 mt-0.5">lamejs v1.2.1 • LGPL-3.0 Encoder</div>
-                </button>
-              </div>
-            </div>
-
-            {/* Sub-Format Settings */}
-            <div className="p-3 bg-[#15151c] border border-zinc-800 rounded-lg space-y-2.5 text-xs">
-              {exportFormat === 'wav' ? (
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider block mb-1.5">
-                    WAV Bit Depth
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setWavBitDepth(16)}
-                      className={`py-1.5 px-2 rounded font-mono text-center border text-xs cursor-pointer ${
-                        wavBitDepth === 16 ? 'bg-cyan-500 text-black font-bold border-cyan-400' : 'bg-black border-zinc-700 text-zinc-400'
-                      }`}
-                    >
-                      16-Bit Broadcast Standard
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setWavBitDepth(24)}
-                      className={`py-1.5 px-2 rounded font-mono text-center border text-xs cursor-pointer ${
-                        wavBitDepth === 24 ? 'bg-cyan-500 text-black font-bold border-cyan-400' : 'bg-black border-zinc-700 text-zinc-400'
-                      }`}
-                    >
-                      24-Bit Studio High-Res
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider block mb-1.5">
-                    MP3 Bitrate (lamejs encoder)
-                  </label>
-                  <div className="grid grid-cols-4 gap-1.5 font-mono text-center text-xs">
-                    {[128, 192, 256, 320].map((rate) => (
-                      <button
-                        key={rate}
-                        type="button"
-                        onClick={() => setMp3Bitrate(rate as 128 | 192 | 256 | 320)}
-                        className={`py-1.5 rounded border transition-colors cursor-pointer ${
-                          mp3Bitrate === rate ? 'bg-indigo-500 text-white font-bold border-indigo-400' : 'bg-black border-zinc-700 text-zinc-400'
-                        }`}
-                      >
-                        {rate}k
-                      </button>
-                    ))}
-                  </div>
-                  <div className="text-[9px] text-zinc-500 mt-1">
-                    Encoder: <strong>lamejs v1.2.1</strong> (JavaScript MP3 encoder under LGPL-3.0 license)
-                  </div>
-                </div>
-              )}
-
-              {/* Export Range */}
-              <div className="pt-2 border-t border-zinc-800">
-                <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider block mb-1.5">
-                  Export Range
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setExportRange('whole')}
-                    className={`py-1.5 px-2 rounded text-center border text-xs cursor-pointer ${
-                      exportRange === 'whole' ? 'bg-zinc-800 text-white font-semibold border-cyan-500' : 'bg-black border-zinc-800 text-zinc-500'
-                    }`}
-                  >
-                    Whole Project Timeline
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setExportRange('selection')}
-                    className={`py-1.5 px-2 rounded text-center border text-xs cursor-pointer ${
-                      exportRange === 'selection' ? 'bg-zinc-800 text-white font-semibold border-cyan-500' : 'bg-black border-zinc-800 text-zinc-500'
-                    }`}
-                  >
-                    Active Selection Only
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Real Progress Bar */}
-            {isExporting && exportProgress && (
-              <div className="p-3 bg-[#0a0a0e] border border-cyan-500/50 rounded-lg space-y-1.5">
-                <div className="flex justify-between text-xs text-zinc-300 font-mono">
-                  <span>{exportProgress.message}</span>
-                  <span className="text-cyan-400 font-bold">{exportProgress.percent}%</span>
-                </div>
-                <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
-                  <div
-                    style={{ width: `${exportProgress.percent}%` }}
-                    className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-150"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Export Trigger Button */}
-            <button
-              type="button"
-              disabled={isExporting || project.tracks.length === 0}
-              onClick={handleExport}
-              className="w-full py-3.5 rounded-lg bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.35)] transition-all cursor-pointer disabled:opacity-50"
-            >
-              {isExporting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Processing Mastered Export...</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  <span>
-                    Master & Export {exportFormat.toUpperCase()} ({targetLufs} LUFS)
-                  </span>
-                </>
-              )}
-            </button>
-
-            {/* Final Export Summary Card */}
-            {exportSummary && (
-              <div className="p-3.5 bg-[#0a0a0e] border border-emerald-500/60 rounded-lg space-y-2.5 text-xs font-mono">
-                <div className="flex items-center justify-between pb-1.5 border-b border-zinc-800">
-                  <span className="font-bold text-emerald-300 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>Export Verified & Downloaded</span>
-                  </span>
-                  <span className="text-[10px] text-zinc-400">{exportSummary.fileSizeFormatted}</span>
-                </div>
-
-                <div className="space-y-1 text-zinc-300 text-[11px]">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">File:</span>
-                    <span className="font-bold text-zinc-100">{exportSummary.filename}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Format & Encoder:</span>
-                    <span>{exportSummary.format.toUpperCase()} • {exportSummary.bitDepthOrBitrate} ({exportSummary.libraryUsed})</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Duration:</span>
-                    <span>{exportSummary.durationSeconds}s</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Readback Integrated LUFS:</span>
-                    <span className="font-bold text-emerald-400">{exportSummary.integratedLUFS} LUFS (Target {exportSummary.verifiedTargetLufs})</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Readback True Peak:</span>
-                    <span className="font-bold text-amber-400">{exportSummary.truePeakDbTP} dBTP (Ceiling {ceilingDbTP})</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">License:</span>
-                    <span className="text-zinc-400">{exportSummary.license}</span>
-                  </div>
-                  <div className="flex justify-between pt-1 border-t border-zinc-800">
-                    <span className="text-zinc-500">Compliance:</span>
-                    <span className="text-emerald-400 font-bold">PASSED (within 1 LU of target)</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Export is handled by the dedicated ExportPanel, not the mastering console. */}
 
         {/* =========================================================================
             TAB 4: ACCEPTANCE TESTS RUNNER
