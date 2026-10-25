@@ -9,6 +9,7 @@ type ExportFormat = 'wav' | 'mp3' | 'uuda';
 
 interface ExportPanelProps {
   project: Project;
+  masteredBuffer?: AudioBuffer;
   onClose?: () => void;
 }
 
@@ -17,7 +18,7 @@ function safeBaseName(title: string): string {
   return cleaned || 'Uuda Studio Export';
 }
 
-export const ExportPanel: React.FC<ExportPanelProps> = ({ project, onClose }) => {
+export const ExportPanel: React.FC<ExportPanelProps> = ({ project, masteredBuffer, onClose }) => {
   const [outputTitle, setOutputTitle] = useState(project.name || 'Uuda Studio Export');
   const [format, setFormat] = useState<ExportFormat>('wav');
   const [isExporting, setIsExporting] = useState(false);
@@ -32,7 +33,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, onClose }) =>
     const baseName = safeBaseName(outputTitle);
     setIsExporting(true);
     setStatus(null);
-    setProgress(format === 'uuda' ? 'Packaging project and referenced audio…' : 'Rendering the current mix…');
+    setProgress(format === 'uuda' ? 'Packaging project and referenced audio…' : masteredBuffer ? 'Preparing the reviewed master…' : 'Rendering the current mix…');
     try {
       if (format === 'uuda') {
         // The project package includes project metadata and the exact PCM samples for referenced assets.
@@ -45,7 +46,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, onClose }) =>
         return;
       }
 
-      const rendered = await renderProjectOffline(project, project.sampleRate || 48000, {
+      const rendered = masteredBuffer ?? await renderProjectOffline(project, project.sampleRate || 48000, {
         onProgress: (p) => setProgress(p.message),
       });
       let blob: Blob;
@@ -63,7 +64,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, onClose }) =>
       const size = blob.size >= 1024 * 1024
         ? `${(blob.size / (1024 * 1024)).toFixed(2)} MB`
         : `${Math.max(1, Math.round(blob.size / 1024))} KB`;
-      setStatus({ kind: 'success', message: `Exported ${filename} (${size}). The current mix was rendered without applying a second mastering pass.` });
+      setStatus({ kind: 'success', message: `Exported ${filename} (${size}). ${masteredBuffer ? 'Used the reviewed master from the mastering console; no second mastering pass was applied.' : 'Exported the current mix without an additional mastering pass. For the final mastered sound, run and review mastering first.'}` });
       setProgress(null);
     } catch (error) {
       setProgress(null);
@@ -103,7 +104,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, onClose }) =>
             placeholder="Enter output title"
             className="w-full rounded-lg border border-zinc-700 bg-[#09090d] px-3 py-2.5 text-sm outline-none focus:border-cyan-500"
           />
-          <p className="text-[10px] text-zinc-500">The title is used for the downloaded filename{format === 'uuda' ? ' and the saved project name' : ''}.</p>
+          <p className="text-[10px] text-zinc-500">The title is used for the downloaded filename{format === 'uuda' ? ' and the saved project name' : ''}. {masteredBuffer ? 'A reviewed master is ready for audio export.' : 'Audio export uses the current mix; it does not run mastering automatically.'}</p>
         </div>
 
         <div className="space-y-2">
