@@ -1146,7 +1146,11 @@ const MainStudio: React.FC = () => {
         trackAdded = true;
         removeToast(decodeToastId);
 
-        setTrackImportProgress({ progress: fileProgressStart + progressPerFile * 0.78 });
+        // The upload indicator represents getting the track onto the timeline, not disk persistence.
+        // Hide it immediately; IndexedDB saving continues independently below.
+        clearInterval(progressTimer);
+        setTrackImportProgress(null);
+
         persistenceToastId = addToast({
           type: 'info',
           title: 'Saving Local Audio...',
@@ -1178,7 +1182,7 @@ const MainStudio: React.FC = () => {
         });
       } finally {
         clearInterval(progressTimer);
-        setTrackImportProgress(i === files.length - 1 ? null : { progress: fileProgressEnd });
+        setTrackImportProgress(null);
         removeToast(decodeToastId);
         if (persistenceToastId) removeToast(persistenceToastId);
       }
@@ -2501,7 +2505,7 @@ const MainStudio: React.FC = () => {
           role="status"
           aria-live="polite"
           aria-label="Uploading..."
-          className="pointer-events-none absolute left-1/2 top-1/2 z-30 w-72 max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2"
+          className="pointer-events-none absolute bottom-8 left-1/2 z-30 w-72 max-w-[calc(100%-2rem)] -translate-x-1/2"
         >
           <div className="rounded-xl border border-white/[0.08] bg-[#111116]/95 px-5 py-4 shadow-[0_12px_48px_rgba(0,0,0,0.42)] backdrop-blur-xl">
             <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800 ring-1 ring-white/[0.06]">
