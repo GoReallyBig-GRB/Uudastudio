@@ -6,6 +6,9 @@ import { encodeProjectFile } from '../storage/projectFile';
 import { audioEngine } from '../audio/engine';
 
 type ExportFormat = 'wav' | 'mp3' | 'uuda';
+type Mp3Bitrate = 96 | 128 | 160 | 192 | 224 | 256 | 320;
+
+const MP3_BITRATES: Mp3Bitrate[] = [96, 128, 160, 192, 224, 256, 320];
 
 interface ExportPanelProps {
   project: Project;
@@ -21,6 +24,7 @@ function safeBaseName(title: string): string {
 export const ExportPanel: React.FC<ExportPanelProps> = ({ project, masteredBuffer, onClose }) => {
   const [outputTitle, setOutputTitle] = useState(project.name || 'Uuda Studio Export');
   const [format, setFormat] = useState<ExportFormat>('wav');
+  const [mp3Bitrate, setMp3Bitrate] = useState<Mp3Bitrate>(192);
   const [isExporting, setIsExporting] = useState(false);
   const [status, setStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
@@ -56,8 +60,8 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, masteredBuffe
         blob = await exportAudioBufferToWavAsync(rendered, 24);
         filename = `${baseName}.wav`;
       } else {
-        setProgress('Encoding 320 kbps MP3…');
-        blob = await exportAudioBufferToMp3(rendered, 320);
+        setProgress(`Encoding ${mp3Bitrate} kbps MP3…`);
+        blob = await exportAudioBufferToMp3(rendered, mp3Bitrate);
         filename = `${baseName}.mp3`;
       }
       triggerFileDownload(blob, filename);
@@ -76,7 +80,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, masteredBuffe
 
   const formats: Array<{ value: ExportFormat; title: string; detail: string }> = [
     { value: 'wav', title: '.wav', detail: '24-bit PCM audio' },
-    { value: 'mp3', title: '.mp3', detail: '320 kbps audio' },
+    { value: 'mp3', title: '.mp3', detail: `${mp3Bitrate} kbps audio` },
     { value: 'uuda', title: '.uuda', detail: 'Reopenable project + audio' },
   ];
 
@@ -120,6 +124,23 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, masteredBuffe
             ))}
           </div>
         </div>
+
+        {format === 'mp3' && (
+          <div className="space-y-1.5">
+            <label htmlFor="export-mp3-bitrate" className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400">MP3 bitrate</label>
+            <select
+              id="export-mp3-bitrate"
+              value={mp3Bitrate}
+              onChange={(event) => { setMp3Bitrate(Number(event.target.value) as Mp3Bitrate); setStatus(null); }}
+              className="w-full rounded-lg border border-zinc-700 bg-[#09090d] px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-cyan-500"
+            >
+              {MP3_BITRATES.map((bitrate) => (
+                <option key={bitrate} value={bitrate}>{bitrate} kbps{bitrate === 192 ? ' — Recommended balance' : bitrate === 320 ? ' — Highest quality / largest file' : ''}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-zinc-500">Lower bitrates create smaller files; higher bitrates generally preserve more audio detail.</p>
+          </div>
+        )}
 
         {format === 'uuda' && (
           <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-3 text-xs leading-relaxed text-zinc-300">
