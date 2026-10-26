@@ -198,20 +198,27 @@ async function decodeOnce(file, { group, skipMeta, maxBytes }) {
   // Read back: 100 evenly spaced 1 s windows + silence check
   if (handles.length && decodedFrames > 0 && !errorMsg && maxBytes === Infinity) {
     const sr = cfg.sampleRate, win = new Float32Array(sr);
-    let reads = 0, nonSilent = 0;
-    const silentAt = [];
     const totalSec = Math.floor(decodedFrames / sr);
+    const stats = handles.map(() => ({ silent: 0, seconds: [] }));
+    let bothSilent = 0, eitherHasSound = 0;
+    const bothSilentAt = [];
     const r0 = performance.now();
     for (let k = 0; k < 100; k++) {
       const sec = Math.min(totalSec - 1, Math.floor((k + 0.5) * totalSec / 100));
-      handles[0].read(new Uint8Array(win.buffer), { at: sec * sr * 4 });
-      reads++;
-      let m = 0; for (let i = 0; i < win.length; i++) { const a = Math.abs(win[i]); if (a > m) m = a; }
-      if (m > 0.0005) nonSilent++; else if (silentAt.length < 8) silentAt.push(sec);
+      let any = false;
+      handles.forEach((h, c) => {
+        h.read(new Uint8Array(win.buffer), { at: sec * sr * 4 });
+        let m = 0; for (let i = 0; i < win.length; i++) { const a = Math.abs(win[i]); if (a > m) m = a; }
+        if (m > 0.0005) any = true;
+        else { stats[c].silent++; if (stats[c].seconds.length < 12) stats[c].seconds.push(sec); }
+      });
+      if (any) eitherHasSound++; else { bothSilent++; if (bothSilentAt.length < 12) bothSilentAt.push(sec); }
     }
-    res.silentWindowSeconds = silentAt;
-    res.randomReadMsEach = +(((performance.now() - r0)) / reads).toFixed(2);
-    res.nonSilentWindowsOf100 = nonSilent;
+    res.randomReadMsEach = +((performance.now() - r0) / 200).toFixed(2);
+    res.windowsWithSoundInAnyChannelOf100 = eitherHasSound;
+    res.windowsSilentInBothChannels = bothSilent;
+    res.bothChannelsSilentAtSeconds = bothSilentAt;
+    res.perChannelSilentWindows = stats.map((x, c) => ({ channel: c === 0 ? 'left' : 'right', silentWindows: x.silent, atSeconds: x.seconds }));
   }
   try { decoder && decoder.state !== 'closed' && decoder.close(); } catch (e) {}
   handles.forEach((h) => { try { h.close(); } catch (e) {} });
