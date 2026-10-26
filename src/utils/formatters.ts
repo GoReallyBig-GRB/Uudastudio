@@ -35,13 +35,13 @@ export function trackEndSeconds(clips: ReadonlyArray<{ startSeconds: number; dur
   return end;
 }
 
-/** Short length for a quick glance: 45s, 3:07, 1:27:05. */
+/** Hours and minutes only, as short as possible: "1h 27m", "2h", "47m", "<1m". */
 export function formatTrackLength(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
-  const total = Math.round(seconds);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${m}:${String(s).padStart(2, '0')}`;
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  if (seconds < 60) return '<1m';
+  const totalMin = Math.round(seconds / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }

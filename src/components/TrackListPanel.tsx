@@ -159,7 +159,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                         <span className="text-amber-400 font-semibold">Empty</span>
                       ) : (
                         <span>
-                          {track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'} · {formatTrackLength(trackEndSeconds(track.clips))}
+                          {track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'}
                         </span>
                       )}
                       {track.muted && <span className="text-rose-400 font-semibold">Muted</span>}
@@ -167,6 +167,14 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Length of the track (end of its last clip), always visible */}
+                <span
+                  title="Track length"
+                  className="shrink-0 w-12 text-right text-[10px] font-mono tabular-nums text-zinc-400"
+                >
+                  {empty ? '' : formatTrackLength(trackEndSeconds(track.clips))}
+                </span>
 
                 {/* Row actions: always visible on touch, shown on hover or focus with a mouse */}
                 <div className="flex items-center gap-0.5 shrink-0 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
