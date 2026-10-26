@@ -6,10 +6,12 @@ describe('track length display', () => {
     expect(trackEndSeconds([])).toBe(0);
     expect(trackEndSeconds([{ startSeconds: 0, durationSeconds: 10 }, { startSeconds: 30, durationSeconds: 5 }])).toBe(35);
   });
-  it('formats for a quick glance', () => {
-    expect(formatTrackLength(0)).toBe('0:00');
-    expect(formatTrackLength(45)).toBe('0:45');
-    expect(formatTrackLength(187)).toBe('3:07');
-    expect(formatTrackLength(5225)).toBe('1:27:05');
+  it('shows hours and minutes only', () => {
+    expect(formatTrackLength(0)).toBe('');
+    expect(formatTrackLength(45)).toBe('<1m');
+    expect(formatTrackLength(187)).toBe('3m');
+    expect(formatTrackLength(47 * 60)).toBe('47m');
+    expect(formatTrackLength(5225)).toBe('1h 27m');
+    expect(formatTrackLength(7200)).toBe('2h');
   });
 });
