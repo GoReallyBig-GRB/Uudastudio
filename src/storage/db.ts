@@ -5,6 +5,7 @@
 
 import { Project, Asset, StoredAsset } from '../types';
 import { AudioEngine } from '../audio/engine';
+import { deleteStreamedAsset, listStreamedAssetIds, readStreamedMeta } from '../assets/streamedStore';
 
 const DB_NAME = 'xpro_audio_db';
 // Version 2 adds a `storedAt` index so cleanup can read ages and ids without loading any audio.
@@ -86,8 +87,22 @@ function openDB(): Promise<IDBDatabase> {
  * Serialize an AudioBuffer into raw ArrayBuffers for IndexedDB storage
  */
 export function serializeAsset(asset: Asset): StoredAsset {
-  const channels: Float32Array[] = [];
+  if (asset.source) {
+    // Long audio lives in file storage; the database keeps only a small pointer record.
+    return {
+      id: asset.id,
+      name: asset.name,
+      kind: asset.kind,
+      sampleRate: asset.sampleRate,
+      durationSeconds: asset.durationSeconds,
+      numberOfChannels: asset.numberOfChannels,
+      channels: [],
+      streamed: asset.source,
+    };
+  }
   const buffer = asset.buffer;
+  if (!buffer) throw new Error(`Asset "${asset.id}" has no audio data to save.`);
+  const channels: Float32Array[] = [];
   for (let c = 0; c < buffer.numberOfChannels; c++) {
     // IndexedDB structured-clones typed arrays on put; avoid an additional full-channel copy here.
     channels.push(buffer.getChannelData(c));
@@ -108,6 +123,17 @@ export function serializeAsset(asset: Asset): StoredAsset {
  * Recreate an AudioBuffer from stored ArrayBuffers
  */
 export function deserializeAsset(stored: StoredAsset, engine: AudioEngine): Asset | null {
+  if (stored.streamed) {
+    return {
+      id: stored.id,
+      name: stored.name,
+      kind: stored.kind,
+      source: stored.streamed,
+      sampleRate: stored.sampleRate,
+      durationSeconds: stored.durationSeconds,
+      numberOfChannels: stored.numberOfChannels,
+    };
+  }
   const ctx = engine.getContext();
   const sampleRate = stored.sampleRate || 48000;
   const length = Math.round(stored.durationSeconds * sampleRate);
@@ -156,7 +182,7 @@ export async function deleteAssetFromDB(assetId: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_ASSETS, 'readwrite');
     tx.objectStore(STORE_ASSETS).delete(assetId);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { void deleteStreamedAsset(assetId); resolve(); };
     tx.onerror = () => reject(tx.error);
   });
 }
@@ -189,7 +215,10 @@ export async function loadAssetFromDB(assetId: string, engine: AudioEngine): Pro
   });
   if (!stored) return null;
   try {
-    return deserializeAsset(stored, engine);
+    const asset = deserializeAsset(stored, engine);
+    // A pointer without its files (browser data cleared, import never finished) counts as a missing asset.
+    if (asset?.source && !(await readStreamedMeta(asset.source.storeId))) return null;
+    return asset;
   } catch {
     return null;
   }
@@ -424,6 +453,7 @@ function readAssetMeta(assetStore: IDBObjectStore, done: (meta: StoredAssetMeta[
 export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removedAssets: number }> {
   const db = await openDB();
   let removedAssets = 0;
+  let removedIds: string[] = [];
 
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction([STORE_PROJECT, STORE_ASSETS], 'readwrite');
@@ -444,6 +474,7 @@ export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removed
         for (const key of plan.expiredProjectKeys) projectStore.delete(key);
         for (const id of plan.orphanAssetIds) assetStore.delete(id);
         removedAssets = plan.orphanAssetIds.length;
+        removedIds = plan.orphanAssetIds;
       }, reject);
     };
     keysReq.onsuccess = () => { projectKeys = keysReq.result; proceed(); };
@@ -452,6 +483,8 @@ export async function cleanupOrphanedAssets(now = Date.now()): Promise<{ removed
     projectsReq.onerror = () => reject(projectsReq.error);
   });
 
+  // Free file-backed audio belonging to removed asset records (no-op for ordinary assets).
+  await Promise.all(removedIds.map((id) => deleteStreamedAsset(id)));
   return { removedAssets };
 }
 
@@ -461,7 +494,10 @@ export async function clearAllProjectData(): Promise<void> {
     const tx = db.transaction([STORE_PROJECT, STORE_ASSETS], 'readwrite');
     tx.objectStore(STORE_PROJECT).clear();
     tx.objectStore(STORE_ASSETS).clear();
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => {
+      void listStreamedAssetIds().then((ids) => Promise.all(ids.map((id) => deleteStreamedAsset(id)))).catch(() => undefined);
+      resolve();
+    };
     tx.onerror = () => reject(tx.error);
   });
 }

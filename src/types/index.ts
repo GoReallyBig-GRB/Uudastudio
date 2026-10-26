@@ -190,11 +190,21 @@ export interface Asset {
   id: string;
   name: string;
   kind: AssetKind;
-  buffer: AudioBuffer;
+  /** Fully decoded audio. Absent for long assets that live on disk (see `source`). */
+  buffer?: AudioBuffer;
+  /** Long audio kept in file-backed storage and streamed; no decoded copy in memory. */
+  source?: StreamedSource;
   sampleRate: number;
   durationSeconds: number;
   numberOfChannels: number;
   voiceMetadata?: VoiceMetadata;
+}
+
+/** Pointer to audio stored in browser file storage (OPFS) as planar float32 files plus a peak file. */
+export interface StreamedSource {
+  storeId: string;
+  frames: number;
+  peakBaseSamplesPerPixel: number;
 }
 
 export interface StoredAsset {
@@ -204,7 +214,9 @@ export interface StoredAsset {
   sampleRate: number;
   durationSeconds: number;
   numberOfChannels: number;
-  channels: Float32Array[]; // structured-cloned PCM channel data
+  channels: Float32Array[]; // structured-cloned PCM channel data (empty when `streamed` is set)
+  /** Set when the audio lives in file storage instead of in this record. */
+  streamed?: StreamedSource;
   voiceMetadata?: VoiceMetadata;
   /** IndexedDB persistence timestamp used for conservative orphan cleanup. */
   storedAt?: number;

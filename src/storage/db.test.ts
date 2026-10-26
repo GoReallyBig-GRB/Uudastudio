@@ -9,7 +9,11 @@ import {
   planCleanup,
   projectStorageKeyForSession,
   RESTORE_PENDING_MAX_AGE_MS,
+  deserializeAsset,
+  serializeAsset,
 } from './db';
+import type { AudioEngine } from '../audio/engine';
+import type { Asset } from '../types';
 
 describe('per-tab project autosave lifecycle', () => {
   it('uses a distinct IndexedDB key for each tab session', () => {
@@ -121,5 +125,37 @@ describe('restore safety brake', () => {
     expect(didPreviousRestoreFail(now, store, 'page-2')).toBe(false);
     markRestorePending(now - RESTORE_PENDING_MAX_AGE_MS - 1, store, 'page-1');
     expect(didPreviousRestoreFail(now, store, 'page-2')).toBe(false);
+  });
+});
+
+describe('streamed (file-backed) assets', () => {
+  const streamed: Asset = {
+    id: 'asset-long',
+    name: 'long.mp3',
+    kind: 'import',
+    source: { storeId: 'asset-long', frames: 229537152, peakBaseSamplesPerPixel: 256 },
+    sampleRate: 44100,
+    durationSeconds: 5205,
+    numberOfChannels: 2,
+  };
+
+  it('saves only a small pointer record, never audio samples', () => {
+    const stored = serializeAsset(streamed);
+    expect(stored.channels).toEqual([]);
+    expect(stored.streamed).toEqual(streamed.source);
+    expect(stored.durationSeconds).toBe(5205);
+  });
+
+  it('restores a pointer record as an asset with a source and no in-memory buffer', () => {
+    const restored = deserializeAsset(serializeAsset(streamed), {} as AudioEngine)!;
+    expect(restored.source).toEqual(streamed.source);
+    expect(restored.buffer === undefined).toBe(true);
+    expect(restored.numberOfChannels).toBe(2);
+  });
+
+  it('refuses to save an asset that has neither audio nor a source', () => {
+    let message = '';
+    try { serializeAsset({ ...streamed, source: undefined }); } catch (e) { message = (e as Error).message; }
+    expect(message.includes('no audio data')).toBe(true);
   });
 });
