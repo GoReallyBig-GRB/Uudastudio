@@ -54,7 +54,7 @@ import { ChevronLeft, Eye, SlidersHorizontal, X, XCircle } from 'lucide-react';
 import { processCompression } from './audio/dsp/compressor';
 import { processBasicDenoise } from './audio/dsp/denoiser';
 import { processPitchShift, processTimeStretch } from './audio/dsp/wsola';
-import { waveformCache } from './waveform/cache';
+import { peakProvider } from './waveform/peakProvider';
 import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { formatVolumeDb } from './utils/formatters';
@@ -1327,7 +1327,7 @@ const MainStudio: React.FC = () => {
     // Crucial: Register asset in audioEngine so timeline and playback can access audioBuffer
     audioEngine.registerAsset(asset);
     saveAssetToDB(asset).catch((err) => console.warn('Failed to save voice asset to IndexedDB:', err));
-    waveformCache.clearAsset(asset.id);
+    peakProvider.clearAsset(asset.id);
 
     const trackId = `track-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const clipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
@@ -1376,7 +1376,7 @@ const MainStudio: React.FC = () => {
     // Crucial: Register asset in audioEngine so timeline and playback can access audioBuffer
     audioEngine.registerAsset(asset);
     saveAssetToDB(asset).catch((err) => console.warn('Failed to save library asset to IndexedDB:', err));
-    waveformCache.clearAsset(asset.id);
+    peakProvider.clearAsset(asset.id);
 
     const trackId = `track-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const clipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
@@ -1895,8 +1895,8 @@ const MainStudio: React.FC = () => {
     audioEngine.registerAsset(newAsset);
     await saveAssetToDB(newAsset);
 
-    waveformCache.clearAsset(dspTargetClip.assetId);
-    waveformCache.clearAsset(newAsset.id);
+    peakProvider.clearAsset(dspTargetClip.assetId);
+    peakProvider.clearAsset(newAsset.id);
 
     handleUpdateClip(dspTargetClip.id, {
       assetId: newAsset.id,
@@ -1930,8 +1930,8 @@ const MainStudio: React.FC = () => {
     audioEngine.registerAsset(newAsset);
     await saveAssetToDB(newAsset);
 
-    waveformCache.clearAsset(dspTargetClip.assetId);
-    waveformCache.clearAsset(newAsset.id);
+    peakProvider.clearAsset(dspTargetClip.assetId);
+    peakProvider.clearAsset(newAsset.id);
 
     handleUpdateClip(dspTargetClip.id, {
       assetId: newAsset.id,
@@ -1964,8 +1964,8 @@ const MainStudio: React.FC = () => {
     audioEngine.registerAsset(newAsset);
     await saveAssetToDB(newAsset);
 
-    waveformCache.clearAsset(dspTargetClip.assetId);
-    waveformCache.clearAsset(newAsset.id);
+    peakProvider.clearAsset(dspTargetClip.assetId);
+    peakProvider.clearAsset(newAsset.id);
 
     handleUpdateClip(dspTargetClip.id, {
       assetId: newAsset.id,
@@ -1998,8 +1998,8 @@ const MainStudio: React.FC = () => {
     audioEngine.registerAsset(newAsset);
     await saveAssetToDB(newAsset);
 
-    waveformCache.clearAsset(dspTargetClip.assetId);
-    waveformCache.clearAsset(newAsset.id);
+    peakProvider.clearAsset(dspTargetClip.assetId);
+    peakProvider.clearAsset(newAsset.id);
 
     handleUpdateClip(dspTargetClip.id, {
       assetId: newAsset.id,
@@ -2032,8 +2032,8 @@ const MainStudio: React.FC = () => {
     audioEngine.registerAsset(newAsset);
     await saveAssetToDB(newAsset);
 
-    waveformCache.clearAsset(dspTargetClip.assetId);
-    waveformCache.clearAsset(newAsset.id);
+    peakProvider.clearAsset(dspTargetClip.assetId);
+    peakProvider.clearAsset(newAsset.id);
 
     handleUpdateClip(dspTargetClip.id, {
       assetId: newAsset.id,
@@ -2077,8 +2077,8 @@ const MainStudio: React.FC = () => {
     audioEngine.registerAsset(newAsset);
     await saveAssetToDB(newAsset);
 
-    waveformCache.clearAsset(targetClip.assetId);
-    waveformCache.clearAsset(newAsset.id);
+    peakProvider.clearAsset(targetClip.assetId);
+    peakProvider.clearAsset(newAsset.id);
 
     handleUpdateClip(targetClip.id, {
       assetId: newAsset.id,

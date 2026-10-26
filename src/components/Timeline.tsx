@@ -17,8 +17,7 @@ import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
 import { TimelineRuler } from './TimelineRuler';
 import { ClipActionStrip } from './ClipActionStrip';
-import { waveformCache } from '../waveform/cache';
-import { streamedPeaks } from '../waveform/streamedPeaks';
+import { peakProvider } from '../waveform/peakProvider';
 import { audioEngine } from '../audio/engine';
 import { pluginManager } from '../plugins/pluginManager';
 import { pruneEmptiedTracks, getTrackLabel } from '../utils/tracks';
@@ -128,7 +127,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   const [timelineWidth, setTimelineWidth] = useState<number>(1200);
   const [scrollLeft, setScrollLeft] = useState<number>(0);
   const [waveformVersion, setWaveformVersion] = useState<number>(0);
-  useEffect(() => streamedPeaks.subscribe(() => setWaveformVersion((v) => v + 1)), []);
+  useEffect(() => peakProvider.subscribe(() => setWaveformVersion((v) => v + 1)), []);
   const [scrollTop, setScrollTop] = useState<number>(0);
   const autoCenterPendingRef = useRef<boolean>(false);
   const autoCenterTargetRef = useRef<number | null>(null);
@@ -416,11 +415,7 @@ export const Timeline: React.FC<TimelineProps> = ({
             const visEndPx = visiblePixels.endPx;
             const visStartSample = ((clip.offsetSeconds || 0) + (visStartPx / pixelsPerSecond)) * clipSampleRate;
             const visEndSample = ((clip.offsetSeconds || 0) + (visEndPx / pixelsPerSecond)) * clipSampleRate;
-            const peaks = asset?.buffer
-              ? waveformCache.getPeaksForRange(clip.assetId, asset.buffer, visStartSample, visEndSample, samplesPerPixel)
-              : asset?.source
-              ? streamedPeaks.getPeaksForRange(asset.id, asset.source, asset.numberOfChannels, visStartSample, visEndSample, samplesPerPixel)
-              : null;
+            const peaks = asset ? peakProvider.getPeaksForRange(asset, visStartSample, visEndSample, samplesPerPixel) : null;
 
             if (peaks && peaks.mins.length > 0) {
               const sampleRate = asset?.sampleRate || 48000;
