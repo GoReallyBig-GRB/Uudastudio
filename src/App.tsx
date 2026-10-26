@@ -21,6 +21,8 @@ import {
   TrackEffect,
 } from './types';
 import { audioEngine } from './audio/engine';
+import { importStreamedFile, shouldStreamImport } from './assets/streamImport';
+import { deleteStreamedAssetWithRetry } from './assets/streamedStore';
 import { HistoryManager } from './history/historyManager';
 import {
   saveProjectToDB,
@@ -146,6 +148,7 @@ const MainStudio: React.FC = () => {
   const isTrackImportIndicatorDismissedRef = useRef<boolean>(false);
   const trackImportProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const importCancelledRef = useRef<boolean>(false);
+  const streamImportCancelRef = useRef<(() => void) | null>(null);
   const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
   // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
   // cadence; committing every tick rerenders the entire studio tree and its expensive timeline.
@@ -616,6 +619,18 @@ const MainStudio: React.FC = () => {
   // 4. Playback Handlers
   const handlePlay = async () => {
     try {
+      const hasStreamedOnly = project.tracks.some((t) => t.clips.some((c) => {
+        const a = audioEngine.getAsset(c.assetId);
+        return !!a && !!a.source && !a.buffer;
+      }));
+      if (hasStreamedOnly) {
+        addToast({
+          type: 'warning',
+          title: 'Long audio is silent for now',
+          message: 'Playback of long, device-stored audio arrives in the next update. Other tracks play normally.',
+          duration: 6000,
+        });
+      }
       await audioEngine.play(project, playheadSecondsRef.current);
       setIsPlaying(true);
     } catch (err) {
@@ -1111,6 +1126,23 @@ const MainStudio: React.FC = () => {
       let trackAdded = false;
 
       try {
+        const assetId = `asset-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+        let asset: Asset;
+        if (shouldStreamImport(file)) {
+          // Long file: decode in the background straight to file storage. Nothing close to the whole file
+          // is ever held in memory, so it cannot run the tab out of memory.
+          if (progressTimer) clearInterval(progressTimer);
+          trackImportProgressTimerRef.current = null;
+          const handle = importStreamedFile(file, assetId, (fraction) => {
+            setTrackImportProgress({ progress: fileProgressStart + fraction * progressPerFile * 0.98, fileName: file.name });
+          });
+          streamImportCancelRef.current = handle.cancel;
+          try {
+            asset = await handle.promise;
+          } finally {
+            streamImportCancelRef.current = null;
+          }
+        } else {
         const audioBuffer = await audioEngine.decodeAudioFile(file);
         // Audio decoding is not abortable through the current engine API. If cancelled meanwhile,
         // discard the decoded buffer and do not add this file or continue with the batch.
@@ -1118,8 +1150,7 @@ const MainStudio: React.FC = () => {
           removeToast(decodeToastId);
           break;
         }
-        const assetId = `asset-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-        const asset: Asset = {
+        asset = {
           id: assetId,
           name: file.name,
           kind: 'import',
@@ -1128,6 +1159,12 @@ const MainStudio: React.FC = () => {
           durationSeconds: audioBuffer.duration,
           numberOfChannels: audioBuffer.numberOfChannels,
         };
+        }
+        if (importCancelledRef.current) {
+          removeToast(decodeToastId);
+          if (asset.source) void deleteStreamedAssetWithRetry(asset.id);
+          break;
+        }
 
         audioEngine.registerAsset(asset);
         unsavedAssetIdsRef.current.add(assetId);
@@ -1141,7 +1178,7 @@ const MainStudio: React.FC = () => {
           name: file.name.replace(/\.[^/.]+$/, ''),
           startSeconds: 0,
           offsetSeconds: 0,
-          durationSeconds: audioBuffer.duration,
+          durationSeconds: asset.durationSeconds,
           gain: 1.0,
           fadeInSeconds: 0,
           fadeOutSeconds: 0,
@@ -1170,7 +1207,7 @@ const MainStudio: React.FC = () => {
         if (trackImportProgressTimerRef.current === progressTimer) trackImportProgressTimerRef.current = null;
         setTrackImportProgress(null);
 
-        persistenceToastId = addToast({
+        persistenceToastId = asset.source ? null : addToast({
           type: 'info',
           title: 'Saving Local Audio...',
           message: `${file.name} is playable; keeping a local recovery copy.`,
@@ -1182,16 +1219,24 @@ const MainStudio: React.FC = () => {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
         await saveAssetToDB(asset);
         unsavedAssetIdsRef.current.delete(assetId);
-        removeToast(persistenceToastId);
+        if (persistenceToastId) removeToast(persistenceToastId);
         persistenceToastId = null;
-        addToast({
-          type: 'success',
-          title: 'Audio Imported and Saved',
-          message: `${file.name} (${audioBuffer.duration.toFixed(2)}s) is ready and stored locally.`,
-        });
+        addToast(asset.source
+          ? {
+              type: 'warning',
+              title: 'Long Audio Imported',
+              message: `${file.name} (${(asset.durationSeconds / 60).toFixed(1)} min) is stored on this device. The waveform, zoom and clip editing work; playback and export of long audio arrive in the next update.`,
+              duration: 12000,
+            }
+          : {
+              type: 'success',
+              title: 'Audio Imported and Saved',
+              message: `${file.name} (${asset.durationSeconds.toFixed(2)}s) is ready and stored locally.`,
+            });
       } catch (err) {
         removeToast(decodeToastId);
         if (persistenceToastId) removeToast(persistenceToastId);
+        if (importCancelledRef.current && !trackAdded) continue; // cancelled by the user: no error toast
         addToast({
           type: trackAdded ? 'warning' : 'error',
           title: trackAdded ? 'Audio Playable, Local Save Failed' : 'Decode Failed',
@@ -2561,6 +2606,7 @@ const MainStudio: React.FC = () => {
                 type="button"
                 onClick={() => {
                   importCancelledRef.current = true;
+                  streamImportCancelRef.current?.();
                   if (trackImportProgressTimerRef.current) {
                     clearInterval(trackImportProgressTimerRef.current);
                     trackImportProgressTimerRef.current = null;

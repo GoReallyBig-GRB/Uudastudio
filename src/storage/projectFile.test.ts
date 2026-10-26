@@ -59,7 +59,7 @@ describe('UUDA project file', () => {
     expect(decoded.missingAssetIds).toEqual([]);
     expect(decoded.assets).toHaveLength(1);
     for (let channel = 0; channel < originalChannels.length; channel++) {
-      expect(Array.from(decoded.assets[0].buffer.getChannelData(channel))).toEqual(Array.from(originalChannels[channel]));
+      expect(Array.from(decoded.assets[0].buffer!.getChannelData(channel))).toEqual(Array.from(originalChannels[channel]));
     }
   });
 

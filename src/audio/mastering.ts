@@ -675,7 +675,12 @@ export async function renderProjectOffline(
     for (const clip of track.clips) {
       if (clip.muted) continue;
 
-      const clipBuffer = audioEngine.getAsset(clip.assetId)?.buffer;
+      const clipAsset = audioEngine.getAsset(clip.assetId);
+      if (clipAsset?.source && !clipAsset.buffer && clip.durationSeconds > 0) {
+        // Never export a mix that silently leaves out audio.
+        throw new Error(`"${clipAsset.name}" is long streamed audio, and export of streamed audio is not available yet.`);
+      }
+      const clipBuffer = clipAsset?.buffer;
       if (!clipBuffer) continue;
 
       const clipAbsoluteStart = clip.startSeconds;

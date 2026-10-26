@@ -286,6 +286,7 @@ class VoiceJobStore {
     }
     const ctx = audioEngine.getContext();
     if (!ctx) return;
+    if (!asset.buffer) return;
     const src = ctx.createBufferSource();
     src.buffer = asset.buffer;
     src.connect(ctx.destination);

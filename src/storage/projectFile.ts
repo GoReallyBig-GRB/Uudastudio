@@ -76,6 +76,9 @@ function buildProjectFileParts(
 
   for (const id of referencedIds) {
     const asset = availableAssets(id);
+    if (asset?.source && !asset.buffer) {
+      throw new Error(`"${asset.name}" is long audio stored on this device and cannot be packed into a .uuda file yet. It stays saved in this browser.`);
+    }
     if (!asset?.buffer) {
       throw new Error(`Cannot save a self-contained UUDA project: referenced audio asset "${id}" is unavailable.`);
     }
