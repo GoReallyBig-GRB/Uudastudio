@@ -539,7 +539,16 @@ export class AudioEngine {
   private async playInternal(project: Project, startPositionSeconds?: number): Promise<void> {
     const ctx = await this.init();
     if (this.isPlaying) {
-      this.stop();
+      if (this.previewTargetId) {
+        this.stop();
+      } else {
+        // Restarting (e.g. a seek while playing): tear down quietly. stop() would report position 0 to the UI,
+        // making the playhead dash to the start before landing on the new position.
+        this.clearScheduledStop();
+        this.stopSources();
+        this.isPlaying = false;
+        this.stopPlaybackLoop();
+      }
     }
 
     this.syncTracks(project.tracks);

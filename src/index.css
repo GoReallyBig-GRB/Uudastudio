@@ -19,11 +19,11 @@
   background: #0E0E12;
 }
 ::-webkit-scrollbar-thumb {
-  background: #24242C;
+  background: #5A5A6B;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #383844;
+  background: #7C7C90;
 }
 
 /* Range input styling for sleek DAW sliders */
