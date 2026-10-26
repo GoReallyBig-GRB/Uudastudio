@@ -97,6 +97,27 @@ export default function StreamingCheck() {
     }, 50);
     const res = await runWorker({ type: 'decode', file }, (t) => setProg((p) => ({ ...p, decode: t })));
     clearInterval(hb);
+    // Third opinion on the cross-checked seconds: the browser's own whole-clip decoder, on just those bytes.
+    const checks = (res as { crossChecks?: Array<Record<string, unknown>> }).crossChecks;
+    if (checks) {
+      for (const c of checks) {
+        try {
+          const [a, b] = c.bytes as [number, number];
+          const ac = new AudioContext();
+          const ab = await ac.decodeAudioData(await file.slice(a, b).arrayBuffer());
+          const out: number[] = [];
+          for (let ch = 0; ch < ab.numberOfChannels; ch++) {
+            const d = ab.getChannelData(ch);
+            for (let i = 0; i < d.length; i++) {
+              const sec = Math.floor(i / ab.sampleRate); const v = Math.abs(d[i]);
+              if (out[sec] === undefined || v > out[sec]) out[sec] = v;
+            }
+          }
+          c.decodeAudioDataLoudestPerSecond = out.map((v) => +v.toFixed(4));
+          await ac.close();
+        } catch (e) { c.decodeAudioDataError = (e as Error).name + ': ' + (e as Error).message; }
+      }
+    }
     set('decodeTest', { ...res, worstPageFreezeMs: Math.round(worst) });
     setBusy(null);
   };
