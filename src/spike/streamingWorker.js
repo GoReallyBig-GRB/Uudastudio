@@ -84,10 +84,9 @@ async function id3Skip(file) {
 function concat(a, b) { if (!a.length) return b; const o = new Uint8Array(a.length + b.length); o.set(a); o.set(b, a.length); return o; }
 
 /* ---------- Test 3: chunked MP3 decode to disk ---------- */
-async function decodeTest({ file, skipPeaks }) {
-  SKIP_PEAKS = !!skipPeaks;
-  const res = { fileName: file.name, fileMB: +(file.size / MB).toFixed(1) };
-  if (typeof AudioDecoder === 'undefined') { res.error = 'AudioDecoder (WebCodecs) not available in workers here'; post({ type: 'result', test: 'decode', res }); return; }
+async function decodeOnce(file, { group, skipMeta, maxBytes }) {
+  const res = {};
+  const diag = { group, skipMeta };
   await wipe();
   const dir = await spikeDir();
   let handles = [], offsets = [];
@@ -96,6 +95,7 @@ async function decodeTest({ file, skipPeaks }) {
   let peakMins = [], peakMaxs = [], pMin = Infinity, pMax = -Infinity, pCount = 0;
   let heapPeak = 0;
   const sampleHeap = () => { try { const u = performance.memory && performance.memory.usedJSHeapSize; if (u && u > heapPeak) heapPeak = u; } catch (e) {} };
+  const setErr = (m) => { if (!errorMsg) errorMsg = m; };
 
   async function openOutputs(channels) {
     for (let c = 0; c < channels; c++) {
@@ -114,7 +114,7 @@ async function decodeTest({ file, skipPeaks }) {
       handles[c].write(new Uint8Array(tmp[c].buffer, 0, frames * 4), { at: offsets[c] });
       offsets[c] += frames * 4;
     }
-    if (!SKIP_PEAKS) for (let i = 0; i < frames; i++) {
+    for (let i = 0; i < frames; i++) {
       let v = 0; for (let c = 0; c < ch; c++) v += tmp[c][i];
       v /= ch;
       if (v < pMin) pMin = v; if (v > pMax) pMax = v;
@@ -126,49 +126,60 @@ async function decodeTest({ file, skipPeaks }) {
   }
 
   const t0 = performance.now();
-  let pos = await id3Skip(file);
+  const startPos = await id3Skip(file);
+  diag.id3Bytes = startPos;
+  let pos = startPos;
+  const endPos = Math.min(file.size, startPos + maxBytes);
   const SLICE = 4 * MB;
   let carry = new Uint8Array(0), frameIdx = 0, mp3Frames = 0;
-  const GROUP = 32; // contiguous MP3 frames sent to the decoder as one chunk
-  let grpStart = -1, grpFrames = 0, grpTs = 0;
+  let grpStart = -1, grpFrames = 0, grpTs = 0, firstSeen = false;
   function flushGroup(data, end) {
     if (grpStart < 0 || grpFrames === 0) return;
     decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: grpTs, data: data.subarray(grpStart, end) }));
     grpStart = -1; grpFrames = 0;
   }
+  const hex = (u8) => Array.from(u8).map((x) => x.toString(16).padStart(2, '0')).join(' ');
   try {
-    while (pos < file.size && !errorMsg) {
-      const slice = new Uint8Array(await file.slice(pos, pos + SLICE).arrayBuffer());
+    while (pos < endPos && !errorMsg) {
+      const slice = new Uint8Array(await file.slice(pos, Math.min(endPos, pos + SLICE)).arrayBuffer());
       pos += slice.length;
       const data = concat(carry, slice);
       let i = 0;
-      while (i + 4 <= data.length) {
+      while (i + 4 <= data.length && !errorMsg) {
         const h = parseHeader(data, i);
         if (!h) { if (grpStart >= 0) flushGroup(data, i); i++; continue; }
-        if (i + h.size + 4 <= data.length && !parseHeader(data, i + h.size) && pos < file.size) { if (grpStart >= 0) flushGroup(data, i); i++; continue; } // false sync
+        if (i + h.size + 4 <= data.length && !parseHeader(data, i + h.size) && pos < endPos) { if (grpStart >= 0) flushGroup(data, i); i++; continue; } // false sync
         if (i + h.size > data.length) break;
+        if (!firstSeen) {
+          firstSeen = true;
+          diag.firstFrameHex = hex(data.subarray(i, i + 24));
+          const probe = new TextDecoder('latin1').decode(data.subarray(i, Math.min(i + 64, i + h.size)));
+          diag.firstFrameIsXingInfoVbri = /Xing|Info|VBRI/.test(probe);
+          if (skipMeta && diag.firstFrameIsXingInfoVbri) { diag.metaFrameSkipped = true; i += h.size; continue; }
+        }
         if (!decoder) {
           cfg = { codec: 'mp3', sampleRate: h.sampleRate, numberOfChannels: h.channels };
           const sup = await AudioDecoder.isConfigSupported(cfg);
           res.decoderSupported = !!sup.supported;
-          if (!sup.supported) { errorMsg = 'AudioDecoder does not support mp3 here'; break; }
+          if (!sup.supported) { setErr('AudioDecoder does not support mp3 here'); break; }
           res.sampleRate = h.sampleRate; res.channels = h.channels; res.bitrateKbps = h.bitrate / 1000;
           await openOutputs(h.channels);
-          decoder = new AudioDecoder({ output: onAudio, error: (e) => { errorMsg = e.name + ': ' + e.message; } });
+          decoder = new AudioDecoder({ output: onAudio, error: (e) => { setErr('decoder error: ' + e.name + ': ' + e.message); } });
           decoder.configure(cfg);
         }
+        if (decoder.state === 'closed') { setErr('decoder closed after ' + mp3Frames + ' frames'); break; }
         if (grpStart < 0) { grpStart = i; grpFrames = 0; grpTs = Math.round(frameIdx * h.spf / h.sampleRate * 1e6); }
         grpFrames++; frameIdx += 1; mp3Frames++;
         i += h.size;
-        if (grpFrames >= GROUP) { flushGroup(data, i); }
+        if (grpFrames >= group) flushGroup(data, i);
         if (decoder.decodeQueueSize > 300) await new Promise((r) => setTimeout(r, 0));
       }
-      if (grpStart >= 0) flushGroup(data, i);
+      if (grpStart >= 0 && !errorMsg) flushGroup(data, i);
       carry = data.slice(i);
-      post({ type: 'progress', text: 'read ' + Math.round(pos / MB) + ' / ' + Math.round(file.size / MB) + ' MB, decoded ' + Math.round(decodedFrames / (cfg ? cfg.sampleRate : 48000) / 60) + ' min' });
+      post({ type: 'progress', text: (maxBytes === Infinity ? 'decoding: ' : 'probing: ') + 'read ' + Math.round(pos / MB) + ' / ' + Math.round(file.size / MB) + ' MB, decoded ' + Math.round(decodedFrames / (cfg ? cfg.sampleRate : 48000) / 60) + ' min' });
     }
     if (decoder && !errorMsg) await decoder.flush();
-  } catch (e) { errorMsg = e.name + ': ' + e.message; }
+  } catch (e) { setErr(e.name + ': ' + e.message); }
   const t1 = performance.now();
   if (pCount > 0) { peakMins.push(pMin); peakMaxs.push(pMax); }
   sampleHeap();
@@ -176,15 +187,16 @@ async function decodeTest({ file, skipPeaks }) {
   res.mp3Frames = mp3Frames;
   res.decodedFrames = decodedFrames;
   res.decodedMinutes = cfg ? +(decodedFrames / cfg.sampleRate / 60).toFixed(2) : 0;
-  res.expectedMinutes = cfg ? +(mp3Frames * 1152 / cfg.sampleRate / 60).toFixed(2) : 0; // approx for MPEG1
+  res.expectedMinutes = cfg ? +(mp3Frames * (cfg.sampleRate < 32000 ? 576 : 1152) / cfg.sampleRate / 60).toFixed(2) : 0;
   res.decodeSeconds = +((t1 - t0) / 1000).toFixed(1);
   res.xRealtime = cfg ? +((decodedFrames / cfg.sampleRate) / ((t1 - t0) / 1000)).toFixed(0) : 0;
   res.outputMB = +(offsets.reduce((a, b) => a + b, 0) / MB).toFixed(0);
   res.peakLevelBuckets = peakMins.length;
   res.workerHeapPeakMB = heapPeak ? +(heapPeak / MB).toFixed(0) : 'n/a';
+  res.diag = diag;
 
-  // Read back: random 1 s windows + silence check
-  if (handles.length && decodedFrames > 0 && !errorMsg) {
+  // Read back: 100 evenly spaced 1 s windows + silence check
+  if (handles.length && decodedFrames > 0 && !errorMsg && maxBytes === Infinity) {
     const sr = cfg.sampleRate, win = new Float32Array(sr);
     let reads = 0, nonSilent = 0;
     const silentAt = [];
@@ -204,7 +216,28 @@ async function decodeTest({ file, skipPeaks }) {
   try { decoder && decoder.state !== 'closed' && decoder.close(); } catch (e) {}
   handles.forEach((h) => { try { h.close(); } catch (e) {} });
   await wipe();
-  post({ type: 'result', test: 'decode', res });
+  return res;
+}
+
+async function decodeTest({ file }) {
+  const base = { fileName: file.name, fileMB: +(file.size / MB).toFixed(1) };
+  if (typeof AudioDecoder === 'undefined') { post({ type: 'result', test: 'decode', res: { ...base, error: 'AudioDecoder (WebCodecs) not available in workers here' } }); return; }
+  // Probe several ways of feeding the decoder on the first 2 MB; use the first that works for the full file.
+  const strategies = [
+    { group: 1, skipMeta: true }, { group: 1, skipMeta: false },
+    { group: 32, skipMeta: true }, { group: 32, skipMeta: false },
+  ];
+  const attempts = [];
+  let chosen = null;
+  for (const st of strategies) {
+    const r = await decodeOnce(file, { ...st, maxBytes: 2 * MB });
+    const ok = !r.error && r.decodedFrames > 0;
+    attempts.push({ ...st, ok, error: r.error, decodedFrames: r.decodedFrames, diag: r.diag });
+    if (ok) { chosen = st; break; }
+  }
+  if (!chosen) { post({ type: 'result', test: 'decode', res: { ...base, error: 'no way of feeding the decoder worked', attempts } }); return; }
+  const full = await decodeOnce(file, { ...chosen, maxBytes: Infinity });
+  post({ type: 'result', test: 'decode', res: { ...base, strategy: chosen, ...full, attempts } });
 }
 
 self.onmessage = async (e) => {
