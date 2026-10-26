@@ -11,6 +11,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Layers, Plus, Trash2, ChevronUp, ChevronDown, Pencil, Eraser } from 'lucide-react';
 import { Track } from '../types';
 import { pluginManager } from '../plugins/pluginManager';
+import { formatTrackLength, trackEndSeconds } from '../utils/formatters';
 import { getTrackLabel, renameUpdate, isTrackEmpty } from '../utils/tracks';
 
 interface TrackListPanelProps {
@@ -158,7 +159,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                         <span className="text-amber-400 font-semibold">Empty</span>
                       ) : (
                         <span>
-                          {track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'}
+                          {track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'} · {formatTrackLength(trackEndSeconds(track.clips))}
                         </span>
                       )}
                       {track.muted && <span className="text-rose-400 font-semibold">Muted</span>}

@@ -11,7 +11,7 @@ import { Volume2, VolumeX, Trash2, ChevronUp, ChevronDown, Sparkles } from 'luci
 import { Track } from '../types';
 import { audioEngine } from '../audio/engine';
 import { pluginManager } from '../plugins/pluginManager';
-import { formatVolumeDb, formatPan } from '../utils/formatters';
+import { formatVolumeDb, formatPan, formatTrackLength, trackEndSeconds } from '../utils/formatters';
 import { getTrackLabel, renameUpdate } from '../utils/tracks';
 
 interface TrackControlsProps {
@@ -259,6 +259,14 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
               className="text-xs font-semibold text-zinc-200 truncate cursor-text hover:text-cyan-300 transition-colors"
             >
               {label}
+            </span>
+          )}
+          {track.clips.length > 0 && !isEditingName && (
+            <span
+              title="Track length (end of its last clip)"
+              className="ml-auto shrink-0 pl-1 text-[10px] font-mono text-zinc-400 tabular-nums"
+            >
+              {formatTrackLength(trackEndSeconds(track.clips))}
             </span>
           )}
         </div>

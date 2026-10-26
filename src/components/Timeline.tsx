@@ -199,6 +199,9 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   const lanePixelWidth = Math.max(1200, Math.ceil(totalDurationSeconds * pixelsPerSecond));
   const previousZoomRef = useRef<number>(pixelsPerSecond);
+  // Last scroll offset we know the user/app set. After a zoom-out the browser clamps the real scrollLeft to the
+  // narrower lane before our layout effect runs, so reading it back would anchor to the wrong place.
+  const lastScrollLeftRef = useRef<number>(0);
 
   // Keep the visible timeline's left edge anchored during zoom. This prevents
   // zoom-in from pulling time zero under the sticky controllers; the ruler,
@@ -210,13 +213,17 @@ export const Timeline: React.FC<TimelineProps> = ({
     const viewport = laneScrollContainerRef.current;
     if (!viewport) return;
     const nextScrollLeft = calculateZoomScrollLeft({
-      scrollLeft: viewport.scrollLeft,
+      scrollLeft: lastScrollLeftRef.current,
       viewportWidth: viewport.clientWidth,
       headerWidth: currentHeaderWidth,
       previousZoom,
       nextZoom: pixelsPerSecond,
       maxScrollLeft: viewport.scrollWidth - viewport.clientWidth,
     });
+    // A smooth auto-center scroll that was under way belongs to the old zoom; drop it
+    autoCenterPendingRef.current = false;
+    autoCenterTargetRef.current = null;
+    lastScrollLeftRef.current = nextScrollLeft;
     viewport.scrollLeft = nextScrollLeft;
     setScrollLeft(nextScrollLeft);
   }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth]);
@@ -244,6 +251,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   // passes through the center band (which can happen before scrolling finishes).
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const nextScrollLeft = e.currentTarget.scrollLeft;
+    lastScrollLeftRef.current = nextScrollLeft;
     setScrollLeft(nextScrollLeft);
     setScrollTop(e.currentTarget.scrollTop);
 
@@ -272,9 +280,12 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   // Recenter the viewport smoothly when playback reaches either visible edge.
   // The audio playhead keeps advancing; only the viewport scrolls around it.
+  const autoCenterZoomRef = useRef<number>(pixelsPerSecond);
   useEffect(() => {
     const viewport = laneScrollContainerRef.current;
     if (!viewport) return;
+    const zoomJustChanged = autoCenterZoomRef.current !== pixelsPerSecond;
+    autoCenterZoomRef.current = pixelsPerSecond;
     if (!audioEngine.getIsPlaying()) {
       autoCenterPendingRef.current = false;
       autoCenterTargetRef.current = null;
@@ -297,6 +308,12 @@ export const Timeline: React.FC<TimelineProps> = ({
         Math.max(0, playheadX - viewport.clientWidth / 2),
       );
       if (Math.abs(targetScrollLeft - viewport.scrollLeft) > 1) {
+        if (zoomJustChanged) {
+          // Zooming moved the playhead to an edge: re-center at once rather than gliding there after a pause
+          lastScrollLeftRef.current = targetScrollLeft;
+          viewport.scrollLeft = targetScrollLeft;
+          return;
+        }
         autoCenterPendingRef.current = true;
         autoCenterTargetRef.current = targetScrollLeft;
         viewport.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });

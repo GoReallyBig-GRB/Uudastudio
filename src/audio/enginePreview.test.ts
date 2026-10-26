@@ -88,3 +88,22 @@ describe('rack preview', () => {
     engine.stop();
   });
 });
+
+describe('seeking while playing', () => {
+  it('never reports position 0 on the way to the new position, going forward or back', async () => {
+    const seen: number[] = [];
+    engine.setOnTimeUpdate((t: number) => seen.push(t));
+    await engine.play(project, 3);
+    seen.length = 0;
+    engine.seek(8, project);
+    await new Promise((r) => setTimeout(r, 20));
+    engine.seek(2.5, project);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(seen.includes(0)).toBe(false);
+    expect(seen[0]).toBe(8);
+    expect(engine.getIsPlaying()).toBe(true);
+    expect(engine.playheadSeconds).toBeCloseTo(2.5, 1);
+    engine.stop();
+  });
+});
+

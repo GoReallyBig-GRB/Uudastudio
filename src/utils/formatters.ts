@@ -27,3 +27,21 @@ export function formatPan(pan: number): string {
   if (pan < 0) return `L${Math.round(Math.abs(pan) * 100)}`;
   return `R${Math.round(pan * 100)}`;
 }
+
+/** Where a track's audio ends: the end of its last clip, in seconds. */
+export function trackEndSeconds(clips: ReadonlyArray<{ startSeconds: number; durationSeconds: number }>): number {
+  let end = 0;
+  for (const c of clips) end = Math.max(end, c.startSeconds + c.durationSeconds);
+  return end;
+}
+
+/** Short length for a quick glance: 45s, 3:07, 1:27:05. */
+export function formatTrackLength(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
