@@ -53,16 +53,19 @@ import {
   MeasureAndApplyResult,
   ExportProgress,
   ExportSummary,
-  renderProjectOffline,
-  measureLoudness,
-  measureLoudnessAsync,
-  measureAndApplyMastering,
+  measureProjectLoudness,
+  masterProjectToBuffer,
+  exportProjectToFile,
+  makeMixdownDeps,
   exportAudioBufferToWav,
   exportAudioBufferToWavAsync,
   exportAudioBufferToMp3,
   verifyExportedBlob,
   triggerFileDownload,
 } from '../audio/mastering';
+
+/** Longer exports are verified from the written signal instead of being decoded back into memory. */
+const READBACK_VERIFY_MAX_SECONDS = 30 * 60;
 
 interface MasterExportPanelProps {
   project: Project;
@@ -349,8 +352,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
     setIsMeasuring(true);
 
     try {
-      const rendered = await renderProjectOffline(project, project.sampleRate || 48000);
-      const stats = await measureLoudnessAsync(rendered);
+      const stats = await measureProjectLoudness(project, project.sampleRate || 48000);
       setFullMixStats(stats);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Measurement failed.');
@@ -371,10 +373,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
     setExportSummary(null);
 
     try {
-      // 1. Render mix offline
-      const rawBuffer = await renderProjectOffline(project, project.sampleRate || 48000);
-
-      // 2. Measure & Apply mastering profile with brickwall true peak limiter
+      // Render, measure and master the mix (short mixes only: the result is kept in memory for audition)
       const currentProfileConfig = {
         ...MASTERING_PROFILES[profileType],
         targetLufs,
@@ -385,15 +384,13 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
         midPresenceGainDb,
       };
 
-      const result = await measureAndApplyMastering(
-        rawBuffer,
-        currentProfileConfig,
+      const result = await masterProjectToBuffer(project, currentProfileConfig, project.sampleRate || 48000, {
         targetLufs,
-        ceilingDbTP
-      );
+        ceilingDbTP,
+      });
 
       setMeasureResult(result);
-      onMasteredBufferReady?.(result.masteredBuffer, project);
+      if (result.masteredBuffer) onMasteredBufferReady?.(result.masteredBuffer, project);
       setFullMixStats(result.postStats);
       setActiveTab('mastering');
     } catch (err) {
@@ -439,14 +436,6 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
     setExportSummary(null);
 
     try {
-      // 1. Render offline mixdown
-      setExportProgress({ stage: 'rendering', percent: 15, message: '1/4 Rendering multi-track mixdown...' });
-      const rawBuffer = await renderProjectOffline(project, project.sampleRate || 48000, {
-        onProgress: setExportProgress,
-      });
-
-      // 2. Apply mastering chain
-      setExportProgress({ stage: 'mastering', percent: 55, message: `2/4 Applying mastering chain (target ${targetLufs} LUFS)...` });
       const currentProfileConfig = {
         ...MASTERING_PROFILES[profileType],
         targetLufs,
@@ -456,39 +445,51 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
         releaseMs,
         midPresenceGainDb,
       };
-
-      const result = await measureAndApplyMastering(
-        rawBuffer,
-        currentProfileConfig,
-        targetLufs,
-        ceilingDbTP,
-        setExportProgress
-      );
-      setMeasureResult(result);
-
-      // 3. Encode to requested format
       const cleanName = (project.name || 'UudaPro_Production')
         .replace(/[^a-zA-Z0-9_-]/g, '_')
         .toLowerCase();
-      let exportedBlob: Blob;
+
+      // Render, master and encode straight into a file, block by block (any length, flat memory)
+      setExportProgress({ stage: 'rendering', percent: 1, message: 'Starting export...' });
+      const { blob: exportedBlob, run } = await exportProjectToFile(project, {
+        format: exportFormat,
+        wavBitDepth,
+        mp3Kbps: mp3Bitrate,
+        mastering: currentProfileConfig,
+        sampleRate: project.sampleRate || 48000,
+        onProgress: setExportProgress,
+      });
+      setMeasureResult({
+        preStats: run.preStats ?? run.postStats,
+        postStats: run.postStats,
+        gainAdjustmentDb: run.gainAdjustmentDb,
+        profile: currentProfileConfig,
+        targetLufs,
+        ceilingDbTP,
+        passedLoudnessTolerance: Math.abs(run.postStats.integratedLUFS - targetLufs) <= 1.0,
+        passedTruePeakCeiling: run.postStats.truePeakDbTP <= ceilingDbTP + 0.1,
+      });
+
       let filename: string;
       let bitDepthOrBitrate: string;
-
       if (exportFormat === 'wav') {
-        setExportProgress({ stage: 'encoding', percent: 85, message: `3/4 Encoding ${wavBitDepth}-bit PCM WAV...` });
-        exportedBlob = await exportAudioBufferToWavAsync(result.masteredBuffer, wavBitDepth, setExportProgress);
         filename = `${cleanName}_${profileType}_${wavBitDepth}bit.wav`;
         bitDepthOrBitrate = `${wavBitDepth}-bit PCM`;
       } else {
-        setExportProgress({ stage: 'encoding', percent: 80, message: `3/4 Encoding ${mp3Bitrate}kbps MP3 (lamejs)...` });
-        exportedBlob = await exportAudioBufferToMp3(result.masteredBuffer, mp3Bitrate, setExportProgress);
         filename = `${cleanName}_${profileType}_${mp3Bitrate}k.mp3`;
         bitDepthOrBitrate = `${mp3Bitrate} kbps`;
       }
 
-      // 4. Verify by reading back exported file and measuring it
-      setExportProgress({ stage: 'verifying', percent: 95, message: '4/4 Reading back exported file & verifying BS.1770 compliance...' });
-      const verification = await verifyExportedBlob(exportedBlob, targetLufs, ceilingDbTP, setExportProgress);
+      // Verify. Short files are read back and measured from the file itself. A multi-hour file cannot be decoded
+      // into memory, so it is verified from the exact signal that was written (before 16/24-bit or MP3 rounding).
+      let verification: { integratedLUFS: number; truePeakDbTP: number; compliant: boolean };
+      if (run.postStats.durationSeconds <= READBACK_VERIFY_MAX_SECONDS) {
+        setExportProgress({ stage: 'verifying', percent: 97, message: 'Reading back exported file & verifying BS.1770 compliance...' });
+        verification = await verifyExportedBlob(exportedBlob, targetLufs, ceilingDbTP, setExportProgress);
+      } else {
+        const ok = Math.abs(run.postStats.integratedLUFS - targetLufs) <= 1.0 && run.postStats.truePeakDbTP <= ceilingDbTP + 0.1;
+        verification = { integratedLUFS: run.postStats.integratedLUFS, truePeakDbTP: run.postStats.truePeakDbTP, compliant: ok };
+      }
 
       // Trigger automatic file download
       triggerFileDownload(exportedBlob, filename);
@@ -501,7 +502,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
         filename,
         format: exportFormat,
         bitDepthOrBitrate,
-        durationSeconds: result.postStats.durationSeconds,
+        durationSeconds: run.postStats.durationSeconds,
         integratedLUFS: verification.integratedLUFS,
         truePeakDbTP: verification.truePeakDbTP,
         fileSizeBytes: exportedBlob.size,
@@ -551,13 +552,35 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
       osc.start(0);
       const testBuffer60s = await testCtx.startRendering();
 
+      // The test mix goes through the real export pipeline as a one-clip project
+      const testAsset = {
+        id: 'acceptance-test-asset', name: 'Acceptance test tone', kind: 'import' as const, buffer: testBuffer60s,
+        sampleRate: 48000, durationSeconds: 60, numberOfChannels: 2,
+      };
+      const testProject: Project = {
+        id: 'acceptance-test', name: 'Acceptance test', sampleRate: 48000, settings: {} as Project['settings'],
+        tracks: [{
+          id: 'acceptance-test-track', name: 'Tone', volume: 1, pan: 0, muted: false, solo: false,
+          clips: [{
+            id: 'acceptance-test-clip', trackId: 'acceptance-test-track', assetId: testAsset.id, name: 'Tone',
+            startSeconds: 0, offsetSeconds: 0, durationSeconds: 60, gain: 1, fadeInSeconds: 0, fadeOutSeconds: 0, fadeShape: 'linear',
+          }],
+        }],
+      };
+      const testDeps = makeMixdownDeps({
+        getAsset: (id) => (id === testAsset.id ? testAsset : undefined),
+        masterFaderGain: 1,
+        chainHasPlugins: () => false,
+        appendPlugins: async (_ctx, _chain, source) => source,
+      });
+
       log('  - Measuring raw 60s test mix...');
-      const preTest1 = await measureLoudnessAsync(testBuffer60s);
+      const preTest1 = await measureProjectLoudness(testProject, 48000, { deps: testDeps });
       log(`    Raw Integrated: ${preTest1.integratedLUFS} LUFS, True Peak: ${preTest1.truePeakDbTP} dBTP`);
 
       log('  - Applying Podcast Profile mastering...');
-      const podcastResult = await measureAndApplyMastering(testBuffer60s, MASTERING_PROFILES.podcast, -16.0, -1.0);
-      const wavBlob1 = exportAudioBufferToWav(podcastResult.masteredBuffer, 16);
+      const podcastResult = await masterProjectToBuffer(testProject, MASTERING_PROFILES.podcast, 48000, { targetLufs: -16.0, ceilingDbTP: -1.0, deps: testDeps });
+      const wavBlob1 = exportAudioBufferToWav(podcastResult.masteredBuffer!, 16);
       log('  - Reading back exported WAV file to measure again...');
       const verify1 = await verifyExportedBlob(wavBlob1, -16.0, -1.0);
       log(`    Measured Readback: ${verify1.integratedLUFS} LUFS (Target -16.0, delta: ${Math.abs(verify1.integratedLUFS - (-16.0)).toFixed(2)} LU)`);
@@ -573,8 +596,8 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
       // Test 2: Broadcast profile with EBU R128 preset (-23 LUFS)
       log('\n[Test 2] Testing Broadcast Profile with EBU R128 (-23 LUFS, 4:1 Ratio, 5ms Attack, +3dB Mid Boost)...');
       const broadcastConfig = { ...MASTERING_PROFILES.broadcast, targetLufs: -23.0, ceilingDbTP: -1.0 };
-      const broadcastResult = await measureAndApplyMastering(testBuffer60s, broadcastConfig, -23.0, -1.0);
-      const wavBlob2 = exportAudioBufferToWav(broadcastResult.masteredBuffer, 24);
+      const broadcastResult = await masterProjectToBuffer(testProject, broadcastConfig, 48000, { targetLufs: -23.0, ceilingDbTP: -1.0, deps: testDeps });
+      const wavBlob2 = exportAudioBufferToWav(broadcastResult.masteredBuffer!, 24);
       log('  - Reading back exported 24-bit WAV file to measure again...');
       const verify2 = await verifyExportedBlob(wavBlob2, -23.0, -1.0);
       log(`    Measured Readback: ${verify2.integratedLUFS} LUFS (Target -23.0, delta: ${Math.abs(verify2.integratedLUFS - (-23.0)).toFixed(2)} LU)`);
@@ -597,7 +620,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
       // Test 4: Verify MP3 and WAV encoders
       log('\n[Test 4] Verifying MP3 and WAV encoding compliance...');
       log('  - WAV format: RIFF/WAVE PCM 16-bit and 24-bit verified.');
-      const mp3Blob = await exportAudioBufferToMp3(podcastResult.masteredBuffer, 320);
+      const mp3Blob = await exportAudioBufferToMp3(podcastResult.masteredBuffer!, 320);
       log(`  - MP3 encoder: lamejs (v1.2.1, LGPL-3.0) produced valid MPEG audio stream (${mp3Blob.size} bytes at 320kbps).`);
       log('  ✓ Test 4 PASSED: MP3 and WAV files generate clean headers compatible with standard audio players.');
 

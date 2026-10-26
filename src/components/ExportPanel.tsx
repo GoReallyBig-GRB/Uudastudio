@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Download, FileAudio, Loader2, XCircle } from 'lucide-react';
 import type { Project } from '../types';
-import { renderProjectOffline, exportAudioBufferToWavAsync, exportAudioBufferToMp3, triggerFileDownload } from '../audio/mastering';
+import { exportProjectToFile, exportAudioBufferToWavAsync, exportAudioBufferToMp3, triggerFileDownload } from '../audio/mastering';
 import { encodeProjectFile } from '../storage/projectFile';
 import { audioEngine } from '../audio/engine';
 
@@ -50,19 +50,28 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, masteredBuffe
         return;
       }
 
-      const rendered = masteredBuffer ?? await renderProjectOffline(project, project.sampleRate || 48000, {
-        onProgress: (p) => setProgress(p.message),
-      });
       let blob: Blob;
-      let filename: string;
-      if (format === 'wav') {
-        setProgress('Encoding 24-bit PCM WAV…');
-        blob = await exportAudioBufferToWavAsync(rendered, 24);
-        filename = `${baseName}.wav`;
+      const filename = `${baseName}.${format}`;
+      if (masteredBuffer) {
+        // A reviewed master is already in memory (short mixes): encode it as it is
+        if (format === 'wav') {
+          setProgress('Encoding 24-bit PCM WAV…');
+          blob = await exportAudioBufferToWavAsync(masteredBuffer, 24);
+        } else {
+          setProgress(`Encoding ${mp3Bitrate} kbps MP3…`);
+          blob = await exportAudioBufferToMp3(masteredBuffer, mp3Bitrate);
+        }
       } else {
-        setProgress(`Encoding ${mp3Bitrate} kbps MP3…`);
-        blob = await exportAudioBufferToMp3(rendered, mp3Bitrate);
-        filename = `${baseName}.mp3`;
+        // Any length: rendered and encoded block by block straight into a file
+        const out = await exportProjectToFile(project, {
+          format,
+          wavBitDepth: 24,
+          mp3Kbps: mp3Bitrate === 320 ? 320 : mp3Bitrate === 192 ? 192 : 128,
+          mastering: null,
+          sampleRate: project.sampleRate || 48000,
+          onProgress: (p) => setProgress(`${p.message} ${p.percent}%`),
+        });
+        blob = out.blob;
       }
       triggerFileDownload(blob, filename);
       const size = blob.size >= 1024 * 1024
