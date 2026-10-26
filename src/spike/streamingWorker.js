@@ -83,6 +83,33 @@ async function id3Skip(file) {
 }
 function concat(a, b) { if (!a.length) return b; const o = new Uint8Array(a.length + b.length); o.set(a); o.set(b, a.length); return o; }
 
+async function freshDecodeEnergy(file, startByte, endByte, sr, ch) {
+  const bytes = new Uint8Array(await file.slice(startByte, endByte).arrayBuffer());
+  const maxBySec = []; let frames = 0, err = null;
+  const dec = new AudioDecoder({
+    output: (ad) => {
+      const n = ad.numberOfFrames, c = ad.numberOfChannels, t = new Float32Array(n);
+      for (let k = 0; k < c; k++) {
+        ad.copyTo(t, { planeIndex: k, format: 'f32-planar' });
+        for (let i = 0; i < n; i++) { const sc = Math.floor((frames + i) / sr); const a = Math.abs(t[i]); if (a > (maxBySec[sc] || 0)) maxBySec[sc] = a; else if (maxBySec[sc] === undefined) maxBySec[sc] = 0; }
+      }
+      frames += n; ad.close();
+    },
+    error: (e) => { err = e.name + ': ' + e.message; },
+  });
+  dec.configure({ codec: 'mp3', sampleRate: sr, numberOfChannels: ch });
+  let i = 0, idx = 0;
+  while (i + 4 <= bytes.length && !err) {
+    const h = parseHeader(bytes, i);
+    if (!h || i + h.size > bytes.length) { i++; continue; }
+    dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: Math.round(idx * h.spf / h.sampleRate * 1e6), data: bytes.subarray(i, i + h.size) }));
+    idx++; i += h.size;
+    if (dec.decodeQueueSize > 300) await new Promise((r) => setTimeout(r, 0));
+  }
+  await dec.flush(); dec.close();
+  return { maxBySec: maxBySec.map((v) => +(v || 0).toFixed(4)), err };
+}
+
 /* ---------- Test 3: chunked MP3 decode to disk ---------- */
 async function decodeOnce(file, { group, skipMeta, maxBytes }) {
   const res = {};
@@ -96,6 +123,9 @@ async function decodeOnce(file, { group, skipMeta, maxBytes }) {
   let heapPeak = 0;
   const sampleHeap = () => { try { const u = performance.memory && performance.memory.usedJSHeapSize; if (u && u > heapPeak) heapPeak = u; } catch (e) {} };
   const setErr = (m) => { if (!errorMsg) errorMsg = m; };
+  let shortWrites = 0, curSec = 0, nextSecAt = 0, cfgSr = 0;
+  const secMax = [];      // loudest sample the decoder produced in each second
+  const secOffsets = [];  // file byte offset of the first MP3 frame of each second
 
   async function openOutputs(channels) {
     for (let c = 0; c < channels; c++) {
@@ -111,11 +141,15 @@ async function decodeOnce(file, { group, skipMeta, maxBytes }) {
     for (let c = 0; c < ch; c++) {
       if (!tmp[c] || tmp[c].length < frames) tmp[c] = new Float32Array(frames);
       ad.copyTo(tmp[c], { planeIndex: c, format: 'f32-planar' });
-      handles[c].write(new Uint8Array(tmp[c].buffer, 0, frames * 4), { at: offsets[c] });
+      const wrote = handles[c].write(new Uint8Array(tmp[c].buffer, 0, frames * 4), { at: offsets[c] });
+      if (wrote !== frames * 4) shortWrites++;
       offsets[c] += frames * 4;
     }
+    if (!cfgSr) cfgSr = cfg.sampleRate;
     for (let i = 0; i < frames; i++) {
-      let v = 0; for (let c = 0; c < ch; c++) v += tmp[c][i];
+      let v = 0, am = 0; for (let c = 0; c < ch; c++) { const x = tmp[c][i]; v += x; const ax = x < 0 ? -x : x; if (ax > am) am = ax; }
+      if (decodedFrames + i >= nextSecAt) { curSec = Math.floor((decodedFrames + i) / cfgSr); nextSecAt = (curSec + 1) * cfgSr; }
+      if (am > (secMax[curSec] || 0)) secMax[curSec] = am; else if (secMax[curSec] === undefined) secMax[curSec] = 0;
       v /= ch;
       if (v < pMin) pMin = v; if (v > pMax) pMax = v;
       if (++pCount === BASE) { peakMins.push(pMin); peakMaxs.push(pMax); pMin = Infinity; pMax = -Infinity; pCount = 0; }
@@ -141,8 +175,10 @@ async function decodeOnce(file, { group, skipMeta, maxBytes }) {
   const hex = (u8) => Array.from(u8).map((x) => x.toString(16).padStart(2, '0')).join(' ');
   try {
     while (pos < endPos && !errorMsg) {
+      const sliceStart = pos;
       const slice = new Uint8Array(await file.slice(pos, Math.min(endPos, pos + SLICE)).arrayBuffer());
       pos += slice.length;
+      const dataAbs = sliceStart - carry.length;
       const data = concat(carry, slice);
       let i = 0;
       while (i + 4 <= data.length && !errorMsg) {
@@ -169,6 +205,7 @@ async function decodeOnce(file, { group, skipMeta, maxBytes }) {
         }
         if (decoder.state === 'closed') { setErr('decoder closed after ' + mp3Frames + ' frames'); break; }
         if (grpStart < 0) { grpStart = i; grpFrames = 0; grpTs = Math.round(frameIdx * h.spf / h.sampleRate * 1e6); }
+        { const sc = Math.floor(frameIdx * h.spf / h.sampleRate); if (secOffsets[sc] === undefined) secOffsets[sc] = dataAbs + i; }
         grpFrames++; frameIdx += 1; mp3Frames++;
         i += h.size;
         if (grpFrames >= group) flushGroup(data, i);
@@ -219,6 +256,33 @@ async function decodeOnce(file, { group, skipMeta, maxBytes }) {
     res.windowsSilentInBothChannels = bothSilent;
     res.bothChannelsSilentAtSeconds = bothSilentAt;
     res.perChannelSilentWindows = stats.map((x, c) => ({ channel: c === 0 ? 'left' : 'right', silentWindows: x.silent, atSeconds: x.seconds }));
+  }
+  res.shortWrites = shortWrites;
+  // Where did the decoder itself output silence? (before anything was written to disk)
+  const silentSecs = [];
+  for (let k = 0; k < secMax.length; k++) if ((secMax[k] || 0) < 0.0005) silentSecs.push(k);
+  res.decoderOutputSilentSeconds = silentSecs.length;
+  const ranges = [];
+  for (const k of silentSecs) { const r = ranges[ranges.length - 1]; if (r && r[1] === k - 1) r[1] = k; else ranges.push([k, k]); }
+  res.decoderSilentRanges = ranges.slice(0, 15).map((r) => r[0] + '-' + r[1] + 's');
+  res.decoderSilentRangeCount = ranges.length;
+  // Cross-checks on a few seconds: decoder output as written, a fresh decoder on just those bytes (main page adds decodeAudioData).
+  if (maxBytes === Infinity && cfg && !errorMsg) {
+    const picks = (res.bothChannelsSilentAtSeconds || []).slice(0, 3);
+    const control = Math.floor(secMax.length / 2);
+    if (!picks.includes(control)) picks.push(control);
+    res.crossChecks = [];
+    for (const sec of picks) {
+      const s0 = Math.max(0, sec - 3), s1 = sec + 4;
+      const startByte = secOffsets[s0], endByte = secOffsets[s1] !== undefined ? secOffsets[s1] : file.size;
+      const entry = { second: sec, isControl: sec === control && !(res.bothChannelsSilentAtSeconds || []).includes(sec), sequentialDecoderLoudestPerSecond: [], freshDecoderLoudestPerSecond: [], bytes: [startByte, endByte], firstSecondInSlice: s0 };
+      for (let k = s0; k < s1; k++) entry.sequentialDecoderLoudestPerSecond.push(+((secMax[k] || 0)).toFixed(4));
+      if (startByte !== undefined) {
+        try { const f = await freshDecodeEnergy(file, startByte, endByte, cfg.sampleRate, cfg.numberOfChannels); entry.freshDecoderLoudestPerSecond = f.maxBySec; if (f.err) entry.freshError = f.err; }
+        catch (e) { entry.freshError = e.name + ': ' + e.message; }
+      }
+      res.crossChecks.push(entry);
+    }
   }
   try { decoder && decoder.state !== 'closed' && decoder.close(); } catch (e) {}
   handles.forEach((h) => { try { h.close(); } catch (e) {} });
