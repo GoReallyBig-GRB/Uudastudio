@@ -67,9 +67,44 @@ export function aggregatePeaks(mins: Float32Array, maxs: Float32Array, ratio: nu
   return { mins: outMins, maxs: outMaxs };
 }
 
+/**
+ * Fills min/max for buckets [bucketStart, bucketEnd) of `step` frames each, reading raw planar channels
+ * (mono value = average of channels). Output index 0 corresponds to `bucketStart`.
+ * Hot path: tight loops with mono and stereo specialisations.
+ */
+export function fillBucketPeaks(
+  channels: Float32Array[],
+  totalFrames: number,
+  bucketStart: number,
+  bucketEnd: number,
+  step: number,
+  mins: Float32Array,
+  maxs: Float32Array
+): void {
+  const n = channels.length;
+  const c0 = channels[0];
+  const c1 = n > 1 ? channels[1] : null;
+  for (let b = bucketStart; b < bucketEnd; b++) {
+    const s = b * step;
+    const e = Math.min(s + step, totalFrames);
+    let lo = Infinity, hi = -Infinity;
+    if (n === 1) {
+      for (let i = s; i < e; i++) { const v = c0[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    } else if (n === 2 && c1) {
+      for (let i = s; i < e; i++) { const v = (c0[i] + c1[i]) / 2; if (v < lo) lo = v; if (v > hi) hi = v; }
+    } else {
+      for (let i = s; i < e; i++) { let v = 0; for (let c = 0; c < n; c++) v += channels[c][i]; v /= n; if (v < lo) lo = v; if (v > hi) hi = v; }
+    }
+    mins[b - bucketStart] = Number.isFinite(lo) ? lo : 0;
+    maxs[b - bucketStart] = Number.isFinite(hi) ? hi : 0;
+  }
+}
+
 /** Min/max per bucket of `step` frames directly from raw planar channel data (mono average). */
 export function peaksFromRaw(channels: Float32Array[], frames: number, step: number): { mins: Float32Array; maxs: Float32Array } {
-  const acc = new PeakAccumulator(step);
-  acc.push(channels, frames);
-  return splitInterleavedPeaks(acc.finish());
+  const buckets = Math.ceil(frames / step);
+  const mins = new Float32Array(buckets);
+  const maxs = new Float32Array(buckets);
+  fillBucketPeaks(channels, frames, 0, buckets, step, mins, maxs);
+  return { mins, maxs };
 }
