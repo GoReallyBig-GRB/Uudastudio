@@ -51,14 +51,14 @@ describe('measureLoudnessAsync', () => {
       expect(updates[i]).toBeGreaterThanOrEqual(updates[i - 1]);
     }
   });
-  it('reports progress during long true-peak scans', async () => {
+  it('reports progress during long analyses', async () => {
     const length = 1_050_000;
     const buffer = makeBuffer(8000, [
       Float32Array.from({ length }, (_, i) => Math.sin(i * 0.013) * 0.5),
     ]);
     const messages: string[] = [];
     await measureLoudnessAsync(buffer, (progress) => messages.push(progress.message), 60, 70);
-    expect(messages).toContain('Measuring true peak...');
+    expect(messages).toContain('Analyzing loudness and true peak...');
   });
 
 });

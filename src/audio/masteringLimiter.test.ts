@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyLookaheadLimiterChannel } from './mastering';
+import { LookaheadLimiter } from './streamingLimiter';
 
 function referenceLimiter(
   input: Float32Array,
@@ -51,3 +52,24 @@ describe('applyLookaheadLimiterChannel', () => {
     for (let i = 0; i < actual.length; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
   });
 });
+
+describe('LookaheadLimiter in blocks', () => {
+  it('is identical to the reference however the input is cut up', () => {
+    const input = Float32Array.from({ length: 9001 }, (_, i) => Math.sin(i * 0.071) * (i % 211 === 0 ? 1.6 : 0.7));
+    const expected = referenceLimiter(input, 0.8, 97, 0.99);
+    for (const sizes of [[9001], [1], [97, 96, 98, 5000], [4000, 1, 4999, 1]]) {
+      const lim = new LookaheadLimiter(0.8, 97, 0.99);
+      const out: number[] = [];
+      let at = 0, k = 0;
+      while (at < input.length) {
+        const n = Math.min(sizes[k++ % sizes.length], input.length - at);
+        out.push(...lim.process(input.subarray(at, at + n)));
+        at += n;
+      }
+      out.push(...lim.finish());
+      expect(out.length).toBe(input.length);
+      expect(out).toEqual(Array.from(expected));
+    }
+  });
+});
+

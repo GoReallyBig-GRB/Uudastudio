@@ -1213,7 +1213,7 @@ const MainStudio: React.FC = () => {
           ? {
               type: 'warning',
               title: 'Long Audio Imported',
-              message: `${file.name} (${(asset.durationSeconds / 60).toFixed(1)} min) is stored on this device. The waveform, zoom, clip editing and playback work; export of long audio arrives in the next update.`,
+              message: `${file.name} (${(asset.durationSeconds / 60).toFixed(1)} min) is stored on this device. The waveform, zoom, clip editing, playback and export work; audio effects and saving as a .uuda file for long audio arrive in later updates.`,
               duration: 12000,
             }
           : {
