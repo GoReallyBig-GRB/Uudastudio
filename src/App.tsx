@@ -619,18 +619,6 @@ const MainStudio: React.FC = () => {
   // 4. Playback Handlers
   const handlePlay = async () => {
     try {
-      const hasStreamedOnly = project.tracks.some((t) => t.clips.some((c) => {
-        const a = audioEngine.getAsset(c.assetId);
-        return !!a && !!a.source && !a.buffer;
-      }));
-      if (hasStreamedOnly) {
-        addToast({
-          type: 'warning',
-          title: 'Long audio is silent for now',
-          message: 'Playback of long, device-stored audio arrives in the next update. Other tracks play normally.',
-          duration: 6000,
-        });
-      }
       await audioEngine.play(project, playheadSecondsRef.current);
       setIsPlaying(true);
     } catch (err) {
@@ -1225,7 +1213,7 @@ const MainStudio: React.FC = () => {
           ? {
               type: 'warning',
               title: 'Long Audio Imported',
-              message: `${file.name} (${(asset.durationSeconds / 60).toFixed(1)} min) is stored on this device. The waveform, zoom and clip editing work; playback and export of long audio arrive in the next update.`,
+              message: `${file.name} (${(asset.durationSeconds / 60).toFixed(1)} min) is stored on this device. The waveform, zoom, clip editing and playback work; export of long audio arrives in the next update.`,
               duration: 12000,
             }
           : {

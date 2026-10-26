@@ -103,6 +103,11 @@ export async function readStreamedChannelRange(storeId: string, channel: number,
   }
 }
 
+/** Reads the same frame range from every channel. */
+export async function readStreamedFrames(storeId: string, channels: number, startFrame: number, frames: number): Promise<Float32Array[]> {
+  return Promise.all(Array.from({ length: Math.max(1, channels) }, (_, c) => readStreamedChannelRange(storeId, c, startFrame, frames)));
+}
+
 /** Loads the base-level peak file fully into memory (about 7 MB per hour of audio). */
 export async function readStreamedPeakBase(storeId: string): Promise<{ mins: Float32Array; maxs: Float32Array } | null> {
   const dir = await getStreamedAssetDir(storeId);

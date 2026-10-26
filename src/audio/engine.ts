@@ -7,6 +7,28 @@
 import { Project, Track, Clip, Asset } from '../types';
 import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 import { buildDuckCurve, duckCurveKey, scheduleDuckCurve, clearDuck, normalizeDucking } from './ducking';
+import { StreamedClipPlayer } from './streamScheduler';
+import { readStreamedFrames } from '../assets/streamedStore';
+
+/** Where a clip's audio starts: when (AudioContext time), which source second, and how long to play. */
+export function clipPlaybackWindow(clip: Clip, currentPlayhead: number, ctxNow: number): { when: number; offsetSeconds: number; durationSeconds: number } | null {
+  const clipEnd = clip.startSeconds + clip.durationSeconds;
+  if (clipEnd <= currentPlayhead) return null;
+  let when: number;
+  let offsetSeconds: number;
+  let durationSeconds: number;
+  if (clip.startSeconds >= currentPlayhead) {
+    when = ctxNow + (clip.startSeconds - currentPlayhead);
+    offsetSeconds = clip.offsetSeconds;
+    durationSeconds = clip.durationSeconds;
+  } else {
+    const elapsedInClip = currentPlayhead - clip.startSeconds;
+    when = ctxNow;
+    offsetSeconds = clip.offsetSeconds + elapsedInClip;
+    durationSeconds = clip.durationSeconds - elapsedInClip;
+  }
+  return durationSeconds > 0 ? { when, offsetSeconds, durationSeconds } : null;
+}
 
 export interface MeterData {
   peak: number; // 0 to 1+
@@ -79,6 +101,11 @@ export class AudioEngine {
     source: AudioBufferSourceNode;
     gainNode: GainNode;
   }> = [];
+  // Clips of long (file-backed) assets: each reads and schedules short segments ahead of the playhead
+  private activeStreams: Array<{ player: StreamedClipPlayer; gainNode: GainNode }> = [];
+  // First segments read before the transport clock starts, so streamed clips begin in sync
+  private streamPreload: Map<string, Float32Array[]> = new Map();
+  private playToken = 0;
 
   // Rack preview: plays one track (or the whole mix) in isolation, looping, without touching the timeline transport
   private previewTargetId: string | null = null;
@@ -516,6 +543,7 @@ export class AudioEngine {
     }
 
     this.syncTracks(project.tracks);
+    const token = ++this.playToken;
 
     // Compute projectEnd = max(clip.start + clip.duration) across all tracks
     let maxEnd = 0;
@@ -534,6 +562,9 @@ export class AudioEngine {
     } else if (this.projectEndSeconds > 0 && fromTime >= this.projectEndSeconds - 0.01) {
       fromTime = 0;
     }
+
+    await this.preloadStreamedStarts(project, Math.max(0, fromTime));
+    if (token !== this.playToken) { this.streamPreload.clear(); return; } // stopped or restarted while reading
 
     this.playheadSeconds = Math.max(0, fromTime);
     this.playStartTimeCtx = ctx.currentTime;
@@ -580,35 +611,15 @@ export class AudioEngine {
     if (!this.ctx) return;
     if (clip.muted) return; // Muted clip produces no sound
     const asset = this.assets.get(clip.assetId);
-    if (!asset || !asset.buffer) return;
+    if (!asset || (!asset.buffer && !asset.source)) return;
 
-    const clipEnd = clip.startSeconds + clip.durationSeconds;
-    // Check if clip is already passed
-    if (clipEnd <= currentPlayhead) return;
+    const window = clipPlaybackWindow(clip, currentPlayhead, this.ctx.currentTime);
+    if (!window) return;
+    const whenToStartInCtx = window.when;
+    const offsetInAudioBuffer = window.offsetSeconds;
+    const durationToPlay = window.durationSeconds;
 
-    let whenToStartInCtx = 0;
-    let offsetInAudioBuffer = 0;
-    let durationToPlay = 0;
-
-    if (clip.startSeconds >= currentPlayhead) {
-      // Clip starts in the future relative to current playhead
-      whenToStartInCtx = this.ctx.currentTime + (clip.startSeconds - currentPlayhead);
-      offsetInAudioBuffer = clip.offsetSeconds;
-      durationToPlay = clip.durationSeconds;
-    } else {
-      // Playhead is in the middle of this clip
-      const elapsedInClip = currentPlayhead - clip.startSeconds;
-      whenToStartInCtx = this.ctx.currentTime;
-      offsetInAudioBuffer = clip.offsetSeconds + elapsedInClip;
-      durationToPlay = clip.durationSeconds - elapsedInClip;
-    }
-
-    if (durationToPlay <= 0) return;
-
-    // Create source and clip-level gain node (for clip gain + fades)
-    const source = this.ctx.createBufferSource();
-    source.buffer = asset.buffer;
-
+    // Clip-level gain node (for clip gain + fades)
     const clipGain = this.ctx.createGain();
     clipGain.gain.setValueAtTime(clip.gain, whenToStartInCtx);
 
@@ -648,15 +659,70 @@ export class AudioEngine {
       }
     }
 
-    source.connect(clipGain);
     clipGain.connect(destination);
 
-    try {
-      source.start(whenToStartInCtx, offsetInAudioBuffer, durationToPlay);
-      this.activeSources.push({ source, gainNode: clipGain });
-    } catch {
-      // Buffer start exception safeguard
+    if (asset.buffer) {
+      const source = this.ctx.createBufferSource();
+      source.buffer = asset.buffer;
+      source.connect(clipGain);
+      try {
+        source.start(whenToStartInCtx, offsetInAudioBuffer, durationToPlay);
+        this.activeSources.push({ source, gainNode: clipGain });
+      } catch {
+        // Buffer start exception safeguard
+      }
+      return;
     }
+
+    // Long audio on disk: read and schedule short segments ahead of the playhead instead of holding it all.
+    const stored = asset.source!;
+    const sr = asset.sampleRate;
+    const startFrame = Math.max(0, Math.round(offsetInAudioBuffer * sr));
+    const frames = Math.max(0, Math.min(Math.floor(durationToPlay * sr), stored.frames - startFrame));
+    if (frames <= 0) { clipGain.disconnect(); return; }
+    const channels = Math.max(1, asset.numberOfChannels);
+    const player = new StreamedClipPlayer({
+      ctx: this.ctx,
+      destination: clipGain,
+      read: (start, count) => readStreamedFrames(stored.storeId, channels, start, count),
+      channels,
+      sampleRate: sr,
+      startFrame,
+      frames,
+      when: whenToStartInCtx,
+      preloaded: this.streamPreload.get(clip.id) ?? null,
+      onError: (e) => console.warn('Streamed playback stopped:', e),
+    });
+    this.activeStreams.push({ player, gainNode: clipGain });
+    player.start();
+  }
+
+  /**
+   * Reads the first segment of every streamed clip that will sound, before the transport clock starts,
+   * so long clips begin exactly in sync with the rest of the mix instead of arriving a moment late.
+   */
+  private async preloadStreamedStarts(project: Project, fromTime: number): Promise<void> {
+    this.streamPreload.clear();
+    const jobs: Array<Promise<void>> = [];
+    for (const track of project.tracks) {
+      for (const clip of track.clips) {
+        if (clip.muted) continue;
+        const asset = this.assets.get(clip.assetId);
+        if (!asset?.source || asset.buffer) continue;
+        const win = clipPlaybackWindow(clip, fromTime, 0);
+        // Only clips that start within the first segment's reach need a preloaded start.
+        if (!win || win.when > 5) continue;
+        const sr = asset.sampleRate;
+        const startFrame = Math.max(0, Math.round(win.offsetSeconds * sr));
+        const frames = Math.max(0, Math.min(Math.floor(win.durationSeconds * sr), asset.source.frames - startFrame, 10 * sr));
+        if (frames <= 0) continue;
+        const clipId = clip.id;
+        jobs.push(readStreamedFrames(asset.source.storeId, Math.max(1, asset.numberOfChannels), startFrame, frames)
+          .then((data) => { this.streamPreload.set(clipId, data); })
+          .catch(() => undefined));
+      }
+    }
+    await Promise.all(jobs);
   }
 
   private applyFadeCurve(
@@ -735,8 +801,20 @@ export class AudioEngine {
   }
 
   private stopSources(): void {
+    this.playToken++;
     this.clearScheduledStop();
     this.clearAllDucks();
+    for (const item of this.activeStreams) {
+      try {
+        item.player.stop();
+        item.gainNode.gain.cancelScheduledValues(0);
+        item.gainNode.disconnect();
+      } catch {
+        // already stopped
+      }
+    }
+    this.activeStreams = [];
+    this.streamPreload.clear();
     for (const item of this.activeSources) {
       try {
         item.gainNode.gain.cancelScheduledValues(0);
