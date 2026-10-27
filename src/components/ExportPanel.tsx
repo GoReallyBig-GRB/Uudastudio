@@ -16,6 +16,8 @@ import { formatTrackLength } from '../utils/formatters';
 type ExportFormat = 'wav' | 'mp3' | 'uuda';
 type Mp3Bitrate = 128 | 192 | 256 | 320;
 
+/** Highest sample rate MP3 can carry */
+const MP3_MAX_RATE = 48000;
 const MP3_BITRATES: Mp3Bitrate[] = [128, 192, 256, 320];
 /** Longer files are checked from the signal that was written instead of being decoded back into memory. */
 const READBACK_VERIFY_MAX_SECONDS = 30 * 60;
@@ -52,6 +54,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mi
   const [format, setFormat] = useState<ExportFormat>('wav');
   const [kbps, setKbps] = useState<Mp3Bitrate>(192);
   const [useMastering, setUseMastering] = useState(mastering.active);
+  const [optimise48, setOptimise48] = useState(false);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ percent: number; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +65,9 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mi
   const isAudio = format !== 'uuda';
   const sampleRate = project.sampleRate || 48000;
   const seconds = useMemo(() => planMixdown(project, sampleRate).totalFrames / sampleRate, [project, sampleRate]);
+  const mp3TooHigh = format === 'mp3' && sampleRate > MP3_MAX_RATE;
+  const blocked = mp3TooHigh && !optimise48;
+  const outRate = mp3TooHigh ? MP3_MAX_RATE : sampleRate;
   const sizeBytes = format === 'wav' ? seconds * sampleRate * 6 : format === 'mp3' ? seconds * kbps * 125 : 0;
   const PRESET_NAMES: Record<string, string> = { podcast: 'Podcast voice', broadcast: 'Broadcast and radio', music: 'Music and wide stereo', custom: 'Custom', bypass: 'Custom' };
   const preset = mastering.type === 'broadcast' && mastering.broadcastPreset
@@ -75,8 +81,8 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mi
       format: format as 'wav' | 'mp3',
       wavBitDepth: 24,
       mp3Kbps: kbps,
-      mastering: applied ? { settings: mastering, gainDb: matched ? mastering.analysis!.gainDb : undefined } : null,
-      sampleRate,
+      mastering: applied ? { settings: mastering, gainDb: matched && outRate === sampleRate ? mastering.analysis!.gainDb : undefined } : null,
+      sampleRate: outRate,
       onProgress: (p) => setProgress({ percent: p.percent, message: p.message }),
       isCancelled: () => cancelled.current,
     });
@@ -90,6 +96,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mi
   };
 
   const handleExport = async () => {
+    if (blocked) return;
     if (!hasAudio) { setError('The timeline is empty. Add audio before exporting.'); return; }
     cancelled.current = false;
     setRunning(true); setError(null); setFinished(null);
@@ -160,6 +167,28 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mi
               </button>
             ))}
           </div>
+          {mp3TooHigh && (
+            <div role="group" aria-label="Sample rate" className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3.5 text-xs leading-relaxed">
+              <p className="text-amber-100">
+                This project runs at {sampleRate / 1000} kHz. MP3 holds up to 48 kHz, which covers everything you can hear.
+              </p>
+              {optimise48 ? (
+                <p className="mt-2 flex items-center justify-between gap-3 text-emerald-200">
+                  <span>The MP3 will be converted to 48 kHz. Your project stays at {sampleRate / 1000} kHz.</span>
+                  <button type="button" onClick={() => setOptimise48(false)} disabled={running} className="shrink-0 font-semibold text-cyan-300 hover:text-cyan-100">Change</button>
+                </p>
+              ) : (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { setFormat('wav'); setFinished(null); }} className="rounded-lg border border-zinc-600 bg-zinc-800/60 py-2 font-semibold text-zinc-100 hover:border-cyan-400">
+                    Export as WAV
+                  </button>
+                  <button type="button" onClick={() => setOptimise48(true)} className="rounded-lg bg-emerald-500 py-2 font-semibold text-emerald-950 hover:brightness-110">
+                    Optimise to 48 kHz
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {format === 'mp3' && (
             <div className="mt-3">
               <div className="mb-1.5 text-xs text-zinc-400">Bitrate</div>
@@ -270,7 +299,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mi
           </button>
         ) : (
           <button
-            type="button" onClick={handleExport} disabled={!hasAudio || !title.trim()}
+            type="button" onClick={handleExport} disabled={!hasAudio || !title.trim() || blocked}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 py-3 text-sm font-bold text-zinc-950 shadow-[0_6px_24px_rgba(16,185,129,0.25)] transition-[filter] hover:brightness-110 disabled:opacity-40"
           >
             <Download className="h-4 w-4" /> Export {format === 'uuda' ? 'project' : format.toUpperCase()}
