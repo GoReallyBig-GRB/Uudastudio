@@ -39,7 +39,7 @@ import {
 } from './storage/db';
 import { Header } from './components/Header';
 import { LeftSidebar, SidebarTab } from './components/LeftSidebar';
-import { MasterExportPanel } from './components/MasterExportPanel';
+import { MasterConsolePanel } from './components/MasterConsolePanel';
 import { ExportPanel } from './components/ExportPanel';
 import { Timeline } from './components/Timeline';
 import { StatusBar } from './components/StatusBar';
@@ -58,6 +58,9 @@ import { peakProvider } from './waveform/peakProvider';
 import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { formatVolumeDb } from './utils/formatters';
+import { masteringController } from './audio/masteringController';
+import { analysisIsCurrent, masteringKey, mixFingerprint, normalizeMastering, type MasteringSettings } from './audio/masteringSettings';
+import { toChainSettings } from './audio/masteringSettings';
 import { useAuth } from './hooks/useAuth';
 import { SignInPage } from './components/auth/SignInPage';
 import { UserDashboard } from './components/dashboard/UserDashboard';
@@ -190,7 +193,7 @@ const MainStudio: React.FC = () => {
   const [isTimelineViewCollapsed, setIsTimelineViewCollapsed] = useState<boolean>(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(false);
   const [activeMasterPanel, setActiveMasterPanel] = useState<'mastering' | 'export'>('mastering');
-  const [masteredExport, setMasteredExport] = useState<{ buffer: AudioBuffer; sourceProject: Project } | null>(null);
+  const [masterFaderRev, setMasterFaderRev] = useState(0);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState<boolean>(false);
   const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState<boolean>(false);
@@ -342,6 +345,77 @@ const MainStudio: React.FC = () => {
 
   // Keep a current project reference for unload protection without a stale event-handler closure.
   useEffect(() => { projectRef.current = project; }, [project]);
+
+  // Mastering is a processor on the master bus: settings live with the project (not in undo history)
+  const mastering = useMemo(() => normalizeMastering(project.mastering), [project.mastering]);
+  const mixKey = useMemo(
+    () => mixFingerprint(project, audioEngine.getMasterVolume(), audioEngine.getMasterMute()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, masterFaderRev],
+  );
+  const handleMasteringChange = useCallback((patch: Partial<MasteringSettings>) => {
+    setProject((cur) => {
+      const next = { ...normalizeMastering(cur.mastering), ...patch };
+      // Changing the sound invalidates the saved measurement; switching on/off does not
+      const { analysis: _drop, ...rest } = next;
+      const soundChanged = masteringKey(next) !== masteringKey(normalizeMastering(cur.mastering));
+      const merged: MasteringSettings = soundChanged ? rest : next;
+      const updated = { ...cur, mastering: merged };
+      projectRef.current = updated;
+      return updated;
+    });
+  }, []);
+
+  // Playback follows the settings; the make-up gain comes from the last measurement that matches them
+  useEffect(() => {
+    const matches = mastering.analysis && mastering.analysis.settingsKey === masteringKey(mastering);
+    audioEngine.setMastering(mastering, mastering.active && matches ? mastering.analysis!.gainDb : 0);
+  }, [mastering]);
+
+  // Keep the measurement up to date in the background while mastering is on
+  const hasAudioForMastering = project.tracks.some((t) => t.clips.length > 0);
+  useEffect(() => {
+    if (!mastering.active || !hasAudioForMastering || analysisIsCurrent(mastering, mixKey)) {
+      if (!mastering.active || !hasAudioForMastering) masteringController.cancel();
+      return;
+    }
+    masteringController.request({
+      project,
+      settings: toChainSettings(mastering),
+      sampleRate: project.sampleRate || 48000,
+      onDone: (analysis) => {
+        setProject((cur) => {
+          const m = normalizeMastering(cur.mastering);
+          if (masteringKey(m) !== analysis.settingsKey) return cur;
+          const updated = { ...cur, mastering: { ...m, analysis } };
+          projectRef.current = updated;
+          return updated;
+        });
+      },
+    });
+    return () => { /* a newer request replaces this one */ };
+  }, [mastering, mixKey, hasAudioForMastering, project]);
+
+  const handleMeasureMasteringNow = useCallback(() => {
+    if (!mastering.active || !hasAudioForMastering) return;
+    masteringController.requestNow({
+      project: projectRef.current,
+      settings: toChainSettings(mastering),
+      sampleRate: project.sampleRate || 48000,
+      onDone: (analysis) => {
+        setProject((cur) => {
+          const m = normalizeMastering(cur.mastering);
+          if (masteringKey(m) !== analysis.settingsKey) return cur;
+          const updated = { ...cur, mastering: { ...m, analysis } };
+          projectRef.current = updated;
+          return updated;
+        });
+      },
+    });
+  }, [mastering, hasAudioForMastering, project.sampleRate]);
+
+  const openExport = useCallback(() => { setActiveMasterPanel('export'); setIsRightSidebarOpen(true); }, []);
+  const openMastering = useCallback(() => { setActiveMasterPanel('mastering'); setIsRightSidebarOpen(true); }, []);
 
   // Protect unsaved portable project changes when the tab is closed or navigated away.
   useEffect(() => {
@@ -2124,8 +2198,9 @@ const MainStudio: React.FC = () => {
     await flushPluginEdits();
     const previous = historyManagerRef.current.undo();
     if (previous) {
-      setProject(previous);
-      projectRef.current = previous;
+      const restored = { ...previous, mastering: projectRef.current.mastering };
+      setProject(restored);
+      projectRef.current = restored;
       void syncPluginsToSnapshot(previous);
       updateHistoryFlags();
       addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
@@ -2136,8 +2211,9 @@ const MainStudio: React.FC = () => {
     await flushPluginEdits();
     const next = historyManagerRef.current.redo();
     if (next) {
-      setProject(next);
-      projectRef.current = next;
+      const restored = { ...next, mastering: projectRef.current.mastering };
+      setProject(restored);
+      projectRef.current = restored;
       void syncPluginsToSnapshot(next);
       updateHistoryFlags();
       addToast({ type: 'info', title: 'Redo', message: 'Reapplied change.' });
@@ -2494,7 +2570,7 @@ const MainStudio: React.FC = () => {
         onClearSession={handleClearSession}
         activeSidebarTab={sidebarTab}
         onSelectSidebarTab={setSidebarTab}
-        onOpenExport={() => { setActiveMasterPanel('export'); setIsRightSidebarOpen(true); }}
+        onOpenExport={openExport}
         onOpenPlugins={() => setIsPluginsRackModalOpen(true)}
         onOpenVoiceoverModal={() => setIsVoiceoverModalOpen(true)}
       />
@@ -2630,13 +2706,20 @@ const MainStudio: React.FC = () => {
 
               <div className="flex-1 overflow-hidden">
                 {activeMasterPanel === 'export' ? (
-                  <ExportPanel project={project} masteredBuffer={masteredExport?.sourceProject === project ? masteredExport.buffer : undefined} onClose={() => setActiveMasterPanel('mastering')} />
+                  <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => setActiveMasterPanel('mastering')} />
                 ) : (
-                  <MasterExportPanel
+                  <MasterConsolePanel
                     project={project}
                     isSidebarMode={false}
-                    onOpenExport={() => setActiveMasterPanel('export')}
-                    onMasteredBufferReady={(buffer, sourceProject) => setMasteredExport({ buffer, sourceProject })}
+                    initialTab="mastering"
+                    mastering={mastering}
+                    mixKey={mixKey}
+                    isPlaying={isPlaying}
+                    onMasteringChange={handleMasteringChange}
+                    onMeasureMastering={handleMeasureMasteringNow}
+                    onTogglePlay={() => (isPlaying ? handlePause() : handlePlay())}
+                    onOpenExport={openExport}
+                    onMasterFaderChange={() => setMasterFaderRev((r) => r + 1)}
                     onUpdateTrack={handleUpdateTrack}
                     onAddTrack={handleAddEmptyTrack}
                     selectedTrackId={selectedTrackId}
@@ -2684,14 +2767,20 @@ const MainStudio: React.FC = () => {
           <div className="flex h-full shrink-0 z-20 relative animate-in slide-in-from-right duration-150">
             {activeMasterPanel === 'export' ? (
               <div className="w-[380px] max-w-[45vw] h-full">
-                <ExportPanel project={project} masteredBuffer={masteredExport?.sourceProject === project ? masteredExport.buffer : undefined} onClose={() => setIsRightSidebarOpen(false)} />
+                <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => setIsRightSidebarOpen(false)} />
               </div>
             ) : (
-              <MasterExportPanel
+              <MasterConsolePanel
                 project={project}
                 isSidebarMode={true}
-                onOpenExport={() => setActiveMasterPanel('export')}
-                onMasteredBufferReady={(buffer, sourceProject) => setMasteredExport({ buffer, sourceProject })}
+                mastering={mastering}
+                mixKey={mixKey}
+                isPlaying={isPlaying}
+                onMasteringChange={handleMasteringChange}
+                onMeasureMastering={handleMeasureMasteringNow}
+                onTogglePlay={() => (isPlaying ? handlePause() : handlePlay())}
+                onOpenExport={openExport}
+                onMasterFaderChange={() => setMasterFaderRev((r) => r + 1)}
                 onClose={() => setIsRightSidebarOpen(false)}
                 onUpdateTrack={handleUpdateTrack}
                 onAddTrack={handleAddEmptyTrack}
@@ -2706,12 +2795,12 @@ const MainStudio: React.FC = () => {
         {!isTimelineViewCollapsed && !isRightSidebarOpen && (
           <button
             onClick={() => { setActiveMasterPanel('mastering'); setIsRightSidebarOpen(true); }}
-            title="Expand Mastering Console"
+            title="Open master console and mastering"
             className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-[#16161c] hover:bg-zinc-800 text-zinc-400 hover:text-emerald-300 border-l border-y border-zinc-700/80 rounded-l-md px-1 py-3 text-[10px] font-bold tracking-widest uppercase transition-all shadow-md flex flex-col items-center gap-1 cursor-pointer"
           >
             <ChevronLeft className="w-3.5 h-3.5 text-emerald-400" />
             <span className="[writing-mode:vertical-lr] text-[9px] text-zinc-400 hover:text-emerald-300">
-              MASTER / EXPORT
+              MASTER
             </span>
           </button>
         )}

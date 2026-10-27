@@ -1,16 +1,6 @@
 /**
- * Uuda Pro - Phase 5 Multi-Track Master Output Mixing & Export Console
- * Complete implementation of:
- * - Master bus mixer: Master fader (-inf to +6 dB), Mute, Stereo L/R Peak/RMS VU meters
- * - Live ITU-R BS.1770 / EBU R128 Loudness Radar: Momentary (M), Short-Term (S), Integrated (I), True Peak (TP), Gain Reduction (GR)
- * - Mastering Profiles (Podcast -16 LUFS, Broadcast EBU R128 -23 LUFS / ATSC A/85 -24 LKFS, Music -14 LUFS, Custom)
- * - Editable profile parameters (Target LUFS, Ceiling dBTP, Ratio, Attack, Release, Mid Presence Boost)
- * - "Measure and Apply": Offline render -> Measure -> Apply Gain + Brickwall True Peak Limiter -> Re-measure -> Before/After comparison
- * - Full Export Engine: Broadcast WAV (16-bit / 24-bit PCM) & MP3 (128, 192, 256, 320 kbps using lamejs v1.2.1, LGPL-3.0)
- * - Export Range: Whole Project or Selection
- * - Progress indicator tied to rendering and encoding frames
- * - Readback verification checking exported audio is within 1 LU of target and <= -1.0 dBTP
- * - Built-in Phase 5 Acceptance Test Runner
+ * Master output dock: mixing console, master bus meters and mastering.
+ * Mastering lives here as a processor you audition; exporting is a separate screen (ExportPanel).
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -44,34 +34,22 @@ import { Project, Track } from '../types';
 import { audioEngine, MasterLiveMetering } from '../audio/engine';
 import { formatVolumeDb, formatPan } from '../utils/formatters';
 import { getTrackLabel } from '../utils/tracks';
-import {
-  MasteringProfileType,
-  BroadcastPreset,
-  MASTERING_PROFILES,
-  BROADCAST_PRESETS,
-  LoudnessStats,
-  MeasureAndApplyResult,
-  ExportProgress,
-  ExportSummary,
-  measureProjectLoudness,
-  masterProjectToBuffer,
-  exportProjectToFile,
-  makeMixdownDeps,
-  exportAudioBufferToWav,
-  exportAudioBufferToWavAsync,
-  exportAudioBufferToMp3,
-  verifyExportedBlob,
-  triggerFileDownload,
-} from '../audio/mastering';
+import { MasteringPanel } from './MasteringPanel';
+import type { MasteringSettings } from '../audio/masteringSettings';
 
-/** Longer exports are verified from the written signal instead of being decoded back into memory. */
-const READBACK_VERIFY_MAX_SECONDS = 30 * 60;
-
-interface MasterExportPanelProps {
+interface MasterConsolePanelProps {
   project: Project;
   onClose?: () => void;
-  onOpenExport?: () => void;
-  onMasteredBufferReady?: (buffer: AudioBuffer, sourceProject: Project) => void;
+  mastering: MasteringSettings;
+  mixKey: string;
+  isPlaying: boolean;
+  onMasteringChange: (patch: Partial<MasteringSettings>) => void;
+  onMeasureMastering: () => void;
+  onTogglePlay: () => void;
+  onOpenExport: () => void;
+  /** Master fader or mute changed (they are part of what mastering measures) */
+  onMasterFaderChange?: () => void;
+  initialTab?: 'console' | 'meters' | 'mastering';
   isSidebarMode?: boolean;
   onUpdateTrack?: (trackId: string, updates: Partial<Track>) => void;
   onAddTrack?: () => void;
@@ -79,11 +57,18 @@ interface MasterExportPanelProps {
   onSelectTrack?: (trackId: string) => void;
 }
 
-export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
+export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
   project,
   onClose,
+  mastering,
+  mixKey,
+  isPlaying,
+  onMasteringChange,
+  onMeasureMastering,
+  onTogglePlay,
   onOpenExport,
-  onMasteredBufferReady,
+  onMasterFaderChange,
+  initialTab = 'console',
   isSidebarMode = true,
   onUpdateTrack,
   onAddTrack,
@@ -91,7 +76,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
   onSelectTrack,
 }) => {
   // Navigation sub-tabs inside Master panel
-  const [activeTab, setActiveTab] = useState<'console' | 'meters' | 'mastering' | 'export' | 'tests'>('console');
+  const [activeTab, setActiveTab] = useState<'console' | 'meters' | 'mastering'>(initialTab);
 
   // Master Fader & Mute State
   const [masterVolume, setMasterVolume] = useState<number>(() => audioEngine.getMasterVolume());
@@ -110,42 +95,6 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
     gainReductionDb: 0,
     clip: false,
   });
-
-  // Mastering Profile Selection & Editable Parameters
-  const [profileType, setProfileType] = useState<MasteringProfileType>('podcast');
-  const [broadcastPreset, setBroadcastPreset] = useState<BroadcastPreset>('ebu_r128');
-  const [targetLufs, setTargetLufs] = useState<number>(-16.0);
-  const [ceilingDbTP, setCeilingDbTP] = useState<number>(-1.0);
-  const [compressionRatio, setCompressionRatio] = useState<number>(2.5);
-  const [attackMs, setAttackMs] = useState<number>(20);
-  const [releaseMs, setReleaseMs] = useState<number>(120);
-  const [midPresenceGainDb, setMidPresenceGainDb] = useState<number>(1.0);
-
-  // "Measure and Apply" State
-  const [isMeasuring, setIsMeasuring] = useState<boolean>(false);
-  const [measureResult, setMeasureResult] = useState<MeasureAndApplyResult | null>(null);
-  const [fullMixStats, setFullMixStats] = useState<LoudnessStats | null>(null);
-
-  // Audition Mastered Audio
-  const [isPlayingMastered, setIsPlayingMastered] = useState<boolean>(false);
-  const masteredAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
-
-  // Export Settings
-  const [exportFormat, setExportFormat] = useState<'wav' | 'mp3'>('wav');
-  const [wavBitDepth, setWavBitDepth] = useState<16 | 24>(16);
-  const [mp3Bitrate, setMp3Bitrate] = useState<128 | 192 | 256 | 320>(320);
-  const [exportRange, setExportRange] = useState<'whole' | 'selection'>('whole');
-
-  // Export Status & Progress
-  const [isExporting, setIsExporting] = useState<boolean>(false);
-  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
-  const [exportSummary, setExportSummary] = useState<ExportSummary | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Acceptance Tests State
-  const [isTesting, setIsTesting] = useState<boolean>(false);
-  const [testLogs, setTestLogs] = useState<string[]>([]);
-  const [testPassed, setTestPassed] = useState<boolean | null>(null);
 
   // Drawer-style Resizing for Sidesheet Mode:
   // MIN_WIDTH: 380px (minimum boundary)
@@ -312,326 +261,14 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
   const handleMasterVolumeChange = (newVol: number) => {
     setMasterVolume(newVol);
     audioEngine.setMasterVolume(newVol);
+    onMasterFaderChange?.();
   };
 
   const handleToggleMasterMute = () => {
     const next = !isMasterMuted;
     setIsMasterMuted(next);
     audioEngine.setMasterMute(next);
-  };
-
-  // Sync profile selection with editable settings
-  const handleSelectProfile = (type: MasteringProfileType) => {
-    setProfileType(type);
-    const prof = MASTERING_PROFILES[type];
-    setTargetLufs(prof.targetLufs);
-    setCeilingDbTP(prof.ceilingDbTP);
-    setCompressionRatio(prof.compressionRatio);
-    setAttackMs(prof.attackMs);
-    setReleaseMs(prof.releaseMs);
-    setMidPresenceGainDb(prof.midPresenceGainDb);
-
-    if (type === 'broadcast') {
-      setBroadcastPreset('ebu_r128');
-    }
-  };
-
-  const handleSelectBroadcastPreset = (presetKey: BroadcastPreset) => {
-    setBroadcastPreset(presetKey);
-    const preset = BROADCAST_PRESETS[presetKey];
-    setTargetLufs(preset.targetLufs);
-  };
-
-  // On-demand Full Mix Loudness Measurement
-  const handleMeasureFullMix = async () => {
-    if (project.tracks.length === 0) {
-      setErrorMessage('Timeline is empty. Record, generate or import audio first.');
-      return;
-    }
-    setErrorMessage(null);
-    setIsMeasuring(true);
-
-    try {
-      const stats = await measureProjectLoudness(project, project.sampleRate || 48000);
-      setFullMixStats(stats);
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Measurement failed.');
-    } finally {
-      setIsMeasuring(false);
-    }
-  };
-
-  // "Measure and Apply" Action
-  const handleMeasureAndApply = async () => {
-    if (project.tracks.length === 0) {
-      setErrorMessage('Timeline is empty. Please add audio tracks.');
-      return;
-    }
-
-    setErrorMessage(null);
-    setIsMeasuring(true);
-    setExportSummary(null);
-
-    try {
-      // Render, measure and master the mix (short mixes only: the result is kept in memory for audition)
-      const currentProfileConfig = {
-        ...MASTERING_PROFILES[profileType],
-        targetLufs,
-        ceilingDbTP,
-        compressionRatio,
-        attackMs,
-        releaseMs,
-        midPresenceGainDb,
-      };
-
-      const result = await masterProjectToBuffer(project, currentProfileConfig, project.sampleRate || 48000, {
-        targetLufs,
-        ceilingDbTP,
-      });
-
-      setMeasureResult(result);
-      if (result.masteredBuffer) onMasteredBufferReady?.(result.masteredBuffer, project);
-      setFullMixStats(result.postStats);
-      setActiveTab('mastering');
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Measure & Apply failed.');
-    } finally {
-      setIsMeasuring(false);
-    }
-  };
-
-  // Play/Stop Audition of Mastered Buffer
-  const handleToggleAuditionMastered = async () => {
-    if (!measureResult?.masteredBuffer) return;
-
-    if (isPlayingMastered) {
-      if (masteredAudioSourceRef.current) {
-        masteredAudioSourceRef.current.stop();
-        masteredAudioSourceRef.current = null;
-      }
-      setIsPlayingMastered(false);
-    } else {
-      const ctx = await audioEngine.init();
-      const source = ctx.createBufferSource();
-      source.buffer = measureResult.masteredBuffer;
-      source.connect(ctx.destination);
-      source.onended = () => {
-        setIsPlayingMastered(false);
-      };
-      source.start(0);
-      masteredAudioSourceRef.current = source;
-      setIsPlayingMastered(true);
-    }
-  };
-
-  // Master & Export Action
-  const handleExport = async () => {
-    if (project.tracks.length === 0) {
-      setErrorMessage('Timeline is empty. Please add audio tracks.');
-      return;
-    }
-
-    setIsExporting(true);
-    setErrorMessage(null);
-    setExportSummary(null);
-
-    try {
-      const currentProfileConfig = {
-        ...MASTERING_PROFILES[profileType],
-        targetLufs,
-        ceilingDbTP,
-        compressionRatio,
-        attackMs,
-        releaseMs,
-        midPresenceGainDb,
-      };
-      const cleanName = (project.name || 'UudaPro_Production')
-        .replace(/[^a-zA-Z0-9_-]/g, '_')
-        .toLowerCase();
-
-      // Render, master and encode straight into a file, block by block (any length, flat memory)
-      setExportProgress({ stage: 'rendering', percent: 1, message: 'Starting export...' });
-      const { blob: exportedBlob, run } = await exportProjectToFile(project, {
-        format: exportFormat,
-        wavBitDepth,
-        mp3Kbps: mp3Bitrate,
-        mastering: currentProfileConfig,
-        sampleRate: project.sampleRate || 48000,
-        onProgress: setExportProgress,
-      });
-      setMeasureResult({
-        preStats: run.preStats ?? run.postStats,
-        postStats: run.postStats,
-        gainAdjustmentDb: run.gainAdjustmentDb,
-        profile: currentProfileConfig,
-        targetLufs,
-        ceilingDbTP,
-        passedLoudnessTolerance: Math.abs(run.postStats.integratedLUFS - targetLufs) <= 1.0,
-        passedTruePeakCeiling: run.postStats.truePeakDbTP <= ceilingDbTP + 0.1,
-      });
-
-      let filename: string;
-      let bitDepthOrBitrate: string;
-      if (exportFormat === 'wav') {
-        filename = `${cleanName}_${profileType}_${wavBitDepth}bit.wav`;
-        bitDepthOrBitrate = `${wavBitDepth}-bit PCM`;
-      } else {
-        filename = `${cleanName}_${profileType}_${mp3Bitrate}k.mp3`;
-        bitDepthOrBitrate = `${mp3Bitrate} kbps`;
-      }
-
-      // Verify. Short files are read back and measured from the file itself. A multi-hour file cannot be decoded
-      // into memory, so it is verified from the exact signal that was written (before 16/24-bit or MP3 rounding).
-      let verification: { integratedLUFS: number; truePeakDbTP: number; compliant: boolean };
-      if (run.postStats.durationSeconds <= READBACK_VERIFY_MAX_SECONDS) {
-        setExportProgress({ stage: 'verifying', percent: 97, message: 'Reading back exported file & verifying BS.1770 compliance...' });
-        verification = await verifyExportedBlob(exportedBlob, targetLufs, ceilingDbTP, setExportProgress);
-      } else {
-        const ok = Math.abs(run.postStats.integratedLUFS - targetLufs) <= 1.0 && run.postStats.truePeakDbTP <= ceilingDbTP + 0.1;
-        verification = { integratedLUFS: run.postStats.integratedLUFS, truePeakDbTP: run.postStats.truePeakDbTP, compliant: ok };
-      }
-
-      // Trigger automatic file download
-      triggerFileDownload(exportedBlob, filename);
-
-      const sizeFormatted = exportedBlob.size > 1048576
-        ? `${(exportedBlob.size / 1048576).toFixed(2)} MB`
-        : `${Math.round(exportedBlob.size / 1024)} KB`;
-
-      setExportSummary({
-        filename,
-        format: exportFormat,
-        bitDepthOrBitrate,
-        durationSeconds: run.postStats.durationSeconds,
-        integratedLUFS: verification.integratedLUFS,
-        truePeakDbTP: verification.truePeakDbTP,
-        fileSizeBytes: exportedBlob.size,
-        fileSizeFormatted: sizeFormatted,
-        verifiedTargetLufs: targetLufs,
-        lufsDelta: Math.round(Math.abs(verification.integratedLUFS - targetLufs) * 10) / 10,
-        compliant: verification.compliant,
-        libraryUsed: exportFormat === 'mp3' ? 'lamejs (v1.2.1)' : 'Native PCM RIFF WAVE',
-        license: exportFormat === 'mp3' ? 'LGPL-3.0' : 'Open Standard',
-      });
-
-      setExportProgress({ stage: 'complete', percent: 100, message: 'Export & verification complete!' });
-      onOpenExport?.();
-    } catch (err) {
-      console.error('Export error:', err);
-      setErrorMessage(err instanceof Error ? err.message : 'Export failed.');
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  // Run Phase 5 Acceptance Tests
-  const runAcceptanceTests = async () => {
-    setIsTesting(true);
-    setTestLogs([]);
-    setTestPassed(null);
-    const logs: string[] = [];
-
-    const log = (msg: string) => {
-      logs.push(msg);
-      setTestLogs([...logs]);
-    };
-
-    try {
-      log('=== STARTING PHASE 5 ACCEPTANCE TESTS ===');
-
-      // Test 1: Podcast profile test against -16 LUFS
-      log('\n[Test 1] Generating 60s mix with Podcast Profile (Target -16 LUFS, Ceiling -1 dBTP)...');
-      const testCtx = new OfflineAudioContext(2, 48000 * 60, 48000);
-      const osc = testCtx.createOscillator();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(220, 0);
-      const oscGain = testCtx.createGain();
-      oscGain.gain.setValueAtTime(0.12, 0);
-      osc.connect(oscGain);
-      oscGain.connect(testCtx.destination);
-      osc.start(0);
-      const testBuffer60s = await testCtx.startRendering();
-
-      // The test mix goes through the real export pipeline as a one-clip project
-      const testAsset = {
-        id: 'acceptance-test-asset', name: 'Acceptance test tone', kind: 'import' as const, buffer: testBuffer60s,
-        sampleRate: 48000, durationSeconds: 60, numberOfChannels: 2,
-      };
-      const testProject: Project = {
-        id: 'acceptance-test', name: 'Acceptance test', sampleRate: 48000, settings: {} as Project['settings'],
-        tracks: [{
-          id: 'acceptance-test-track', name: 'Tone', volume: 1, pan: 0, muted: false, solo: false,
-          clips: [{
-            id: 'acceptance-test-clip', trackId: 'acceptance-test-track', assetId: testAsset.id, name: 'Tone',
-            startSeconds: 0, offsetSeconds: 0, durationSeconds: 60, gain: 1, fadeInSeconds: 0, fadeOutSeconds: 0, fadeShape: 'linear',
-          }],
-        }],
-      };
-      const testDeps = makeMixdownDeps({
-        getAsset: (id) => (id === testAsset.id ? testAsset : undefined),
-        masterFaderGain: 1,
-        chainHasPlugins: () => false,
-        appendPlugins: async (_ctx, _chain, source) => source,
-      });
-
-      log('  - Measuring raw 60s test mix...');
-      const preTest1 = await measureProjectLoudness(testProject, 48000, { deps: testDeps });
-      log(`    Raw Integrated: ${preTest1.integratedLUFS} LUFS, True Peak: ${preTest1.truePeakDbTP} dBTP`);
-
-      log('  - Applying Podcast Profile mastering...');
-      const podcastResult = await masterProjectToBuffer(testProject, MASTERING_PROFILES.podcast, 48000, { targetLufs: -16.0, ceilingDbTP: -1.0, deps: testDeps });
-      const wavBlob1 = exportAudioBufferToWav(podcastResult.masteredBuffer!, 16);
-      log('  - Reading back exported WAV file to measure again...');
-      const verify1 = await verifyExportedBlob(wavBlob1, -16.0, -1.0);
-      log(`    Measured Readback: ${verify1.integratedLUFS} LUFS (Target -16.0, delta: ${Math.abs(verify1.integratedLUFS - (-16.0)).toFixed(2)} LU)`);
-      log(`    Measured True Peak: ${verify1.truePeakDbTP} dBTP (Ceiling <= -1.0 dBTP)`);
-
-      const test1Passed = Math.abs(verify1.integratedLUFS - (-16.0)) <= 1.0 && verify1.truePeakDbTP <= -0.9;
-      if (test1Passed) {
-        log('  ✓ Test 1 PASSED: Podcast profile is within 1 LU of -16 and true peak <= -1 dBTP.');
-      } else {
-        throw new Error(`Test 1 Failed: Integrated LUFS ${verify1.integratedLUFS} out of tolerance or true peak ${verify1.truePeakDbTP} exceeded ceiling.`);
-      }
-
-      // Test 2: Broadcast profile with EBU R128 preset (-23 LUFS)
-      log('\n[Test 2] Testing Broadcast Profile with EBU R128 (-23 LUFS, 4:1 Ratio, 5ms Attack, +3dB Mid Boost)...');
-      const broadcastConfig = { ...MASTERING_PROFILES.broadcast, targetLufs: -23.0, ceilingDbTP: -1.0 };
-      const broadcastResult = await masterProjectToBuffer(testProject, broadcastConfig, 48000, { targetLufs: -23.0, ceilingDbTP: -1.0, deps: testDeps });
-      const wavBlob2 = exportAudioBufferToWav(broadcastResult.masteredBuffer!, 24);
-      log('  - Reading back exported 24-bit WAV file to measure again...');
-      const verify2 = await verifyExportedBlob(wavBlob2, -23.0, -1.0);
-      log(`    Measured Readback: ${verify2.integratedLUFS} LUFS (Target -23.0, delta: ${Math.abs(verify2.integratedLUFS - (-23.0)).toFixed(2)} LU)`);
-      log(`    Measured True Peak: ${verify2.truePeakDbTP} dBTP`);
-
-      const test2Passed = Math.abs(verify2.integratedLUFS - (-23.0)) <= 1.0 && verify2.truePeakDbTP <= -0.9;
-      if (test2Passed) {
-        log('  ✓ Test 2 PASSED: Broadcast EBU R128 is within 1 LU of -23 and true peak <= -1 dBTP.');
-      } else {
-        throw new Error(`Test 2 Failed: Integrated LUFS ${verify2.integratedLUFS} out of tolerance or true peak ${verify2.truePeakDbTP} exceeded.`);
-      }
-
-      // Test 3: Verify track volumes, mutes, pan and fades are honoured in mixdown
-      log('\n[Test 3] Verifying offline render honours track volume, pan, fades and mutes...');
-      log('  - Checking volume scaling: track.volume and master fader linear ramps applied.');
-      log('  - Checking mute & solo: muted tracks correctly bypassed, solo tracks isolated.');
-      log('  - Checking fades: linear and exponential curve arrays scheduled on clip gain.');
-      log('  ✓ Test 3 PASSED: All track controls and clip automation accurately reflected in mixdown.');
-
-      // Test 4: Verify MP3 and WAV encoders
-      log('\n[Test 4] Verifying MP3 and WAV encoding compliance...');
-      log('  - WAV format: RIFF/WAVE PCM 16-bit and 24-bit verified.');
-      const mp3Blob = await exportAudioBufferToMp3(podcastResult.masteredBuffer!, 320);
-      log(`  - MP3 encoder: lamejs (v1.2.1, LGPL-3.0) produced valid MPEG audio stream (${mp3Blob.size} bytes at 320kbps).`);
-      log('  ✓ Test 4 PASSED: MP3 and WAV files generate clean headers compatible with standard audio players.');
-
-      log('\n=== ALL PHASE 5 ACCEPTANCE TESTS PASSED SUCCESSFULLY! ===');
-      setTestPassed(true);
-    } catch (err) {
-      log(`\n❌ TEST FAILED: ${err instanceof Error ? err.message : String(err)}`);
-      setTestPassed(false);
-    } finally {
-      setIsTesting(false);
-    }
+    onMasterFaderChange?.();
   };
 
   return (
@@ -682,7 +319,7 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
                 ITU-R BS.1770
               </span>
             </div>
-            <p className="text-[10px] text-zinc-400">10+ Channel Console • Master Fader • BS.1770 Metering • Broadcast Export</p>
+            <p className="text-[10px] text-zinc-400">Channel console • Master fader • BS.1770 metering • Mastering</p>
           </div>
         </div>
 
@@ -758,36 +395,15 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
           }`}
         >
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Mastering Profiles</span>
+          <span>Mastering</span>
         </button>
 
 
 
-        <button
-          onClick={() => setActiveTab('tests')}
-          className={`flex items-center gap-1.5 py-2 px-3 border-b-2 transition-all cursor-pointer ml-auto shrink-0 ${
-            activeTab === 'tests'
-              ? 'border-amber-400 text-amber-300 bg-amber-500/10'
-              : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Phase 5 Tests</span>
-        </button>
       </div>
 
       {/* Main Panel Body */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Error Notification */}
-        {errorMessage && (
-          <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-            <span className="flex-1">{errorMessage}</span>
-            <button onClick={() => setErrorMessage(null)} className="text-zinc-400 hover:text-white">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+      <div className={activeTab === 'mastering' ? 'flex-1 min-h-0' : 'flex-1 overflow-y-auto p-4 space-y-4'}>
 
         {/* =========================================================================
             TAB 1: MULTI-CHANNEL MIXING CONSOLE (10+ Channel Strips + Master Out)
@@ -1173,27 +789,6 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
                 </div>
               </div>
 
-              {/* On-demand full mix analyze action */}
-              <div className="mt-3 flex items-center justify-between pt-2 border-t border-zinc-800/80 text-[11px]">
-                <span className="text-zinc-400">Full timeline mixdown measurement:</span>
-                <button
-                  type="button"
-                  onClick={handleMeasureFullMix}
-                  disabled={isMeasuring}
-                  className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-cyan-300 font-semibold border border-zinc-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  {isMeasuring ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
-                  <span>Measure Full Mix</span>
-                </button>
-              </div>
-
-              {fullMixStats && (
-                <div className="mt-2 p-2 rounded bg-cyan-950/20 border border-cyan-800/40 text-[11px] font-mono flex items-center justify-between text-cyan-300">
-                  <span>Integrated: <strong>{fullMixStats.integratedLUFS} LUFS</strong></span>
-                  <span>True Peak: <strong>{fullMixStats.truePeakDbTP} dBTP</strong></span>
-                  <span>LRA: <strong>{fullMixStats.loudnessRangeLU} LU</strong></span>
-                </div>
-              )}
             </div>
 
             {/* Master Fader & Stereo Output Mixing Deck */}
@@ -1283,333 +878,39 @@ export const MasterExportPanel: React.FC<MasterExportPanelProps> = ({
               </div>
             </div>
 
-            {/* Quick Action Buttons */}
+            {/* Next steps */}
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 type="button"
-                onClick={handleMeasureAndApply}
-                disabled={isMeasuring || project.tracks.length === 0}
-                className="py-2.5 px-3 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-[0_0_12px_rgba(0,240,255,0.25)] transition-all cursor-pointer disabled:opacity-50"
+                onClick={() => setActiveTab('mastering')}
+                className="py-2.5 px-3 rounded-lg border border-zinc-700 bg-zinc-800/60 hover:border-cyan-500/60 text-zinc-100 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
-                {isMeasuring ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                <span>Measure & Apply ({targetLufs} LUFS)</span>
+                <Sparkles className="w-4 h-4 text-cyan-300" />
+                <span>Master the mix</span>
               </button>
-
               <button
                 type="button"
-                onClick={() => onOpenExport?.()}
-                className="py-2.5 px-3 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-[0_0_12px_rgba(16,185,129,0.25)] transition-all cursor-pointer"
+                onClick={onOpenExport}
+                className="py-2.5 px-3 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Download className="w-4 h-4" />
-                <span>Export Mixdown...</span>
+                <span>Export</span>
               </button>
             </div>
           </div>
         )}
 
-        {/* =========================================================================
-            TAB 2: MASTERING PROFILES & "MEASURE AND APPLY"
-           ========================================================================= */}
         {activeTab === 'mastering' && (
-          <div className="space-y-4">
-            {/* Mastering Profile Dropdown */}
-            <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider block mb-1.5 flex items-center justify-between">
-                <span>Select Mastering Profile</span>
-                <span className="text-emerald-400 font-semibold">{MASTERING_PROFILES[profileType].name}</span>
-              </label>
-
-              <select
-                value={profileType}
-                onChange={(e) => handleSelectProfile(e.target.value as MasteringProfileType)}
-                className="w-full bg-[#0a0a0e] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 font-bold focus:outline-none focus:border-cyan-500 cursor-pointer"
-              >
-                <option value="podcast">Podcast (Voice Leveling, -16 LUFS, -1 dBTP ceiling)</option>
-                <option value="broadcast">Broadcast / Radio (4:1 Ratio, 5ms Attack, +3dB Mid Presence)</option>
-                <option value="music">Music Bed (Stereo Width & Bass Preservation, -14 LUFS)</option>
-                <option value="custom">Custom Loudness Profile (Fully Configurable)</option>
-                <option value="bypass">Raw Mix (Bypass Mastering DSP)</option>
-              </select>
-            </div>
-
-            {/* If Broadcast: Select Broadcast Standard Preset (EBU R128 or ATSC A/85) */}
-            {profileType === 'broadcast' && (
-              <div className="p-2.5 bg-[#14141c] border border-cyan-800/50 rounded-lg space-y-1.5">
-                <span className="text-[10px] uppercase font-bold text-cyan-400 tracking-wider block">
-                  Broadcast Standard Presets
-                </span>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleSelectBroadcastPreset('ebu_r128')}
-                    className={`px-2.5 py-1.5 rounded text-xs text-left border transition-all cursor-pointer ${
-                      broadcastPreset === 'ebu_r128'
-                        ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200 font-bold'
-                        : 'bg-zinc-800 border-zinc-700 text-zinc-300'
-                    }`}
-                  >
-                    <div>EBU R128</div>
-                    <div className="text-[9px] text-zinc-400">-23 LUFS • Europe</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSelectBroadcastPreset('atsc_a85')}
-                    className={`px-2.5 py-1.5 rounded text-xs text-left border transition-all cursor-pointer ${
-                      broadcastPreset === 'atsc_a85'
-                        ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200 font-bold'
-                        : 'bg-zinc-800 border-zinc-700 text-zinc-300'
-                    }`}
-                  >
-                    <div>ATSC A/85</div>
-                    <div className="text-[9px] text-zinc-400">-24 LKFS • US/Americas</div>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Editable Profile Parameters (All settings editable after selection) */}
-            <div className="p-3 bg-[#15151c] border border-zinc-800 rounded-lg space-y-2.5 text-xs">
-              <div className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider pb-1 border-b border-zinc-800">
-                Mastering Chain Parameters (Editable)
-              </div>
-
-              {/* Target Integrated LUFS */}
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-300 font-medium">Target Loudness:</span>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min="-30"
-                    max="-10"
-                    step="0.5"
-                    value={targetLufs}
-                    onChange={(e) => setTargetLufs(parseFloat(e.target.value))}
-                    className="w-16 bg-black border border-zinc-700 rounded px-1.5 py-0.5 text-center text-cyan-400 font-mono font-bold"
-                  />
-                  <span className="text-zinc-500 font-mono text-[10px]">LUFS</span>
-                </div>
-              </div>
-
-              {/* True Peak Ceiling */}
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-300 font-medium">True Peak Ceiling:</span>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min="-3.0"
-                    max="-0.5"
-                    step="0.1"
-                    value={ceilingDbTP}
-                    onChange={(e) => setCeilingDbTP(parseFloat(e.target.value))}
-                    className="w-16 bg-black border border-zinc-700 rounded px-1.5 py-0.5 text-center text-amber-400 font-mono font-bold"
-                  />
-                  <span className="text-zinc-500 font-mono text-[10px]">dBTP</span>
-                </div>
-              </div>
-
-              {/* Compressor Ratio */}
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-300 font-medium">Compression Ratio:</span>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min="1.0"
-                    max="10.0"
-                    step="0.5"
-                    value={compressionRatio}
-                    onChange={(e) => setCompressionRatio(parseFloat(e.target.value))}
-                    className="w-16 bg-black border border-zinc-700 rounded px-1.5 py-0.5 text-center text-zinc-200 font-mono"
-                  />
-                  <span className="text-zinc-500 font-mono text-[10px]">:1</span>
-                </div>
-              </div>
-
-              {/* Attack & Release */}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-400 text-[11px]">Attack:</span>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={attackMs}
-                      onChange={(e) => setAttackMs(parseInt(e.target.value, 10))}
-                      className="w-12 bg-black border border-zinc-700 rounded px-1 py-0.5 text-center font-mono text-zinc-200"
-                    />
-                    <span className="text-zinc-500 text-[9px]">ms</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-400 text-[11px]">Release:</span>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      min="10"
-                      max="500"
-                      value={releaseMs}
-                      onChange={(e) => setReleaseMs(parseInt(e.target.value, 10))}
-                      className="w-12 bg-black border border-zinc-700 rounded px-1 py-0.5 text-center font-mono text-zinc-200"
-                    />
-                    <span className="text-zinc-500 text-[9px]">ms</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mid Presence Boost */}
-              <div className="flex items-center justify-between pt-1 border-t border-zinc-800">
-                <span className="text-zinc-300 font-medium">Mid Presence Boost (~2.5kHz):</span>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min="0"
-                    max="6"
-                    step="0.5"
-                    value={midPresenceGainDb}
-                    onChange={(e) => setMidPresenceGainDb(parseFloat(e.target.value))}
-                    className="w-16 bg-black border border-zinc-700 rounded px-1.5 py-0.5 text-center text-emerald-400 font-mono"
-                  />
-                  <span className="text-zinc-500 font-mono text-[10px]">dB</span>
-                </div>
-              </div>
-            </div>
-
-            {/* "Measure and Apply" Button */}
-            <button
-              type="button"
-              disabled={isMeasuring || project.tracks.length === 0}
-              onClick={handleMeasureAndApply}
-              className="w-full py-3 rounded-lg bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-[0_0_16px_rgba(0,240,255,0.3)] transition-all cursor-pointer disabled:opacity-50"
-            >
-              {isMeasuring ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Measuring & Normalizing Mix...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  <span>Measure and Apply ({targetLufs} LUFS)</span>
-                </>
-              )}
-            </button>
-
-            {/* Measure and Apply Comparison Summary Card */}
-            {measureResult && (
-              <div className="p-3.5 bg-[#0a0a0e] border border-cyan-500/50 rounded-lg space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>Mastering Compliance Results</span>
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40">
-                    Compliant (within 1 LU)
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-center text-xs font-mono">
-                  <div className="bg-[#121218] p-2 rounded border border-zinc-800">
-                    <div className="text-[9px] text-zinc-500 uppercase">Before</div>
-                    <div className="font-bold text-zinc-300 mt-1">{measureResult.preStats.integratedLUFS} LUFS</div>
-                    <div className="text-[10px] text-zinc-500">{measureResult.preStats.truePeakDbTP} dBTP</div>
-                  </div>
-
-                  <div className="bg-[#121218] p-2 rounded border border-zinc-800">
-                    <div className="text-[9px] text-zinc-500 uppercase">Gain Applied</div>
-                    <div className="font-bold text-amber-400 mt-1">
-                      {measureResult.gainAdjustmentDb >= 0 ? '+' : ''}{measureResult.gainAdjustmentDb} dB
-                    </div>
-                    <div className="text-[10px] text-zinc-500">Limiter: {ceilingDbTP} dBTP</div>
-                  </div>
-
-                  <div className="bg-[#121218] p-2 rounded border border-emerald-500/40 bg-emerald-950/20">
-                    <div className="text-[9px] text-emerald-400 uppercase font-bold">After Master</div>
-                    <div className="font-extrabold text-emerald-300 mt-1">{measureResult.postStats.integratedLUFS} LUFS</div>
-                    <div className="text-[10px] text-emerald-400">{measureResult.postStats.truePeakDbTP} dBTP</div>
-                  </div>
-                </div>
-
-                {/* Audition Mastered Audio */}
-                <div className="pt-2 border-t border-zinc-800 flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={handleToggleAuditionMastered}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold cursor-pointer transition-colors"
-                  >
-                    {isPlayingMastered ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                    <span>{isPlayingMastered ? 'Pause Audition' : 'Audition Mastered Output'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => onOpenExport?.()}
-                    className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer"
-                  >
-                    <span>Proceed to Export</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Export is handled by the dedicated ExportPanel, not the mastering console. */}
-
-        {/* =========================================================================
-            TAB 4: ACCEPTANCE TESTS RUNNER
-           ========================================================================= */}
-        {activeTab === 'tests' && (
-          <div className="space-y-3">
-            <div className="p-3 bg-[#15151c] border border-zinc-800 rounded-lg space-y-2">
-              <span className="text-xs font-bold text-zinc-200 uppercase tracking-wider block">
-                Phase 5 Acceptance Test Suite
-              </span>
-              <p className="text-[11px] text-zinc-400">
-                Runs the 4 mandatory acceptance tests:
-              </p>
-              <ul className="text-[10px] text-zinc-400 space-y-1 list-disc pl-4">
-                <li>1. 60-second Podcast export within 1 LU of -16 and true peak &le; -1 dBTP (verified by readback)</li>
-                <li>2. Broadcast profile with EBU R128 preset within 1 LU of -23 LUFS</li>
-                <li>3. Verifies that fades, mutes, track volumes and pan are accurately reflected</li>
-                <li>4. Verifies MP3 (lamejs) and WAV encoders generate compliant streams</li>
-              </ul>
-
-              <button
-                type="button"
-                disabled={isTesting}
-                onClick={runAcceptanceTests}
-                className="w-full mt-2 py-2.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
-              >
-                {isTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                <span>Run Phase 5 Verification Tests</span>
-              </button>
-            </div>
-
-            {/* Test Console Logs */}
-            {testLogs.length > 0 && (
-              <div className="p-3 bg-[#0a0a0e] border border-zinc-800 rounded-lg space-y-1 font-mono text-[10px] text-zinc-300 max-h-72 overflow-y-auto">
-                {testLogs.map((log, idx) => (
-                  <div
-                    key={idx}
-                    className={
-                      log.includes('PASSED')
-                        ? 'text-emerald-400 font-bold'
-                        : log.includes('FAILED')
-                        ? 'text-rose-400 font-bold'
-                        : log.startsWith('===')
-                        ? 'text-cyan-400 font-bold pt-1'
-                        : 'text-zinc-400'
-                    }
-                  >
-                    {log}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <MasteringPanel
+            settings={mastering}
+            mixKey={mixKey}
+            hasAudio={project.tracks.some((t) => t.clips.length > 0)}
+            isPlaying={isPlaying}
+            onChange={onMasteringChange}
+            onMeasureNow={onMeasureMastering}
+            onTogglePlay={onTogglePlay}
+            onExport={onOpenExport}
+          />
         )}
       </div>
     </div>

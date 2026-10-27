@@ -181,6 +181,8 @@ export interface Project {
   settings: ProjectSettings;
   /** Master bus (whole mix) plugin chain, saved with the project. Track chains live on Track.plugins. */
   masterPlugins?: import('../plugins/types').StoredPluginState[];
+  /** Mastering on the master bus (preset, settings, on/off, saved loudness analysis), saved with the project. */
+  mastering?: import('../audio/masteringSettings').MasteringSettings;
   updatedAt?: number;
 }
 

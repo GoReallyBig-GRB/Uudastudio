@@ -8,6 +8,9 @@ import { Project, Track, Clip, Asset } from '../types';
 import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 import { buildDuckCurve, duckCurveKey, scheduleDuckCurve, clearDuck, normalizeDucking } from './ducking';
 import { StreamedClipPlayer } from './streamScheduler';
+import {
+  CHAIN_COMPRESSOR_KNEE_DB, CHAIN_COMPRESSOR_THRESHOLD_DB, CHAIN_PRESENCE_Q, type MasteringSettings,
+} from './masteringSettings';
 import { readStreamedFrames } from '../assets/streamedStore';
 
 /** Where a clip's audio starts: when (AudioContext time), which source second, and how long to play. */
@@ -56,9 +59,13 @@ export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private duckingGain: GainNode | null = null;
-  /** Entry point of the master plugin chain (ducking -> masterFxIn -> master plugins -> compressor) */
+  /** Entry point of the master plugin chain (ducking -> masterFxIn -> master plugins -> mastering stage) */
   private masterFxIn: GainNode | null = null;
+  // Mastering stage of the master bus (presence EQ -> compressor -> make-up gain -> limiter); see setMastering()
+  private masterEq: BiquadFilterNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
+  private masterMakeup: GainNode | null = null;
+  private mastering: { settings: MasteringSettings | null; makeupGainDb: number } = { settings: null, makeupGainDb: 0 };
   private limiter: DynamicsCompressorNode | null = null;
   private masterAnalyser: AnalyserNode | null = null;
   private isDucked: boolean = false;
@@ -175,8 +182,8 @@ export class AudioEngine {
 
   /** Master bus effects: the whole mix passes through them before the compressor and limiter */
   public rewireMasterPlugins(): void {
-    if (!this.masterFxIn || !this.compressor) return;
-    pluginManager.connectPluginChain(MASTER_TRACK_ID, this.masterFxIn, this.compressor);
+    if (!this.masterFxIn || !this.masterEq) return;
+    pluginManager.connectPluginChain(MASTER_TRACK_ID, this.masterFxIn, this.masterEq);
   }
 
   public async init(): Promise<AudioContext> {
@@ -280,13 +287,22 @@ export class AudioEngine {
     this.duckingGain = this.ctx.createGain();
     this.duckingGain.gain.setValueAtTime(1.0, this.ctx.currentTime);
 
-    // Broadcast-ready Compressor
+    // Mastering stage. Neutral until setMastering() switches it on: flat EQ, no compression, unity gain.
+    this.masterEq = this.ctx.createBiquadFilter();
+    this.masterEq.type = 'peaking';
+    this.masterEq.frequency.setValueAtTime(3000, this.ctx.currentTime);
+    this.masterEq.Q.setValueAtTime(CHAIN_PRESENCE_Q, this.ctx.currentTime);
+    this.masterEq.gain.setValueAtTime(0, this.ctx.currentTime);
+
     this.compressor = this.ctx.createDynamicsCompressor();
-    this.compressor.threshold.setValueAtTime(-24, this.ctx.currentTime);
-    this.compressor.knee.setValueAtTime(12, this.ctx.currentTime);
-    this.compressor.ratio.setValueAtTime(4, this.ctx.currentTime);
-    this.compressor.attack.setValueAtTime(0.005, this.ctx.currentTime);
-    this.compressor.release.setValueAtTime(0.25, this.ctx.currentTime);
+    this.compressor.threshold.setValueAtTime(CHAIN_COMPRESSOR_THRESHOLD_DB, this.ctx.currentTime);
+    this.compressor.knee.setValueAtTime(CHAIN_COMPRESSOR_KNEE_DB, this.ctx.currentTime);
+    this.compressor.ratio.setValueAtTime(1, this.ctx.currentTime);
+    this.compressor.attack.setValueAtTime(0.02, this.ctx.currentTime);
+    this.compressor.release.setValueAtTime(0.12, this.ctx.currentTime);
+
+    this.masterMakeup = this.ctx.createGain();
+    this.masterMakeup.gain.setValueAtTime(1, this.ctx.currentTime);
 
     // Transparent Brickwall Limiter (fast attack compressor)
     this.limiter = this.ctx.createDynamicsCompressor();
@@ -334,9 +350,11 @@ export class AudioEngine {
     this.masterGain.connect(this.duckingGain);
     this.masterFxIn = this.ctx.createGain();
     this.duckingGain.connect(this.masterFxIn);
-    this.masterFxIn.connect(this.compressor);
     this.rewireMasterPlugins();
-    this.compressor.connect(this.limiter);
+    this.masterEq.connect(this.compressor);
+    this.compressor.connect(this.masterMakeup);
+    this.masterMakeup.connect(this.limiter);
+    this.applyMastering();
     this.limiter.connect(this.masterAnalyser);
     this.limiter.connect(this.masterSplitter);
     this.limiter.connect(this.kHighShelf);
@@ -973,19 +991,29 @@ export class AudioEngine {
     return this.isMasterMuted;
   }
 
-  public setMasterCompressor(threshold: number, ratio: number, attackMs: number, releaseMs: number): void {
-    if (!this.ctx || !this.compressor) return;
-    const now = this.ctx.currentTime;
-    this.compressor.threshold.setValueAtTime(threshold, now);
-    this.compressor.ratio.setValueAtTime(ratio, now);
-    this.compressor.attack.setValueAtTime(attackMs / 1000, now);
-    this.compressor.release.setValueAtTime(releaseMs / 1000, now);
+  /**
+   * Mastering works like a plugin on the master bus. Active: presence EQ, compressor, make-up gain (to the target
+   * loudness, from the analysis) and a limiter at the ceiling. Inactive: the plain mix, with only a safety limiter
+   * at -1 dB. Changes glide, so switching A/B while playing does not click.
+   */
+  public setMastering(settings: MasteringSettings | null, makeupGainDb: number): void {
+    this.mastering = { settings, makeupGainDb: Number.isFinite(makeupGainDb) ? makeupGainDb : 0 };
+    this.applyMastering();
   }
 
-  public setMasterLimiterCeiling(ceilingDbTP: number): void {
-    if (!this.ctx || !this.limiter) return;
+  private applyMastering(): void {
+    if (!this.ctx || !this.masterEq || !this.compressor || !this.masterMakeup || !this.limiter) return;
     const now = this.ctx.currentTime;
-    this.limiter.threshold.setValueAtTime(ceilingDbTP, now);
+    const glide = 0.03;
+    const { settings, makeupGainDb } = this.mastering;
+    const on = !!settings?.active;
+    this.masterEq.frequency.setTargetAtTime(on ? settings!.midPresenceFreqHz : 3000, now, glide);
+    this.masterEq.gain.setTargetAtTime(on ? settings!.midPresenceGainDb : 0, now, glide);
+    this.compressor.ratio.setTargetAtTime(on ? Math.max(1, settings!.compressionRatio) : 1, now, glide);
+    this.compressor.attack.setTargetAtTime(on ? settings!.attackMs / 1000 : 0.02, now, glide);
+    this.compressor.release.setTargetAtTime(on ? settings!.releaseMs / 1000 : 0.12, now, glide);
+    this.masterMakeup.gain.setTargetAtTime(on ? Math.pow(10, makeupGainDb / 20) : 1, now, glide);
+    this.limiter.threshold.setTargetAtTime(on ? settings!.ceilingDbTP : -1, now, glide);
   }
 
   public getMasterGainReduction(): number {

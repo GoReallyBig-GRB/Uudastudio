@@ -4,7 +4,8 @@
  *
  * The whole-buffer encoders in mastering.ts feed these same writers, so there is one WAV encoder and one MP3 encoder.
  */
-import { Mp3Encoder } from '@breezystack/lamejs';
+import { Mp3Core } from './mp3Core';
+import type { Mp3WorkerIn, Mp3WorkerOut } from './mp3Worker';
 
 /** Receives planar float32 blocks in order. `frames` is the valid length of each channel array. */
 export interface AudioSink {
@@ -149,73 +150,102 @@ export async function createWavSink(
   };
 }
 
-/** MP3 writer (lamejs). Accepts blocks of any size. */
+const toInt16 = (src: Float32Array, frames: number): Int16Array => {
+  const out = new Int16Array(frames);
+  for (let i = 0; i < frames; i++) {
+    const v = src[i];
+    const s = Math.max(-1, Math.min(1, Number.isFinite(v) ? v : 0));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return out;
+};
+
+/** How many blocks may be waiting in the encoder at once (bounds memory while keeping it busy). */
+const MP3_MAX_BLOCKS_IN_FLIGHT = 3;
+
+/**
+ * MP3 writer. Encoding runs in a worker so rendering the next block overlaps with encoding this one (the page also
+ * stays responsive). Where workers are unavailable the same encoding loop runs in place.
+ */
 export function createMp3Sink(target: ByteTarget, channels: number, sampleRate: number, kbps: number): AudioSink {
   if (channels < 1 || channels > 2) throw new Error(`MP3 export supports mono or stereo audio; received ${channels} channels.`);
-  const encoder = new Mp3Encoder(channels, sampleRate, kbps);
-  const FRAME = 1152;
-  let carryL = new Int16Array(0);
-  let carryR = new Int16Array(0);
-  const toInt = (v: number) => { const s = Math.max(-1, Math.min(1, Number.isFinite(v) ? v : 0)); return s < 0 ? s * 0x8000 : s * 0x7fff; };
-  // Encoded bytes are batched so storage sees a few large writes instead of one per 1152-sample frame
-  let pending: Uint8Array[] = [];
-  let pendingBytes = 0;
-  const flush = async () => {
-    if (pendingBytes === 0) return;
-    const joined = new Uint8Array(pendingBytes);
-    let at = 0;
-    for (const p of pending) { joined.set(p, at); at += p.length; }
-    pending = []; pendingBytes = 0;
-    await target.write(joined);
+  let worker: Worker | null = null;
+  try {
+    if (typeof Worker !== 'undefined') worker = new Worker(new URL('./mp3Worker.ts', import.meta.url), { type: 'module' });
+  } catch { worker = null; }
+
+  const convert = (data: Float32Array[], frames: number) => ({
+    left: toInt16(data[0], frames),
+    right: channels > 1 ? toInt16(data[1], frames) : undefined,
+  });
+
+  if (!worker) {
+    const core = new Mp3Core(channels, sampleRate, kbps);
+    return {
+      async write(data, frames) {
+        if (frames <= 0) return;
+        const { left, right } = convert(data, frames);
+        const bytes = core.encode(left, right);
+        if (bytes.length > 0) await target.write(bytes);
+      },
+      async close() {
+        const bytes = core.finish();
+        if (bytes.length > 0) await target.write(bytes);
+        return target.finish('audio/mp3');
+      },
+      abort: () => target.abort(),
+    };
+  }
+
+  const w = worker;
+  let failure: Error | null = null;
+  let inFlight = 0;
+  let nextId = 0;
+  let writes: Promise<void> = Promise.resolve();
+  let wake: (() => void) | null = null;
+  let finished: ((bytes: Uint8Array) => void) | null = null;
+  const settle = () => { const f = wake; wake = null; f?.(); };
+  const fail = (e: Error) => { failure = failure ?? e; settle(); finished?.(new Uint8Array(0)); };
+
+  w.onmessage = (e: MessageEvent<Mp3WorkerOut>) => {
+    const m = e.data;
+    if (m.type === 'data') {
+      inFlight--;
+      if (m.bytes.length > 0) writes = writes.then(() => target.write(m.bytes)).catch((err) => fail(err instanceof Error ? err : new Error(String(err))));
+      settle();
+    } else if (m.type === 'done') {
+      finished?.(m.bytes);
+    } else if (m.type === 'error') {
+      fail(new Error(`MP3 encoder failed: ${m.message}`));
+    }
   };
-  const encode = async (l: Int16Array, r?: Int16Array) => {
-    const buf = encoder.encodeBuffer(l, r);
-    if (buf.length > 0) { pending.push(new Uint8Array(buf)); pendingBytes += buf.length; }
-    if (pendingBytes >= 262144) await flush();
-  };
-  const join = (carry: Int16Array, src: Float32Array, frames: number) => {
-    const out = new Int16Array(carry.length + frames);
-    out.set(carry, 0);
-    for (let i = 0; i < frames; i++) out[carry.length + i] = toInt(src[i]);
-    return out;
-  };
+  w.onerror = (e) => fail(new Error(`MP3 encoder failed: ${e.message || 'worker error'}`));
+  w.postMessage({ type: 'init', channels, sampleRate, kbps } satisfies Mp3WorkerIn);
+
   return {
     async write(data, frames) {
       if (frames <= 0) return;
-      const l = join(carryL, data[0], frames);
-      const r = channels > 1 ? join(carryR, data[1], frames) : undefined;
-      const usable = Math.floor(l.length / FRAME) * FRAME;
-      // One 1152-sample frame per call, as the encoder is normally driven
-      for (let o = 0; o < usable; o += FRAME) {
-        await encode(l.subarray(o, o + FRAME), r?.subarray(o, o + FRAME));
-      }
-      carryL = l.slice(usable);
-      carryR = r ? r.slice(usable) : carryR;
+      while (inFlight >= MP3_MAX_BLOCKS_IN_FLIGHT && !failure) await new Promise<void>((r) => { wake = r; });
+      if (failure) throw failure;
+      const { left, right } = convert(data, frames);
+      inFlight++;
+      const transfer: Transferable[] = [left.buffer];
+      if (right) transfer.push(right.buffer);
+      w.postMessage({ type: 'encode', id: nextId++, left, right } satisfies Mp3WorkerIn, transfer);
     },
     async close() {
-      if (carryL.length > 0) await encode(carryL, channels > 1 ? carryR : undefined);
-      const end = encoder.flush();
-      if (end.length > 0) { pending.push(new Uint8Array(end)); pendingBytes += end.length; }
-      await flush();
+      const last = new Promise<Uint8Array>((resolve) => { finished = resolve; });
+      w.postMessage({ type: 'finish' } satisfies Mp3WorkerIn);
+      const tail = await last;
+      await writes;
+      w.terminate();
+      if (failure) throw failure;
+      if (tail.length > 0) await target.write(tail);
       return target.finish('audio/mp3');
     },
-    abort: () => target.abort(),
-  };
-}
-
-/** Collects blocks into planar arrays: for short results that are auditioned or reused from memory. */
-export interface CollectedAudio { channels: Float32Array[]; frames: number }
-export function createCollector(channels: number, totalFrames: number): AudioSink & { result(): CollectedAudio } {
-  const out = Array.from({ length: channels }, () => new Float32Array(totalFrames));
-  let at = 0;
-  return {
-    async write(data, frames) {
-      if (at + frames > totalFrames) throw new Error('More audio arrived than the collector was sized for.');
-      for (let c = 0; c < channels; c++) out[c].set(data[Math.min(c, data.length - 1)].subarray(0, frames), at);
-      at += frames;
+    async abort() {
+      w.terminate();
+      await target.abort();
     },
-    async close() { return new Blob(); },
-    async abort() { /* nothing held outside */ },
-    result() { return { channels: out, frames: at }; },
   };
 }

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { pluginManager } from './pluginManager';
 import { findPluginDescriptor } from './registry';
 import { withPluginStates, restorePluginStates } from './projectPlugins';
-import { appendOfflinePlugins, SkippedPlugin } from '../audio/mastering';
+import { appendOfflinePlugins, SkippedPlugin } from '../audio/exportProject';
 import { makeContext, makeNode } from '../test/fakeAudioContext';
 import { Project, Track } from '../types';
 
