@@ -1,19 +1,40 @@
-import React, { useState } from 'react';
-import { CheckCircle2, Download, FileAudio, Loader2, XCircle } from 'lucide-react';
+/**
+ * Export: name the file, choose a format, and save. It works the same for every project, mastered or not.
+ * Mastering is an optional step in front of it; the summary row shows what will be applied and links back to it.
+ */
+import React, { useMemo, useRef, useState } from 'react';
+import { ArrowLeft, CheckCircle2, Download, FileAudio, Loader2, Sparkles, X, XCircle } from 'lucide-react';
 import type { Project } from '../types';
-import { exportProjectToFile, exportAudioBufferToWavAsync, exportAudioBufferToMp3, triggerFileDownload } from '../audio/mastering';
+import { exportProjectToFile, measureExportedBlob, triggerFileDownload, type LoudnessStats } from '../audio/exportProject';
+import { masteringController } from '../audio/masteringController';
+import { planMixdown } from '../audio/blockMixdown';
+import { analysisIsCurrent, masteringKey, BROADCAST_PRESETS, type BroadcastPreset, type MasteringSettings } from '../audio/masteringSettings';
 import { encodeProjectFile } from '../storage/projectFile';
 import { audioEngine } from '../audio/engine';
+import { formatTrackLength } from '../utils/formatters';
 
 type ExportFormat = 'wav' | 'mp3' | 'uuda';
-type Mp3Bitrate = 128 | 192 | 320;
+type Mp3Bitrate = 128 | 192 | 256 | 320;
 
-const MP3_BITRATES: Mp3Bitrate[] = [128, 192, 320];
+const MP3_BITRATES: Mp3Bitrate[] = [128, 192, 256, 320];
+/** Longer files are checked from the signal that was written instead of being decoded back into memory. */
+const READBACK_VERIFY_MAX_SECONDS = 30 * 60;
 
 interface ExportPanelProps {
   project: Project;
-  masteredBuffer?: AudioBuffer;
+  mastering: MasteringSettings;
+  mixKey: string;
+  onEditMastering: () => void;
   onClose?: () => void;
+}
+
+interface Finished {
+  filename: string;
+  blob: Blob;
+  kind: 'audio' | 'project';
+  stats?: LoudnessStats;
+  verifiedFromFile: boolean;
+  mastered: boolean;
 }
 
 function safeBaseName(title: string): string {
@@ -21,160 +42,240 @@ function safeBaseName(title: string): string {
   return cleaned || 'Uuda Studio Export';
 }
 
-export const ExportPanel: React.FC<ExportPanelProps> = ({ project, masteredBuffer, onClose }) => {
-  const [outputTitle, setOutputTitle] = useState(project.name || 'Uuda Studio Export');
+const formatSize = (bytes: number) => bytes >= 1024 * 1024 * 1024
+  ? `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+  : bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+const lufs = (v: number) => `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}`;
+
+export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mixKey, onEditMastering, onClose }) => {
+  const [title, setTitle] = useState(project.name || 'Uuda Studio Export');
   const [format, setFormat] = useState<ExportFormat>('wav');
-  const [mp3Bitrate, setMp3Bitrate] = useState<Mp3Bitrate>(192);
-  const [isExporting, setIsExporting] = useState(false);
-  const [status, setStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
-  const [progress, setProgress] = useState<string | null>(null);
+  const [kbps, setKbps] = useState<Mp3Bitrate>(192);
+  const [useMastering, setUseMastering] = useState(mastering.active);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{ percent: number; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [finished, setFinished] = useState<Finished | null>(null);
+  const cancelled = useRef(false);
+
+  const hasAudio = project.tracks.some((t) => t.clips.length > 0);
+  const isAudio = format !== 'uuda';
+  const sampleRate = project.sampleRate || 48000;
+  const seconds = useMemo(() => planMixdown(project, sampleRate).totalFrames / sampleRate, [project, sampleRate]);
+  const sizeBytes = format === 'wav' ? seconds * sampleRate * 6 : format === 'mp3' ? seconds * kbps * 125 : 0;
+  const PRESET_NAMES: Record<string, string> = { podcast: 'Podcast voice', broadcast: 'Broadcast and radio', music: 'Music and wide stereo', custom: 'Custom', bypass: 'Custom' };
+  const preset = mastering.type === 'broadcast' && mastering.broadcastPreset
+    ? BROADCAST_PRESETS[mastering.broadcastPreset as BroadcastPreset].label.replace(/ \(.*/, '')
+    : PRESET_NAMES[mastering.type] ?? 'Custom';
+  const matched = analysisIsCurrent(mastering, mixKey) && mastering.analysis?.settingsKey === masteringKey(mastering);
+
+  const exportAudio = async (): Promise<Finished> => {
+    const applied = useMastering;
+    const out = await exportProjectToFile(project, {
+      format: format as 'wav' | 'mp3',
+      wavBitDepth: 24,
+      mp3Kbps: kbps,
+      mastering: applied ? { settings: mastering, gainDb: matched ? mastering.analysis!.gainDb : undefined } : null,
+      sampleRate,
+      onProgress: (p) => setProgress({ percent: p.percent, message: p.message }),
+      isCancelled: () => cancelled.current,
+    });
+    let stats = out.run.postStats;
+    let verifiedFromFile = false;
+    if (applied && stats.durationSeconds <= READBACK_VERIFY_MAX_SECONDS) {
+      setProgress({ percent: 98, message: 'Checking the saved file...' });
+      try { stats = await measureExportedBlob(out.blob); verifiedFromFile = true; } catch { /* keep the measurement of the written signal */ }
+    }
+    return { filename: `${safeBaseName(title)}.${format}`, blob: out.blob, kind: 'audio', stats, verifiedFromFile, mastered: applied };
+  };
 
   const handleExport = async () => {
-    if (!project.tracks.length) {
-      setStatus({ kind: 'error', message: 'The timeline is empty. Add audio before exporting.' });
-      return;
-    }
-    const baseName = safeBaseName(outputTitle);
-    setIsExporting(true);
-    setStatus(null);
-    setProgress(format === 'uuda' ? 'Packaging project and referenced audio…' : masteredBuffer ? 'Preparing the reviewed master…' : 'Rendering the current mix…');
+    if (!hasAudio) { setError('The timeline is empty. Add audio before exporting.'); return; }
+    cancelled.current = false;
+    setRunning(true); setError(null); setFinished(null);
+    masteringController.cancel(); // one heavy job at a time
+    setProgress({ percent: 0, message: format === 'uuda' ? 'Packaging project and audio...' : 'Starting...' });
     try {
+      let result: Finished;
       if (format === 'uuda') {
-        // The project package includes project metadata and the exact PCM samples for referenced assets.
-        const projectForExport = { ...project, name: outputTitle.trim() || baseName };
-        const blob = encodeProjectFile(projectForExport, (assetId) => audioEngine.getAsset(assetId));
-        const filename = `${baseName}.uuda`;
-        triggerFileDownload(blob, filename);
-        setStatus({ kind: 'success', message: `Project exported as ${filename}. It contains the project and its referenced audio and can be reopened in Uuda Studio.` });
-        setProgress(null);
-        return;
-      }
-
-      let blob: Blob;
-      const filename = `${baseName}.${format}`;
-      if (masteredBuffer) {
-        // A reviewed master is already in memory (short mixes): encode it as it is
-        if (format === 'wav') {
-          setProgress('Encoding 24-bit PCM WAV…');
-          blob = await exportAudioBufferToWavAsync(masteredBuffer, 24);
-        } else {
-          setProgress(`Encoding ${mp3Bitrate} kbps MP3…`);
-          blob = await exportAudioBufferToMp3(masteredBuffer, mp3Bitrate);
-        }
+        const blob = encodeProjectFile({ ...project, name: title.trim() || safeBaseName(title) }, (id) => audioEngine.getAsset(id));
+        result = { filename: `${safeBaseName(title)}.uuda`, blob, kind: 'project', verifiedFromFile: false, mastered: false };
       } else {
-        // Any length: rendered and encoded block by block straight into a file
-        const out = await exportProjectToFile(project, {
-          format,
-          wavBitDepth: 24,
-          mp3Kbps: mp3Bitrate === 320 ? 320 : mp3Bitrate === 192 ? 192 : 128,
-          mastering: null,
-          sampleRate: project.sampleRate || 48000,
-          onProgress: (p) => setProgress(`${p.message} ${p.percent}%`),
-        });
-        blob = out.blob;
+        result = await exportAudio();
       }
-      triggerFileDownload(blob, filename);
-      const size = blob.size >= 1024 * 1024
-        ? `${(blob.size / (1024 * 1024)).toFixed(2)} MB`
-        : `${Math.max(1, Math.round(blob.size / 1024))} KB`;
-      setStatus({ kind: 'success', message: `Exported ${filename} (${size}). ${masteredBuffer ? 'Used the reviewed master from the mastering console; no second mastering pass was applied.' : 'Exported the current mix without an additional mastering pass. For the final mastered sound, run and review mastering first.'}` });
-      setProgress(null);
-    } catch (error) {
-      setProgress(null);
-      setStatus({ kind: 'error', message: error instanceof Error ? error.message : 'Export failed. Please try again.' });
+      triggerFileDownload(result.blob, result.filename);
+      setFinished(result);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Export failed.';
+      if (!cancelled.current) setError(message);
     } finally {
-      setIsExporting(false);
+      setRunning(false); setProgress(null);
     }
   };
 
-  const formats: Array<{ value: ExportFormat; title: string; detail: string }> = [
-    { value: 'wav', title: '.wav', detail: '24-bit PCM audio' },
-    { value: 'mp3', title: '.mp3', detail: `${mp3Bitrate} kbps audio` },
-    { value: 'uuda', title: '.uuda', detail: 'Reopenable project + audio' },
+  const formats: Array<{ value: ExportFormat; name: string; detail: string }> = [
+    { value: 'wav', name: 'WAV', detail: '24-bit, lossless' },
+    { value: 'mp3', name: 'MP3', detail: 'Small, plays everywhere' },
+    { value: 'uuda', name: 'Project', detail: 'Reopen in Uuda Studio' },
   ];
 
   return (
     <section className="flex h-full min-w-0 flex-col bg-[#101015] text-zinc-100">
       <header className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <Download className="h-4 w-4 text-emerald-400" />
-          <div>
-            <h2 className="text-sm font-bold">Export</h2>
-            <p className="text-[10px] text-zinc-500">Generate an output from the current mix</p>
-          </div>
+          <h2 className="text-sm font-bold">Export</h2>
         </div>
-        {onClose && <button type="button" onClick={onClose} aria-label="Close export panel" className="rounded p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white"><XCircle className="h-4 w-4" /></button>}
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Close export" className="rounded p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white">
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </header>
 
-      <div className="flex-1 space-y-5 overflow-y-auto p-4">
-        <div className="space-y-1.5">
-          <label htmlFor="export-output-title" className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400">Output / track title</label>
-          <input
-            id="export-output-title"
-            value={outputTitle}
-            onChange={(event) => setOutputTitle(event.target.value)}
-            maxLength={180}
-            placeholder="Enter output title"
-            className="w-full rounded-lg border border-zinc-700 bg-[#09090d] px-3 py-2.5 text-sm outline-none focus:border-cyan-500"
-          />
-          <p className="text-[10px] text-zinc-500">The title is used for the downloaded filename{format === 'uuda' ? ' and the saved project name' : ''}. {masteredBuffer ? 'A reviewed master is ready for audio export.' : 'Audio export uses the current mix; it does not run mastering automatically.'}</p>
+      <div className="flex-1 space-y-6 overflow-y-auto px-4 py-5">
+        <div>
+          <label htmlFor="export-title" className="mb-1.5 block text-sm font-semibold text-zinc-100">Title</label>
+          <div className="flex items-stretch overflow-hidden rounded-lg border border-zinc-700 bg-[#09090d] focus-within:border-cyan-500">
+            <input
+              id="export-title" value={title} maxLength={180} placeholder="Name your file"
+              onChange={(e) => setTitle(e.target.value)} disabled={running}
+              className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none"
+            />
+            <span className="flex items-center border-l border-zinc-800 px-3 font-mono text-xs text-zinc-500">.{format}</span>
+          </div>
         </div>
 
-        <div className="space-y-2">
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400">Output format</label>
-          <div className="grid grid-cols-3 gap-2">
-            {formats.map((item) => (
-              <button key={item.value} type="button" onClick={() => { setFormat(item.value); setStatus(null); }}
-                aria-pressed={format === item.value}
-                className={`rounded-lg border p-3 text-left transition-colors ${format === item.value ? 'border-cyan-400 bg-cyan-500/10 text-white' : 'border-zinc-800 bg-[#17171e] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'}`}>
-                <span className="block text-sm font-bold">{item.title}</span>
-                <span className="mt-1 block text-[10px] leading-snug">{item.detail}</span>
+        <div>
+          <div className="mb-1.5 text-sm font-semibold text-zinc-100">Format</div>
+          <div role="radiogroup" aria-label="Format" className="grid grid-cols-3 gap-2">
+            {formats.map((f) => (
+              <button
+                key={f.value} type="button" role="radio" aria-checked={format === f.value} disabled={running}
+                onClick={() => { setFormat(f.value); setFinished(null); setError(null); }}
+                className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${format === f.value ? 'border-cyan-400 bg-cyan-500/10 text-white' : 'border-zinc-800 bg-[#17171e] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'}`}
+              >
+                <span className="block text-sm font-bold">{f.name}</span>
+                <span className="mt-0.5 block text-[11px] leading-snug">{f.detail}</span>
               </button>
             ))}
           </div>
+          {format === 'mp3' && (
+            <div className="mt-3">
+              <div className="mb-1.5 text-xs text-zinc-400">Bitrate</div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {MP3_BITRATES.map((b) => (
+                  <button
+                    key={b} type="button" aria-pressed={kbps === b} disabled={running} onClick={() => setKbps(b)}
+                    className={`rounded-md border py-1.5 text-xs font-semibold transition-colors ${kbps === b ? 'border-cyan-400 bg-cyan-500/10 text-white' : 'border-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+                  >
+                    {b}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-zinc-500">kbps. 192 suits most uses; 320 keeps the most detail.</p>
+            </div>
+          )}
+          {format === 'uuda' && (
+            <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-zinc-400">
+              <FileAudio className="mt-0.5 h-4 w-4 shrink-0 text-indigo-300" />
+              Saves the timeline with its audio so you can reopen and keep editing. It is not a rendered mix.
+            </p>
+          )}
         </div>
 
-        {format === 'mp3' && (
-          <div className="space-y-1.5">
-            <label htmlFor="export-mp3-bitrate" className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400">MP3 bitrate</label>
-            <select
-              id="export-mp3-bitrate"
-              value={mp3Bitrate}
-              onChange={(event) => { setMp3Bitrate(Number(event.target.value) as Mp3Bitrate); setStatus(null); }}
-              className="w-full rounded-lg border border-zinc-700 bg-[#09090d] px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-cyan-500"
-            >
-              {MP3_BITRATES.map((bitrate) => (
-                <option key={bitrate} value={bitrate}>{bitrate} kbps{bitrate === 192 ? ' — Recommended balance' : bitrate === 320 ? ' — Highest quality / largest file' : ''}</option>
-              ))}
-            </select>
-            <p className="text-[10px] text-zinc-500">Lower bitrates create smaller files; higher bitrates generally preserve more audio detail.</p>
+        {isAudio && (
+          <div>
+            <div className="mb-1.5 text-sm font-semibold text-zinc-100">Mastering</div>
+            <div className="rounded-xl border border-zinc-800 bg-[#0e0e14] p-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+                    <Sparkles className={`h-4 w-4 ${useMastering ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                    {useMastering ? preset : 'Not applied'}
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                    {!useMastering
+                      ? 'Exports your original mix.'
+                      : matched
+                        ? `Lands at ${lufs(mastering.targetLufs)} LUFS, peaks under ${lufs(mastering.ceilingDbTP)} dBTP. Loudness is already measured, so export runs in one pass.`
+                        : `Lands at ${lufs(mastering.targetLufs)} LUFS, peaks under ${lufs(mastering.ceilingDbTP)} dBTP. Loudness is measured first, which adds a pass.`}
+                  </p>
+                </div>
+                <button
+                  type="button" role="switch" aria-checked={useMastering} aria-label="Apply mastering" disabled={running}
+                  onClick={() => setUseMastering((v) => !v)}
+                  className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors ${useMastering ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                >
+                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${useMastering ? 'left-[1.375rem]' : 'left-0.5'}`} />
+                </button>
+              </div>
+              <button type="button" onClick={onEditMastering} disabled={running} className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-cyan-300 hover:text-cyan-100 disabled:opacity-50">
+                <ArrowLeft className="h-3.5 w-3.5" /> {useMastering ? 'Edit mastering' : 'Open mastering'}
+              </button>
+            </div>
           </div>
         )}
 
-        {format === 'uuda' && (
-          <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-3 text-xs leading-relaxed text-zinc-300">
-            <div className="mb-1 flex items-center gap-2 font-semibold text-indigo-300"><FileAudio className="h-4 w-4" /> Self-contained project file</div>
-            This packages project metadata and the audio assets referenced by the timeline. It is not an audio render and can be reopened in Uuda Studio.
+        {isAudio && hasAudio && (
+          <p className="text-xs text-zinc-500">
+            {formatTrackLength(seconds)} of audio, about {formatSize(sizeBytes)} as {format.toUpperCase()}.
+          </p>
+        )}
+
+        {running && progress && (
+          <div role="status" className="space-y-2">
+            <div className="flex items-center justify-between text-xs text-zinc-300">
+              <span className="flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />{progress.message}</span>
+              <span className="font-mono tabular-nums text-zinc-400">{progress.percent}%</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+              <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-[width] duration-300" style={{ width: `${progress.percent}%` }} />
+            </div>
           </div>
         )}
 
-        {progress && (
-          <div role="status" className="rounded-lg border border-zinc-800 bg-black/30 p-3 text-xs text-zinc-300">
-            <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin text-cyan-400" />{progress}
+        {error && (
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-xs leading-relaxed text-rose-200">
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span>
           </div>
         )}
 
-        {status && (
-          <div role="status" className={`flex items-start gap-2 rounded-lg border p-3 text-xs leading-relaxed ${status.kind === 'success' ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-200' : 'border-rose-500/40 bg-rose-500/5 text-rose-200'}`}>
-            {status.kind === 'success' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0" />}
-            <span>{status.message}</span>
+        {finished && !running && (
+          <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 text-xs leading-relaxed">
+            <div className="flex items-start gap-2 text-emerald-100">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+              <div className="min-w-0">
+                <div className="truncate font-semibold">{finished.filename}</div>
+                <div className="text-emerald-200/80">{formatSize(finished.blob.size)}, sent to your downloads.</div>
+              </div>
+            </div>
+            {finished.stats && finished.mastered && (
+              <p className="mt-2 text-zinc-300">
+                {finished.verifiedFromFile ? 'Measured in the saved file' : 'Measured as written'}: {lufs(finished.stats.integratedLUFS)} LUFS, true peak {lufs(finished.stats.truePeakDbTP)} dBTP
+                {Math.abs(finished.stats.integratedLUFS - mastering.targetLufs) <= 1 ? ', on target.' : `, ${Math.abs(finished.stats.integratedLUFS - mastering.targetLufs).toFixed(1)} LU from the ${lufs(mastering.targetLufs)} target.`}
+              </p>
+            )}
+            <button type="button" onClick={() => triggerFileDownload(finished.blob, finished.filename)} className="mt-2.5 font-semibold text-cyan-300 hover:text-cyan-100">
+              Download again
+            </button>
           </div>
         )}
+      </div>
 
-        <button type="button" onClick={handleExport} disabled={isExporting || !project.tracks.length}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 text-xs font-extrabold text-white shadow-lg transition-colors hover:from-emerald-500 hover:to-teal-500 disabled:cursor-not-allowed disabled:opacity-50">
-          {isExporting ? <><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</> : <><Download className="h-4 w-4" /> Export {format.toUpperCase()}</>}
-        </button>
+      <div className="shrink-0 border-t border-zinc-800 bg-[#13131a] px-4 py-3">
+        {running ? (
+          <button type="button" onClick={() => { cancelled.current = true; }} className="w-full rounded-xl border border-zinc-700 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-800">
+            Cancel export
+          </button>
+        ) : (
+          <button
+            type="button" onClick={handleExport} disabled={!hasAudio || !title.trim()}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 py-3 text-sm font-bold text-zinc-950 shadow-[0_6px_24px_rgba(16,185,129,0.25)] transition-[filter] hover:brightness-110 disabled:opacity-40"
+          >
+            <Download className="h-4 w-4" /> Export {format === 'uuda' ? 'project' : format.toUpperCase()}
+          </button>
+        )}
       </div>
     </section>
   );

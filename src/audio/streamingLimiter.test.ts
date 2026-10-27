@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { applyLookaheadLimiterChannel } from './mastering';
 import { LookaheadLimiter } from './streamingLimiter';
 
 function referenceLimiter(
@@ -24,7 +23,14 @@ function referenceLimiter(
   return output;
 }
 
-describe('applyLookaheadLimiterChannel', () => {
+async function applyLookaheadLimiterChannel(input: Float32Array, out: Float32Array, ceiling: number, window: number, release: number) {
+  const lim = new LookaheadLimiter(ceiling, window, release);
+  const a = lim.process(input);
+  out.set(a, 0);
+  out.set(lim.finish(), a.length);
+}
+
+describe('LookaheadLimiter against the reference algorithm', () => {
   it('matches the reference sliding-window algorithm at boundaries and for peaks', async () => {
     const cases = [
       new Float32Array([0, 0.2, -0.4, 1.2, -1.4, 0.1, 0]),

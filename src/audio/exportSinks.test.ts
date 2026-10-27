@@ -1,14 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { createCollector, createWavSink, encodePcmBlock, memoryTarget, wavHeaderBytes } from './exportSinks';
-import { exportAudioBufferToWav } from './mastering';
+import { createWavSink, encodePcmBlock, memoryTarget, wavHeaderBytes } from './exportSinks';
 import { planMixdown } from './blockMixdown';
 
 const ramp = (n: number, k: number) => Float32Array.from({ length: n }, (_, i) => Math.sin(i * k) * 0.9);
-const fakeBuf = (ch: Float32Array[], sr = 48000): AudioBuffer =>
-  ({ numberOfChannels: ch.length, sampleRate: sr, length: ch[0].length, getChannelData: (c: number) => ch[c] }) as unknown as AudioBuffer;
 
 describe('WAV sink', () => {
-  it.each([16, 24] as const)('written in odd-sized blocks equals the whole-buffer encoder at %i-bit', async (bits) => {
+  it.each([16, 24] as const)('written in odd-sized blocks equals encoding the whole signal at once at %i-bit', async (bits) => {
     const L = ramp(10007, 0.01), R = ramp(10007, 0.02);
     const sink = await createWavSink(memoryTarget(), 2, 48000, L.length, bits);
     for (let at = 0, k = 0; at < L.length; k++) {
@@ -17,7 +14,11 @@ describe('WAV sink', () => {
       at += n;
     }
     const a = new Uint8Array(await (await sink.close()).arrayBuffer());
-    const b = new Uint8Array(await exportAudioBufferToWav(fakeBuf([L, R]), bits).arrayBuffer());
+    const header = wavHeaderBytes(2, 48000, L.length, bits);
+    const body = encodePcmBlock([L, R], 0, L.length, bits);
+    const b = new Uint8Array(header.length + body.length);
+    b.set(header, 0);
+    b.set(body, header.length);
     expect(a.length).toBe(b.length);
     expect(a.every((v, i) => v === b[i])).toBe(true);
   });
@@ -45,19 +46,6 @@ describe('WAV sink', () => {
   });
 });
 
-describe('collector', () => {
-  it('collects blocks in order and refuses overflow', async () => {
-    const c = createCollector(2, 5);
-    await c.write([Float32Array.from([1, 2, 3]), Float32Array.from([4, 5, 6])], 3);
-    await c.write([Float32Array.from([7, 8]), Float32Array.from([9, 10])], 2);
-    expect(Array.from(c.result().channels[0])).toEqual([1, 2, 3, 7, 8]);
-    expect(Array.from(c.result().channels[1])).toEqual([4, 5, 6, 9, 10]);
-    let failed = false;
-    try { await c.write([new Float32Array(1), new Float32Array(1)], 1); } catch { failed = true; }
-    expect(failed).toBe(true);
-  });
-});
-
 describe('planMixdown', () => {
   const project: any = { tracks: [{ clips: [{ startSeconds: 2, durationSeconds: 10 }] }, { clips: [{ startSeconds: 0, durationSeconds: 30 }] }] };
   it('covers the whole project, or a clamped range', () => {
@@ -69,5 +57,20 @@ describe('planMixdown', () => {
   });
   it('never plans less than one second', () => {
     expect(planMixdown({ tracks: [] } as any, 44100).totalFrames).toBe(44100);
+  });
+});
+
+describe('WAV sink file layout', () => {
+  it('writes a 44-byte header, then little-endian interleaved samples', async () => {
+    const sink = await createWavSink(memoryTarget(), 2, 8000, 2, 16);
+    await sink.write([Float32Array.from([-1, 0.5]), Float32Array.from([1, -0.5])], 2);
+    const bytes = new Uint8Array(await (await sink.close()).arrayBuffer());
+    const v = new DataView(bytes.buffer);
+    expect(String.fromCharCode(...bytes.slice(0, 4))).toBe('RIFF');
+    expect(String.fromCharCode(...bytes.slice(8, 12))).toBe('WAVE');
+    expect(v.getUint32(24, true)).toBe(8000);
+    expect(v.getUint32(40, true)).toBe(8);
+    expect(bytes.length).toBe(52);
+    expect([v.getInt16(44, true), v.getInt16(46, true), v.getInt16(48, true), v.getInt16(50, true)]).toEqual([-32768, 32767, 16383, -16384]);
   });
 });

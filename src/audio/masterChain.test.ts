@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appendOfflinePlugins } from './mastering';
+import { appendOfflinePlugins } from './exportProject';
 import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 import { findPluginDescriptor } from '../plugins/registry';
 import { makeContext, makeNode } from '../test/fakeAudioContext';
