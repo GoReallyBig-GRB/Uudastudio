@@ -14,24 +14,30 @@ export type Mp3WorkerOut =
   | { type: 'done'; bytes: Uint8Array }
   | { type: 'error'; message: string };
 
-let core: Mp3Core | null = null;
+let core: Promise<Mp3Core> | null = null;
 const post = (m: Mp3WorkerOut, transfer?: Transferable[]) => (self as unknown as Worker).postMessage(m, transfer ?? []);
 
+// Messages are handled strictly in order, even though starting the encoder is asynchronous
+let queue: Promise<void> = Promise.resolve();
 self.onmessage = (e: MessageEvent<Mp3WorkerIn>) => {
+  queue = queue.then(() => handle(e.data));
+};
+
+async function handle(m: Mp3WorkerIn): Promise<void> {
   try {
-    const m = e.data;
     if (m.type === 'init') {
-      core = new Mp3Core(m.channels, m.sampleRate, m.kbps);
+      core = Mp3Core.create(m.channels, m.sampleRate, m.kbps);
+      await core;
     } else if (m.type === 'encode') {
       if (!core) throw new Error('MP3 worker used before init.');
-      const bytes = core.encode(m.left, m.right);
+      const bytes = (await core).encode(m.left, m.right);
       post({ type: 'data', id: m.id, bytes }, [bytes.buffer]);
     } else if (m.type === 'finish') {
       if (!core) throw new Error('MP3 worker used before init.');
-      const bytes = core.finish();
+      const bytes = (await core).finish();
       post({ type: 'done', bytes }, [bytes.buffer]);
     }
   } catch (err) {
     post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
   }
-};
+}
