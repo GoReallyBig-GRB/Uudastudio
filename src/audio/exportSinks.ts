@@ -1,8 +1,6 @@
 /**
- * Where exported audio goes, one block at a time: WAV and MP3 writers, a plain in-memory collector for short results,
- * and byte targets that write to browser file storage (so a multi-gigabyte export is never held in memory).
- *
- * The whole-buffer encoders in mastering.ts feed these same writers, so there is one WAV encoder and one MP3 encoder.
+ * Where exported audio goes, one block at a time: WAV and MP3 writers, and byte targets that write to browser file
+ * storage (so a multi-gigabyte export is never held in memory). Every export, of any length, goes through these.
  */
 import { Mp3Core } from './mp3Core';
 import type { Mp3WorkerIn, Mp3WorkerOut } from './mp3Worker';
@@ -180,16 +178,17 @@ export function createMp3Sink(target: ByteTarget, channels: number, sampleRate: 
   });
 
   if (!worker) {
-    const core = new Mp3Core(channels, sampleRate, kbps);
+    const coreReady = Mp3Core.create(channels, sampleRate, kbps);
+    coreReady.catch(() => { /* reported by the first write or close */ });
     return {
       async write(data, frames) {
         if (frames <= 0) return;
         const { left, right } = convert(data, frames);
-        const bytes = core.encode(left, right);
+        const bytes = (await coreReady).encode(left, right);
         if (bytes.length > 0) await target.write(bytes);
       },
       async close() {
-        const bytes = core.finish();
+        const bytes = (await coreReady).finish();
         if (bytes.length > 0) await target.write(bytes);
         return target.finish('audio/mp3');
       },
