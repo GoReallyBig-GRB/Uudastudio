@@ -49,7 +49,8 @@ interface MasterConsolePanelProps {
   onOpenExport: () => void;
   /** Master fader or mute changed (they are part of what mastering measures) */
   onMasterFaderChange?: () => void;
-  initialTab?: 'console' | 'meters' | 'mastering';
+  tab: 'console' | 'meters' | 'mastering';
+  onTabChange: (tab: 'console' | 'meters' | 'mastering') => void;
   isSidebarMode?: boolean;
   onUpdateTrack?: (trackId: string, updates: Partial<Track>) => void;
   onAddTrack?: () => void;
@@ -68,7 +69,8 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
   onTogglePlay,
   onOpenExport,
   onMasterFaderChange,
-  initialTab = 'console',
+  tab: activeTab,
+  onTabChange: setActiveTab,
   isSidebarMode = true,
   onUpdateTrack,
   onAddTrack,
@@ -76,7 +78,6 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
   onSelectTrack,
 }) => {
   // Navigation sub-tabs inside Master panel
-  const [activeTab, setActiveTab] = useState<'console' | 'meters' | 'mastering'>(initialTab);
 
   // Master Fader & Mute State
   const [masterVolume, setMasterVolume] = useState<number>(() => audioEngine.getMasterVolume());
@@ -304,102 +305,45 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
         </div>
       )}
 
-      {/* Top Console Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700/80 bg-[#15151c] shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-md bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center text-white shadow-[0_0_12px_rgba(16,185,129,0.35)]">
-            <Gauge className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xs font-extrabold uppercase tracking-widest text-zinc-100">
-                Master Output Console & Mixing Desk
-              </h2>
-              <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold border border-emerald-500/40">
-                ITU-R BS.1770
-              </span>
-            </div>
-            <p className="text-[10px] text-zinc-400">Channel console • Master fader • BS.1770 metering • Mastering</p>
+      {/* Header and tabs */}
+      <div className="shrink-0 border-b border-zinc-800 bg-[#101015]">
+        <div className="flex items-center justify-between px-5 pb-1 pt-4">
+          <h2 className="text-base font-semibold tracking-tight text-zinc-100">Master</h2>
+          <div className="flex items-center gap-1">
+            {isSidebarMode && (
+              <button
+                onClick={handleToggleExpand}
+                title={isFullyExpanded ? 'Narrow the panel' : 'Widen the panel'}
+                aria-label={isFullyExpanded ? 'Narrow the panel' : 'Widen the panel'}
+                className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
+              >
+                {isFullyExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
+            )}
+            {onClose && (
+              <button
+                onClick={onClose}
+                aria-label="Close panel"
+                title="Close"
+                className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
-
-        <div className="flex items-center gap-1.5">
-          {isSidebarMode && (
+        <div role="tablist" aria-label="Master sections" className="flex gap-6 px-5">
+          {([['console', 'Mixer'], ['meters', 'Meters'], ['mastering', 'Mastering']] as const).map(([id, label]) => (
             <button
-              onClick={handleToggleExpand}
-              title={
-                isFullyExpanded
-                  ? `Collapse to un-expanded view (${UNEXPANDED_WIDTH}px)`
-                  : `Draw out to full expansion (${MAX_EXPANDED_WIDTH}px)`
-              }
-              className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-cyan-300 text-[10px] font-semibold border border-zinc-700/80 transition-colors cursor-pointer"
+              key={id} role="tab" aria-selected={activeTab === id} onClick={() => setActiveTab(id)}
+              className={`-mb-px border-b-2 pb-2.5 pt-2 text-sm font-medium transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 ${
+                activeTab === id ? 'border-cyan-300 text-zinc-50' : 'border-transparent text-zinc-500 hover:text-zinc-200'
+              }`}
             >
-              {isFullyExpanded ? (
-                <>
-                  <Minimize2 className="w-3.5 h-3.5 text-cyan-400" />
-                  <span className="hidden sm:inline">Un-expanded</span>
-                </>
-              ) : (
-                <>
-                  <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
-                  <span className="hidden sm:inline">Full Expand</span>
-                </>
-              )}
+              {label}
             </button>
-          )}
-
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="text-zinc-400 hover:text-zinc-100 p-1 rounded-md hover:bg-zinc-800 transition-colors cursor-pointer"
-              title="Close Panel"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+          ))}
         </div>
-      </div>
-
-      {/* Navigation Sub-Tabs */}
-      <div className="flex items-center border-b border-zinc-800 bg-[#0c0c10] px-2 text-[11px] font-semibold shrink-0 overflow-x-auto scrollbar-none">
-        <button
-          onClick={() => setActiveTab('console')}
-          className={`flex items-center gap-1.5 py-2 px-3 border-b-2 transition-all cursor-pointer shrink-0 ${
-            activeTab === 'console'
-              ? 'border-emerald-400 text-emerald-300 bg-emerald-500/10'
-              : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          <Sliders className="w-3.5 h-3.5" />
-          <span>Mixing Console</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('meters')}
-          className={`flex items-center gap-1.5 py-2 px-3 border-b-2 transition-all cursor-pointer shrink-0 ${
-            activeTab === 'meters'
-              ? 'border-emerald-400 text-emerald-300 bg-emerald-500/10'
-              : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          <Activity className="w-3.5 h-3.5" />
-          <span>Master Bus & Meters</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('mastering')}
-          className={`flex items-center gap-1.5 py-2 px-3 border-b-2 transition-all cursor-pointer shrink-0 ${
-            activeTab === 'mastering'
-              ? 'border-cyan-400 text-cyan-300 bg-cyan-500/10'
-              : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Mastering</span>
-        </button>
-
-
-
       </div>
 
       {/* Main Panel Body */}
@@ -883,7 +827,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('mastering')}
-                className="py-2.5 px-3 rounded-lg border border-zinc-700 bg-zinc-800/60 hover:border-cyan-500/60 text-zinc-100 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                className="h-11 rounded-full border border-zinc-700 text-zinc-100 font-semibold text-sm flex items-center justify-center gap-2 transition-colors hover:bg-zinc-800 cursor-pointer"
               >
                 <Sparkles className="w-4 h-4 text-cyan-300" />
                 <span>Master the mix</span>
@@ -891,7 +835,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
               <button
                 type="button"
                 onClick={onOpenExport}
-                className="py-2.5 px-3 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                className="h-11 rounded-full bg-zinc-50 text-zinc-950 font-semibold text-sm flex items-center justify-center gap-2 transition-colors hover:bg-white cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>Export</span>

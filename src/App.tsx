@@ -192,7 +192,8 @@ const MainStudio: React.FC = () => {
 
   const [isTimelineViewCollapsed, setIsTimelineViewCollapsed] = useState<boolean>(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(false);
-  const [activeMasterPanel, setActiveMasterPanel] = useState<'mastering' | 'export'>('mastering');
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [masterTab, setMasterTab] = useState<'console' | 'meters' | 'mastering'>('console');
   const [masterFaderRev, setMasterFaderRev] = useState(0);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState<boolean>(false);
@@ -414,8 +415,8 @@ const MainStudio: React.FC = () => {
     });
   }, [mastering, hasAudioForMastering, project.sampleRate]);
 
-  const openExport = useCallback(() => { setActiveMasterPanel('export'); setIsRightSidebarOpen(true); }, []);
-  const openMastering = useCallback(() => { setActiveMasterPanel('mastering'); setIsRightSidebarOpen(true); }, []);
+  const openExport = useCallback(() => { setIsExportOpen(true); }, []);
+  const openMastering = useCallback(() => { setIsExportOpen(false); setMasterTab('mastering'); setIsRightSidebarOpen(true); }, []);
 
   // Protect unsaved portable project changes when the tab is closed or navigated away.
   useEffect(() => {
@@ -2705,13 +2706,11 @@ const MainStudio: React.FC = () => {
               </div>
 
               <div className="flex-1 overflow-hidden">
-                {activeMasterPanel === 'export' ? (
-                  <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => setActiveMasterPanel('mastering')} />
-                ) : (
                   <MasterConsolePanel
                     project={project}
                     isSidebarMode={false}
-                    initialTab="mastering"
+                    tab={masterTab}
+                    onTabChange={setMasterTab}
                     mastering={mastering}
                     mixKey={mixKey}
                     isPlaying={isPlaying}
@@ -2725,7 +2724,6 @@ const MainStudio: React.FC = () => {
                     selectedTrackId={selectedTrackId}
                     onSelectTrack={(id) => setSelectedTrackId(id)}
                   />
-                )}
               </div>
             </div>
           ) : (
@@ -2765,14 +2763,11 @@ const MainStudio: React.FC = () => {
         {/* Right Dockable Sidebar: Master Bus & Export Inspector */}
         {!isTimelineViewCollapsed && isRightSidebarOpen && (
           <div className="flex h-full shrink-0 z-20 relative animate-in slide-in-from-right duration-150">
-            {activeMasterPanel === 'export' ? (
-              <div className="w-[380px] max-w-[45vw] h-full">
-                <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => setIsRightSidebarOpen(false)} />
-              </div>
-            ) : (
               <MasterConsolePanel
                 project={project}
                 isSidebarMode={true}
+                tab={masterTab}
+                onTabChange={setMasterTab}
                 mastering={mastering}
                 mixKey={mixKey}
                 isPlaying={isPlaying}
@@ -2787,14 +2782,13 @@ const MainStudio: React.FC = () => {
                 selectedTrackId={selectedTrackId}
                 onSelectTrack={(id) => setSelectedTrackId(id)}
               />
-            )}
           </div>
         )}
 
         {/* Right Sidebar Expand Tab (Shown when Master panel is collapsed) */}
         {!isTimelineViewCollapsed && !isRightSidebarOpen && (
           <button
-            onClick={() => { setActiveMasterPanel('mastering'); setIsRightSidebarOpen(true); }}
+            onClick={() => setIsRightSidebarOpen(true)}
             title="Open master console and mastering"
             className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-[#16161c] hover:bg-zinc-800 text-zinc-400 hover:text-emerald-300 border-l border-y border-zinc-700/80 rounded-l-md px-1 py-3 text-[10px] font-bold tracking-widest uppercase transition-all shadow-md flex flex-col items-center gap-1 cursor-pointer"
           >
@@ -2805,6 +2799,10 @@ const MainStudio: React.FC = () => {
           </button>
         )}
       </div>
+
+      {isExportOpen && (
+        <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => setIsExportOpen(false)} />
+      )}
 
       {/* Bottom Status Bar */}
       <StatusBar
