@@ -49,6 +49,7 @@ interface TimelineProps {
   onOpenDspModal: (type: import('./DspModals').DspModalType) => void;
   onMoveClipTrack: (clipId: string, direction: 'up' | 'down') => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
+  onRecordTrack: (trackId: string) => void;
   onUpdateClip: (clipId: string, updates: Partial<Clip>) => void;
   onFileDrop: (files: FileList) => void;
   isControlsCollapsed?: boolean;
@@ -117,6 +118,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   onOpenDspModal,
   onMoveClipTrack,
   onMoveTrack,
+  onRecordTrack,
   onUpdateClip,
   onFileDrop,
   isControlsCollapsed: propControlsCollapsed,
@@ -1176,6 +1178,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 onUpdateTrack={onUpdateTrack}
                 onDeleteTrack={onDeleteTrack}
                 onMoveTrack={onMoveTrack}
+                onRecordTrack={onRecordTrack}
                 renderWaveforms={renderTrackWaveforms}
                 onLanePointerDown={handleLanePointerDown}
                 onLanePointerMoveHover={handleLanePointerMoveHover}
@@ -1295,6 +1298,7 @@ interface TrackRowContainerProps {
   onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
   onDeleteTrack: (trackId: string) => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
+  onRecordTrack: (trackId: string) => void;
   renderWaveforms: (canvas: HTMLCanvasElement | null, track: Track, trackIndex: number) => void;
   onLanePointerDown: (e: React.PointerEvent<HTMLDivElement>, track: Track, trackIndex: number) => void;
   onLanePointerMoveHover: (e: React.PointerEvent<HTMLDivElement>, track: Track) => void;
@@ -1315,6 +1319,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
   onUpdateTrack,
   onDeleteTrack,
   onMoveTrack,
+  onRecordTrack,
   renderWaveforms,
   onLanePointerDown,
   onLanePointerMoveHover,
@@ -1343,6 +1348,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
         onUpdateTrack={onUpdateTrack}
         onDeleteTrack={onDeleteTrack}
         onMoveTrack={onMoveTrack}
+        onRecordTrack={onRecordTrack}
       />
 
       {/* 1fr Waveform Lane */}

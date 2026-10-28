@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Volume2, VolumeX, Trash2, ChevronUp, ChevronDown, Sparkles } from 'lucide-react';
+import { Volume2, VolumeX, Trash2, ChevronUp, ChevronDown, Sparkles, Mic } from 'lucide-react';
 import { Track } from '../types';
 import { audioEngine } from '../audio/engine';
 import { pluginManager } from '../plugins/pluginManager';
@@ -23,6 +23,8 @@ interface TrackControlsProps {
   onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
   onDeleteTrack: (trackId: string) => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
+  /** Opens the recording dialog with this track as the target for the take. */
+  onRecordTrack: (trackId: string) => void;
   isCollapsed?: boolean;
 }
 
@@ -35,6 +37,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
   onUpdateTrack,
   onDeleteTrack,
   onMoveTrack,
+  onRecordTrack,
   isCollapsed = false,
 }) => {
   const label = getTrackLabel(track, index);
@@ -294,6 +297,20 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
             }`}
           >
             S
+          </button>
+          {/* Record directly into this track */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectTrack(track.id);
+              onRecordTrack(track.id);
+            }}
+            title="Record into this track at the playhead"
+            aria-label={`Record into ${label}`}
+            className="w-5 h-5 rounded-xs bg-zinc-800 text-rose-400 hover:text-white hover:bg-rose-500/80 border border-zinc-700/60 flex items-center justify-center transition-colors cursor-pointer"
+          >
+            <Mic className="w-3 h-3" />
           </button>
           {/* Modular Audio Plugins Rack button */}
           <button

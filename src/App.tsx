@@ -44,6 +44,8 @@ import { ExportPanel } from './components/ExportPanel';
 import { Timeline } from './components/Timeline';
 import { StatusBar } from './components/StatusBar';
 import { RecordingModal } from './components/RecordingModal';
+import { takeStartSeconds } from './components/recordingMonitor';
+import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
 import { DspModals, DspModalType } from './components/DspModals';
 import { EffectsModal } from './components/EffectsModal';
@@ -170,6 +172,9 @@ const MainStudio: React.FC = () => {
   const [isAutosaving, setIsAutosaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
+  // Track the next take is recorded into (null = a new top track) and where the playhead was when recording began.
+  const [recordTargetTrackId, setRecordTargetTrackId] = useState<string | null>(null);
+  const recordStartSecondsRef = useRef<number>(0);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('tracks');
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState<boolean>(false);
   const [isTimelineControlsCollapsed, setIsTimelineControlsCollapsed] = useState<boolean>(() => {
@@ -1335,9 +1340,41 @@ const MainStudio: React.FC = () => {
       audioEngine.registerAsset(asset);
       await saveAssetToDB(asset);
 
+      const clipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+
+      // Recording into an existing track: add the take there at the playhead position it started from.
+      const targetTrack = recordTargetTrackId ? project.tracks.find((t) => t.id === recordTargetTrackId) : undefined;
+      if (targetTrack) {
+        const startSeconds = takeStartSeconds(recordStartSecondsRef.current);
+        const takeClip: Clip = {
+          id: clipId,
+          trackId: targetTrack.id,
+          assetId: asset.id,
+          name: takeName,
+          startSeconds,
+          offsetSeconds: 0,
+          durationSeconds: audioBuffer.duration,
+          gain: 1.0,
+          fadeInSeconds: 0,
+          fadeOutSeconds: 0,
+          fadeShape: 'linear',
+        };
+        setProjectWithHistory((prev) => ({
+          ...prev,
+          tracks: prev.tracks.map((t) => (t.id === targetTrack.id ? { ...t, clips: [...t.clips, takeClip] } : t)),
+        }));
+        setSelectedTrackId(targetTrack.id);
+        setSelectedClipIds(new Set([clipId]));
+        addToast({
+          type: 'success',
+          title: 'Recording Finished',
+          message: `${takeName} (${audioBuffer.duration.toFixed(2)}s) added to "${getTrackLabel(targetTrack, project.tracks.indexOf(targetTrack))}" at ${startSeconds.toFixed(2)}s.`,
+        });
+        return;
+      }
+
       // Create new track & clip placed at index 0 (top of timeline and tracks side panel)
       const trackId = `track-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-      const clipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 
       const newClip: Clip = {
         id: clipId,
@@ -2741,6 +2778,10 @@ const MainStudio: React.FC = () => {
               onUpdateTrack={handleUpdateTrack}
               onDeleteTrack={handleDeleteTrack}
               onMoveTrack={handleMoveTrack}
+              onRecordTrack={(trackId) => {
+                setRecordTargetTrackId(trackId);
+                setIsRecordModalOpen(true);
+              }}
               onUpdateProject={(p) => setProjectWithHistory(p)}
               onTracksAutoRemoved={handleTracksAutoRemoved}
               onSeek={handleSeek}
@@ -2858,10 +2899,20 @@ const MainStudio: React.FC = () => {
       {/* Recording Studio Modal with 4-Band Input EQ */}
       <RecordingModal
         isOpen={isRecordModalOpen}
-        onClose={() => setIsRecordModalOpen(false)}
+        onClose={() => {
+          setIsRecordModalOpen(false);
+          setRecordTargetTrackId(null);
+        }}
         onFinishRecording={handleFinishRecording}
         duckPlayingTracks={project.settings.duckPlayingTracks}
         duckingAmountDb={project.settings.duckingAmountDb}
+        targetTrackName={(() => {
+          const i = project.tracks.findIndex((t) => t.id === recordTargetTrackId);
+          return i >= 0 ? getTrackLabel(project.tracks[i], i) : null;
+        })()}
+        onRecordingStart={() => {
+          recordStartSecondsRef.current = playheadSecondsRef.current;
+        }}
       />
 
       {/* Audio Effects Suite Rack (Delay, EQ, Chorus, Flanger, Phaser, Reverb) */}

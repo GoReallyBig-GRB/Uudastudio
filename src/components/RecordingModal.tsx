@@ -34,13 +34,27 @@ import {
   DEFAULT_EQ_SETTINGS,
 } from '../storage/presets';
 import { formatTimecode } from '../utils/formatters';
+import { SegmentedControl } from './ui';
+import {
+  defaultModeFromSettings,
+  duckDbForMode,
+  loadOtherTracksMode,
+  saveOtherTracksMode,
+  type OtherTracksMode,
+} from './recordingMonitor';
 
 interface RecordingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onFinishRecording: (buffer: AudioBuffer, takeName: string) => void;
+  /** Project "duck playing tracks" switch; only used as the first-time default for the choice below. */
   duckPlayingTracks: boolean;
+  /** Level used when the choice is "Duck" (the project's existing ducking setting). */
   duckingAmountDb: number;
+  /** Name of the track this take will be recorded into; null or undefined records onto a new track. */
+  targetTrackName?: string | null;
+  /** Called the moment recording actually starts, so the caller can note where the playhead was. */
+  onRecordingStart?: () => void;
 }
 
 export const RecordingModal: React.FC<RecordingModalProps> = ({
@@ -49,7 +63,14 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
   onFinishRecording,
   duckPlayingTracks,
   duckingAmountDb,
+  targetTrackName,
+  onRecordingStart,
 }) => {
+  // What the other tracks do while recording. Remembered between sessions; locked while recording.
+  const [otherTracksMode, setOtherTracksMode] = useState<OtherTracksMode>(() =>
+    loadOtherTracksMode(defaultModeFromSettings(duckPlayingTracks)),
+  );
+  const monitorDb = duckDbForMode(otherTracksMode, duckingAmountDb);
   // Device & Stream States
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [deviceSettings, setDeviceSettings] = useState<RecordingDeviceSettings>(loadRecordingDeviceSettings);
@@ -129,7 +150,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
   useEffect(() => {
     audioRecorder.setOnUnexpectedEnd((recoveredBuffer) => {
       setIsRecording(false);
-      if (duckPlayingTracks) {
+      if (monitorDb !== null) {
         audioEngine.setDucking(false);
       }
       if (recoveredBuffer && recoveredBuffer.duration > 0.2) {
@@ -138,7 +159,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
         onClose();
       }
     });
-  }, [duckPlayingTracks, takeCount, onFinishRecording, onClose]);
+  }, [monitorDb, takeCount, onFinishRecording, onClose]);
 
   // 3. Live Input Meter Animation Loop
   useEffect(() => {
@@ -356,13 +377,14 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
   // Record Start
   const handleStartRecording = async () => {
     try {
-      if (duckPlayingTracks) {
-        audioEngine.setDucking(true, duckingAmountDb);
+      if (monitorDb !== null) {
+        audioEngine.setDucking(true, monitorDb);
       }
 
       await audioRecorder.startRecording((sec) => {
         setElapsedSeconds(sec);
       });
+      onRecordingStart?.();
       setIsRecording(true);
       setElapsedSeconds(0);
     } catch (err: unknown) {
@@ -377,7 +399,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
       const audioBuffer = await audioRecorder.stopRecording();
       setIsRecording(false);
 
-      if (duckPlayingTracks) {
+      if (monitorDb !== null) {
         audioEngine.setDucking(false);
       }
 
@@ -415,7 +437,9 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
                 )}
               </h2>
               <div className="text-[11px] text-zinc-500">
-                4-band input EQ applied directly before capture
+                {targetTrackName
+                  ? `Recording into “${targetTrackName}” at the playhead`
+                  : '4-band input EQ applied directly before capture'}
               </div>
             </div>
           </div>
@@ -456,6 +480,32 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
 
         {/* Main Content Area */}
         <div className="p-5 overflow-y-auto space-y-4 flex-1">
+          {/* Other tracks while recording: duck (project ducking level), mute, or leave alone */}
+          <div className="bg-[#0B0B0F] p-3.5 rounded-lg border border-zinc-800/80 flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-zinc-200">Other tracks while recording</div>
+              <div className="text-[11px] text-zinc-500">
+                {otherTracksMode === 'duck' && `Lowered by ${duckingAmountDb} dB (change the level in Settings)`}
+                {otherTracksMode === 'mute' && 'Silent while you record, restored when you stop'}
+                {otherTracksMode === 'off' && 'Play at full volume (use headphones)'}
+              </div>
+            </div>
+            <SegmentedControl<OtherTracksMode>
+              label="Other tracks while recording"
+              size="sm"
+              value={otherTracksMode}
+              onChange={(mode) => {
+                setOtherTracksMode(mode);
+                saveOtherTracksMode(mode);
+              }}
+              options={[
+                { value: 'duck', label: 'Duck', disabled: isRecording },
+                { value: 'mute', label: 'Mute', disabled: isRecording },
+                { value: 'off', label: 'Off', disabled: isRecording },
+              ]}
+            />
+          </div>
+
           {/* Section 1: Input Device Picker & Stream Stats */}
           <div className="bg-[#0B0B0F] p-3.5 rounded-lg border border-zinc-800/80 space-y-3">
             <div className="flex items-center justify-between text-xs">
