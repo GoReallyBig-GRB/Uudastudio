@@ -1221,7 +1221,6 @@ export const Timeline: React.FC<TimelineProps> = ({
                 onDeleteTrack={onDeleteTrack}
                 onMoveTrack={onMoveTrack}
                 onRecordTrack={onRecordTrack}
-                pixelsPerSecond={pixelsPerSecond}
                 rangeTool={tool === 'range'}
                 rangeHighlight={rangeSelection && rangeSelection.trackId === track.id ? rangeSelection : null}
                 renderWaveforms={renderTrackWaveforms}
