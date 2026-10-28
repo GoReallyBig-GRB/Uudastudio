@@ -45,6 +45,7 @@ import { Timeline } from './components/Timeline';
 import { StatusBar } from './components/StatusBar';
 import { RecordingModal } from './components/RecordingModal';
 import { takeStartSeconds } from './components/recordingMonitor';
+import { deleteRangeFromClips, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
 import { DspModals, DspModalType } from './components/DspModals';
@@ -175,6 +176,9 @@ const MainStudio: React.FC = () => {
   // Track the next take is recorded into (null = a new top track) and where the playhead was when recording began.
   const [recordTargetTrackId, setRecordTargetTrackId] = useState<string | null>(null);
   const recordStartSecondsRef = useRef<number>(0);
+  // Pointer tool and the highlighted range (one track, a span of time) that Delete removes and closes up.
+  const [timelineTool, setTimelineTool] = useState<TimelineTool>('select');
+  const [rangeSelection, setRangeSelection] = useState<RangeSelection | null>(null);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('tracks');
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState<boolean>(false);
   const [isTimelineControlsCollapsed, setIsTimelineControlsCollapsed] = useState<boolean>(() => {
@@ -2221,6 +2225,38 @@ const MainStudio: React.FC = () => {
     });
   };
 
+  /** Remove the highlighted range from its track and slide the rest of that track left to close the gap. */
+  const handleDeleteRange = () => {
+    const sel = rangeSelection;
+    if (!sel) return;
+    const track = project.tracks.find((t) => t.id === sel.trackId);
+    if (!track) {
+      setRangeSelection(null);
+      return;
+    }
+    const result = deleteRangeFromClips(
+      track.clips,
+      sel.startSeconds,
+      sel.endSeconds,
+      () => `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    );
+    setRangeSelection(null);
+    if (result.removedSeconds === 0) {
+      addToast({ type: 'info', title: 'Nothing to delete', message: 'There is no audio in that range on this track.' });
+      return;
+    }
+    setProjectWithHistory((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((t) => (t.id === sel.trackId ? { ...t, clips: result.clips } : t)),
+    }));
+    setSelectedClipIds(new Set());
+    addToast({
+      type: 'success',
+      title: 'Range Deleted',
+      message: `Removed ${result.removedSeconds.toFixed(2)}s from this track and closed the gap.`,
+    });
+  };
+
   const handleSelectAll = () => {
     const allIds = new Set<string>();
     for (const track of project.tracks) {
@@ -2389,10 +2425,18 @@ const MainStudio: React.FC = () => {
       // Delete / Backspace: Delete selected clips
       // Delete / Backspace: Delete selected clips
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedClipIds.size > 0) {
+        if (rangeSelection) {
+          e.preventDefault();
+          handleDeleteRange();
+        } else if (selectedClipIds.size > 0) {
           e.preventDefault();
           handleDeleteSelected();
         }
+      }
+
+      // Escape: clear the highlighted range
+      if (e.key === 'Escape' && rangeSelection) {
+        setRangeSelection(null);
       }
 
       // Ctrl+C / Cmd+C: Copy selected clip
@@ -2479,6 +2523,7 @@ const MainStudio: React.FC = () => {
     canUndo,
     canRedo,
     clipboardClip,
+    rangeSelection,
   ]);
 
   // Mouse wheel zoom (Ctrl + Wheel)
@@ -2631,6 +2676,13 @@ const MainStudio: React.FC = () => {
           setIsEffectsModalOpen(true);
         }}
         onDeselect={() => setSelectedClipIds(new Set())}
+        tool={timelineTool}
+        onToolChange={(tool) => {
+          setTimelineTool(tool);
+          if (tool === 'select') setRangeSelection(null);
+        }}
+        rangeSeconds={rangeSelection ? rangeSelection.endSeconds - rangeSelection.startSeconds : null}
+        onDeleteRange={handleDeleteRange}
         isControllerCollapsed={isTimelineControlsCollapsed}
         onToggleController={handleToggleTimelineControls}
         isTimelineCollapsed={isTimelineViewCollapsed}
@@ -2778,6 +2830,9 @@ const MainStudio: React.FC = () => {
               onUpdateTrack={handleUpdateTrack}
               onDeleteTrack={handleDeleteTrack}
               onMoveTrack={handleMoveTrack}
+              tool={timelineTool}
+              rangeSelection={rangeSelection}
+              onRangeSelect={setRangeSelection}
               onRecordTrack={(trackId) => {
                 setRecordTargetTrackId(trackId);
                 setIsRecordModalOpen(true);
