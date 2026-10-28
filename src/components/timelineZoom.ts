@@ -5,22 +5,42 @@ export interface ZoomScrollInput {
   previousZoom: number;
   nextZoom: number;
   maxScrollLeft: number;
+  playheadSeconds?: number;
 }
 
 /**
- * Anchor zoom to the timeline's left edge instead of its center.
- *
- * Scaling the existing scroll offset by the zoom ratio preserves the time
- * already at the left edge. In particular, scrollLeft=0 stays at zero, so
- * zooming in expands the timeline only to the right and cannot pull time zero
- * underneath the sticky track controllers.
+ * Anchor zoom to the playhead when active so the track moves dynamically
+ * to stay in sync with the playhead, or anchor to the left edge when at time zero.
  */
 export function calculateZoomScrollLeft(input: ZoomScrollInput): number {
-  const finite = (value: number, fallback: number) => Number.isFinite(value) ? value : fallback;
+  const finite = (value: number, fallback: number) => (Number.isFinite(value) ? value : fallback);
   const scrollLeft = Math.max(0, finite(input.scrollLeft, 0));
   const previousZoom = Math.max(MIN_PIXELS_PER_SECOND, finite(input.previousZoom, 1));
   const nextZoom = Math.max(MIN_PIXELS_PER_SECOND, finite(input.nextZoom, previousZoom));
   const maxScrollLeft = Math.max(0, finite(input.maxScrollLeft, 0));
+
+  if (
+    typeof input.playheadSeconds === 'number' &&
+    Number.isFinite(input.playheadSeconds) &&
+    input.playheadSeconds > 0
+  ) {
+    const playhead = input.playheadSeconds;
+    const playheadXOld = playhead * previousZoom;
+    const offsetInViewport = playheadXOld - scrollLeft;
+    const usableViewportWidth = Math.max(
+      100,
+      finite(input.viewportWidth, 1000) - finite(input.headerWidth, 0)
+    );
+
+    // Keep playhead at the same relative position in the viewport if visible, or center it
+    let targetOffset = offsetInViewport;
+    if (offsetInViewport < 0 || offsetInViewport > usableViewportWidth) {
+      targetOffset = usableViewportWidth / 2;
+    }
+    const targetScrollLeft = playhead * nextZoom - targetOffset;
+    return Math.min(maxScrollLeft, Math.max(0, targetScrollLeft));
+  }
+
   const targetScrollLeft = scrollLeft * (nextZoom / previousZoom);
   return Math.min(maxScrollLeft, Math.max(0, targetScrollLeft));
 }

@@ -219,6 +219,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       previousZoom,
       nextZoom: pixelsPerSecond,
       maxScrollLeft: viewport.scrollWidth - viewport.clientWidth,
+      playheadSeconds,
     });
     // A smooth auto-center scroll that was under way belongs to the old zoom; drop it
     autoCenterPendingRef.current = false;
@@ -226,7 +227,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     lastScrollLeftRef.current = nextScrollLeft;
     viewport.scrollLeft = nextScrollLeft;
     setScrollLeft(nextScrollLeft);
-  }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth]);
+  }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth, playheadSeconds]);
 
   // ResizeObserver for canvas width
   useEffect(() => {
@@ -1034,6 +1035,28 @@ export const Timeline: React.FC<TimelineProps> = ({
     }
   };
 
+  // Drag scrub directly from the playhead head marker on the time ruler
+  const handlePlayheadPointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startClientX = e.clientX;
+    const startPlayhead = playheadSeconds;
+
+    const onPointerMove = (moveEv: PointerEvent) => {
+      const deltaPx = moveEv.clientX - startClientX;
+      const newTime = Math.max(0, startPlayhead + deltaPx / pixelsPerSecond);
+      onSeek(newTime);
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  };
+
   return (
     <div
       ref={containerRef}
@@ -1055,16 +1078,46 @@ export const Timeline: React.FC<TimelineProps> = ({
         onToggleCollapseControls={handleToggleControls}
       />
 
-      {/* One continuous playhead line across the ruler and all track rows; no arrowhead. */}
-      {currentHeaderWidth + playheadSeconds * pixelsPerSecond - scrollLeft >= currentHeaderWidth && (
-        <div
-          aria-hidden="true"
-          style={{
-            left: `${currentHeaderWidth + playheadSeconds * pixelsPerSecond - scrollLeft}px`,
-          }}
-          className="absolute top-0 bottom-0 w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF] z-20 pointer-events-none transition-[left] duration-75 linear"
-        />
-      )}
+      {/* Unified Playhead: Head on the time ruler + Body Line across all tracks (always perfectly synchronized) */}
+      {(() => {
+        const playheadX = currentHeaderWidth + playheadSeconds * pixelsPerSecond - scrollLeft;
+        if (playheadX < currentHeaderWidth - 8 || playheadX > currentHeaderWidth + timelineWidth + 8) {
+          return null;
+        }
+        return (
+          <div
+            aria-label={`Playhead: ${formatTimecode(playheadSeconds)}`}
+            style={{
+              left: `${playheadX}px`,
+            }}
+            className="absolute top-0 bottom-0 z-30 pointer-events-none select-none"
+          >
+            {/* Playhead Head directly on the Time Ruler (28px height) */}
+            <div
+              className="absolute top-0 -translate-x-1/2 pointer-events-auto cursor-ew-resize flex flex-col items-center group"
+              onPointerDown={handlePlayheadPointerDown}
+              title={`Playhead: ${formatTimecode(playheadSeconds)} (Drag to scrub)`}
+            >
+              <svg
+                width="16"
+                height="22"
+                viewBox="0 0 16 22"
+                fill="none"
+                className="filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] drop-shadow-[0_0_6px_rgba(0,240,255,0.7)] text-cyan-400 group-hover:text-cyan-300 transition-colors"
+              >
+                <path
+                  d="M1 0H15C15.5523 0 16 0.447715 16 1V13.5C16 13.8441 15.8236 14.1634 15.5348 14.3503L8.53484 18.8796C8.20935 19.09 7.79065 19.09 7.46516 18.8796L0.465164 14.3503C0.176412 14.1634 0 13.8441 0 13.5V1C0 0.447715 0.447715 0 1 0Z"
+                  fill="#00F0FF"
+                />
+                <line x1="8" y1="3" x2="8" y2="12" stroke="#0A0A0E" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </div>
+
+            {/* Playhead Body Line seamlessly connecting from the tip of the head down through all track rows */}
+            <div className="absolute top-[18px] bottom-0 -translate-x-[0.75px] w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF]" />
+          </div>
+        );
+      })()}
 
       {/* Main Track Rows Scroll Container */}
       <div

@@ -33,8 +33,27 @@ const __dirname = path.dirname(__filename);
 // The built web app lives in <project>/dist, one level above both server/ and dist-server/
 const DIST_DIR = path.resolve(__dirname, '..', 'dist');
 
+function getArg(flag: string): string | undefined {
+  const index = process.argv.indexOf(flag);
+  if (index !== -1 && index + 1 < process.argv.length) {
+    return process.argv[index + 1];
+  }
+  return undefined;
+}
+
+const argPort = getArg('--port');
+const PORT = argPort ? parseInt(argPort, 10) : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
+const argHost = getArg('--host');
+const HOST = argHost || process.env.HOST || '0.0.0.0';
+
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled rejection:', reason);
+});
+
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Behind Firebase Hosting and Cloud Run the real client address arrives in X-Forwarded-For
 app.set('trust proxy', true);
@@ -814,8 +833,8 @@ async function startServer() {
     });
   }
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Uuda Studio server listening on http://0.0.0.0:${PORT} (${isProduction ? 'production' : 'development'})`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`Uuda Studio server listening on http://${HOST}:${PORT} (${isProduction ? 'production' : 'development'})`);
   });
 
   // Cloud Run sends SIGTERM before stopping an instance: finish open requests, then exit
