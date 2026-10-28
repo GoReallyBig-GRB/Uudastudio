@@ -15,6 +15,7 @@ import { getVisibleClipPixelRange } from './timelineViewport';
 import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
+import type { RangeSelection, TimelineTool } from './rangeDelete';
 import { TimelineRuler } from './TimelineRuler';
 import { ClipActionStrip } from './ClipActionStrip';
 import { peakProvider } from '../waveform/peakProvider';
@@ -50,6 +51,10 @@ interface TimelineProps {
   onMoveClipTrack: (clipId: string, direction: 'up' | 'down') => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
   onRecordTrack: (trackId: string) => void;
+  /** Select: pointer moves clips. Range: dragging on a track highlights a time span and never moves clips. */
+  tool: TimelineTool;
+  rangeSelection: RangeSelection | null;
+  onRangeSelect: (selection: RangeSelection | null) => void;
   onUpdateClip: (clipId: string, updates: Partial<Clip>) => void;
   onFileDrop: (files: FileList) => void;
   isControlsCollapsed?: boolean;
@@ -119,6 +124,9 @@ export const Timeline: React.FC<TimelineProps> = ({
   onMoveClipTrack,
   onMoveTrack,
   onRecordTrack,
+  tool,
+  rangeSelection,
+  onRangeSelect,
   onUpdateClip,
   onFileDrop,
   isControlsCollapsed: propControlsCollapsed,
@@ -155,6 +163,8 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   // Marquee selection state
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
+  // Range tool drag: where it began (time and screen x) and whether the pointer has moved far enough to count as a drag.
+  const [rangeDrag, setRangeDrag] = useState<{ trackId: string; anchorSeconds: number; startClientX: number; moved: boolean } | null>(null);
 
   // Fade handle drag state
   const [fadeDrag, setFadeDrag] = useState<FadeDragState | null>(null);
@@ -653,6 +663,14 @@ export const Timeline: React.FC<TimelineProps> = ({
     const clickY = e.clientY - rect.top;
     const timeAtClick = clickX / pixelsPerSecond;
 
+    // Range tool (or Alt held): dragging highlights a span of this track. It never moves, trims or fades a clip.
+    if (tool === 'range' || e.altKey) {
+      onSelectTrack(track.id);
+      onRangeSelect(null);
+      setRangeDrag({ trackId: track.id, anchorSeconds: Math.max(0, timeAtClick), startClientX: e.clientX, moved: false });
+      return;
+    }
+
     // Check if clicked inside a clip or on clip edge
     let clickedClip: Clip | null = null;
     let clickedFadeType: 'in' | 'out' | null = null;
@@ -782,6 +800,21 @@ export const Timeline: React.FC<TimelineProps> = ({
   // Global window pointer move and pointer up for drag, marquee, fade, and edge trimming
   useEffect(() => {
     const handleWindowPointerMove = (e: PointerEvent) => {
+      // 0. Range tool drag: highlight a span of one track
+      if (rangeDrag && laneScrollContainerRef.current) {
+        if (!rangeDrag.moved && Math.abs(e.clientX - rangeDrag.startClientX) < 3) return;
+        const rect = laneScrollContainerRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left + laneScrollContainerRef.current.scrollLeft - currentHeaderWidth;
+        const here = Math.max(0, x / pixelsPerSecond);
+        if (!rangeDrag.moved) setRangeDrag({ ...rangeDrag, moved: true });
+        onRangeSelect({
+          trackId: rangeDrag.trackId,
+          startSeconds: Math.min(rangeDrag.anchorSeconds, here),
+          endSeconds: Math.max(rangeDrag.anchorSeconds, here),
+        });
+        return;
+      }
+
       // 1. Edge Trim Drag (Inward drag wipes out / deletes waveform)
       if (edgeTrimDrag) {
         const dx = e.clientX - edgeTrimDrag.startX;
@@ -956,6 +989,12 @@ export const Timeline: React.FC<TimelineProps> = ({
         setMarquee(null);
       }
 
+      if (rangeDrag) {
+        // A click without a drag just moves the playhead, like a click on an empty lane.
+        if (!rangeDrag.moved) onSeek(rangeDrag.anchorSeconds);
+        setRangeDrag(null);
+      }
+
       if (fadeDrag) {
         setFadeDrag(null);
       }
@@ -971,8 +1010,11 @@ export const Timeline: React.FC<TimelineProps> = ({
     edgeTrimDrag,
     draggingClips,
     marquee,
+    rangeDrag,
     fadeDrag,
     pixelsPerSecond,
+    onRangeSelect,
+    onSeek,
     project,
     currentHeaderWidth,
     onSelectClips,
@@ -1179,6 +1221,8 @@ export const Timeline: React.FC<TimelineProps> = ({
                 onDeleteTrack={onDeleteTrack}
                 onMoveTrack={onMoveTrack}
                 onRecordTrack={onRecordTrack}
+                rangeTool={tool === 'range'}
+                rangeHighlight={rangeSelection && rangeSelection.trackId === track.id ? rangeSelection : null}
                 renderWaveforms={renderTrackWaveforms}
                 onLanePointerDown={handleLanePointerDown}
                 onLanePointerMoveHover={handleLanePointerMoveHover}
@@ -1299,6 +1343,8 @@ interface TrackRowContainerProps {
   onDeleteTrack: (trackId: string) => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
   onRecordTrack: (trackId: string) => void;
+  rangeTool: boolean;
+  rangeHighlight: RangeSelection | null;
   renderWaveforms: (canvas: HTMLCanvasElement | null, track: Track, trackIndex: number) => void;
   onLanePointerDown: (e: React.PointerEvent<HTMLDivElement>, track: Track, trackIndex: number) => void;
   onLanePointerMoveHover: (e: React.PointerEvent<HTMLDivElement>, track: Track) => void;
@@ -1314,7 +1360,10 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
   laneWidth,
   timelineWidth,
   scrollLeft,
+  pixelsPerSecond,
   isControlsCollapsed,
+  rangeTool,
+  rangeHighlight,
   onSelectTrack,
   onUpdateTrack,
   onDeleteTrack,
@@ -1358,7 +1407,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
         onPointerMove={(e) => onLanePointerMoveHover(e, track)}
         onDoubleClick={(e) => onLaneDoubleClick(e, track)}
         onContextMenu={(e) => onLaneContextMenu(e, track)}
-        className="h-full relative overflow-hidden bg-[#0E0E14] hover:bg-[#101018] transition-colors border-b border-zinc-700/90"
+        className={`h-full relative overflow-hidden bg-[#0E0E14] hover:bg-[#101018] transition-colors border-b border-zinc-700/90 ${rangeTool ? 'cursor-crosshair' : ''}`}
       >
         <canvas
           ref={canvasRef}
@@ -1374,6 +1423,16 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
           }}
           className="block pointer-events-none"
         />
+        {rangeHighlight && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 border-x border-cyan-300/70 bg-cyan-400/15"
+            style={{
+              left: `${rangeHighlight.startSeconds * pixelsPerSecond}px`,
+              width: `${Math.max(1, (rangeHighlight.endSeconds - rangeHighlight.startSeconds) * pixelsPerSecond)}px`,
+            }}
+          />
+        )}
       </div>
     </div>
   );

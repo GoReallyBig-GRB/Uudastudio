@@ -25,10 +25,13 @@ import {
   SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
+  Trash2,
 } from 'lucide-react';
 import { Clip } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
 import { DspModalType } from './DspModals';
+import { SegmentedControl } from './ui';
+import type { TimelineTool } from './rangeDelete';
 
 interface ClipToolbarProps {
   clip: Clip | null;
@@ -44,6 +47,12 @@ interface ClipToolbarProps {
   onOpenDsp: (type: DspModalType) => void;
   onOpenEffect?: (type: import('../types').EffectType) => void;
   onDeselect: () => void;
+  /** Pointer tool: Select edits clips, Range highlights a span of a track. */
+  tool: TimelineTool;
+  onToolChange: (tool: TimelineTool) => void;
+  /** Length of the highlighted range in seconds, or null when there is none. */
+  rangeSeconds: number | null;
+  onDeleteRange: () => void;
   isControllerCollapsed?: boolean;
   onToggleController?: () => void;
   isTimelineCollapsed?: boolean;
@@ -64,6 +73,10 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onOpenDsp,
   onOpenEffect,
   onDeselect,
+  tool,
+  onToolChange,
+  rangeSeconds,
+  onDeleteRange,
   isControllerCollapsed = false,
   onToggleController,
   isTimelineCollapsed = false,
@@ -105,6 +118,28 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
 
       {/* Center: Primary Editing + DSP Cluster (Side-by-Side as required) */}
       <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none flex-1">
+        {/* Pointer tool: Select edits clips; Range highlights a span of one track so it can be deleted */}
+        <SegmentedControl<TimelineTool>
+          label="Timeline tool"
+          size="sm"
+          value={tool}
+          onChange={onToolChange}
+          options={[
+            { value: 'select', label: 'Select' },
+            { value: 'range', label: 'Range' },
+          ]}
+        />
+        {rangeSeconds !== null && (
+          <button
+            onClick={onDeleteRange}
+            title="Delete the highlighted range from this track and close the gap (Delete)"
+            className="flex items-center gap-1 px-2 py-1 rounded-md border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-[11px] font-semibold text-rose-300 transition-colors shrink-0 cursor-pointer"
+          >
+            <Trash2 className="w-3 h-3" />
+            <span>Delete {rangeSeconds.toFixed(2)}s</span>
+          </button>
+        )}
+
         {/* GROUP 1: Split, Cut, Copy, Paste */}
         <div className="flex items-center gap-0.5 bg-[#14141c] p-0.5 rounded-md border border-zinc-800">
           {/* Split at Playhead */}
