@@ -79,6 +79,16 @@ describe('ripple delete on one track', () => {
     expect(right.fadeOutSeconds).toBe(0.5); // the clip's own end fade is kept
   });
 
+  it('does not pile up (Part 2) tags when the same clip is cut again and again', () => {
+    let clips = [clip('c', 0, 30, { name: 'Take' })];
+    for (let i = 0; i < 4; i++) {
+      const cutAt = 2 + i * 6;
+      clips = deleteRangeFromClips(clips, cutAt, cutAt + 1, makeId).clips;
+    }
+    expect(clips.length).toBeGreaterThan(1);
+    expect(clips.every((c) => c.name === 'Take' || c.name === 'Take (Part 2)')).toBe(true);
+  });
+
   it('keeps clip settings on both pieces', () => {
     const res = deleteRangeFromClips([clip('c', 0, 10, { gain: 0.7, muted: true })], 4, 6, makeId);
     expect(res.clips.every((c) => c.gain === 0.7 && c.muted === true && c.assetId === 'a1')).toBe(true);
