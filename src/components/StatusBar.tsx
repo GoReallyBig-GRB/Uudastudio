@@ -277,7 +277,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Quick Actions</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Double Click Clip</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Q / Double Click Clip</span>
                 </div>
               </div>
             </div>
