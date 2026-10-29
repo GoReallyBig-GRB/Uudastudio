@@ -5,7 +5,8 @@
  */
 import React, { useState } from 'react';
 import { Download, Play } from 'lucide-react';
-import { Button, Card, Input, ModalShell, SegmentedControl, Slider, Switch } from './index';
+import { Button, Card, Input, ModalShell, SegmentedControl, Slider, Switch, type CapsuleVariant } from './index';
+import { HeaderMock } from './HeaderMock';
 
 // Full literal class names: Tailwind only generates classes it can see in the source as complete strings.
 const SURFACES = [
@@ -29,12 +30,27 @@ const Gallery: React.FC = () => {
   const [target, setTarget] = useState(-16);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
+  const [capsuleVariant, setCapsuleVariant] = useState<CapsuleVariant>('joined');
 
   return (
     <div className="h-screen overflow-y-auto bg-surface-0 px-6 py-10 font-sans text-ink select-text">
       <div className="mx-auto max-w-4xl">
         <h1 className="mb-1 text-2xl font-semibold tracking-tight">Uuda design system</h1>
         <p className="mb-10 text-sm text-ink-dim">Foundation preview. Cyan is the only interactive accent; gold is for brand moments.</p>
+
+        <Section title="Header and toolbar mock: capsule groups vs loose pills">
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <SegmentedControl<CapsuleVariant>
+              label="Button style"
+              size="sm"
+              value={capsuleVariant}
+              onChange={setCapsuleVariant}
+              options={[{ value: 'joined', label: 'Capsule groups' }, { value: 'loose', label: 'Loose pills' }]}
+            />
+            <span className="text-xs text-ink-faint">Related buttons share one pill; unrelated actions stay separate. Cyan marks only what is on, gold only Export and the brand.</span>
+          </div>
+          <HeaderMock variant={capsuleVariant} />
+        </Section>
 
         <Section title="Surfaces">
           <div className="grid grid-cols-4 gap-3">
