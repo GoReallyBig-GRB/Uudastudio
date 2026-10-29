@@ -2636,7 +2636,6 @@ const MainStudio: React.FC = () => {
         onDeleteSelected={handleDeleteSelected}
         onSelectAll={handleSelectAll}
         onImportFiles={handleImportFiles}
-        onUpdateProjectName={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
         onToggleAutoRefresh={() =>
           setProjectWithHistory((p) => ({
             ...p,
@@ -2677,6 +2676,8 @@ const MainStudio: React.FC = () => {
           setIsEffectsModalOpen(true);
         }}
         onDeselect={() => setSelectedClipIds(new Set())}
+        projectName={project.name}
+        onRenameProject={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
         tool={timelineTool}
         onToolChange={(tool) => {
           setTimelineTool(tool);

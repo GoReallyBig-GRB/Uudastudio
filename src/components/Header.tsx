@@ -66,6 +66,11 @@ function readRecentProjects(): RecentProjectEntry[] {
   }
 }
 
+// Header pill buttons (design tokens). Layout is shared; colours are idle (neutral) or on (cyan = switched on).
+const PILL_LAYOUT = 'inline-flex h-8 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold tracking-tight transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
+const PILL_IDLE = 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink';
+const PILL_ON = 'border-accent/40 bg-accent-soft text-accent';
+
 interface HeaderProps {
   project: Project;
   isPlaying: boolean;
@@ -111,7 +116,6 @@ interface HeaderProps {
   onDeleteSelected: () => void;
   onSelectAll: () => void;
   onImportFiles: (files: FileList) => void;
-  onUpdateProjectName: (name: string) => void;
   onToggleAutoRefresh: () => void;
   onToggleDucking: () => void;
   onUpdateDuckingDb: (db: number) => void;
@@ -166,7 +170,6 @@ export const Header: React.FC<HeaderProps> = ({
   onDeleteSelected,
   onSelectAll,
   onImportFiles,
-  onUpdateProjectName,
   onToggleAutoRefresh,
   onToggleDucking,
   onUpdateDuckingDb,
@@ -178,17 +181,11 @@ export const Header: React.FC<HeaderProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const projectFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [projectName, setProjectName] = useState(project.name);
   const [isEditMenuOpen, setIsEditMenuOpen] = useState(false);
   const [isEffectsMenuOpen, setIsEffectsMenuOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState<RecentProjectEntry[]>(() => readRecentProjects());
-
-  useEffect(() => {
-    setProjectName(project.name);
-  }, [project.name]);
 
   // Keep a small local index only; project/audio data remains in the existing save systems.
   useEffect(() => {
@@ -212,16 +209,6 @@ export const Header: React.FC<HeaderProps> = ({
     }
     setRecentProjects(next);
   }, [project.id, project.name, project.tracks.length]);
-
-  const handleNameSubmit = () => {
-    setIsEditingName(false);
-    const trimmed = projectName.trim();
-    if (trimmed && trimmed !== project.name) {
-      onUpdateProjectName(trimmed);
-    } else {
-      setProjectName(project.name);
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -247,7 +234,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-13 bg-[#0E0E12] border-b border-zinc-800/90 px-4 flex items-center justify-between gap-4 select-none shrink-0 z-40">
+    <header className="h-14 bg-surface-0 border-b border-line px-4 flex items-center justify-between gap-4 select-none shrink-0 z-40">
       {/* Hidden File Input for Import Audio */}
       <input
         ref={fileInputRef}
@@ -270,15 +257,15 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Brand, File Menu, and Project Name */}
       <div className="flex items-center gap-3 min-w-0 shrink-0">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-md bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-[0_0_12px_rgba(0,240,255,0.4)]">
-            <AudioWaveform className="w-4 h-4 text-black stroke-[2.5]" />
+          <div className="w-8 h-8 rounded-control bg-gold-soft text-gold flex items-center justify-center">
+            <AudioWaveform className="w-4 h-4 stroke-[2.5]" />
           </div>
-          <span className="font-bold tracking-tight text-sm text-zinc-100 flex items-center gap-1.5">
-            UUDA <span className="text-cyan-400 font-extrabold text-xs tracking-widest">STUDIO</span>
+          <span className="font-bold tracking-tight text-sm text-ink flex items-center gap-1.5">
+            UUDA <span className="text-gold font-semibold text-xs tracking-[0.18em]">STUDIO</span>
           </span>
         </div>
 
-        <div className="h-4 w-px bg-zinc-800" />
+        <div className="h-4 w-px bg-line" />
 
         {/* File Menu Dropdown */}
         <div className="relative">
@@ -288,9 +275,9 @@ export const Header: React.FC<HeaderProps> = ({
               setIsEditMenuOpen(false);
             }}
             title="File Menu: Open, Save, Import, and Export"
-            className="flex items-center gap-1.5 text-xs text-zinc-200 hover:text-cyan-300 px-2 py-1 rounded bg-[#161622] hover:bg-[#1c1c2a] border border-zinc-700/80 transition-colors font-medium cursor-pointer"
+            className={`${PILL_LAYOUT} ${PILL_IDLE}`}
           >
-            <FolderArchive className="w-3.5 h-3.5 text-cyan-400" />
+            <FolderArchive className="w-3.5 h-3.5" />
             <span>File</span>
             <ChevronDown className="w-3 h-3 opacity-60" />
           </button>
@@ -298,11 +285,11 @@ export const Header: React.FC<HeaderProps> = ({
           {isProjectMenuOpen && (
             <div
               onClick={() => setIsProjectMenuOpen(false)}
-              className="absolute left-0 top-full mt-1.5 w-64 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:rgba(113,113,122,0.65)_transparent] bg-[#14141e] border border-zinc-700/90 rounded-xl shadow-[0_16px_40px_rgba(0,0,0,0.85)] py-1.5 z-50 text-xs text-zinc-200 animate-in fade-in duration-100"
+              className="absolute left-0 top-full mt-1.5 w-64 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:rgba(113,113,122,0.65)_transparent] bg-surface-2 border border-line-strong rounded-card shadow-float py-1.5 z-50 text-xs text-zinc-200 animate-in fade-in duration-100"
             >
               <button
                 onClick={onNewProject}
-                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
               >
                 <FilePlus className="w-4 h-4 text-cyan-400" />
                 <div>
@@ -314,7 +301,7 @@ export const Header: React.FC<HeaderProps> = ({
               {onNewFromTemplate && (
                 <button
                   onClick={onNewFromTemplate}
-                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
                   <LayoutTemplate className="w-4 h-4 text-purple-400" />
                   <div>
@@ -327,7 +314,7 @@ export const Header: React.FC<HeaderProps> = ({
               {onSaveAndNewProject && (
                 <button
                   onClick={onSaveAndNewProject}
-                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
                   <Save className="w-4 h-4 text-cyan-400" />
                   <div>
@@ -352,7 +339,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               <button
                 onClick={() => projectFileInputRef.current?.click()}
-                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
               >
                 <FolderOpen className="w-4 h-4 text-emerald-400" />
                 <div>
@@ -364,7 +351,7 @@ export const Header: React.FC<HeaderProps> = ({
               {onChooseProjectRoot && (
                 <button
                   onClick={onChooseProjectRoot}
-                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
                   <FolderArchive className="w-4 h-4 text-amber-400" />
                   <div>
@@ -377,7 +364,7 @@ export const Header: React.FC<HeaderProps> = ({
               {onOpenProjectFromRoot && (
                 <button
                   onClick={onOpenProjectFromRoot}
-                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
                   <FolderOpen className="w-4 h-4 text-amber-400" />
                   <div>
@@ -396,7 +383,7 @@ export const Header: React.FC<HeaderProps> = ({
                   key={recent.id}
                   onClick={() => projectFileInputRef.current?.click()}
                   title={`Choose the saved .uuda file for “${recent.name}”`}
-                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
                   <FolderOpen className="w-4 h-4 text-zinc-400 shrink-0" />
                   <div className="min-w-0 flex-1">
@@ -416,7 +403,7 @@ export const Header: React.FC<HeaderProps> = ({
               {onSaveAsTemplate && (
                 <button
                   onClick={onSaveAsTemplate}
-                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
                   <LayoutTemplate className="w-4 h-4 text-purple-400" />
                   <div>
@@ -428,7 +415,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               <button
                 onClick={onSaveProjectToFile}
-                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
               >
                 <Save className="w-4 h-4 text-indigo-400" />
                 <div>
@@ -440,7 +427,7 @@ export const Header: React.FC<HeaderProps> = ({
               {onSaveProjectAs && (
                 <button
                   onClick={onSaveProjectAs}
-                  className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
                   <Save className="w-4 h-4 text-indigo-400" />
                   <div>
@@ -453,7 +440,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="h-px bg-zinc-800 my-1" />
 
               <button
-                onClick={() => setIsEditingName(true)}
+                onClick={() => window.dispatchEvent(new CustomEvent('uuda:rename-project'))}
                 className="w-full text-left px-3 py-2 hover:bg-zinc-800 flex items-center gap-2.5 transition-colors cursor-pointer"
               >
                 <Edit3 className="w-4 h-4 text-zinc-400" />
@@ -493,38 +480,11 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Editable Project Name */}
-        {isEditingName ? (
-          <input
-            type="text"
-            value={projectName}
-            autoFocus
-            onChange={(e) => setProjectName(e.target.value)}
-            onBlur={handleNameSubmit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleNameSubmit();
-              if (e.key === 'Escape') {
-                setProjectName(project.name);
-                setIsEditingName(false);
-              }
-            }}
-            className="bg-black/60 border border-cyan-500 rounded px-2 py-0.5 text-xs text-zinc-200 font-medium focus:outline-none w-44"
-          />
-        ) : (
-          <span
-            onDoubleClick={() => setIsEditingName(true)}
-            title="Double-click to rename project"
-            className="text-xs text-zinc-300 font-medium truncate max-w-[160px] cursor-text hover:text-cyan-300 transition-colors"
-          >
-            {project.name}
-          </span>
-        )}
-
         {/* Edit Menu Dropdown */}
         <div className="relative">
           <button
             onClick={() => setIsEditMenuOpen(!isEditMenuOpen)}
-            className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded hover:bg-zinc-800/60 transition-colors"
+            className={`${PILL_LAYOUT} ${PILL_IDLE}`}
           >
             <span>Edit</span>
             <ChevronDown className="w-3 h-3 opacity-60" />
@@ -533,7 +493,7 @@ export const Header: React.FC<HeaderProps> = ({
           {isEditMenuOpen && (
             <div
               onClick={() => setIsEditMenuOpen(false)}
-              className="absolute left-0 top-full mt-1 w-60 bg-[#121218] border border-zinc-700/80 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
+              className="absolute left-0 top-full mt-1 w-60 bg-surface-2 border border-line-strong rounded-card shadow-float py-1 z-50 text-xs text-zinc-300"
             >
               <button
                 disabled={!canUndo}
@@ -692,9 +652,9 @@ export const Header: React.FC<HeaderProps> = ({
               setIsEditMenuOpen(false);
             }}
             title="Audio Effects Suite (Delay, EQ, Chorus, Flanger, Phaser, Reverb)"
-            className="flex items-center gap-1.5 text-xs text-zinc-300 hover:text-cyan-300 px-2 py-1 rounded bg-[#161622] hover:bg-[#1c1c2a] border border-zinc-700/80 transition-colors font-medium cursor-pointer"
+            className={`${PILL_LAYOUT} ${PILL_IDLE}`}
           >
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+            <Sparkles className="w-3.5 h-3.5" />
             <span>Effects</span>
             <ChevronDown className="w-3 h-3 opacity-60" />
           </button>
@@ -702,7 +662,7 @@ export const Header: React.FC<HeaderProps> = ({
           {isEffectsMenuOpen && (
             <div
               onClick={() => setIsEffectsMenuOpen(false)}
-              className="absolute left-0 top-full mt-1.5 w-64 bg-[#14141e] border border-zinc-700/90 rounded-xl shadow-[0_16px_40px_rgba(0,0,0,0.85)] py-1.5 z-50 text-xs text-zinc-200 animate-in fade-in duration-100"
+              className="absolute left-0 top-full mt-1.5 w-64 bg-surface-2 border border-line-strong rounded-card shadow-float py-1.5 z-50 text-xs text-zinc-200 animate-in fade-in duration-100"
             >
               <div className="px-3 py-1.5 text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-wider border-b border-zinc-800 flex items-center justify-between">
                 <span>Real-Time Audio Effects</span>
@@ -710,7 +670,7 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
               <button
                 onClick={() => onOpenEffect?.('delay')}
-                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center justify-between transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
                   <div className="font-semibold text-zinc-100">Delay & Echo...</div>
@@ -719,7 +679,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
               <button
                 onClick={() => onOpenEffect?.('equalizer')}
-                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center justify-between transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
                   <div className="font-semibold text-zinc-100">Equalize (5-Band EQ)...</div>
@@ -728,7 +688,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
               <button
                 onClick={() => onOpenEffect?.('chorus')}
-                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center justify-between transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
                   <div className="font-semibold text-zinc-100">Chorus...</div>
@@ -737,7 +697,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
               <button
                 onClick={() => onOpenEffect?.('flanger')}
-                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center justify-between transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
                   <div className="font-semibold text-zinc-100">Flanger...</div>
@@ -746,7 +706,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
               <button
                 onClick={() => onOpenEffect?.('phaser')}
-                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center justify-between transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
                   <div className="font-semibold text-zinc-100">Phaser...</div>
@@ -755,7 +715,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
               <button
                 onClick={() => onOpenEffect?.('reverb')}
-                className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 hover:text-cyan-300 flex items-center justify-between transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
                   <div className="font-semibold text-zinc-100">Reverb...</div>
@@ -769,13 +729,13 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Central Transport & Timecode Controls */}
       <div className="flex items-center gap-3">
-        {/* Transport Buttons */}
-        <div className="flex items-center gap-1 bg-[#15151c] p-1 rounded-lg border border-zinc-800">
+        {/* Transport: one capsule (back, play or pause, stop), then Record as its own pill */}
+        <div role="group" aria-label="Transport" className="flex items-stretch divide-x divide-line overflow-hidden rounded-full border border-line bg-surface-1">
           {/* Return to Start / Rewind to Head Button */}
           <button
             onClick={onReturnToStart}
             title="Return to Start / Rewind to Head (Home / 0)"
-            className="w-8 h-8 rounded-md bg-zinc-800/60 text-zinc-400 hover:text-cyan-300 hover:bg-zinc-700/60 flex items-center justify-center transition-colors cursor-pointer"
+            className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
           >
             <SkipBack className="w-4 h-4 fill-current" />
           </button>
@@ -784,7 +744,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onPause}
               title="Pause (Space)"
-              className="w-8 h-8 rounded-md bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 flex items-center justify-center transition-colors"
+              className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer bg-accent-soft text-accent hover:brightness-125"
             >
               <Pause className="w-4 h-4 fill-current" />
             </button>
@@ -792,7 +752,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onPlay}
               title="Play (Space)"
-              className="w-8 h-8 rounded-md bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 flex items-center justify-center transition-colors"
+              className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink hover:bg-white/5"
             >
               <Play className="w-4 h-4 fill-current ml-0.5" />
             </button>
@@ -801,23 +761,21 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onStop}
             title="Stop & Return to Start"
-            className="w-8 h-8 rounded-md bg-zinc-800/60 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/60 flex items-center justify-center transition-colors"
+            className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
           >
             <Square className="w-3.5 h-3.5 fill-current" />
           </button>
-
-          <div className="h-4 w-px bg-zinc-800 mx-0.5" />
-
-          {/* RECORD Button (toned down subtle styling when not engaged) */}
-          <button
-            onClick={onOpenRecord}
-            title="Open Recording Studio with 4-Band Input EQ (R)"
-            className="flex items-center gap-1.5 px-2.5 h-8 rounded-md bg-[#16161d] hover:bg-rose-950/40 text-zinc-300 hover:text-rose-200 border border-zinc-700/80 hover:border-rose-600/50 text-xs font-semibold transition-all cursor-pointer shadow-xs"
-          >
-            <div className="w-2 h-2 rounded-full bg-rose-500/80" />
-            <span>Record</span>
-          </button>
         </div>
+
+        {/* RECORD Button */}
+        <button
+          onClick={onOpenRecord}
+          title="Open Recording Studio with 4-Band Input EQ (R)"
+          className={`${PILL_LAYOUT} ${PILL_IDLE} hover:border-danger/50`}
+        >
+          <span aria-hidden="true" className="h-2 w-2 rounded-full bg-danger" />
+          <span>Record</span>
+        </button>
       </div>
 
       {/* Right Controls: Auto-refresh, Voiceover, Sound Library, Export, Settings */}
@@ -827,7 +785,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onManualRefresh}
             title="Manual Repaint / Refresh"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40 text-xs font-medium transition-colors"
+            className={`${PILL_LAYOUT} border-warn/40 bg-warn/10 text-warn hover:bg-warn/20`}
           >
             <RefreshCw className="w-3 h-3" />
             <span>Refresh</span>
@@ -845,9 +803,9 @@ export const Header: React.FC<HeaderProps> = ({
             }
           }}
           title="Open Expanded Voiceover Studio Workspace (Gemini TTS)"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-gradient-to-r from-cyan-500/20 to-indigo-600/30 hover:from-cyan-500/30 hover:to-indigo-600/40 text-cyan-200 hover:text-white border border-cyan-500/40 hover:border-cyan-400 shadow-[0_0_12px_rgba(0,240,255,0.25)] transition-all cursor-pointer"
+          className={`${PILL_LAYOUT} ${PILL_IDLE}`}
         >
-          <Mic className="w-3.5 h-3.5 text-cyan-400" />
+          <Mic className="w-3.5 h-3.5" />
           <span>Voiceover</span>
         </button>
 
@@ -859,13 +817,9 @@ export const Header: React.FC<HeaderProps> = ({
               onSelectSidebarTab('library');
             }}
             title="Open Sound Library (Freesound CC0)"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-              activeSidebarTab === 'library'
-                ? 'bg-emerald-500 text-black font-bold shadow-[0_0_14px_rgba(16,185,129,0.4)]'
-                : 'bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 border border-zinc-700/60'
-            }`}
+            className={`${PILL_LAYOUT} ${activeSidebarTab === 'library' ? PILL_ON : PILL_IDLE}`}
           >
-            <Music className="w-3.5 h-3.5 text-emerald-400" />
+            <Music className="w-3.5 h-3.5" />
             <span>Sound Library</span>
           </button>
         )}
@@ -881,9 +835,9 @@ export const Header: React.FC<HeaderProps> = ({
             }
           }}
           title="Open Modular Audio Plugins & Effects Rack (WAM 2.0 & Native Stems)"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-gradient-to-r from-purple-900/70 to-indigo-900/70 hover:from-purple-800/90 hover:to-indigo-800/90 text-purple-200 hover:text-white border border-purple-500/50 hover:border-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.3)] transition-all cursor-pointer"
+          className={`${PILL_LAYOUT} ${PILL_IDLE}`}
         >
-          <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+          <Sparkles className="w-3.5 h-3.5" />
           <span>Plugins</span>
         </button>
 
@@ -891,7 +845,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onOpenExport}
           title="Master & Export Production (WAV / MP3 at LUFS target)"
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white border border-emerald-400/50 text-xs font-bold shadow-[0_0_14px_rgba(16,185,129,0.3)] transition-all cursor-pointer"
+          className="inline-flex h-8 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-full bg-gold px-4 text-xs font-bold tracking-tight text-gold-ink transition-[filter] duration-150 hover:brightness-110 active:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-0"
         >
           <Download className="w-3.5 h-3.5" />
           <span>Export</span>
@@ -902,7 +856,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={() => setIsSettingsOpen(!isSettingsOpen)}
             title="Settings & Audio Engine Status"
-            className="p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 rounded-md border border-zinc-800 transition-colors"
+            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-line bg-surface-1 text-ink-dim transition-colors hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -910,7 +864,7 @@ export const Header: React.FC<HeaderProps> = ({
           {isSettingsOpen && (
             <div
               onClick={() => setIsSettingsOpen(false)}
-              className="absolute right-0 top-full mt-1.5 w-68 bg-[#121218] border border-zinc-700/80 rounded-lg shadow-2xl p-3 z-50 text-xs text-zinc-300"
+              className="absolute right-0 top-full mt-1.5 w-68 bg-surface-2 border border-line-strong rounded-card shadow-float p-3 z-50 text-xs text-zinc-300"
             >
               <div className="font-semibold text-zinc-100 pb-2 mb-2 border-b border-zinc-800 flex items-center justify-between">
                 <span>Studio Settings</span>
