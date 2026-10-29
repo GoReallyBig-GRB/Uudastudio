@@ -21,7 +21,6 @@ import {
   VolumeX,
   ArrowUp,
   ArrowDown,
-  X,
   SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
@@ -31,7 +30,6 @@ import { Clip } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
 import { DspModalType } from './DspModals';
 import { Capsule, CapsuleButton, HoverTitle } from './ui';
-import { displayTitle, formatClipLength } from './clipTitle';
 import type { TimelineTool } from './rangeDelete';
 
 interface ClipToolbarProps {
@@ -63,10 +61,8 @@ interface ClipToolbarProps {
   onToggleTimelineCollapsed?: () => void;
 }
 
-/** Longest clip name shown in the toolbar chip; longer names are cut and shown in full on hover. */
-const CLIP_CHIP_MAX_CHARS = 22;
 /** Longest project name shown at the left of the toolbar. */
-const PROJECT_NAME_MAX_CHARS = 26;
+const PROJECT_NAME_MAX_CHARS = 20;
 
 export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   clip,
@@ -81,7 +77,6 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onUpdateClip,
   onOpenDsp,
   onOpenEffect,
-  onDeselect,
   projectName,
   onRenameProject,
   tool,
@@ -132,41 +127,18 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
                 setIsEditingName(false);
               }
             }}
-            className="h-8 w-52 rounded-control border border-accent/60 bg-surface-3 px-3 text-sm font-medium text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="h-8 w-44 rounded-control border border-accent/60 bg-surface-3 px-3 text-xs font-medium text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           />
         ) : (
           <span
             onDoubleClick={() => setIsEditingName(true)}
             title={projectName.length > PROJECT_NAME_MAX_CHARS ? undefined : 'Double-click to rename project'}
-            className="cursor-text text-sm font-semibold text-ink transition-colors hover:text-accent"
+            className="cursor-text text-xs font-medium text-ink-dim transition-colors hover:text-ink"
           >
             <HoverTitle text={projectName} maxChars={PROJECT_NAME_MAX_CHARS} />
           </span>
         )}
 
-        {hasClip ? (
-          <div className="flex items-center gap-1.5 px-2.5 h-7 rounded-full bg-accent-soft border border-accent/30 text-accent shrink-0">
-            <span className="w-2 h-2 rounded-full bg-accent shrink-0 animate-pulse" />
-            <HoverTitle
-              text={displayTitle(clip.name)}
-              maxChars={CLIP_CHIP_MAX_CHARS}
-              meta={formatClipLength(clip.durationSeconds)}
-              className="text-[11px] font-semibold text-ink"
-            />
-            <span className="text-[10px] mono-nums text-ink-dim shrink-0">
-              {clip.durationSeconds.toFixed(2)}s
-            </span>
-            <button
-              onClick={onDeselect}
-              title="Deselect clip"
-              className="text-ink-dim hover:text-ink ml-0.5"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-        ) : (
-          <span className="hidden text-[11px] italic text-ink-faint xl:inline">Select a clip to edit</span>
-        )}
       </div>
 
       <div className="h-4 w-px bg-line shrink-0" />
@@ -272,17 +244,6 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             Speed
           </CapsuleButton>
         </Capsule>
-        {onOpenEffect && (
-          <Capsule label="Effects rack">
-            <CapsuleButton
-              title="Open Audio Effects Rack (Delay, EQ, Chorus, Flanger, Phaser, Reverb)"
-              onClick={() => onOpenEffect('reverb')}
-              icon={<Sparkles className="h-3.5 w-3.5" />}
-            >
-              Effects Rack
-            </CapsuleButton>
-          </Capsule>
-        )}
 
         <div className="h-4 w-px bg-line mx-1 shrink-0" />
 
@@ -377,8 +338,20 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
         ) : null}
       </div>
 
-      {/* Right: Timeline View Mode Toggle (fixed width so nothing around it shifts) */}
-      <div className="flex shrink-0 items-center border-l border-line pl-3">
+      {/* Right: pinned controls. They never scroll or shrink, so a long name can't push them out of view. */}
+      <div className="flex shrink-0 items-center gap-2 border-l border-line pl-3">
+        {onOpenEffect && (
+          <Capsule label="Effects rack">
+            <CapsuleButton
+              title="Open Audio Effects Rack (Delay, EQ, Chorus, Flanger, Phaser, Reverb)"
+              onClick={() => onOpenEffect('reverb')}
+              icon={<Sparkles className="h-3.5 w-3.5" />}
+            >
+              Effects Rack
+            </CapsuleButton>
+          </Capsule>
+        )}
+
         {onToggleTimelineCollapsed && (
           <button
             onClick={onToggleTimelineCollapsed}

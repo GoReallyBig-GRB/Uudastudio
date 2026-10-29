@@ -2715,6 +2715,7 @@ const MainStudio: React.FC = () => {
           onAddTrack={handleAddEmptyTrack}
           onUpdateTrack={handleUpdateTrack}
           onRemoveEmptyTracks={handleRemoveEmptyTracks}
+          selectedClipIds={selectedClipIds}
           onAddVoiceTrack={handleAddVoiceTrack}
           onAddLibraryTrack={handleAddLibraryTrack}
         />
