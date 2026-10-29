@@ -51,6 +51,8 @@ interface TimelineProps {
   onOpenDspModal: (type: import('./DspModals').DspModalType) => void;
   onOpenExport?: () => void;
   onOpenPlugins?: () => void;
+  onGroupSelected?: () => void;
+  onUngroupSelected?: () => void;
   onMoveClipTrack: (clipId: string, direction: 'up' | 'down') => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
   onRecordTrack: (trackId: string) => void;
@@ -138,6 +140,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   onOpenDspModal,
   onOpenExport,
   onOpenPlugins,
+  onGroupSelected,
+  onUngroupSelected,
   onMoveClipTrack,
   onMoveTrack,
   onRecordTrack,
@@ -173,6 +177,14 @@ export const Timeline: React.FC<TimelineProps> = ({
     clip: Clip;
     position: { x: number; y: number };
   } | null>(null);
+
+  // The clip Quick Actions shows: follows the selection while it is open, and always the live copy (not a stale snapshot).
+  const stripClip = actionStrip
+    ? (() => {
+        const all = project.tracks.flatMap((t) => t.clips);
+        return all.find((c) => selectedClipIds.has(c.id)) ?? all.find((c) => c.id === actionStrip.clip.id) ?? null;
+      })()
+    : null;
 
   // Dragging clips state
   const [draggingClips, setDraggingClips] = useState<DraggingClipsState | null>(null);
@@ -377,7 +389,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         }
       } else if ((e.key === 'q' || e.key === 'Q') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         // Q: open (or close) Quick Actions for the selected clip, near the pointer.
-        if (selectedClipIds.size === 1 && !rangeSelection) {
+        if (selectedClipIds.size >= 1 && !rangeSelection) {
           e.preventDefault();
           const [clipId] = Array.from(selectedClipIds);
           const target = project.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
@@ -845,6 +857,12 @@ export const Timeline: React.FC<TimelineProps> = ({
         if (!newSelected.has(clickedClip.id)) {
           newSelected = new Set([clickedClip.id]);
         }
+      }
+      // Clips in a group are picked as one unit.
+      const groupIds = new Set<string>();
+      for (const t of project.tracks) for (const c of t.clips) if (newSelected.has(c.id) && c.groupId) groupIds.add(c.groupId);
+      if (groupIds.size > 0) {
+        for (const t of project.tracks) for (const c of t.clips) if (c.groupId && groupIds.has(c.groupId)) newSelected.add(c.id);
       }
       onSelectClips(newSelected);
       onSelectTrack(track.id);
@@ -1339,9 +1357,11 @@ export const Timeline: React.FC<TimelineProps> = ({
       </div>
 
       {/* Quick Action Strip Popup */}
-      {actionStrip && (
+      {actionStrip && stripClip && (
         <ClipActionStrip
-          clip={actionStrip.clip}
+          clip={stripClip}
+          selectedCount={selectedClipIds.size}
+          isGrouped={project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && !!c.groupId))}
           position={actionStrip.position}
           canPaste={canPaste}
           onClose={() => setActionStrip(null)}
@@ -1349,13 +1369,18 @@ export const Timeline: React.FC<TimelineProps> = ({
           onCopy={onCopyClip}
           onCut={onCutClip}
           onPaste={onPasteClip}
-          onDelete={onDeleteClip}
+          onDelete={(id) => {
+            if (selectedClipIds.size > 1) Array.from(selectedClipIds).forEach((cid) => onDeleteClip(cid));
+            else onDeleteClip(id);
+          }}
           onToggleMute={onToggleMuteClip}
           onMoveTrack={onMoveClipTrack}
           onUpdateClip={onUpdateClip}
           onOpenDsp={onOpenDspModal}
           onOpenExport={onOpenExport}
           onOpenPlugins={onOpenPlugins}
+          onGroup={onGroupSelected}
+          onUngroup={onUngroupSelected}
         />
       )}
 
@@ -1364,7 +1389,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         <div
           style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
           onClick={(e) => e.stopPropagation()}
-          className="timeline-context-menu-container fixed z-40 bg-[#14141c]/95 border border-cyan-500/60 rounded-xl shadow-[0_12px_36px_rgba(0,0,0,0.85),0_0_16px_rgba(0,240,255,0.2)] py-1.5 px-1 text-xs text-zinc-200 min-w-[210px] animate-in fade-in zoom-in-95 duration-100 backdrop-blur-md select-none"
+          className="timeline-context-menu-container fixed z-40 bg-surface-2 border border-line-strong rounded-card shadow-float py-1.5 px-1 text-xs text-ink-dim w-64 uuda-pop-in select-none"
         >
           <div className="px-2.5 py-1 text-[10px] font-mono text-zinc-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
             <span className="truncate max-w-[120px] text-zinc-300 font-semibold">{getTrackLabel(contextMenu.track, Math.max(0, project.tracks.findIndex((t) => t.id === contextMenu.track.id)))}</span>

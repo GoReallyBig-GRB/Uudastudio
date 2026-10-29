@@ -20,6 +20,8 @@ export interface Clip {
   muted?: boolean;
   effects?: TrackEffect[];
   versionHistory?: ClipVersion[];
+  /** Clips sharing a groupId are selected, moved and deleted together until ungrouped. */
+  groupId?: string;
 }
 
 export interface AmplifyParams {
