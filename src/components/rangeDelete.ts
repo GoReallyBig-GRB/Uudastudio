@@ -12,6 +12,7 @@
  * Pure and framework-free so the rules can be unit-tested without a browser.
  */
 import type { Clip } from '../types';
+import { nextPartName } from './clipTitle';
 
 /** Which tool the timeline pointer uses: Select moves and edits clips; Range highlights a span of one track. */
 export type TimelineTool = 'select' | 'range';
@@ -96,7 +97,7 @@ export const deleteRangeFromClips = (
         ...clip,
         // The first piece keeps the clip's id; a second piece from the same clip gets a new one.
         id: keepLeft ? makeId() : clip.id,
-        name: keepLeft ? `${clip.name} (Part 2)` : clip.name,
+        name: keepLeft ? nextPartName(clip.name) : clip.name,
         startSeconds: range.start,
         offsetSeconds: (clip.offsetSeconds || 0) + (range.end - start),
         durationSeconds: rightDuration,

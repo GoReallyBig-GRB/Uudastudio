@@ -16,6 +16,7 @@ import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
 import type { RangeSelection, TimelineTool } from './rangeDelete';
+import { TITLE_PAD_X, displayTitle, fitTitle, formatClipLength } from './clipTitle';
 import { TimelineRuler } from './TimelineRuler';
 import { ClipActionStrip } from './ClipActionStrip';
 import { peakProvider } from '../waveform/peakProvider';
@@ -587,7 +588,9 @@ export const Timeline: React.FC<TimelineProps> = ({
           ctx.save();
           ctx.font = '10px "Plus Jakarta Sans", sans-serif';
           ctx.fillStyle = isSelected ? '#e0faff' : '#cbd5e1';
-          ctx.fillText(clip.name || 'Audio Clip', renderX + 6, clipY + 12);
+          // Fit the title inside this clip (ellipsis, or nothing on a very narrow clip) so it never spills onto neighbours.
+          const titleText = fitTitle(displayTitle(clip.name), renderW - TITLE_PAD_X * 2, (str) => ctx.measureText(str).width);
+          if (titleText) ctx.fillText(titleText, renderX + TITLE_PAD_X, clipY + 12);
           ctx.restore();
 
           // Draw Trimming Edge Grippers (Point 6: Left and right edge handles for inward waveform deletion)
@@ -623,11 +626,59 @@ export const Timeline: React.FC<TimelineProps> = ({
   );
 
   // Mouse hover over clip edges to show col-resize cursor
+  // Hover popup with a clip's full title. Updated straight on its DOM node so pointer moves never re-render the timeline.
+  const titleTipRef = useRef<HTMLDivElement | null>(null);
+  const titleTipNameRef = useRef<HTMLSpanElement | null>(null);
+  const titleTipMetaRef = useRef<HTMLSpanElement | null>(null);
+
+  const hideTitleTip = () => {
+    if (titleTipRef.current) titleTipRef.current.style.display = 'none';
+  };
+
+  const showTitleTip = (clientX: number, clientY: number, name: string, seconds: number) => {
+    const tip = titleTipRef.current;
+    if (!tip || !titleTipNameRef.current || !titleTipMetaRef.current) return;
+    const meta = formatClipLength(seconds);
+    const key = `${name}|${meta}`;
+    if (tip.dataset.key !== key) {
+      tip.dataset.key = key;
+      titleTipNameRef.current.textContent = name;
+      titleTipMetaRef.current.textContent = meta;
+    }
+    if (tip.style.display === 'none') tip.style.display = 'flex';
+    // Below and to the right of the pointer, flipped to stay on screen.
+    const w = tip.offsetWidth;
+    const h = tip.offsetHeight;
+    const left = clientX + 14 + w > window.innerWidth - 8 ? Math.max(8, clientX - 14 - w) : clientX + 14;
+    const top = clientY + 18 + h > window.innerHeight - 8 ? Math.max(8, clientY - 12 - h) : clientY + 18;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  };
+
   const handleLanePointerMoveHover = (e: React.PointerEvent<HTMLDivElement>, track: Track) => {
-    if (draggingClips || edgeTrimDrag || marquee || fadeDrag) return;
+    if (draggingClips || edgeTrimDrag || marquee || fadeDrag || rangeDrag) {
+      hideTitleTip();
+      return;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
     const timeAtClick = clickX / pixelsPerSecond;
+
+    // Pointer on a clip's title strip (and clear of the trim edges): show the full title.
+    let tipClip: Clip | null = null;
+    if (clickY >= 4 && clickY <= 20) {
+      for (const clip of track.clips) {
+        const leftPx = clip.startSeconds * pixelsPerSecond;
+        const rightPx = (clip.startSeconds + clip.durationSeconds) * pixelsPerSecond;
+        if (clickX > leftPx + 8 && clickX < rightPx - 8) {
+          tipClip = clip;
+          break;
+        }
+      }
+    }
+    if (tipClip) showTitleTip(e.clientX, e.clientY, displayTitle(tipClip.name), tipClip.durationSeconds);
+    else hideTitleTip();
 
     let isNearEdge = false;
     for (const clip of track.clips) {
@@ -657,6 +708,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     trackIndex: number
   ) => {
     if (e.button === 2) return; // ignore right click for drag (let context menu handle)
+    hideTitleTip();
 
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
@@ -1110,6 +1162,17 @@ export const Timeline: React.FC<TimelineProps> = ({
       onContextMenu={(e) => e.preventDefault()}
       className="flex-1 flex flex-col min-w-0 h-full bg-[#0A0A0C] relative select-none overflow-hidden"
     >
+      {/* Hover popup: a clip's full title (positioned and filled directly by the hover handler) */}
+      <div
+        ref={titleTipRef}
+        role="tooltip"
+        style={{ display: 'none' }}
+        className="uuda-pop-in pointer-events-none fixed z-[70] max-w-[280px] items-baseline gap-2 rounded-control border border-line-strong bg-surface-2/95 px-2.5 py-1.5 text-[11px] leading-snug text-ink shadow-float backdrop-blur-sm"
+      >
+        <span ref={titleTipNameRef} className="min-w-0 break-words font-medium" />
+        <span ref={titleTipMetaRef} className="font-num shrink-0 text-[10px] text-ink-faint" />
+      </div>
+
       {/* Top Timeline Ruler with collapsible controller toggle */}
       <TimelineRuler
         pixelsPerSecond={pixelsPerSecond}
@@ -1226,6 +1289,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 renderWaveforms={renderTrackWaveforms}
                 onLanePointerDown={handleLanePointerDown}
                 onLanePointerMoveHover={handleLanePointerMoveHover}
+                onLanePointerLeave={hideTitleTip}
                 onLaneDoubleClick={handleLaneDoubleClick}
                 onLaneContextMenu={handleLaneContextMenu}
               />
@@ -1348,6 +1412,7 @@ interface TrackRowContainerProps {
   renderWaveforms: (canvas: HTMLCanvasElement | null, track: Track, trackIndex: number) => void;
   onLanePointerDown: (e: React.PointerEvent<HTMLDivElement>, track: Track, trackIndex: number) => void;
   onLanePointerMoveHover: (e: React.PointerEvent<HTMLDivElement>, track: Track) => void;
+  onLanePointerLeave: () => void;
   onLaneDoubleClick: (e: React.MouseEvent<HTMLDivElement>, track: Track) => void;
   onLaneContextMenu: (e: React.MouseEvent<HTMLDivElement>, track: Track) => void;
 }
@@ -1372,6 +1437,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
   renderWaveforms,
   onLanePointerDown,
   onLanePointerMoveHover,
+  onLanePointerLeave,
   onLaneDoubleClick,
   onLaneContextMenu,
 }) => {
@@ -1405,6 +1471,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
         style={{ width: `${laneWidth}px` }}
         onPointerDown={(e) => onLanePointerDown(e, track, trackIndex)}
         onPointerMove={(e) => onLanePointerMoveHover(e, track)}
+        onPointerLeave={onLanePointerLeave}
         onDoubleClick={(e) => onLaneDoubleClick(e, track)}
         onContextMenu={(e) => onLaneContextMenu(e, track)}
         className={`h-full relative overflow-hidden bg-[#0E0E14] hover:bg-[#101018] transition-colors border-b border-zinc-700/90 ${rangeTool ? 'cursor-crosshair' : ''}`}

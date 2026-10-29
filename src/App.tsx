@@ -45,6 +45,7 @@ import { Timeline } from './components/Timeline';
 import { StatusBar } from './components/StatusBar';
 import { RecordingModal } from './components/RecordingModal';
 import { takeStartSeconds } from './components/recordingMonitor';
+import { nextPartName } from './components/clipTitle';
 import { deleteRangeFromClips, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
@@ -1849,7 +1850,7 @@ const MainStudio: React.FC = () => {
       id: rightClipId,
       trackId: targetTrack.id,
       assetId: targetClip.assetId, // Both clips share the same asset without gap or click
-      name: `${targetClip.name} (Part 2)`,
+      name: nextPartName(targetClip.name),
       startSeconds: targetClip.startSeconds + leftDuration,
       offsetSeconds: targetClip.offsetSeconds + leftDuration,
       durationSeconds: rightDuration,
