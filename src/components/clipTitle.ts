@@ -53,3 +53,30 @@ export const formatClipLength = (seconds: number): string => {
   const s = whole % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
 };
+
+/** Shortens a title to at most `max` characters, ending in an ellipsis when it was cut. */
+export const capChars = (text: string, max: number): string => {
+  if (max < 2 || text.length <= max) return text;
+  return `${text.slice(0, max - 1).trimEnd()}…`;
+};
+
+const TIP_GAP_X = 14;
+const TIP_GAP_Y = 18;
+const TIP_MARGIN = 8;
+
+/**
+ * Where to put a one-line hover strip of size w x h next to the pointer. It sits right of and below the pointer, and
+ * flips to the left and/or above when that side would run off the screen. `maxWidth` is the widest the strip may be
+ * (so the caller can cap it and keep it on one line); the strip never goes past the screen margin.
+ */
+export const placeTip = (
+  pointerX: number, pointerY: number, w: number, h: number, viewW: number, viewH: number,
+): { left: number; top: number; maxWidth: number } => {
+  const maxWidth = Math.max(0, viewW - TIP_MARGIN * 2);
+  const width = Math.min(w, maxWidth);
+  const fitsRight = pointerX + TIP_GAP_X + width <= viewW - TIP_MARGIN;
+  const left = fitsRight ? pointerX + TIP_GAP_X : Math.max(TIP_MARGIN, pointerX - TIP_GAP_X - width);
+  const fitsBelow = pointerY + TIP_GAP_Y + h <= viewH - TIP_MARGIN;
+  const top = fitsBelow ? pointerY + TIP_GAP_Y : Math.max(TIP_MARGIN, pointerY - 12 - h);
+  return { left, top, maxWidth };
+};

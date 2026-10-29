@@ -16,7 +16,7 @@ import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
 import type { RangeSelection, TimelineTool } from './rangeDelete';
-import { TITLE_PAD_X, displayTitle, fitTitle, formatClipLength } from './clipTitle';
+import { TITLE_PAD_X, displayTitle, fitTitle, formatClipLength, placeTip } from './clipTitle';
 import { TimelineRuler } from './TimelineRuler';
 import { ClipActionStrip } from './ClipActionStrip';
 import { peakProvider } from '../waveform/peakProvider';
@@ -96,6 +96,18 @@ interface EdgeTrimDragState {
 }
 
 const ROW_HEIGHT = 80;
+
+/** Device pixels per CSS pixel, so the waveform canvas is drawn at full sharpness on high-density screens. */
+const getDpr = (): number => Math.min(3, Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) || 1));
+
+/**
+ * Border/fill/wave shades that alternate along a track. Two tints of the one cyan-grey hue, far enough apart to tell
+ * adjacent clips apart at a glance without adding a new colour.
+ */
+const CLIP_SHADES = [
+  { border: '#3f7385', fill: 'rgba(24, 30, 40, 0.92)', wave: '#38bdf8' },
+  { border: '#9fc7d4', fill: 'rgba(32, 40, 52, 0.92)', wave: '#5fcdf5' },
+] as const;
 const FULL_HEADER_WIDTH = 272;
 const COLLAPSED_HEADER_WIDTH = 32;
 
@@ -350,7 +362,8 @@ export const Timeline: React.FC<TimelineProps> = ({
           onSplitClip(clipId);
         }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedClipIds.size > 0) {
+        // A highlighted range owns Delete (the app removes just that span); never also delete whole clips.
+        if (selectedClipIds.size > 0 && !rangeSelection) {
           e.preventDefault();
           for (const clipId of selectedClipIds) {
             onDeleteClip(clipId);
@@ -365,7 +378,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedClipIds, onSplitClip, onDeleteClip, onSelectClips]);
+  }, [selectedClipIds, onSplitClip, onDeleteClip, onSelectClips, rangeSelection]);
 
   /**
    * Render Track Waveforms onto canvas
@@ -376,9 +389,13 @@ export const Timeline: React.FC<TimelineProps> = ({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      const width = canvas.width;
-      const height = canvas.height;
-      ctx.clearRect(0, 0, width, height);
+      // The canvas has dpr x more pixels than its on-screen size, so lines stay crisp on high-density screens.
+      const dpr = getDpr();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.scale(dpr, dpr);
+      const width = canvas.width / dpr;
+      const height = canvas.height / dpr;
       // Draw exclusively in viewport-local coordinates. The canvas itself is positioned
       // at scrollLeft inside the lane, so timeline x values are offset once here and nowhere else.
       ctx.save();
@@ -396,10 +413,14 @@ export const Timeline: React.FC<TimelineProps> = ({
       ctx.stroke();
 
       try {
+        // Neighbouring clips on a track alternate between two border shades so where one ends and the next begins is clear.
+        const orderIndex = new Map<string, number>();
+        [...track.clips].sort((a, b) => a.startSeconds - b.startSeconds).forEach((c, i) => orderIndex.set(c.id, i));
         for (const clip of track.clips) {
+          const shade = CLIP_SHADES[(orderIndex.get(clip.id) ?? 0) % CLIP_SHADES.length];
           let renderStart = clip.startSeconds;
           let renderDuration = clip.durationSeconds;
-          const isSelected = selectedClipIds.has(clip.id);
+          const isSelected = tool !== 'range' && selectedClipIds.has(clip.id);
           let isGhost = false;
 
           // Drag preview adjustments
@@ -426,7 +447,7 @@ export const Timeline: React.FC<TimelineProps> = ({
             ? 'rgba(0, 240, 255, 0.16)'
             : isGhost
             ? 'rgba(56, 189, 248, 0.08)'
-            : 'rgba(24, 27, 38, 0.9)';
+            : shade.fill;
           ctx.beginPath();
           ctx.roundRect(renderX, clipY, renderW, clipH, 4);
           ctx.fill();
@@ -455,13 +476,15 @@ export const Timeline: React.FC<TimelineProps> = ({
               const fadeOutSec = clip.fadeOutSeconds || 0;
 
               const midY = clipY + clipH / 2;
-              const maxAmp = (clipH / 2 - 2) * Math.min(2.0, clip.gain);
+              const maxAmp = (clipH / 2 - 6) * Math.min(2.0, clip.gain);
 
+              // Softer, slightly see-through strokes so dense audio reads as a clean outline, not a solid block.
+              ctx.globalAlpha = 0.85;
               ctx.strokeStyle = isSelected
                 ? '#00F0FF'
                 : clip.muted
                 ? '#52525b'
-                : '#38bdf8';
+                : shade.wave;
               ctx.lineWidth = 1;
               ctx.beginPath();
 
@@ -496,6 +519,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 }
               }
               ctx.stroke();
+              ctx.globalAlpha = 1;
 
               // Draw Fade In curve overlay
               if (fadeInSec > 0) {
@@ -578,8 +602,8 @@ export const Timeline: React.FC<TimelineProps> = ({
             ctx.setLineDash([4, 4]);
             ctx.stroke();
           } else {
-            ctx.strokeStyle = '#2d3345';
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = shade.border;
+            ctx.lineWidth = 1.5;
             ctx.stroke();
           }
           ctx.restore();
@@ -622,7 +646,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         ctx.restore();
       }
     },
-    [project.tracks, selectedClipIds, draggingClips, pixelsPerSecond, scrollLeft, timelineWidth, waveformVersion]
+    [project.tracks, selectedClipIds, draggingClips, pixelsPerSecond, scrollLeft, timelineWidth, waveformVersion, tool]
   );
 
   // Mouse hover over clip edges to show col-resize cursor
@@ -646,13 +670,11 @@ export const Timeline: React.FC<TimelineProps> = ({
       titleTipMetaRef.current.textContent = meta;
     }
     if (tip.style.display === 'none') tip.style.display = 'flex';
-    // Below and to the right of the pointer, flipped to stay on screen.
-    const w = tip.offsetWidth;
-    const h = tip.offsetHeight;
-    const left = clientX + 14 + w > window.innerWidth - 8 ? Math.max(8, clientX - 14 - w) : clientX + 14;
-    const top = clientY + 18 + h > window.innerHeight - 8 ? Math.max(8, clientY - 12 - h) : clientY + 18;
-    tip.style.left = `${left}px`;
-    tip.style.top = `${top}px`;
+    // One line only: measured at its natural width, then placed left or right of the pointer so it never runs off screen.
+    tip.style.maxWidth = `${window.innerWidth - 16}px`;
+    const pos = placeTip(clientX, clientY, tip.offsetWidth, tip.offsetHeight, window.innerWidth, window.innerHeight);
+    tip.style.left = `${pos.left}px`;
+    tip.style.top = `${pos.top}px`;
   };
 
   const handleLanePointerMoveHover = (e: React.PointerEvent<HTMLDivElement>, track: Track) => {
@@ -719,6 +741,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     if (tool === 'range' || e.altKey) {
       onSelectTrack(track.id);
       onRangeSelect(null);
+      if (selectedClipIds.size > 0) onSelectClips(new Set());
       setRangeDrag({ trackId: track.id, anchorSeconds: Math.max(0, timeAtClick), startClientX: e.clientX, moved: false });
       return;
     }
@@ -1167,9 +1190,9 @@ export const Timeline: React.FC<TimelineProps> = ({
         ref={titleTipRef}
         role="tooltip"
         style={{ display: 'none' }}
-        className="uuda-pop-in pointer-events-none fixed z-[70] max-w-[280px] items-baseline gap-2 rounded-control border border-line-strong bg-surface-2/95 px-2.5 py-1.5 text-[11px] leading-snug text-ink shadow-float backdrop-blur-sm"
+        className="uuda-pop-in pointer-events-none fixed z-[70] items-baseline gap-2 whitespace-nowrap rounded-control border border-line-strong bg-surface-2/95 px-2.5 py-1.5 text-[11px] leading-snug text-ink shadow-float backdrop-blur-sm"
       >
-        <span ref={titleTipNameRef} className="min-w-0 break-words font-medium" />
+        <span ref={titleTipNameRef} className="min-w-0 truncate font-medium" />
         <span ref={titleTipMetaRef} className="font-num shrink-0 text-[10px] text-ink-faint" />
       </div>
 
@@ -1478,8 +1501,8 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
       >
         <canvas
           ref={canvasRef}
-          width={Math.max(100, timelineWidth)}
-          height={ROW_HEIGHT}
+          width={Math.round(Math.max(100, timelineWidth) * getDpr())}
+          height={Math.round(ROW_HEIGHT * getDpr())}
           style={{
             position: 'absolute',
             left: `${scrollLeft}px`,

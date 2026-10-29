@@ -30,7 +30,8 @@ import {
 import { Clip } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
 import { DspModalType } from './DspModals';
-import { Capsule, CapsuleButton } from './ui';
+import { Capsule, CapsuleButton, HoverTitle } from './ui';
+import { displayTitle, formatClipLength } from './clipTitle';
 import type { TimelineTool } from './rangeDelete';
 
 interface ClipToolbarProps {
@@ -61,6 +62,11 @@ interface ClipToolbarProps {
   isTimelineCollapsed?: boolean;
   onToggleTimelineCollapsed?: () => void;
 }
+
+/** Longest clip name shown in the toolbar chip; longer names are cut and shown in full on hover. */
+const CLIP_CHIP_MAX_CHARS = 22;
+/** Longest project name shown at the left of the toolbar. */
+const PROJECT_NAME_MAX_CHARS = 26;
 
 export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   clip,
@@ -131,19 +137,22 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
         ) : (
           <span
             onDoubleClick={() => setIsEditingName(true)}
-            title="Double-click to rename project"
-            className="max-w-[220px] cursor-text truncate text-sm font-semibold text-ink transition-colors hover:text-accent"
+            title={projectName.length > PROJECT_NAME_MAX_CHARS ? undefined : 'Double-click to rename project'}
+            className="cursor-text text-sm font-semibold text-ink transition-colors hover:text-accent"
           >
-            {projectName}
+            <HoverTitle text={projectName} maxChars={PROJECT_NAME_MAX_CHARS} />
           </span>
         )}
 
         {hasClip ? (
-          <div className="flex items-center gap-1.5 px-2.5 h-7 rounded-full bg-accent-soft border border-accent/30 text-accent max-w-[220px]">
+          <div className="flex items-center gap-1.5 px-2.5 h-7 rounded-full bg-accent-soft border border-accent/30 text-accent shrink-0">
             <span className="w-2 h-2 rounded-full bg-accent shrink-0 animate-pulse" />
-            <span className="font-semibold truncate text-[11px] text-ink">
-              {clip.name}
-            </span>
+            <HoverTitle
+              text={displayTitle(clip.name)}
+              maxChars={CLIP_CHIP_MAX_CHARS}
+              meta={formatClipLength(clip.durationSeconds)}
+              className="text-[11px] font-semibold text-ink"
+            />
             <span className="text-[10px] mono-nums text-ink-dim shrink-0">
               {clip.durationSeconds.toFixed(2)}s
             </span>
@@ -163,7 +172,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
       <div className="h-4 w-px bg-line shrink-0" />
 
       {/* Center: Primary Editing + DSP Cluster (Side-by-Side as required) */}
-      <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none flex-1">
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-0.5 scrollbar-none">
         {/* Pointer tool: Select edits clips; Range highlights a span of one track so it can be deleted */}
         <Capsule label="Timeline tool">
           <CapsuleButton title="Select tool: move and edit clips" active={tool === 'select'} onClick={() => onToolChange('select')}>
@@ -368,24 +377,24 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
         ) : null}
       </div>
 
-      {/* Right: Timeline View Mode Toggle */}
-      <div className="flex items-center gap-1.5 shrink-0 pl-1 border-l border-zinc-800">
+      {/* Right: Timeline View Mode Toggle (fixed width so nothing around it shifts) */}
+      <div className="flex shrink-0 items-center border-l border-line pl-3">
         {onToggleTimelineCollapsed && (
           <button
             onClick={onToggleTimelineCollapsed}
             title={
               isTimelineCollapsed
-                ? "Show Timeline (Waveform view)"
-                : "Collapse Timeline to show only Editing & Mixing Panel"
+                ? 'Show Timeline (Waveform view)'
+                : 'Collapse Timeline to show only the Master Console'
             }
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold border transition-all cursor-pointer ${
+            className={`flex h-8 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
               isTimelineCollapsed
-                ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/60 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                : 'bg-zinc-800 text-zinc-300 hover:text-white border-zinc-700 hover:bg-zinc-700'
+                ? 'border-accent/40 bg-accent-soft text-accent'
+                : 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink'
             }`}
           >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
-            <span>{isTimelineCollapsed ? 'Show Timeline' : 'Editing & Mixing Panel Only'}</span>
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span>{isTimelineCollapsed ? 'Show Timeline' : 'Master Console'}</span>
           </button>
         )}
       </div>
