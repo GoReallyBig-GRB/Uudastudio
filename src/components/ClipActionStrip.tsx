@@ -1,6 +1,6 @@
 /**
  * X-PRO AUDIO - Clip Quick Action Strip
- * Floats near the clip on double-click / double-tap.
+ * Floats near the clip on double-click / double-tap, or opens with the Q key on the selected clip.
  * Supplies instant actions: Split at Playhead, Copy, Cut, Paste, Delete, Mute, Move Up, Move Down,
  * Fades, Volume (slider & +/- 1dB), Amplify, Compress, Denoise, Change Pitch, Change Speed.
  */
@@ -21,6 +21,8 @@ import {
   Sparkles,
   Music,
   Gauge,
+  Download,
+  Plug,
   X,
 } from 'lucide-react';
 import { Clip } from '../types';
@@ -41,6 +43,8 @@ interface ClipActionStripProps {
   onMoveTrack: (clipId: string, direction: 'up' | 'down') => void;
   onUpdateClip: (clipId: string, updates: Partial<Clip>) => void;
   onOpenDsp: (type: DspModalType) => void;
+  onOpenExport?: () => void;
+  onOpenPlugins?: () => void;
 }
 
 export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
@@ -57,6 +61,8 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
   onMoveTrack,
   onUpdateClip,
   onOpenDsp,
+  onOpenExport,
+  onOpenPlugins,
 }) => {
   // Listen for global dismiss events, Escape key, or clicks outside
   useEffect(() => {
@@ -357,6 +363,38 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Export and Plugins */}
+      {(onOpenExport || onOpenPlugins) && (
+        <div className="grid grid-cols-2 gap-1">
+          {onOpenExport && (
+            <button
+              onClick={() => {
+                onOpenExport();
+                onClose();
+              }}
+              title="Export the project"
+              className="flex items-center justify-center gap-1.5 p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 transition-colors border border-zinc-700/50 text-[10px] font-medium"
+            >
+              <Download className="w-3 h-3 text-zinc-300" />
+              <span>Export</span>
+            </button>
+          )}
+          {onOpenPlugins && (
+            <button
+              onClick={() => {
+                onOpenPlugins();
+                onClose();
+              }}
+              title="Open the plugins rack"
+              className="flex items-center justify-center gap-1.5 p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 transition-colors border border-zinc-700/50 text-[10px] font-medium"
+            >
+              <Plug className="w-3 h-3 text-zinc-300" />
+              <span>Plugins</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Delete button footer */}
       <div className="pt-1 border-t border-zinc-800 flex justify-between items-center text-[10px]">

@@ -2852,6 +2852,8 @@ const MainStudio: React.FC = () => {
               canPaste={!!clipboardClip}
               onToggleMuteClip={handleToggleMuteClip}
               onOpenDspModal={(type) => handleOpenDspModal(type)}
+              onOpenExport={openExport}
+              onOpenPlugins={() => setIsPluginsRackModalOpen(true)}
               onMoveClipTrack={handleMoveClipTrack}
               onUpdateClip={handleUpdateClip}
               onFileDrop={handleImportFiles}

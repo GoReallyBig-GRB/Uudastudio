@@ -49,6 +49,8 @@ interface TimelineProps {
   canPaste: boolean;
   onToggleMuteClip: (clipId: string) => void;
   onOpenDspModal: (type: import('./DspModals').DspModalType) => void;
+  onOpenExport?: () => void;
+  onOpenPlugins?: () => void;
   onMoveClipTrack: (clipId: string, direction: 'up' | 'down') => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
   onRecordTrack: (trackId: string) => void;
@@ -134,6 +136,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   canPaste,
   onToggleMuteClip,
   onOpenDspModal,
+  onOpenExport,
+  onOpenPlugins,
   onMoveClipTrack,
   onMoveTrack,
   onRecordTrack,
@@ -162,6 +166,8 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   const currentHeaderWidth = isControlsCollapsed ? COLLAPSED_HEADER_WIDTH : FULL_HEADER_WIDTH;
 
+  // Last pointer position over a lane, so the Q key can open Quick Actions where the user is looking.
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   // Quick Action Strip state
   const [actionStrip, setActionStrip] = useState<{
     clip: Clip;
@@ -369,6 +375,16 @@ export const Timeline: React.FC<TimelineProps> = ({
             onDeleteClip(clipId);
           }
         }
+      } else if ((e.key === 'q' || e.key === 'Q') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Q: open (or close) Quick Actions for the selected clip, near the pointer.
+        if (selectedClipIds.size === 1 && !rangeSelection) {
+          e.preventDefault();
+          const [clipId] = Array.from(selectedClipIds);
+          const target = project.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+          if (!target) return;
+          const at = lastPointerRef.current ?? { x: window.innerWidth / 2 - 160, y: 200 };
+          setActionStrip((open) => (open ? null : { clip: target, position: { x: Math.min(window.innerWidth - 320, at.x + 8), y: at.y + 8 } }));
+        }
       } else if (e.key === 'Escape') {
         onSelectClips(new Set());
         setActionStrip(null);
@@ -378,7 +394,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedClipIds, onSplitClip, onDeleteClip, onSelectClips, rangeSelection]);
+  }, [selectedClipIds, onSplitClip, onDeleteClip, onSelectClips, rangeSelection, project.tracks]);
 
   /**
    * Render Track Waveforms onto canvas
@@ -678,6 +694,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   };
 
   const handleLanePointerMoveHover = (e: React.PointerEvent<HTMLDivElement>, track: Track) => {
+    lastPointerRef.current = { x: e.clientX, y: e.clientY };
     if (draggingClips || edgeTrimDrag || marquee || fadeDrag || rangeDrag) {
       hideTitleTip();
       return;
@@ -1337,6 +1354,8 @@ export const Timeline: React.FC<TimelineProps> = ({
           onMoveTrack={onMoveClipTrack}
           onUpdateClip={onUpdateClip}
           onOpenDsp={onOpenDspModal}
+          onOpenExport={onOpenExport}
+          onOpenPlugins={onOpenPlugins}
         />
       )}
 
