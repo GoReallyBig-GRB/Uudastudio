@@ -66,13 +66,13 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
   };
 
   return (
-    <div className="w-full shrink-0 bg-[#0E0E12] flex flex-col h-full select-none min-w-0">
+    <div className="w-full shrink-0 bg-surface-1 flex flex-col h-full select-none min-w-0">
       {/* Header */}
-      <div className="h-10 px-3 border-b border-zinc-800 flex items-center justify-between gap-2 shrink-0">
+      <div className="h-12 px-3 border-b border-line flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <Layers className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-          <span className="text-xs font-semibold text-zinc-200 uppercase tracking-wide">Tracks</span>
-          <span className="text-[10px] font-mono px-1.5 text-zinc-400 bg-zinc-800 rounded-sm">{tracks.length}</span>
+          <Layers className="w-3.5 h-3.5 text-ink-dim shrink-0" />
+          <span className="text-xs font-semibold text-ink uppercase tracking-wider">Tracks</span>
+          <span className="text-[10px] font-num px-2 text-ink-dim bg-surface-3 rounded-full">{tracks.length}</span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {emptyCount > 0 && (
@@ -81,7 +81,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
               onClick={onRemoveEmptyTracks}
               title={`Remove ${emptyCount} empty ${emptyCount === 1 ? 'track' : 'tracks'}`}
               aria-label={`Remove ${emptyCount} empty tracks`}
-              className="flex items-center gap-1 text-[11px] text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 px-1.5 py-1 rounded-sm cursor-pointer"
+              className="flex items-center gap-1 text-[11px] text-warn hover:bg-warn/10 px-2 py-1 rounded-full cursor-pointer"
             >
               <Eraser className="w-3.5 h-3.5" />
               <span>{emptyCount}</span>
@@ -91,7 +91,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
             type="button"
             onClick={onAddTrack}
             title="Add empty track"
-            className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-cyan-300 hover:bg-zinc-800 px-1.5 py-1 rounded-sm cursor-pointer"
+            className="flex items-center gap-1 text-[11px] font-semibold text-ink-dim hover:text-ink bg-surface-1 hover:bg-surface-3 border border-line px-2.5 py-1 rounded-full cursor-pointer transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             Add
@@ -117,14 +117,14 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
               <div
                 key={track.id}
                 onClick={() => onSelectTrack(track.id)}
-                className={`group flex items-center justify-between gap-1 p-2 rounded-md border cursor-pointer ${
+                className={`group flex items-center justify-between gap-1 p-2 rounded-control border cursor-pointer transition-colors ${
                   isSelected
-                    ? 'bg-[#181824] border-cyan-500/60 text-zinc-100'
-                    : 'bg-[#121216] border-zinc-800 text-zinc-300 hover:bg-[#16161c] hover:border-zinc-700'
+                    ? 'bg-surface-3 border-accent/50 text-ink'
+                    : 'bg-surface-2 border-line text-ink-dim hover:bg-surface-3 hover:border-line-strong'
                 }`}
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className="text-[10px] font-mono text-zinc-500 w-4 text-right shrink-0">{idx + 1}</span>
+                  <span className="text-[10px] font-num text-zinc-500 w-4 text-right shrink-0">{idx + 1}</span>
                   <div className="min-w-0 flex-1">
                     {isEditing ? (
                       <input
@@ -140,7 +140,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                           if (e.key === 'Enter') commitEdit(track, label);
                           if (e.key === 'Escape') setEditingId(null);
                         }}
-                        className="w-full bg-black/70 border border-cyan-500 rounded-sm px-1.5 py-0.5 text-xs text-zinc-100 font-semibold focus:outline-none"
+                        className="w-full bg-surface-3 border border-accent/60 rounded-control px-2 py-0.5 text-xs text-ink font-semibold focus:outline-none"
                       />
                     ) : (
                       <div
@@ -149,21 +149,21 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                           startEdit(track, label);
                         }}
                         title="Double-click to rename"
-                        className="text-xs font-semibold truncate group-hover:text-cyan-200"
+                        className="text-xs font-semibold truncate group-hover:text-ink"
                       >
                         {label}
                       </div>
                     )}
                     <div className="flex items-center gap-2 text-[10px] text-zinc-500 mt-0.5">
                       {empty ? (
-                        <span className="text-amber-400 font-semibold">Empty</span>
+                        <span className="text-warn font-semibold">Empty</span>
                       ) : (
                         <span>
                           {track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'}
                         </span>
                       )}
-                      {track.muted && <span className="text-rose-400 font-semibold">Muted</span>}
-                      {track.solo && <span className="text-amber-400 font-semibold">Solo</span>}
+                      {track.muted && <span className="text-danger font-semibold">Muted</span>}
+                      {track.solo && <span className="text-warn font-semibold">Solo</span>}
                     </div>
                   </div>
                 </div>
@@ -171,7 +171,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                 {/* Length of the track (end of its last clip), always visible */}
                 <span
                   title="Track length"
-                  className="shrink-0 w-12 text-right text-[10px] font-mono tabular-nums text-zinc-400"
+                  className="shrink-0 w-12 text-right text-[10px] font-num tabular-nums text-zinc-400"
                 >
                   {empty ? '' : formatTrackLength(trackEndSeconds(track.clips))}
                 </span>
@@ -188,7 +188,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                       }}
                       title="Move up"
                       aria-label="Move track up"
-                      className="text-zinc-500 hover:text-cyan-300 disabled:opacity-20 disabled:pointer-events-none p-0.5 cursor-pointer"
+                      className="text-zinc-500 hover:text-accent disabled:opacity-20 disabled:pointer-events-none p-0.5 cursor-pointer"
                     >
                       <ChevronUp className="w-3 h-3" />
                     </button>
@@ -201,7 +201,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                       }}
                       title="Move down"
                       aria-label="Move track down"
-                      className="text-zinc-500 hover:text-cyan-300 disabled:opacity-20 disabled:pointer-events-none p-0.5 cursor-pointer"
+                      className="text-zinc-500 hover:text-accent disabled:opacity-20 disabled:pointer-events-none p-0.5 cursor-pointer"
                     >
                       <ChevronDown className="w-3 h-3" />
                     </button>
@@ -214,7 +214,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                     }}
                     title="Rename"
                     aria-label="Rename track"
-                    className="p-1 text-zinc-500 hover:text-cyan-300 hover:bg-zinc-800 rounded-sm cursor-pointer"
+                    className="p-1 text-zinc-500 hover:text-accent hover:bg-zinc-800 rounded-sm cursor-pointer"
                   >
                     <Pencil className="w-3 h-3" />
                   </button>
@@ -226,7 +226,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                     }}
                     title="Delete track"
                     aria-label="Delete track"
-                    className="p-1 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-sm cursor-pointer"
+                    className="p-1 text-zinc-500 hover:text-danger hover:bg-danger/10 rounded-sm cursor-pointer"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>

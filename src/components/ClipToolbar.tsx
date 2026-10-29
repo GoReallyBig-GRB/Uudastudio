@@ -284,36 +284,36 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             <button
               onClick={() => onToggleMute(clip.id)}
               title="Mute / Unmute clip"
-              className={`flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-medium transition-colors shrink-0 cursor-pointer ${
+              className={`flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-colors ${
                 clip.muted
-                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/50'
-                  : 'bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700 border-zinc-700/60'
+                  ? 'border-danger/40 bg-danger/10 text-danger'
+                  : 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink'
               }`}
             >
-              {clip.muted ? <VolumeX className="w-3 h-3 text-rose-400" /> : <Volume2 className="w-3 h-3" />}
+              {clip.muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
               <span>{clip.muted ? 'Muted' : 'Mute'}</span>
             </button>
 
             {/* Move Up / Down */}
-            <div className="flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 rounded p-0.5">
+            <div className="flex items-center divide-x divide-line overflow-hidden rounded-full border border-line bg-surface-1">
               <button
                 onClick={() => onMoveTrack(clip.id, 'up')}
                 title="Move clip to track above (Arrow Up)"
-                className="p-1 rounded hover:bg-zinc-700 text-zinc-300 transition-colors shrink-0 cursor-pointer"
+                className="flex h-8 w-9 items-center justify-center text-ink-dim hover:bg-white/5 hover:text-ink transition-colors shrink-0 cursor-pointer"
               >
                 <ArrowUp className="w-3 h-3" />
               </button>
               <button
                 onClick={() => onMoveTrack(clip.id, 'down')}
                 title="Move clip to track below (Arrow Down)"
-                className="p-1 rounded hover:bg-zinc-700 text-zinc-300 transition-colors shrink-0 cursor-pointer"
+                className="flex h-8 w-9 items-center justify-center text-ink-dim hover:bg-white/5 hover:text-ink transition-colors shrink-0 cursor-pointer"
               >
                 <ArrowDown className="w-3 h-3" />
               </button>
             </div>
 
             {/* Inline Volume controls */}
-            <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[11px] shrink-0">
+            <div className="flex h-8 items-center gap-1.5 px-3 rounded-full bg-surface-1 border border-line text-[11px] shrink-0">
               <Volume2 className="w-3 h-3 text-zinc-400" />
               <span className="mono-nums font-semibold text-zinc-200 text-[10px]">
                 {formatVolumeDb(clip.gain)}
@@ -321,21 +321,21 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               <button
                 onClick={() => onUpdateClip(clip.id, { gain: Math.max(0, clip.gain * 0.891) })}
                 title="Volume -1 dB"
-                className="px-1 text-[10px] bg-zinc-800 hover:bg-zinc-700 rounded cursor-pointer"
+                className="px-1.5 py-0.5 text-[10px] bg-surface-3 hover:bg-white/10 rounded-full cursor-pointer"
               >
                 -1dB
               </button>
               <button
                 onClick={() => onUpdateClip(clip.id, { gain: Math.min(2.5, clip.gain * 1.122) })}
                 title="Volume +1 dB"
-                className="px-1 text-[10px] bg-zinc-800 hover:bg-zinc-700 rounded cursor-pointer"
+                className="px-1.5 py-0.5 text-[10px] bg-surface-3 hover:bg-white/10 rounded-full cursor-pointer"
               >
                 +1dB
               </button>
             </div>
 
             {/* Fades */}
-            <div className="flex items-center gap-1 text-[10px] text-zinc-400 px-1.5 bg-zinc-900/60 rounded border border-zinc-800/80 shrink-0 py-0.5">
+            <div className="flex h-8 items-center gap-1.5 text-[10px] text-ink-dim px-3 bg-surface-1 rounded-full border border-line shrink-0">
               <span>Fade In:</span>
               <input
                 type="number"
@@ -344,7 +344,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
                 step="0.1"
                 value={clip.fadeInSeconds.toFixed(1)}
                 onChange={(e) => onUpdateClip(clip.id, { fadeInSeconds: Math.max(0, parseFloat(e.target.value) || 0) })}
-                className="w-10 bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-center text-zinc-200"
+                className="w-10 bg-surface-3 border border-line rounded-control px-1 py-0.5 text-center text-ink"
               />
               <span>Out:</span>
               <input
@@ -354,7 +354,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
                 step="0.1"
                 value={clip.fadeOutSeconds.toFixed(1)}
                 onChange={(e) => onUpdateClip(clip.id, { fadeOutSeconds: Math.max(0, parseFloat(e.target.value) || 0) })}
-                className="w-10 bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-center text-zinc-200"
+                className="w-10 bg-surface-3 border border-line rounded-control px-1 py-0.5 text-center text-ink"
               />
               <button
                 onClick={() => onUpdateClip(clip.id, { fadeShape: clip.fadeShape === 'linear' ? 'exponential' : 'linear' })}

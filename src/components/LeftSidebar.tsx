@@ -11,6 +11,11 @@ import { VoicePanel } from './VoicePanel';
 import { SoundLibraryPanel } from './SoundLibraryPanel';
 import { Track, Asset, VoiceMetadata, UserRecord } from '../types';
 
+// Rail buttons: neutral, with cyan only on the open tab.
+const RAIL_LAYOUT = 'flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
+const RAIL_IDLE = 'border-transparent text-ink-faint hover:bg-white/5 hover:text-ink';
+const RAIL_ON = 'border-accent/40 bg-accent-soft text-accent';
+
 export type SidebarTab = 'tracks' | 'voice' | 'library';
 
 interface LeftSidebarProps {
@@ -80,20 +85,16 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   const isAdmin = user?.role === 'admin';
 
   return (
-    <div className="relative flex h-full border-r border-zinc-700/80 bg-[#121216] select-none shrink-0 z-20">
+    <div className="relative flex h-full border-r border-line bg-surface-1 select-none shrink-0 z-20">
       {/* Mini Icon Tab Switcher Strip (Sidebar Rail) */}
-      <div className="w-11 sm:w-12 bg-[#0c0c10] border-r border-zinc-800 flex flex-col items-center py-3 gap-2 shrink-0 justify-between overflow-y-auto overflow-x-hidden">
+      <div className="w-11 sm:w-12 bg-surface-0 border-r border-line flex flex-col items-center py-3 gap-2 shrink-0 justify-between overflow-y-auto overflow-x-hidden">
         {/* Top Studio Workspaces */}
         <div className="flex flex-col items-center gap-2">
           <button
             type="button"
             onClick={() => handleTabClick('tracks')}
             title="Track List & Session Hierarchy (T)"
-            className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
-              activeTab === 'tracks' && !isCollapsed
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-[0_0_12px_rgba(0,240,255,0.25)]'
-                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60'
-            }`}
+            className={`${RAIL_LAYOUT} ${activeTab === 'tracks' && !isCollapsed ? RAIL_ON : RAIL_IDLE}`}
           >
             <Layers className="w-4 h-4" />
           </button>
@@ -102,11 +103,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             type="button"
             onClick={() => handleTabClick('voice')}
             title="Voiceover Studio (Gemini TTS)"
-            className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all cursor-pointer relative ${
-              activeTab === 'voice' && !isCollapsed
-                ? 'bg-gradient-to-br from-cyan-500 to-indigo-600 text-white shadow-[0_0_14px_rgba(0,240,255,0.35)]'
-                : 'text-zinc-500 hover:text-cyan-300 hover:bg-zinc-800/60'
-            }`}
+            className={`${RAIL_LAYOUT} ${activeTab === 'voice' && !isCollapsed ? RAIL_ON : RAIL_IDLE}`}
           >
             <Mic className="w-4 h-4" />
           </button>
@@ -115,11 +112,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             type="button"
             onClick={() => handleTabClick('library')}
             title="Sound Library (Freesound CC0)"
-            className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
-              activeTab === 'library' && !isCollapsed
-                ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/60 shadow-[0_0_14px_rgba(16,185,129,0.3)]'
-                : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800/60'
-            }`}
+            className={`${RAIL_LAYOUT} ${activeTab === 'library' && !isCollapsed ? RAIL_ON : RAIL_IDLE}`}
           >
             <Music className="w-4 h-4" />
           </button>
@@ -130,7 +123,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               type="button"
               onClick={onOpenPlugins}
               title="Open Modular Audio Plugins Rack (WAM 2.0 & Native)"
-              className="w-9 h-9 rounded-lg flex items-center justify-center transition-all cursor-pointer text-purple-400 hover:text-purple-200 hover:bg-purple-950/60 border border-purple-500/40 hover:border-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.2)]"
+              className={`${RAIL_LAYOUT} ${RAIL_IDLE}`}
             >
               <Sparkles className="w-4 h-4" />
             </button>
@@ -142,7 +135,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               type="button"
               onClick={onToggleCollapse}
               title={isCollapsed ? 'Expand Left Sidebar' : 'Collapse Left Sidebar to expand mixing panel'}
-              className="w-8 h-8 rounded-md flex items-center justify-center text-zinc-500 hover:text-cyan-300 hover:bg-zinc-800 transition-colors cursor-pointer border border-transparent hover:border-zinc-700"
+              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-transparent text-ink-faint transition-colors hover:bg-white/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
             >
               {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             </button>
@@ -157,7 +150,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               type="button"
               onClick={onOpenAdmin}
               title="Admin Panel (Authorized Admins Only)"
-              className="w-9 h-9 rounded-lg flex items-center justify-center bg-amber-500/10 hover:bg-amber-500/25 text-amber-400 border border-amber-500/40 hover:border-amber-400 transition-all cursor-pointer shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+              className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-gold/30 bg-gold-soft text-gold transition-[filter] hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
             >
               <ShieldCheck className="w-4 h-4" />
             </button>
@@ -169,7 +162,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               type="button"
               onClick={onOpenDashboard}
               title={`User Dashboard (${user.display_name})`}
-              className="relative w-9 h-9 rounded-full p-0.5 border border-zinc-700 hover:border-cyan-400 transition-all cursor-pointer group hover:scale-105"
+              className="relative w-9 h-9 rounded-full p-0.5 border border-line-strong hover:border-accent transition-colors cursor-pointer group"
             >
               {user.photo_url ? (
                 <img
@@ -178,14 +171,14 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                   className="w-full h-full rounded-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full rounded-full bg-gradient-to-br from-cyan-600 to-indigo-700 flex items-center justify-center text-[11px] font-bold text-white uppercase">
+                <div className="w-full h-full rounded-full bg-surface-3 flex items-center justify-center text-[11px] font-bold text-ink uppercase">
                   {user.display_name.slice(0, 2)}
                 </div>
               )}
 
               {/* Small badge showing unread admin reply on support ticket */}
               {unreadTicketsCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-cyan-400 border-2 border-[#0c0c10] rounded-full shadow-[0_0_8px_rgba(0,240,255,0.9)] animate-pulse" />
+                <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-accent border-2 border-surface-0 rounded-full animate-pulse" />
               )}
             </button>
           ) : (
@@ -193,7 +186,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               type="button"
               onClick={onOpenSignIn}
               title="Sign in with Google"
-              className="w-9 h-9 rounded-lg flex items-center justify-center bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-cyan-300 border border-zinc-800 hover:border-zinc-700 transition-all cursor-pointer"
+              className={`${RAIL_LAYOUT} border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink`}
             >
               <LogIn className="w-4 h-4" />
             </button>
@@ -203,7 +196,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
       {/* Main Panel Content Area (collapsed when isCollapsed is true) */}
       {!isCollapsed && (
-        <div className={`${activeTab === 'voice' ? 'w-96' : 'w-80'} max-w-[calc(100vw-3rem)] h-full flex flex-col min-w-0 bg-[#121216] animate-in fade-in duration-150 max-md:absolute max-md:left-full max-md:top-0 max-md:border-r max-md:border-zinc-700 max-md:shadow-[8px_0_24px_rgba(0,0,0,0.6)]`}>
+        <div className={`${activeTab === 'voice' ? 'w-96' : 'w-80'} max-w-[calc(100vw-3rem)] h-full flex flex-col min-w-0 bg-surface-1 animate-in fade-in duration-150 max-md:absolute max-md:left-full max-md:top-0 max-md:border-r max-md:border-zinc-700 max-md:shadow-[8px_0_24px_rgba(0,0,0,0.6)]`}>
           {activeTab === 'tracks' && (
             <TrackListPanel
               tracks={tracks}
