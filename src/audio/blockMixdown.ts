@@ -11,6 +11,7 @@
  */
 import type { Asset, Clip, Project } from '../types';
 import { buildDuckCurve, scheduleDuckCurve, normalizeDucking } from './ducking';
+import { groupChainId, groupIdsOf } from '../plugins/groupChain';
 
 export interface SkippedPluginInfo {
   chainId: string;
@@ -121,6 +122,19 @@ async function renderWindow(
   const masterBusOut = await deps.appendPlugins(ctx, deps.masterChainId, masterBusIn, skipped);
   masterBusOut.connect(masterNode);
 
+  // Group buses: clips of a group are summed here after their own track's volume and pan, then the group's chain runs once.
+  const groupBuses = new Map<string, GainNode>();
+  const getGroupBus = async (groupId: string): Promise<GainNode> => {
+    let bus = groupBuses.get(groupId);
+    if (!bus) {
+      bus = ctx.createGain();
+      const out = await deps.appendPlugins(ctx, groupChainId(groupId), bus, skipped);
+      out.connect(masterBusIn);
+      groupBuses.set(groupId, bus);
+    }
+    return bus;
+  };
+
   for (const track of project.tracks) {
     if (track.muted) continue;
     if (hasSolo && !track.solo) continue;
@@ -143,6 +157,22 @@ async function renderWindow(
     } else {
       trackOutput.connect(masterBusIn);
     }
+
+    // Where this track's grouped clips go: its own volume and pan, then the group bus (the track's plugins are not used for them)
+    const groupFeeds = new Map<string, GainNode>();
+    const feedFor = async (groupId: string): Promise<GainNode> => {
+      let feed = groupFeeds.get(groupId);
+      if (!feed) {
+        feed = ctx.createGain();
+        feed.gain.setValueAtTime(track.volume, 0);
+        const pan = ctx.createStereoPanner();
+        pan.pan.setValueAtTime(track.pan, 0);
+        feed.connect(pan);
+        pan.connect(await getGroupBus(groupId));
+        groupFeeds.set(groupId, feed);
+      }
+      return feed;
+    };
 
     for (const clip of clips) {
       const asset = deps.getAsset(clip.assetId);
@@ -182,7 +212,7 @@ async function renderWindow(
         if (t >= playTo) break; // ramp continues past the window edge, so the slope inside it is right
       }
       source.connect(clipGain);
-      clipGain.connect(trackGain);
+      clipGain.connect(clip.groupId ? await feedFor(clip.groupId) : trackGain);
 
       if (asset.buffer) {
         source.start(renderStart, sourceOffset, playDuration);
@@ -211,7 +241,9 @@ export async function mixdownInBlocks(
   assertDuckingCanBeBuilt(project, deps);
 
   const blockFrames = Math.max(sampleRate, Math.round((options.blockSeconds ?? 60) * sampleRate));
-  const usesPlugins = deps.chainHasPlugins(deps.masterChainId) || project.tracks.some((t) => deps.chainHasPlugins(t.id));
+  const usesPlugins = deps.chainHasPlugins(deps.masterChainId)
+    || project.tracks.some((t) => deps.chainHasPlugins(t.id))
+    || groupIdsOf(project).some((g) => deps.chainHasPlugins(groupChainId(g)));
   const leadInFrames = usesPlugins ? Math.round((options.leadInSeconds ?? 4) * sampleRate) : 0;
   const skipped: SkippedPluginInfo[] = [];
 

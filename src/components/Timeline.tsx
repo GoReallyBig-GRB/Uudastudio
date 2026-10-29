@@ -50,7 +50,7 @@ interface TimelineProps {
   onToggleMuteClip: (clipId: string) => void;
   onOpenDspModal: (type: import('./DspModals').DspModalType) => void;
   onOpenExport?: () => void;
-  onOpenPlugins?: () => void;
+  onOpenPlugins?: (groupId?: string) => void;
   onGroupSelected?: () => void;
   onUngroupSelected?: () => void;
   onMoveClipTrack: (clipId: string, direction: 'up' | 'down') => void;
@@ -1378,7 +1378,11 @@ export const Timeline: React.FC<TimelineProps> = ({
           onUpdateClip={onUpdateClip}
           onOpenDsp={onOpenDspModal}
           onOpenExport={onOpenExport}
-          onOpenPlugins={onOpenPlugins}
+          onOpenPlugins={() => {
+            let groupId: string | undefined;
+            for (const t of project.tracks) for (const c of t.clips) if (!groupId && selectedClipIds.has(c.id) && c.groupId) groupId = c.groupId;
+            onOpenPlugins?.(groupId);
+          }}
           onGroup={onGroupSelected}
           onUngroup={onUngroupSelected}
         />

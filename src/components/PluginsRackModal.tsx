@@ -31,6 +31,7 @@ import {
 import { Track, Project } from '../types';
 import { audioEngine } from '../audio/engine';
 import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
+import { groupChainId, groupIdsOf, groupLabel, isGroupChainId, groupIdOfChain } from '../plugins/groupChain';
 import { PluginDescriptor, PluginInstance } from '../plugins/types';
 import {
   NATIVE_STEM_PLUGINS,
@@ -53,6 +54,8 @@ interface PluginsRackModalProps {
   selectedTrackId: string | null;
   onSelectTrack: (trackId: string) => void;
   onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
+  /** Opens the rack on this clip group's chain (from Quick Actions), instead of the selected track. */
+  initialGroupId?: string | null;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -74,10 +77,21 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
   selectedTrackId,
   onSelectTrack,
   onUpdateTrack,
+  initialGroupId = null,
 }) => {
   // 'Master bus' is a local target, so the app's selected track is left alone
   const [masterTarget, setMasterTarget] = useState<boolean>(false);
-  const activeTrackId = masterTarget ? MASTER_TRACK_ID : selectedTrackId || (tracks.length > 0 ? tracks[0].id : null);
+  // A clip group is a third kind of target: its chain processes the whole group as one unit
+  const [groupTarget, setGroupTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (isOpen && initialGroupId) {
+      setGroupTarget(initialGroupId);
+      setMasterTarget(false);
+    }
+  }, [isOpen, initialGroupId]);
+  const groupIds = groupIdsOf(project);
+  const groupTargetValid = groupTarget !== null && groupIds.includes(groupTarget);
+  const activeTrackId = masterTarget ? MASTER_TRACK_ID : groupTargetValid ? groupChainId(groupTarget as string) : selectedTrackId || (tracks.length > 0 ? tracks[0].id : null);
   // A preview belongs to one target: switching target or closing the rack ends it
   useEffect(() => {
     const playing = audioEngine.getPreviewTarget();
@@ -90,7 +104,9 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
   const activeIndex = tracks.findIndex((t) => t.id === activeTrackId);
   const activeLabel = masterTarget
     ? 'Master Bus'
-    : activeIndex >= 0
+    : groupTargetValid
+      ? groupLabel(project, groupTarget as string)
+      : activeIndex >= 0
       ? getTrackLabel(tracks[activeIndex], activeIndex)
       : 'No track';
 
@@ -245,7 +261,7 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
             </div>
             <div className="min-w-0">
               <h1 className="text-sm font-black uppercase tracking-wide text-white truncate">Plugin Rack</h1>
-              <p className="hidden sm:block text-[11px] text-zinc-500 truncate">Effect chains for tracks and the master bus</p>
+              <p className="hidden sm:block text-[11px] text-zinc-500 truncate">Effect chains for tracks, clip groups and the master bus</p>
             </div>
           </div>
 
@@ -257,8 +273,13 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                 onChange={(e) => {
                   if (e.target.value === MASTER_TRACK_ID) {
                     setMasterTarget(true);
+                    setGroupTarget(null);
+                  } else if (isGroupChainId(e.target.value)) {
+                    setMasterTarget(false);
+                    setGroupTarget(groupIdOfChain(e.target.value));
                   } else {
                     setMasterTarget(false);
+                    setGroupTarget(null);
                     onSelectTrack(e.target.value);
                   }
                 }}
@@ -267,6 +288,11 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                 <option value={MASTER_TRACK_ID} className="bg-[#121218] text-zinc-200">
                   Master Bus (whole mix)
                 </option>
+                {groupIds.map((g) => (
+                  <option key={g} value={groupChainId(g)} className="bg-[#121218] text-zinc-200">
+                    {groupLabel(project, g)}
+                  </option>
+                ))}
                 {tracks.map((t, idx) => (
                   <option key={t.id} value={t.id} className="bg-[#121218] text-zinc-200">
                     {getTrackLabel(t, idx)}
@@ -508,7 +534,7 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
               </span>
             </div>
 
-            {!masterTarget && activeIndex >= 0 && (
+            {!masterTarget && !groupTargetValid && activeIndex >= 0 && (
               <DuckingPanel
                 track={tracks[activeIndex]}
                 tracks={tracks}
