@@ -88,7 +88,7 @@ export const HeaderMock: React.FC<{ variant: CapsuleVariant }> = ({ variant }) =
 
           <div className="flex-1" />
           <Capsule label="Panel layout" variant={variant}>
-            <CapsuleButton title="Editing and mixing panel only" icon={<Sliders className={I} />}>Editing &amp; Mixing Panel Only</CapsuleButton>
+            <CapsuleButton title="Master Console" icon={<Sliders className={I} />}>Master Console</CapsuleButton>
           </Capsule>
         </div>
       </div>

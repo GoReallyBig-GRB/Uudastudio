@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayTitle, fitTitle, formatClipLength, nextPartName } from './clipTitle';
+import { capChars, displayTitle, fitTitle, formatClipLength, nextPartName, placeTip } from './clipTitle';
 
 const measure = (s: string) => s.length * 6; // fixed-width stand-in for canvas measureText
 
@@ -66,5 +66,32 @@ describe('formatClipLength', () => {
   it('returns nothing for invalid values', () => {
     expect(formatClipLength(Number.NaN)).toBe('');
     expect(formatClipLength(-1)).toBe('');
+  });
+});
+
+describe('capChars', () => {
+  it('leaves short titles and cuts long ones with an ellipsis', () => {
+    expect(capChars('Take 1', 10)).toBe('Take 1');
+    expect(capChars('A very long clip title', 10)).toBe('A very lo…');
+    expect(capChars('A very long clip title', 10).length).toBe(10);
+  });
+});
+
+describe('placeTip', () => {
+  it('sits right of and below the pointer when there is room', () => {
+    expect(placeTip(100, 100, 120, 24, 1000, 800)).toMatchObject({ left: 114, top: 118 });
+  });
+  it('flips left near the right edge', () => {
+    const r = placeTip(950, 100, 120, 24, 1000, 800);
+    expect(r.left).toBe(950 - 14 - 120);
+  });
+  it('flips above near the bottom edge', () => {
+    const r = placeTip(100, 790, 120, 24, 1000, 800);
+    expect(r.top).toBe(790 - 12 - 24);
+  });
+  it('never starts left of the margin and caps the width to the screen', () => {
+    const r = placeTip(20, 100, 2000, 24, 600, 800);
+    expect(r.left).toBe(8);
+    expect(r.maxWidth).toBe(584);
   });
 });

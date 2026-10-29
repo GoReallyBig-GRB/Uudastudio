@@ -98,35 +98,35 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   }, [isPlaying]);
 
   return (
-    <footer className="h-9 bg-[#0B0B0F] border-t border-zinc-800/90 px-3 flex items-center justify-between text-[11px] text-zinc-400 select-none shrink-0 z-30 shadow-lg">
+    <footer className="h-10 bg-surface-0 border-t border-line px-4 flex items-center justify-between text-[11px] text-ink-dim select-none shrink-0 z-30">
       {/* Left info: Engine state & Project counts */}
       <div className="flex items-center gap-3 shrink-0">
-        <div className="flex items-center gap-1.5 text-emerald-400 font-mono text-[10px]">
-          <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
+        <div className="flex items-center gap-1.5 text-ok font-num text-[10px]">
+          <Radio className="w-3 h-3 text-ok animate-pulse" />
           <span className="font-bold tracking-wider">ENGINE READY</span>
         </div>
 
-        <div className="h-3 w-px bg-zinc-800 hidden sm:block" />
+        <div className="h-3 w-px bg-line hidden sm:block" />
 
-        <div className="hidden sm:flex items-center gap-1 font-mono text-[10px] text-zinc-500">
-          <Activity className="w-3 h-3 text-cyan-400" />
+        <div className="hidden sm:flex items-center gap-1 font-num text-[10px] text-zinc-500">
+          <Activity className="w-3 h-3 text-ink-faint" />
           <span>{(sampleRate / 1000).toFixed(1)} kHz</span>
           <span className="text-zinc-700">/</span>
           <span>32-bit</span>
         </div>
 
-        <div className="h-3 w-px bg-zinc-800" />
+        <div className="h-3 w-px bg-line" />
 
         <div className="text-[11px] text-zinc-400">
           <span>Tracks: </span>
-          <strong className="text-zinc-200 font-mono">{trackCount}</strong>
+          <strong className="text-zinc-200 font-num">{trackCount}</strong>
           <span className="mx-1 text-zinc-700">·</span>
           <span>Clips: </span>
-          <strong className="text-zinc-200 font-mono">{clipCount}</strong>
+          <strong className="text-zinc-200 font-num">{clipCount}</strong>
           {selectedClipCount > 0 && (
             <>
               <span className="mx-1 text-zinc-700">·</span>
-              <span className="text-cyan-400 font-semibold">
+              <span className="text-accent font-semibold">
                 {selectedClipCount} selected
               </span>
             </>
@@ -139,12 +139,12 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         {/* Dual Timer Display: Position & Total Mix Duration */}
         <div
           title="Playback Position & Total Session Duration"
-          className="bg-[#060609] border border-zinc-800 rounded-md px-2.5 py-0.5 flex items-center gap-2 shadow-inner"
+          className="bg-surface-1 border border-line rounded-full px-3.5 py-0.5 flex items-center gap-2"
         >
-          <Clock className="w-3 h-3 text-cyan-400" />
-          <div className="flex items-center gap-1.5 font-mono">
+          <Clock className="w-3 h-3 text-ink-faint" />
+          <div className="flex items-center gap-1.5 font-num">
             <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">POS</span>
-            <span className="text-cyan-300 font-bold tracking-wider text-xs">
+            <span className="text-accent font-bold tracking-wider text-xs">
               {formatTimecode(playheadSeconds)}
             </span>
             <span className="text-zinc-600 font-normal">/</span>
@@ -158,15 +158,15 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         {/* Master / Idle Audio Level Display */}
         <div
           title="Master Bus Output Level Meter (Live RMS & Peak)"
-          className="flex items-center gap-2 bg-[#060609] border border-zinc-800 rounded-md px-2 py-1"
+          className="flex items-center gap-2 bg-surface-1 border border-line rounded-full px-3 py-1"
         >
-          <div className="flex flex-col text-[9px] font-mono leading-none">
+          <div className="flex flex-col text-[9px] font-num leading-none">
             <span className="text-zinc-400 font-bold tracking-wider">MASTER</span>
-            <span className={`text-[8px] font-semibold ${isPlaying ? 'text-emerald-400' : 'text-zinc-600'}`}>
+            <span className={`text-[8px] font-semibold ${isPlaying ? 'text-ok' : 'text-ink-faint'}`}>
               {isPlaying ? 'LIVE' : 'IDLE'}
             </span>
           </div>
-          <div className="w-24 h-2.5 bg-[#0a0a0e] rounded-xs border border-zinc-800/80 overflow-hidden shadow-inner">
+          <div className="w-24 h-2.5 bg-surface-0 rounded-full border border-line overflow-hidden">
             <canvas ref={masterMeterRef} width={96} height={10} className="w-full h-full block" />
           </div>
         </div>
@@ -177,57 +177,57 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         {/* Zoom Controls Cluster */}
         <div
           title="Timeline Zoom Controls"
-          className="flex items-center gap-0.5 bg-[#14141c] p-0.5 rounded-md border border-zinc-800"
+          className="flex items-center gap-0.5 bg-surface-1 p-0.5 rounded-full border border-line"
         >
           <button
             onClick={onZoomOut}
             title="Zoom Out Timeline (Ctrl + Wheel Down)"
-            className="p-1 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+            className="p-1.5 text-ink-dim hover:text-ink hover:bg-white/5 rounded-full transition-colors cursor-pointer"
           >
             <ZoomOut className="w-3 h-3" />
           </button>
-          <span className="text-[10px] font-mono text-zinc-400 px-1 min-w-[42px] text-center select-none">
+          <span className="text-[10px] font-num text-zinc-400 px-1 min-w-[42px] text-center select-none">
             {pixelsPerSecond >= 10 ? Math.round(pixelsPerSecond) : pixelsPerSecond.toFixed(1)}px/s
           </span>
           <button
             onClick={onZoomIn}
             title="Zoom In Timeline (Ctrl + Wheel Up)"
-            className="p-1 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+            className="p-1.5 text-ink-dim hover:text-ink hover:bg-white/5 rounded-full transition-colors cursor-pointer"
           >
             <ZoomIn className="w-3 h-3" />
           </button>
           <button
             onClick={onZoomFit}
             title="Reset Zoom / Fit to Timeline"
-            className="p-1 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+            className="p-1.5 text-ink-dim hover:text-ink hover:bg-white/5 rounded-full transition-colors cursor-pointer"
           >
             <Maximize2 className="w-3 h-3" />
           </button>
         </div>
 
-        <div className="h-3 w-px bg-zinc-800 hidden md:block" />
+        <div className="h-3 w-px bg-line hidden md:block" />
 
         {/* Autosave badge */}
         <div className="hidden md:flex items-center gap-1.5 text-zinc-400">
-          <Database className="w-3 h-3 text-cyan-400" />
+          <Database className="w-3 h-3 text-ink-faint" />
           {isAutosaving ? (
-            <span className="text-amber-300 animate-pulse text-[10px] font-medium">Saving...</span>
+            <span className="text-warn animate-pulse text-[10px] font-medium">Saving...</span>
           ) : lastSavedAt ? (
-            <span className="text-zinc-400 font-mono text-[10px]">
+            <span className="text-zinc-400 font-num text-[10px]">
               Saved {lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
           ) : (
-            <span className="text-zinc-500 font-mono text-[10px]">Autosave ready</span>
+            <span className="text-zinc-500 font-num text-[10px]">Autosave ready</span>
           )}
         </div>
 
-        <div className="h-3 w-px bg-zinc-800" />
+        <div className="h-3 w-px bg-line" />
 
         {/* Shortcuts toggle */}
         <div className="relative">
           <button
             onClick={() => setShowShortcuts(!showShortcuts)}
-            className="flex items-center gap-1 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+            className="flex items-center gap-1 text-ink-dim hover:text-ink hover:bg-white/5 px-2.5 py-1 rounded-full transition-colors cursor-pointer"
           >
             <HelpCircle className="w-3 h-3 text-zinc-400" />
             <span>Shortcuts</span>
@@ -236,7 +236,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           {showShortcuts && (
             <div
               onClick={() => setShowShortcuts(false)}
-              className="absolute right-0 bottom-full mb-2 w-64 bg-[#121218] border border-zinc-700/80 rounded-lg shadow-2xl p-3 z-50 text-[11px] text-zinc-300"
+              className="absolute right-0 bottom-full mb-2 w-64 bg-surface-2 border border-line-strong rounded-card shadow-float p-3 z-50 text-[11px] text-zinc-300"
             >
               <div className="font-semibold text-zinc-100 pb-1.5 mb-2 border-b border-zinc-800 flex justify-between items-center">
                 <span>Keyboard Shortcuts</span>
@@ -245,39 +245,39 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               <div className="space-y-1.5">
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Play / Pause</span>
-                  <span className="font-mono bg-zinc-800 px-1.5 py-0.2 rounded text-zinc-200">Space</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Space</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Record Studio (Input EQ)</span>
-                  <span className="font-mono bg-zinc-800 px-1.5 py-0.2 rounded text-rose-300">R</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">R</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Split Clip at Playhead</span>
-                  <span className="font-mono bg-zinc-800 px-1.5 py-0.2 rounded text-zinc-200">S</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">S</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Delete Selected</span>
-                  <span className="font-mono bg-zinc-800 px-1.5 py-0.2 rounded text-zinc-200">Del / Backspace</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Del / Backspace</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Undo / Redo</span>
-                  <span className="font-mono bg-zinc-800 px-1.5 py-0.2 rounded text-zinc-200">Ctrl+Z / Ctrl+Y</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Ctrl+Z / Ctrl+Y</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Select All</span>
-                  <span className="font-mono bg-zinc-800 px-1.5 py-0.2 rounded text-zinc-200">Ctrl+A</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Ctrl+A</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Move Clip Track</span>
-                  <span className="font-mono bg-zinc-800 px-1.5 py-0.2 rounded text-zinc-200">Arrow Up / Down</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Arrow Up / Down</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Zoom In / Out</span>
-                  <span className="font-mono bg-zinc-800 px-1.5 py-0.2 rounded text-zinc-200">Ctrl + Wheel</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Ctrl + Wheel</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Quick Actions</span>
-                  <span className="font-mono bg-zinc-800 px-1.5 py-0.2 rounded text-zinc-200">Double Click Clip</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Double Click Clip</span>
                 </div>
               </div>
             </div>
