@@ -6,7 +6,7 @@
  * Provides controls for collapsing the timeline track controller.
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Scissors,
   ScissorsLineDashed,
@@ -47,6 +47,9 @@ interface ClipToolbarProps {
   onOpenDsp: (type: DspModalType) => void;
   onOpenEffect?: (type: import('../types').EffectType) => void;
   onDeselect: () => void;
+  /** Project title, shown at the left of this row; double-click it (or use File > Rename Project) to rename. */
+  projectName: string;
+  onRenameProject: (name: string) => void;
   /** Pointer tool: Select edits clips, Range highlights a span of a track. */
   tool: TimelineTool;
   onToolChange: (tool: TimelineTool) => void;
@@ -73,6 +76,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onOpenDsp,
   onOpenEffect,
   onDeselect,
+  projectName,
+  onRenameProject,
   tool,
   onToolChange,
   rangeSeconds,
@@ -84,33 +89,74 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
 }) => {
   const hasClip = !!clip;
 
+  // Project title: double-click to rename. File > Rename Project in the header asks for the same via an event.
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [draftName, setDraftName] = useState(projectName);
+  useEffect(() => {
+    if (!isEditingName) setDraftName(projectName);
+  }, [projectName, isEditingName]);
+  useEffect(() => {
+    const startRename = () => setIsEditingName(true);
+    window.addEventListener('uuda:rename-project', startRename);
+    return () => window.removeEventListener('uuda:rename-project', startRename);
+  }, []);
+  const submitName = () => {
+    setIsEditingName(false);
+    const trimmed = draftName.trim();
+    if (trimmed && trimmed !== projectName) onRenameProject(trimmed);
+    else setDraftName(projectName);
+  };
+
   return (
     <div className="h-12 bg-surface-0 border-b border-line px-4 flex items-center justify-between text-xs text-ink-dim gap-3 shrink-0 select-none z-30">
-      {/* Left: Target Clip Tag / Selection Status */}
-      <div className="flex items-center gap-2 min-w-0 shrink-0">
+      {/* Left: project title, then the selected clip (or a hint) */}
+      <div className="flex items-center gap-3 min-w-0 shrink-0">
+        {isEditingName ? (
+          <input
+            type="text"
+            value={draftName}
+            autoFocus
+            aria-label="Project name"
+            onChange={(e) => setDraftName(e.target.value)}
+            onBlur={submitName}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submitName();
+              if (e.key === 'Escape') {
+                setDraftName(projectName);
+                setIsEditingName(false);
+              }
+            }}
+            className="h-8 w-52 rounded-control border border-accent/60 bg-surface-3 px-3 text-sm font-medium text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          />
+        ) : (
+          <span
+            onDoubleClick={() => setIsEditingName(true)}
+            title="Double-click to rename project"
+            className="max-w-[220px] cursor-text truncate text-sm font-semibold text-ink transition-colors hover:text-accent"
+          >
+            {projectName}
+          </span>
+        )}
+
         {hasClip ? (
           <div className="flex items-center gap-1.5 px-2.5 h-7 rounded-full bg-accent-soft border border-accent/30 text-accent max-w-[220px]">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0 animate-pulse" />
+            <span className="w-2 h-2 rounded-full bg-accent shrink-0 animate-pulse" />
             <span className="font-semibold truncate text-[11px] text-ink">
               {clip.name}
             </span>
-            <span className="text-[10px] mono-nums text-zinc-400 shrink-0">
+            <span className="text-[10px] mono-nums text-ink-dim shrink-0">
               {clip.durationSeconds.toFixed(2)}s
             </span>
             <button
               onClick={onDeselect}
               title="Deselect clip"
-              className="text-zinc-400 hover:text-white ml-0.5"
+              className="text-ink-dim hover:text-ink ml-0.5"
             >
               <X className="w-3 h-3" />
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 text-zinc-500 text-[11px] font-medium">
-            <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-600" />
-            <span className="hidden sm:inline">Editing Panel:</span>
-            <span className="text-zinc-500 italic text-[10px]">Select a clip to edit</span>
-          </div>
+          <span className="hidden text-[11px] italic text-ink-faint xl:inline">Select a clip to edit</span>
         )}
       </div>
 

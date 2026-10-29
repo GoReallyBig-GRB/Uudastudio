@@ -116,7 +116,6 @@ interface HeaderProps {
   onDeleteSelected: () => void;
   onSelectAll: () => void;
   onImportFiles: (files: FileList) => void;
-  onUpdateProjectName: (name: string) => void;
   onToggleAutoRefresh: () => void;
   onToggleDucking: () => void;
   onUpdateDuckingDb: (db: number) => void;
@@ -171,7 +170,6 @@ export const Header: React.FC<HeaderProps> = ({
   onDeleteSelected,
   onSelectAll,
   onImportFiles,
-  onUpdateProjectName,
   onToggleAutoRefresh,
   onToggleDucking,
   onUpdateDuckingDb,
@@ -183,17 +181,11 @@ export const Header: React.FC<HeaderProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const projectFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [projectName, setProjectName] = useState(project.name);
   const [isEditMenuOpen, setIsEditMenuOpen] = useState(false);
   const [isEffectsMenuOpen, setIsEffectsMenuOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState<RecentProjectEntry[]>(() => readRecentProjects());
-
-  useEffect(() => {
-    setProjectName(project.name);
-  }, [project.name]);
 
   // Keep a small local index only; project/audio data remains in the existing save systems.
   useEffect(() => {
@@ -217,16 +209,6 @@ export const Header: React.FC<HeaderProps> = ({
     }
     setRecentProjects(next);
   }, [project.id, project.name, project.tracks.length]);
-
-  const handleNameSubmit = () => {
-    setIsEditingName(false);
-    const trimmed = projectName.trim();
-    if (trimmed && trimmed !== project.name) {
-      onUpdateProjectName(trimmed);
-    } else {
-      setProjectName(project.name);
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -458,7 +440,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="h-px bg-zinc-800 my-1" />
 
               <button
-                onClick={() => setIsEditingName(true)}
+                onClick={() => window.dispatchEvent(new CustomEvent('uuda:rename-project'))}
                 className="w-full text-left px-3 py-2 hover:bg-zinc-800 flex items-center gap-2.5 transition-colors cursor-pointer"
               >
                 <Edit3 className="w-4 h-4 text-zinc-400" />
@@ -497,33 +479,6 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
         </div>
-
-        {/* Editable Project Name */}
-        {isEditingName ? (
-          <input
-            type="text"
-            value={projectName}
-            autoFocus
-            onChange={(e) => setProjectName(e.target.value)}
-            onBlur={handleNameSubmit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleNameSubmit();
-              if (e.key === 'Escape') {
-                setProjectName(project.name);
-                setIsEditingName(false);
-              }
-            }}
-            className="h-8 w-52 rounded-control border border-accent/60 bg-surface-3 px-3 text-sm font-medium text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-          />
-        ) : (
-          <span
-            onDoubleClick={() => setIsEditingName(true)}
-            title="Double-click to rename project"
-            className="text-sm text-ink font-medium truncate max-w-[200px] cursor-text hover:text-accent transition-colors"
-          >
-            {project.name}
-          </span>
-        )}
 
         {/* Edit Menu Dropdown */}
         <div className="relative">
