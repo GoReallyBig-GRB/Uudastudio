@@ -30,7 +30,7 @@ import {
 import { Clip } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
 import { DspModalType } from './DspModals';
-import { SegmentedControl } from './ui';
+import { Capsule, CapsuleButton } from './ui';
 import type { TimelineTool } from './rangeDelete';
 
 interface ClipToolbarProps {
@@ -85,13 +85,13 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   const hasClip = !!clip;
 
   return (
-    <div className="h-10 bg-[#0e0e14] border-b border-zinc-800 px-3 flex items-center justify-between text-xs text-zinc-300 gap-2 shrink-0 select-none z-30 shadow-xs">
+    <div className="h-12 bg-surface-0 border-b border-line px-4 flex items-center justify-between text-xs text-ink-dim gap-3 shrink-0 select-none z-30">
       {/* Left: Target Clip Tag / Selection Status */}
       <div className="flex items-center gap-2 min-w-0 shrink-0">
         {hasClip ? (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-950/40 border border-cyan-800/60 text-cyan-300 max-w-[200px]">
+          <div className="flex items-center gap-1.5 px-2.5 h-7 rounded-full bg-accent-soft border border-accent/30 text-accent max-w-[220px]">
             <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0 animate-pulse" />
-            <span className="font-semibold truncate text-[11px] text-zinc-100">
+            <span className="font-semibold truncate text-[11px] text-ink">
               {clip.name}
             </span>
             <span className="text-[10px] mono-nums text-zinc-400 shrink-0">
@@ -114,150 +114,122 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
         )}
       </div>
 
-      <div className="h-4 w-px bg-zinc-800 shrink-0" />
+      <div className="h-4 w-px bg-line shrink-0" />
 
       {/* Center: Primary Editing + DSP Cluster (Side-by-Side as required) */}
       <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none flex-1">
         {/* Pointer tool: Select edits clips; Range highlights a span of one track so it can be deleted */}
-        <SegmentedControl<TimelineTool>
-          label="Timeline tool"
-          size="sm"
-          value={tool}
-          onChange={onToolChange}
-          options={[
-            { value: 'select', label: 'Select' },
-            { value: 'range', label: 'Range' },
-          ]}
-        />
+        <Capsule label="Timeline tool">
+          <CapsuleButton title="Select tool: move and edit clips" active={tool === 'select'} onClick={() => onToolChange('select')}>
+            Select
+          </CapsuleButton>
+          <CapsuleButton title="Range tool: highlight part of a track (or hold Alt while dragging)" active={tool === 'range'} onClick={() => onToolChange('range')}>
+            Range
+          </CapsuleButton>
+        </Capsule>
         {rangeSeconds !== null && (
           <button
             onClick={onDeleteRange}
             title="Delete the highlighted range from this track and close the gap (Delete)"
-            className="flex items-center gap-1 px-2 py-1 rounded-md border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-[11px] font-semibold text-rose-300 transition-colors shrink-0 cursor-pointer"
+            className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-danger/40 bg-danger/10 px-3.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/50"
           >
-            <Trash2 className="w-3 h-3" />
+            <Trash2 className="h-3.5 w-3.5" />
             <span>Delete {rangeSeconds.toFixed(2)}s</span>
           </button>
         )}
 
         {/* GROUP 1: Split, Cut, Copy, Paste */}
-        <div className="flex items-center gap-0.5 bg-[#14141c] p-0.5 rounded-md border border-zinc-800">
-          {/* Split at Playhead */}
-          <button
+        <Capsule label="Clip edit">
+          <CapsuleButton
+            title={hasClip ? 'Split clip at playhead (S)' : 'Select a clip to split'}
             disabled={!hasClip}
             onClick={() => hasClip && onSplit(clip.id)}
-            title={hasClip ? "Split clip at playhead (S)" : "Select a clip to split"}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800/80 hover:bg-cyan-500/20 hover:text-cyan-300 disabled:opacity-35 disabled:pointer-events-none text-[11px] font-semibold text-zinc-200 transition-colors shrink-0 cursor-pointer"
+            icon={<Scissors className="h-3.5 w-3.5" />}
           >
-            <Scissors className="w-3 h-3 text-cyan-400" />
-            <span>Split</span>
-          </button>
-
-          {/* Cut */}
-          <button
+            Split
+          </CapsuleButton>
+          <CapsuleButton
+            title={hasClip ? 'Cut clip (Ctrl+X)' : 'Select a clip to cut'}
             disabled={!hasClip}
             onClick={() => hasClip && onCut(clip.id)}
-            title={hasClip ? "Cut clip (Ctrl+X)" : "Select a clip to cut"}
-            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-zinc-700/70 disabled:opacity-35 disabled:pointer-events-none text-[11px] text-zinc-300 hover:text-white transition-colors shrink-0 cursor-pointer"
+            icon={<ScissorsLineDashed className="h-3.5 w-3.5" />}
           >
-            <ScissorsLineDashed className="w-3 h-3 text-zinc-400" />
-            <span>Cut</span>
-          </button>
-
-          {/* Copy */}
-          <button
+            Cut
+          </CapsuleButton>
+          <CapsuleButton
+            title={hasClip ? 'Copy clip (Ctrl+C)' : 'Select a clip to copy'}
             disabled={!hasClip}
             onClick={() => hasClip && onCopy(clip.id)}
-            title={hasClip ? "Copy clip (Ctrl+C)" : "Select a clip to copy"}
-            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-zinc-700/70 disabled:opacity-35 disabled:pointer-events-none text-[11px] text-zinc-300 hover:text-white transition-colors shrink-0 cursor-pointer"
+            icon={<Copy className="h-3.5 w-3.5" />}
           >
-            <Copy className="w-3 h-3 text-zinc-400" />
-            <span>Copy</span>
-          </button>
-
-          {/* Paste */}
-          <button
+            Copy
+          </CapsuleButton>
+          <CapsuleButton
+            title={canPaste ? 'Paste clip at playhead onto active track (Ctrl+V)' : 'Clipboard is empty'}
             disabled={!canPaste}
             onClick={onPaste}
-            title={canPaste ? "Paste clip at playhead onto active track (Ctrl+V)" : "Clipboard is empty"}
-            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-cyan-500/20 hover:text-cyan-300 disabled:opacity-30 disabled:pointer-events-none text-[11px] font-semibold text-cyan-400 transition-colors shrink-0 cursor-pointer"
+            icon={<ClipboardPaste className="h-3.5 w-3.5" />}
           >
-            <ClipboardPaste className="w-3 h-3 text-cyan-400" />
-            <span>Paste</span>
-          </button>
-        </div>
+            Paste
+          </CapsuleButton>
+        </Capsule>
 
-        {/* GROUP 2: DSP Processing Actions (Directly next to Split, Cut, Copy, Paste) */}
-        <div className="flex items-center gap-0.5 bg-[#14141c] p-0.5 rounded-md border border-zinc-800">
-          {/* Amplify */}
-          <button
+        {/* GROUP 2: DSP processing, then the effects rack */}
+        <Capsule label="Processing">
+          <CapsuleButton
+            title={hasClip ? 'Amplify gain in dB with clipping warning' : 'Select a clip to amplify'}
             disabled={!hasClip}
             onClick={() => hasClip && onOpenDsp('amplify')}
-            title={hasClip ? "Amplify gain in dB with clipping warning" : "Select a clip to amplify"}
-            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-cyan-500/20 hover:text-cyan-300 disabled:opacity-35 disabled:pointer-events-none text-[11px] text-zinc-300 transition-colors shrink-0 cursor-pointer"
+            icon={<Sliders className="h-3.5 w-3.5" />}
           >
-            <Sliders className="w-3 h-3 text-cyan-400" />
-            <span>Amplify</span>
-          </button>
-
-          {/* Compress */}
-          <button
+            Amplify
+          </CapsuleButton>
+          <CapsuleButton
+            title={hasClip ? 'Dynamics Compressor with threshold, ratio, attack, release' : 'Select a clip to compress'}
             disabled={!hasClip}
             onClick={() => hasClip && onOpenDsp('compress')}
-            title={hasClip ? "Dynamics Compressor with threshold, ratio, attack, release" : "Select a clip to compress"}
-            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-cyan-500/20 hover:text-cyan-300 disabled:opacity-35 disabled:pointer-events-none text-[11px] text-zinc-300 transition-colors shrink-0 cursor-pointer"
+            icon={<Wand2 className="h-3.5 w-3.5" />}
           >
-            <Wand2 className="w-3 h-3 text-cyan-400" />
-            <span>Compress</span>
-          </button>
-
-          {/* Denoise */}
-          <button
+            Compress
+          </CapsuleButton>
+          <CapsuleButton
+            title={hasClip ? 'Noise reduction with 24dB/oct rumble cut & spectral gating' : 'Select a clip to denoise'}
             disabled={!hasClip}
             onClick={() => hasClip && onOpenDsp('denoise')}
-            title={hasClip ? "Noise reduction with 24dB/oct rumble cut & spectral gating" : "Select a clip to denoise"}
-            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-amber-500/20 hover:text-amber-300 disabled:opacity-35 disabled:pointer-events-none text-[11px] text-zinc-300 transition-colors shrink-0 cursor-pointer"
+            icon={<Sparkles className="h-3.5 w-3.5" />}
           >
-            <Sparkles className="w-3 h-3 text-amber-400" />
-            <span>Denoise</span>
-          </button>
-
-          {/* Pitch */}
-          <button
+            Denoise
+          </CapsuleButton>
+          <CapsuleButton
+            title={hasClip ? 'Change pitch without changing duration (-12 to +12 semitones)' : 'Select a clip to change pitch'}
             disabled={!hasClip}
             onClick={() => hasClip && onOpenDsp('pitch')}
-            title={hasClip ? "Change pitch without changing duration (-12 to +12 semitones)" : "Select a clip to change pitch"}
-            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-cyan-500/20 hover:text-cyan-300 disabled:opacity-35 disabled:pointer-events-none text-[11px] text-zinc-300 transition-colors shrink-0 cursor-pointer"
+            icon={<Music className="h-3.5 w-3.5" />}
           >
-            <Music className="w-3 h-3 text-indigo-400" />
-            <span>Pitch</span>
-          </button>
-
-          {/* Speed */}
-          <button
+            Pitch
+          </CapsuleButton>
+          <CapsuleButton
+            title={hasClip ? 'Change tempo/speed without changing pitch (WSOLA time-stretch)' : 'Select a clip to change speed'}
             disabled={!hasClip}
             onClick={() => hasClip && onOpenDsp('speed')}
-            title={hasClip ? "Change tempo/speed without changing pitch (WSOLA time-stretch)" : "Select a clip to change speed"}
-            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-cyan-500/20 hover:text-cyan-300 disabled:opacity-35 disabled:pointer-events-none text-[11px] text-zinc-300 transition-colors shrink-0 cursor-pointer"
+            icon={<Gauge className="h-3.5 w-3.5" />}
           >
-            <Gauge className="w-3 h-3 text-emerald-400" />
-            <span>Speed</span>
-          </button>
-
-          {/* Audio Effects Rack */}
-          {onOpenEffect && (
-            <button
-              onClick={() => onOpenEffect('reverb')}
+            Speed
+          </CapsuleButton>
+        </Capsule>
+        {onOpenEffect && (
+          <Capsule label="Effects rack">
+            <CapsuleButton
               title="Open Audio Effects Rack (Delay, EQ, Chorus, Flanger, Phaser, Reverb)"
-              className="flex items-center gap-1 px-2 py-1 rounded bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 border border-cyan-800/60 hover:border-cyan-500/60 text-[11px] font-semibold transition-all shrink-0 cursor-pointer shadow-xs"
+              onClick={() => onOpenEffect('reverb')}
+              icon={<Sparkles className="h-3.5 w-3.5" />}
             >
-              <Sparkles className="w-3 h-3 text-cyan-400" />
-              <span>Effects Rack</span>
-            </button>
-          )}
-        </div>
+              Effects Rack
+            </CapsuleButton>
+          </Capsule>
+        )}
 
-        <div className="h-3.5 w-px bg-zinc-800 mx-1 shrink-0" />
+        <div className="h-4 w-px bg-line mx-1 shrink-0" />
 
         {/* GROUP 3: Clip Properties (Mute, Move Track, Volume, Fades) */}
         {hasClip ? (
