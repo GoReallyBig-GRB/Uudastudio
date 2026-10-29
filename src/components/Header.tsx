@@ -285,7 +285,7 @@ export const Header: React.FC<HeaderProps> = ({
           {isProjectMenuOpen && (
             <div
               onClick={() => setIsProjectMenuOpen(false)}
-              className="absolute left-0 top-full mt-1.5 w-60 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:rgba(113,113,122,0.65)_transparent] bg-surface-2 border border-line-strong rounded-card shadow-float py-1.5 z-50 text-xs text-ink-dim animate-in fade-in duration-100"
+              className="left-0 absolute top-full mt-1.5 w-64 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] bg-surface-2 border border-line-strong rounded-card shadow-float z-50 text-xs text-ink-dim uuda-pop-in py-1.5"
             >
               <button
                 onClick={onNewProject}
@@ -480,7 +480,7 @@ export const Header: React.FC<HeaderProps> = ({
           {isEditMenuOpen && (
             <div
               onClick={() => setIsEditMenuOpen(false)}
-              className="absolute left-0 top-full mt-1.5 w-56 bg-surface-2 border border-line-strong rounded-card shadow-float py-1 z-50 text-xs text-ink-dim"
+              className="left-0 absolute top-full mt-1.5 w-64 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] bg-surface-2 border border-line-strong rounded-card shadow-float z-50 text-xs text-ink-dim uuda-pop-in py-1.5"
             >
               <button
                 disabled={!canUndo}
@@ -649,7 +649,7 @@ export const Header: React.FC<HeaderProps> = ({
           {isEffectsMenuOpen && (
             <div
               onClick={() => setIsEffectsMenuOpen(false)}
-              className="absolute left-0 top-full mt-1.5 w-64 bg-surface-2 border border-line-strong rounded-card shadow-float py-1.5 z-50 text-xs text-ink-dim animate-in fade-in duration-100"
+              className="left-0 absolute top-full mt-1.5 w-64 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] bg-surface-2 border border-line-strong rounded-card shadow-float z-50 text-xs text-ink-dim uuda-pop-in py-1.5"
             >
               <div className="px-3 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint border-b border-line mb-1">
                 Effects
@@ -844,7 +844,7 @@ export const Header: React.FC<HeaderProps> = ({
           {isSettingsOpen && (
             <div
               onClick={() => setIsSettingsOpen(false)}
-              className="absolute right-0 top-full mt-1.5 w-68 bg-surface-2 border border-line-strong rounded-card shadow-float p-3 z-50 text-xs text-ink-dim"
+              className="right-0 absolute top-full mt-1.5 w-64 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] bg-surface-2 border border-line-strong rounded-card shadow-float z-50 text-xs text-ink-dim uuda-pop-in p-3"
             >
               <div className="font-medium text-ink pb-2 mb-2 border-b border-line flex items-center justify-between">
                 <span>Studio Settings</span>

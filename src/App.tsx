@@ -1732,6 +1732,7 @@ const MainStudio: React.FC = () => {
         id: newClipId,
         trackId: targetTrack.id,
         name: `${clipboardClip.name} (Pasted)`,
+        groupId: undefined,
         startSeconds: pasteTime,
       };
 
@@ -1758,6 +1759,7 @@ const MainStudio: React.FC = () => {
         id: newClipId,
         trackId: newTrackId,
         name: `${clipboardClip.name} (Pasted)`,
+        groupId: undefined,
         startSeconds: pasteTime,
       };
       const newTrack: Track = {
@@ -2256,6 +2258,38 @@ const MainStudio: React.FC = () => {
       title: 'Range Deleted',
       message: `Removed ${result.removedSeconds.toFixed(2)}s from this track and closed the gap.`,
     });
+  };
+
+  /** Tie the selected clips together so they select, move and delete as one unit. */
+  const handleGroupSelected = () => {
+    if (selectedClipIds.size < 2) {
+      addToast({ type: 'info', title: 'Select clips to group', message: 'Hold Shift and click two or more clips, then group them.' });
+      return;
+    }
+    const groupId = `group-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    setProjectWithHistory((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((t) => ({
+        ...t,
+        clips: t.clips.map((c) => (selectedClipIds.has(c.id) ? { ...c, groupId } : c)),
+      })),
+    }));
+    addToast({ type: 'success', title: 'Clips grouped', message: `${selectedClipIds.size} clips now move together.` });
+  };
+
+  /** Release every group that the selected clips belong to. */
+  const handleUngroupSelected = () => {
+    const groups = new Set<string>();
+    for (const t of project.tracks) for (const c of t.clips) if (selectedClipIds.has(c.id) && c.groupId) groups.add(c.groupId);
+    if (groups.size === 0) return;
+    setProjectWithHistory((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((t) => ({
+        ...t,
+        clips: t.clips.map((c) => (c.groupId && groups.has(c.groupId) ? { ...c, groupId: undefined } : c)),
+      })),
+    }));
+    addToast({ type: 'info', title: 'Clips ungrouped', message: 'The clips are independent again.' });
   };
 
   const handleSelectAll = () => {
@@ -2854,6 +2888,8 @@ const MainStudio: React.FC = () => {
               onOpenDspModal={(type) => handleOpenDspModal(type)}
               onOpenExport={openExport}
               onOpenPlugins={() => setIsPluginsRackModalOpen(true)}
+              onGroupSelected={handleGroupSelected}
+              onUngroupSelected={handleUngroupSelected}
               onMoveClipTrack={handleMoveClipTrack}
               onUpdateClip={handleUpdateClip}
               onFileDrop={handleImportFiles}

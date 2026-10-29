@@ -5,7 +5,7 @@
  * Fades, Volume (slider & +/- 1dB), Amplify, Compress, Denoise, Change Pitch, Change Speed.
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Scissors,
   Trash2,
@@ -23,6 +23,9 @@ import {
   Gauge,
   Download,
   Plug,
+  Group,
+  Ungroup,
+  GripHorizontal,
   X,
 } from 'lucide-react';
 import { Clip } from '../types';
@@ -45,6 +48,11 @@ interface ClipActionStripProps {
   onOpenDsp: (type: DspModalType) => void;
   onOpenExport?: () => void;
   onOpenPlugins?: () => void;
+  /** How many clips are selected; with more than one, only the group-level actions are shown. */
+  selectedCount?: number;
+  isGrouped?: boolean;
+  onGroup?: () => void;
+  onUngroup?: () => void;
 }
 
 export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
@@ -63,50 +71,69 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
   onOpenDsp,
   onOpenExport,
   onOpenPlugins,
+  selectedCount = 1,
+  isGrouped = false,
+  onGroup,
+  onUngroup,
 }) => {
-  // Listen for global dismiss events, Escape key, or clicks outside
+  const multi = selectedCount > 1;
+  // Sticky: stays open while you work (it follows the selection). Closed by the X, Escape or Q.
   useEffect(() => {
     const handleClose = () => onClose();
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    const handlePointerDown = (e: PointerEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && !target.closest('.clip-action-strip-container')) {
-        onClose();
-      }
-    };
-
     window.addEventListener('xpro:close-popups', handleClose);
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('pointerdown', handlePointerDown);
     return () => {
       window.removeEventListener('xpro:close-popups', handleClose);
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('pointerdown', handlePointerDown);
     };
   }, [onClose]);
 
-  // Clamp position reliably within viewport avoiding truncation
+  // Position: starts near the clip, then belongs to the user. Drag the header to move it anywhere in the window.
   const STRIP_WIDTH = 320;
-  const STRIP_EST_HEIGHT = 460;
-  const left = Math.min(window.innerWidth - STRIP_WIDTH - 16, Math.max(16, position.x));
-  const top = Math.min(
-    Math.max(56, window.innerHeight - STRIP_EST_HEIGHT - 16),
-    Math.max(56, position.y - 100)
-  );
+  const [pos, setPos] = useState(() => ({
+    left: Math.min(window.innerWidth - STRIP_WIDTH - 16, Math.max(16, position.x)),
+    top: Math.min(Math.max(56, window.innerHeight - 460 - 16), Math.max(56, position.y - 100)),
+  }));
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  const onHeaderPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    dragRef.current = { dx: e.clientX - pos.left, dy: e.clientY - pos.top };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onHeaderPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    setPos({
+      left: Math.min(window.innerWidth - STRIP_WIDTH - 8, Math.max(8, e.clientX - d.dx)),
+      top: Math.min(window.innerHeight - 56, Math.max(8, e.clientY - d.dy)),
+    });
+  };
+  const onHeaderPointerUp = () => {
+    dragRef.current = null;
+  };
+  const left = pos.left;
+  const top = pos.top;
 
   return (
     <div
       style={{ left: `${left}px`, top: `${top}px` }}
       onClick={(e) => e.stopPropagation()}
-      className="clip-action-strip-container fixed z-40 bg-[#121218]/95 border border-cyan-500/60 rounded-xl shadow-[0_12px_36px_rgba(0,0,0,0.85),0_0_16px_rgba(0,240,255,0.2)] p-3 backdrop-blur-md text-zinc-200 text-xs w-80 max-h-[min(480px,calc(100vh-70px))] overflow-y-auto scrollbar-thin animate-in fade-in zoom-in-95 duration-150 select-none space-y-2.5"
+      className="clip-action-strip-container fixed z-40 bg-surface-2 border border-line-strong rounded-card shadow-float p-3 text-ink-dim text-xs w-80 max-h-[min(480px,calc(100vh-70px))] overflow-y-auto scrollbar-thin uuda-pop-in select-none space-y-2.5"
     >
       {/* Header */}
-      <div className="flex items-center justify-between pb-1.5 border-b border-zinc-800">
+      <div
+        onPointerDown={onHeaderPointerDown}
+        onPointerMove={onHeaderPointerMove}
+        onPointerUp={onHeaderPointerUp}
+        title="Drag to move"
+        className="flex cursor-grab touch-none items-center justify-between pb-1.5 border-b border-line active:cursor-grabbing"
+      >
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-          <span className="font-bold text-zinc-100 truncate text-xs">{clip.name}</span>
+          <GripHorizontal className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
+          <span className="font-semibold text-ink truncate text-xs">{multi ? `${selectedCount} clips selected` : clip.name}</span>
           {clip.muted && (
             <span className="text-[9px] px-1 bg-rose-500/20 text-rose-300 rounded font-semibold">
               MUTED
@@ -122,6 +149,8 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
         </button>
       </div>
 
+      {!multi && (
+        <>
       {/* Primary Clip Actions Row 1 */}
       <div className="grid grid-cols-4 gap-1">
         <button
@@ -364,6 +393,33 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
         </div>
       </div>
 
+        </>
+      )}
+
+      {/* Group: tie clips together so they move, copy and delete as one unit */}
+      {(onGroup || onUngroup) && (
+        <div className="grid grid-cols-2 gap-1">
+          <button
+            disabled={!multi}
+            onClick={() => onGroup?.()}
+            title={multi ? 'Group the selected clips' : 'Shift+click two or more clips to group them'}
+            className="flex items-center justify-center gap-1.5 p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 disabled:opacity-30 disabled:hover:bg-zinc-800/70 transition-colors border border-zinc-700/50 text-[10px] font-medium"
+          >
+            <Group className="w-3 h-3 text-zinc-300" />
+            <span>Group</span>
+          </button>
+          <button
+            disabled={!isGrouped}
+            onClick={() => onUngroup?.()}
+            title={isGrouped ? 'Release the group' : 'The selection is not grouped'}
+            className="flex items-center justify-center gap-1.5 p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 disabled:opacity-30 disabled:hover:bg-zinc-800/70 transition-colors border border-zinc-700/50 text-[10px] font-medium"
+          >
+            <Ungroup className="w-3 h-3 text-zinc-300" />
+            <span>Ungroup</span>
+          </button>
+        </div>
+      )}
+
       {/* Export and Plugins */}
       {(onOpenExport || onOpenPlugins) && (
         <div className="grid grid-cols-2 gap-1">
@@ -399,7 +455,7 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
       {/* Delete button footer */}
       <div className="pt-1 border-t border-zinc-800 flex justify-between items-center text-[10px]">
         <span className="text-zinc-500 font-mono">
-          Duration: {clip.durationSeconds.toFixed(3)}s
+          {multi ? `${selectedCount} clips` : `Duration: ${clip.durationSeconds.toFixed(3)}s`}
         </span>
         <button
           onClick={() => {
