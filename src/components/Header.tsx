@@ -285,16 +285,15 @@ export const Header: React.FC<HeaderProps> = ({
           {isProjectMenuOpen && (
             <div
               onClick={() => setIsProjectMenuOpen(false)}
-              className="absolute left-0 top-full mt-1.5 w-64 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:rgba(113,113,122,0.65)_transparent] bg-surface-2 border border-line-strong rounded-card shadow-float py-1.5 z-50 text-xs text-zinc-200 animate-in fade-in duration-100"
+              className="absolute left-0 top-full mt-1.5 w-60 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:rgba(113,113,122,0.65)_transparent] bg-surface-2 border border-line-strong rounded-card shadow-float py-1.5 z-50 text-xs text-ink-dim animate-in fade-in duration-100"
             >
               <button
                 onClick={onNewProject}
                 className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
               >
-                <FilePlus className="w-4 h-4 text-cyan-400" />
+                <FilePlus className="w-4 h-4 text-ink-dim" />
                 <div>
-                  <div className="font-semibold">New Project...</div>
-                  <div className="text-[10px] text-zinc-500">Create clean session (prompts to preserve work)</div>
+                  <div className="font-medium">New Project...</div>
                 </div>
               </button>
 
@@ -303,10 +302,9 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={onNewFromTemplate}
                   className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
-                  <LayoutTemplate className="w-4 h-4 text-purple-400" />
+                  <LayoutTemplate className="w-4 h-4 text-ink-dim" />
                   <div>
-                    <div className="font-semibold">New from Template...</div>
-                    <div className="text-[10px] text-zinc-500">Podcast, spot, sweep or your own</div>
+                    <div className="font-medium">New from Template...</div>
                   </div>
                 </button>
               )}
@@ -316,10 +314,9 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={onSaveAndNewProject}
                   className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
-                  <Save className="w-4 h-4 text-cyan-400" />
+                  <Save className="w-4 h-4 text-ink-dim" />
                   <div>
-                    <div className="font-semibold">Save & Start New</div>
-                    <div className="text-[10px] text-zinc-500">Backup current session and open blank workspace</div>
+                    <div className="font-medium">Save & Start New</div>
                   </div>
                 </button>
               )}
@@ -327,12 +324,11 @@ export const Header: React.FC<HeaderProps> = ({
               {onOpenNewProjectInTab && (
                 <button
                   onClick={onOpenNewProjectInTab}
-                  className="w-full text-left px-3 py-2 hover:bg-emerald-500/20 hover:text-emerald-300 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
-                  <ExternalLink className="w-4 h-4 text-emerald-400" />
+                  <ExternalLink className="w-4 h-4 text-ink-dim" />
                   <div>
-                    <div className="font-semibold">New Project in New Tab</div>
-                    <div className="text-[10px] text-zinc-500">Keep current session and open new tab</div>
+                    <div className="font-medium">New Project in New Tab</div>
                   </div>
                 </button>
               )}
@@ -341,10 +337,9 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={() => projectFileInputRef.current?.click()}
                 className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
               >
-                <FolderOpen className="w-4 h-4 text-emerald-400" />
+                <FolderOpen className="w-4 h-4 text-ink-dim" />
                 <div>
-                  <div className="font-semibold">Open Project from Computer...</div>
-                  <div className="text-[10px] text-zinc-500">Load a self-contained .uuda project or legacy .json file</div>
+                  <div className="font-medium">Open Project from Computer...</div>
                 </div>
               </button>
 
@@ -353,10 +348,9 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={onChooseProjectRoot}
                   className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
-                  <FolderArchive className="w-4 h-4 text-amber-400" />
+                  <FolderArchive className="w-4 h-4 text-ink-dim" />
                   <div>
-                    <div className="font-semibold">Choose Root Folder...</div>
-                    <div className="text-[10px] text-zinc-500">{projectRootDirectoryName ? `Current: ${projectRootDirectoryName}` : 'Choose a folder for project files'}</div>
+                    <div className="font-medium">Choose Root Folder...</div>
                   </div>
                 </button>
               )}
@@ -366,16 +360,15 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={onOpenProjectFromRoot}
                   className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
-                  <FolderOpen className="w-4 h-4 text-amber-400" />
+                  <FolderOpen className="w-4 h-4 text-ink-dim" />
                   <div>
-                    <div className="font-semibold">Open from Root Folder...</div>
-                    <div className="text-[10px] text-zinc-500">Browse .uuda files in the selected folder</div>
+                    <div className="font-medium">Open from Root Folder...</div>
                   </div>
                 </button>
               )}
 
-              <div className="h-px bg-zinc-800 my-1" />
-              <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">
+              <div className="h-px bg-line my-1" />
+              <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-ink-faint font-semibold">
                 Recent Projects
               </div>
               {recentProjects.length > 0 ? recentProjects.map((recent) => (
@@ -385,9 +378,9 @@ export const Header: React.FC<HeaderProps> = ({
                   title={`Choose the saved .uuda file for “${recent.name}”`}
                   className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
-                  <FolderOpen className="w-4 h-4 text-zinc-400 shrink-0" />
+                  <FolderOpen className="w-4 h-4 text-ink-dim shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <div className="font-semibold truncate">{recent.name}</div>
+                    <div className="font-medium truncate">{recent.name}</div>
                     <div className="text-[10px] text-zinc-500">
                       {recent.trackCount} {recent.trackCount === 1 ? 'track' : 'tracks'} · {new Date(recent.lastOpenedAt).toLocaleDateString()}
                     </div>
@@ -405,10 +398,9 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={onSaveAsTemplate}
                   className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
-                  <LayoutTemplate className="w-4 h-4 text-purple-400" />
+                  <LayoutTemplate className="w-4 h-4 text-ink-dim" />
                   <div>
-                    <div className="font-semibold">Save as Template...</div>
-                    <div className="text-[10px] text-zinc-500">Keep tracks, effects and ducking, no audio</div>
+                    <div className="font-medium">Save as Template...</div>
                   </div>
                 </button>
               )}
@@ -417,10 +409,9 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={onSaveProjectToFile}
                 className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
               >
-                <Save className="w-4 h-4 text-indigo-400" />
+                <Save className="w-4 h-4 text-ink-dim" />
                 <div>
-                  <div className="font-semibold">Save Project to Computer</div>
-                  <div className="text-[10px] text-zinc-500">Save project and referenced audio as .uuda</div>
+                  <div className="font-medium">Save Project to Computer</div>
                 </div>
               </button>
 
@@ -429,39 +420,36 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={onSaveProjectAs}
                   className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
-                  <Save className="w-4 h-4 text-indigo-400" />
+                  <Save className="w-4 h-4 text-ink-dim" />
                   <div>
-                    <div className="font-semibold">Save As...</div>
-                    <div className="text-[10px] text-zinc-500">Choose a .uuda destination</div>
+                    <div className="font-medium">Save As...</div>
                   </div>
                 </button>
               )}
 
-              <div className="h-px bg-zinc-800 my-1" />
+              <div className="h-px bg-line my-1" />
 
               <button
                 onClick={() => window.dispatchEvent(new CustomEvent('uuda:rename-project'))}
-                className="w-full text-left px-3 py-2 hover:bg-zinc-800 flex items-center gap-2.5 transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
               >
-                <Edit3 className="w-4 h-4 text-zinc-400" />
+                <Edit3 className="w-4 h-4 text-ink-dim" />
                 <div>
-                  <div className="font-semibold">Rename Project</div>
-                  <div className="text-[10px] text-zinc-500">Change title of current session</div>
+                  <div className="font-medium">Rename Project</div>
                 </div>
               </button>
 
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full text-left px-3 py-2 hover:bg-zinc-800 flex items-center gap-2.5 transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
               >
-                <UploadCloud className="w-4 h-4 text-amber-400" />
+                <UploadCloud className="w-4 h-4 text-ink-dim" />
                 <div>
-                  <div className="font-semibold">Import Audio Files...</div>
-                  <div className="text-[10px] text-zinc-500">Add .wav, .mp3, .m4a to timeline</div>
+                  <div className="font-medium">Import Audio Files...</div>
                 </div>
               </button>
 
-              <div className="h-px bg-zinc-800 my-1" />
+              <div className="h-px bg-line my-1" />
 
               <button
                 onClick={() => {
@@ -472,8 +460,7 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <Trash2 className="w-4 h-4 text-rose-400" />
                 <div>
-                  <div className="font-semibold">Clear Session / Reset</div>
-                  <div className="text-[10px] text-rose-500/80">Wipe current project and reset timeline</div>
+                  <div className="font-medium">Clear Session / Reset</div>
                 </div>
               </button>
             </div>
@@ -493,151 +480,151 @@ export const Header: React.FC<HeaderProps> = ({
           {isEditMenuOpen && (
             <div
               onClick={() => setIsEditMenuOpen(false)}
-              className="absolute left-0 top-full mt-1 w-60 bg-surface-2 border border-line-strong rounded-card shadow-float py-1 z-50 text-xs text-zinc-300"
+              className="absolute left-0 top-full mt-1.5 w-56 bg-surface-2 border border-line-strong rounded-card shadow-float py-1 z-50 text-xs text-ink-dim"
             >
               <button
                 disabled={!canUndo}
                 onClick={onUndo}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Undo</span>
-                <span className="font-mono text-[10px] text-zinc-500">Ctrl+Z</span>
+                <span className="font-num text-[10px] text-ink-faint">Ctrl+Z</span>
               </button>
               <button
                 disabled={!canRedo}
                 onClick={onRedo}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Redo</span>
-                <span className="font-mono text-[10px] text-zinc-500">Ctrl+Y</span>
+                <span className="font-num text-[10px] text-ink-faint">Ctrl+Y</span>
               </button>
 
-              <div className="h-px bg-zinc-800 my-1" />
+              <div className="h-px bg-line my-1" />
 
               <button
                 disabled={!hasSelectedClip}
                 onClick={onSplit}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Split at Playhead</span>
-                <span className="font-mono text-[10px] text-zinc-500">S</span>
+                <span className="font-num text-[10px] text-ink-faint">S</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
                 onClick={onCut}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Cut</span>
-                <span className="font-mono text-[10px] text-zinc-500">Ctrl+X</span>
+                <span className="font-num text-[10px] text-ink-faint">Ctrl+X</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
                 onClick={onCopy}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Copy</span>
-                <span className="font-mono text-[10px] text-zinc-500">Ctrl+C</span>
+                <span className="font-num text-[10px] text-ink-faint">Ctrl+C</span>
               </button>
               <button
                 disabled={!canPaste}
                 onClick={onPaste}
                 title="Paste clip at playhead onto active/selected track (Ctrl+V)"
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Paste at Playhead</span>
-                <span className="font-mono text-[10px] text-zinc-500">Ctrl+V</span>
+                <span className="font-num text-[10px] text-ink-faint">Ctrl+V</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
                 onClick={onDuplicate}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Duplicate Clip</span>
-                <span className="font-mono text-[10px] text-zinc-500">Ctrl+D</span>
+                <span className="font-num text-[10px] text-ink-faint">Ctrl+D</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
                 onClick={onDeleteSelected}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 text-rose-300 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 text-rose-300 flex items-center justify-between"
               >
                 <span>Delete Selected</span>
-                <span className="font-mono text-[10px] text-zinc-500">Del</span>
+                <span className="font-num text-[10px] text-ink-faint">Del</span>
               </button>
 
-              <div className="h-px bg-zinc-800 my-1" />
+              <div className="h-px bg-line my-1" />
 
               <button
                 disabled={!hasSelectedClip}
                 onClick={onToggleMuteClip}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Mute / Unmute Clip</span>
-                <span className="font-mono text-[10px] text-zinc-500">M</span>
+                <span className="font-num text-[10px] text-ink-faint">M</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
                 onClick={() => onMoveClip('up')}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Move Clip Up</span>
-                <span className="font-mono text-[10px] text-zinc-500">&uarr;</span>
+                <span className="font-num text-[10px] text-ink-faint">&uarr;</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
                 onClick={() => onMoveClip('down')}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Move Clip Down</span>
-                <span className="font-mono text-[10px] text-zinc-500">&darr;</span>
+                <span className="font-num text-[10px] text-ink-faint">&darr;</span>
               </button>
 
-              <div className="h-px bg-zinc-800 my-1" />
+              <div className="h-px bg-line my-1" />
 
               {/* DSP Processing tools */}
               <button
                 disabled={!hasSelectedClip}
                 onClick={() => onOpenDsp('amplify')}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between text-cyan-300"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Amplify Gain...</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
                 onClick={() => onOpenDsp('compress')}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between text-cyan-300"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Dynamics Compressor...</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
                 onClick={() => onOpenDsp('denoise')}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between text-amber-300"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between text-amber-300"
               >
                 <span>Basic Noise Reduction...</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
                 onClick={() => onOpenDsp('pitch')}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between text-cyan-300"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Change Pitch (WSOLA)...</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
                 onClick={() => onOpenDsp('speed')}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 disabled:opacity-40 flex items-center justify-between text-cyan-300"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Change Speed (WSOLA)...</span>
               </button>
 
-              <div className="h-px bg-zinc-800 my-1" />
+              <div className="h-px bg-line my-1" />
 
               <button
                 onClick={onSelectAll}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink flex items-center justify-between"
               >
                 <span>Select All</span>
-                <span className="font-mono text-[10px] text-zinc-500">Ctrl+A</span>
+                <span className="font-num text-[10px] text-ink-faint">Ctrl+A</span>
               </button>
             </div>
           )}
@@ -662,19 +649,17 @@ export const Header: React.FC<HeaderProps> = ({
           {isEffectsMenuOpen && (
             <div
               onClick={() => setIsEffectsMenuOpen(false)}
-              className="absolute left-0 top-full mt-1.5 w-64 bg-surface-2 border border-line-strong rounded-card shadow-float py-1.5 z-50 text-xs text-zinc-200 animate-in fade-in duration-100"
+              className="absolute left-0 top-full mt-1.5 w-64 bg-surface-2 border border-line-strong rounded-card shadow-float py-1.5 z-50 text-xs text-ink-dim animate-in fade-in duration-100"
             >
-              <div className="px-3 py-1.5 text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-wider border-b border-zinc-800 flex items-center justify-between">
-                <span>Real-Time Audio Effects</span>
-                <span className="text-[9px] text-zinc-500">AudioWorklet DSP</span>
+              <div className="px-3 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint border-b border-line mb-1">
+                Effects
               </div>
               <button
                 onClick={() => onOpenEffect?.('delay')}
                 className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
-                  <div className="font-semibold text-zinc-100">Delay & Echo...</div>
-                  <div className="text-[10px] text-zinc-500">Stereo ping-pong & feedback damping</div>
+                  <div className="font-medium text-ink">Delay & Echo...</div>
                 </div>
               </button>
               <button
@@ -682,8 +667,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
-                  <div className="font-semibold text-zinc-100">Equalize (5-Band EQ)...</div>
-                  <div className="text-[10px] text-zinc-500">Parametric EQ with frequency graph</div>
+                  <div className="font-medium text-ink">Equalize (5-Band EQ)...</div>
                 </div>
               </button>
               <button
@@ -691,8 +675,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
-                  <div className="font-semibold text-zinc-100">Chorus...</div>
-                  <div className="text-[10px] text-zinc-500">Multi-voice modulated fractional-delay</div>
+                  <div className="font-medium text-ink">Chorus...</div>
                 </div>
               </button>
               <button
@@ -700,8 +683,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
-                  <div className="font-semibold text-zinc-100">Flanger...</div>
-                  <div className="text-[10px] text-zinc-500">Short modulated delay with resonance</div>
+                  <div className="font-medium text-ink">Flanger...</div>
                 </div>
               </button>
               <button
@@ -709,8 +691,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
-                  <div className="font-semibold text-zinc-100">Phaser...</div>
-                  <div className="text-[10px] text-zinc-500">Cascaded all-pass sweep stages</div>
+                  <div className="font-medium text-ink">Phaser...</div>
                 </div>
               </button>
               <button
@@ -718,8 +699,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center justify-between transition-colors cursor-pointer"
               >
                 <div>
-                  <div className="font-semibold text-zinc-100">Reverb...</div>
-                  <div className="text-[10px] text-zinc-500">Plate, Room, Hall algorithmic & convolution</div>
+                  <div className="font-medium text-ink">Reverb...</div>
                 </div>
               </button>
             </div>
@@ -864,9 +844,9 @@ export const Header: React.FC<HeaderProps> = ({
           {isSettingsOpen && (
             <div
               onClick={() => setIsSettingsOpen(false)}
-              className="absolute right-0 top-full mt-1.5 w-68 bg-surface-2 border border-line-strong rounded-card shadow-float p-3 z-50 text-xs text-zinc-300"
+              className="absolute right-0 top-full mt-1.5 w-68 bg-surface-2 border border-line-strong rounded-card shadow-float p-3 z-50 text-xs text-ink-dim"
             >
-              <div className="font-semibold text-zinc-100 pb-2 mb-2 border-b border-zinc-800 flex items-center justify-between">
+              <div className="font-medium text-ink pb-2 mb-2 border-b border-line flex items-center justify-between">
                 <span>Studio Settings</span>
                 <span className="text-[10px] text-zinc-500 font-mono">Phase 1</span>
               </div>
@@ -875,16 +855,15 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-medium text-zinc-200">Auto-Refresh</div>
-                    <div className="text-[10px] text-zinc-500">Repaint immediately on edit</div>
-                  </div>
+                    <div className="font-medium text-ink">Auto-Refresh</div>
+                                      </div>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onToggleAutoRefresh();
                     }}
                     className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
-                      project.settings.autoRefresh ? 'bg-cyan-500' : 'bg-zinc-700'
+                      project.settings.autoRefresh ? 'bg-accent' : 'bg-surface-3'
                     }`}
                   >
                     <div
@@ -896,18 +875,17 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
 
                 {/* Auto Ducking Setting */}
-                <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+                <div className="flex items-center justify-between pt-2 border-t border-line">
                   <div>
-                    <div className="font-medium text-zinc-200">Duck Playing Tracks</div>
-                    <div className="text-[10px] text-zinc-500">Lower tracks while recording</div>
-                  </div>
+                    <div className="font-medium text-ink">Duck Playing Tracks</div>
+                                      </div>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onToggleDucking();
                     }}
                     className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
-                      project.settings.duckPlayingTracks ? 'bg-cyan-500' : 'bg-zinc-700'
+                      project.settings.duckPlayingTracks ? 'bg-accent' : 'bg-surface-3'
                     }`}
                   >
                     <div
@@ -936,7 +914,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                 )}
 
-                <div className="pt-2 border-t border-zinc-800 space-y-1 text-[11px]">
+                <div className="pt-2 border-t border-line space-y-1 text-[11px]">
                   <div className="flex justify-between text-zinc-400">
                     <span>Sample Rate:</span>
                     <span className="font-mono text-zinc-200">{audioEngine.getSampleRate()} Hz</span>
@@ -953,7 +931,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-zinc-800">
+                <div className="pt-2 border-t border-line">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

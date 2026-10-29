@@ -12,6 +12,8 @@ import { Layers, Plus, Trash2, ChevronUp, ChevronDown, Pencil, Eraser } from 'lu
 import { Track } from '../types';
 import { pluginManager } from '../plugins/pluginManager';
 import { formatTrackLength, trackEndSeconds } from '../utils/formatters';
+import { HoverTitle } from './ui';
+import { displayTitle } from './clipTitle';
 import { getTrackLabel, renameUpdate, isTrackEmpty } from '../utils/tracks';
 
 interface TrackListPanelProps {
@@ -23,6 +25,8 @@ interface TrackListPanelProps {
   onAddTrack: () => void;
   onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
   onRemoveEmptyTracks: () => void;
+  /** Ids of the clips currently selected on the timeline; the selected clip's name shows on its track's row. */
+  selectedClipIds?: Set<string>;
 }
 
 export const TrackListPanel: React.FC<TrackListPanelProps> = ({
@@ -34,6 +38,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
   onAddTrack,
   onUpdateTrack,
   onRemoveEmptyTracks,
+  selectedClipIds,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -165,6 +170,20 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                       {track.muted && <span className="text-danger font-semibold">Muted</span>}
                       {track.solo && <span className="text-warn font-semibold">Solo</span>}
                     </div>
+                    {(() => {
+                      const picked = selectedClipIds ? track.clips.filter((c) => selectedClipIds.has(c.id)) : [];
+                      if (picked.length === 0) return null;
+                      return (
+                        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-accent">
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+                          {picked.length === 1 ? (
+                            <HoverTitle text={displayTitle(picked[0].name)} maxChars={24} className="font-semibold" />
+                          ) : (
+                            <span className="font-semibold">{picked.length} clips selected</span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 

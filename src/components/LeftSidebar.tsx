@@ -42,6 +42,7 @@ interface LeftSidebarProps {
   onAddTrack: () => void;
   onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
   onRemoveEmptyTracks: () => void;
+  selectedClipIds?: Set<string>;
   // VoicePanel props
   onAddVoiceTrack: (asset: Asset, metadata: VoiceMetadata) => void;
   existingVoiceMetadata?: VoiceMetadata | null;
@@ -70,6 +71,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onAddTrack,
   onUpdateTrack,
   onRemoveEmptyTracks,
+  selectedClipIds,
   onAddVoiceTrack,
   existingVoiceMetadata,
   onAddLibraryTrack,
@@ -207,6 +209,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               onAddTrack={onAddTrack}
               onUpdateTrack={onUpdateTrack}
               onRemoveEmptyTracks={onRemoveEmptyTracks}
+              selectedClipIds={selectedClipIds}
             />
           )}
 
