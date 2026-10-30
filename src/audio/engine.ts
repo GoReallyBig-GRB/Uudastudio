@@ -61,6 +61,8 @@ const PREVIEW_MAX_SECONDS = 20;
 /** Length of the short fade that removes the click when a clip starts or stops mid-wave */
 const DECLICK_SECONDS = 0.008;
 
+const clamp01to15 = (v: number): number => (Number.isFinite(v) ? Math.min(1.5, Math.max(0, v)) : 0);
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -107,6 +109,9 @@ export class AudioEngine {
   /** One bus per clip group: grouped clips are summed here, then the group's plugin chain runs once, then the master. */
   private groupBuses: Map<string, { input: GainNode; output: GainNode; level: GainNode; pan: StereoPannerNode | null; analyser: AnalyserNode }> = new Map();
   private groupSettings: Record<string, GroupSettings> = {};
+  /** Group being auditioned alone: everything else is silent (monitoring only; never saved, never exported) */
+  private soloGroupId: string | null = null;
+  private lastTracks: Track[] = [];
   /** Per-track volume/pan stages feeding the group buses for the current playback (disconnected when it stops) */
 
   /** Duck curves already worked out, by track, so playing again does not re-measure the audio */
@@ -233,8 +238,22 @@ export class AudioEngine {
     const s = { ...DEFAULT_GROUP_SETTINGS, ...(this.groupSettings[groupId] ?? {}) };
     const t = this.ctx.currentTime;
     bus.level.gain.cancelScheduledValues(t);
-    bus.level.gain.setTargetAtTime(groupOutputGain(s), t, 0.015);
+    // While a group is soloed, the others are silent and the soloed one is heard even if it was muted
+    const gain = this.soloGroupId ? (this.soloGroupId === groupId ? clamp01to15(s.volume) : 0) : groupOutputGain(s);
+    bus.level.gain.setTargetAtTime(gain, t, 0.015);
     if (bus.pan) bus.pan.pan.setTargetAtTime(groupPan(s), t, 0.015);
+  }
+
+  /** Audition one group alone (null = back to the normal mix). Applies live, with a short smoothing so nothing clicks. */
+  public setSoloGroup(groupId: string | null): void {
+    this.soloGroupId = groupId;
+    if (!this.ctx) return;
+    if (this.lastTracks.length > 0) this.syncTracks(this.lastTracks);
+    for (const id of this.groupBuses.keys()) this.applyGroupSettings(id);
+  }
+
+  public getSoloGroup(): string | null {
+    return this.soloGroupId;
   }
 
   /** Replace all group settings (called when playback starts and whenever the project's groups change). */
@@ -471,6 +490,7 @@ export class AudioEngine {
 
   /** Gain a track should have right now, honouring mute/solo and an active rack preview */
   private effectiveVolume(track: Track, anySolo: boolean): number {
+    if (this.soloGroupId) return 0; // loose clips are silent while a group is auditioned
     if (this.previewTargetId && this.previewTargetId !== MASTER_TRACK_ID && !isGroupChainId(this.previewTargetId)) {
       return track.id === this.previewTargetId ? track.volume : 0;
     }
@@ -482,6 +502,7 @@ export class AudioEngine {
    * Syncs track nodes with the project state
    */
   public syncTracks(tracks: Track[]): void {
+    this.lastTracks = tracks;
     if (!this.ctx || !this.masterGain) return;
 
     const currentTrackIds = new Set(tracks.map(t => t.id));

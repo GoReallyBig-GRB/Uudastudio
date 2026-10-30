@@ -1594,6 +1594,19 @@ const MainStudio: React.FC = () => {
 
   const groups = useMemo(() => summarizeGroups(project), [project.tracks, project.groupSettings]);
 
+  // Group being auditioned alone. Monitoring only: not saved, not part of undo, never affects export.
+  const [soloGroupId, setSoloGroupId] = useState<string | null>(null);
+  useEffect(() => {
+    if (soloGroupId && !groups.some((g) => g.id === soloGroupId)) setSoloGroupId(null); // ungrouped, cut or deleted
+  }, [groups, soloGroupId]);
+  useEffect(() => {
+    audioEngine.setSoloGroup(soloGroupId);
+    return () => audioEngine.setSoloGroup(null);
+  }, [soloGroupId]);
+  const handleToggleSoloGroup = useCallback((groupId: string) => {
+    setSoloGroupId((cur) => (cur === groupId ? null : groupId));
+  }, []);
+
   const handleUpdateGroup = useCallback((groupId: string, patch: Partial<GroupSettings>) => {
     setProjectWithHistory((prev) => patchGroupSettings(prev, groupId, patch));
   }, [setProjectWithHistory]);
@@ -1601,7 +1614,15 @@ const MainStudio: React.FC = () => {
   /** Selecting a group selects all its clips (the timeline already treats a grouped clip as the whole group) */
   const handleSelectGroup = (groupId: string) => {
     const g = groups.find((x) => x.id === groupId);
-    if (g) setSelectedClipIds(new Set(g.clipIds));
+    if (!g) return;
+    // Clicking a group in the list highlights it and auditions it alone; clicking it again releases it
+    if (soloGroupId === groupId) {
+      setSoloGroupId(null);
+      setSelectedClipIds(new Set());
+    } else {
+      setSelectedClipIds(new Set(g.clipIds));
+      setSoloGroupId(groupId);
+    }
   };
 
   const handleDeleteTrack = async (trackId: string) => {
@@ -2966,6 +2987,8 @@ const MainStudio: React.FC = () => {
               selectedClipIds={selectedClipIds}
               onSelectGroup={handleSelectGroup}
               onUpdateGroup={handleUpdateGroup}
+              soloGroupId={soloGroupId}
+              onToggleSolo={handleToggleSoloGroup}
               onOpenGroupPlugins={(id) => {
                 setRackGroupId(id);
                 setIsPluginsRackModalOpen(true);
@@ -3068,6 +3091,8 @@ const MainStudio: React.FC = () => {
                     onUpdateTrack={handleUpdateTrack}
                     groups={groups}
                     onUpdateGroup={handleUpdateGroup}
+                    soloGroupId={soloGroupId}
+                    onToggleSolo={handleToggleSoloGroup}
                     onAddTrack={handleAddEmptyTrack}
                     selectedTrackId={selectedTrackId}
                     onSelectTrack={(id) => setSelectedTrackId(id)}
@@ -3116,6 +3141,8 @@ const MainStudio: React.FC = () => {
               onGroupSelected={handleGroupSelected}
               onUpdateClips={handleUpdateClips}
               onUpdateGroup={handleUpdateGroup}
+              soloGroupId={soloGroupId}
+              onToggleSolo={handleToggleSoloGroup}
               onUngroupSelected={handleUngroupSelected}
               onMoveClipTrack={handleMoveClipTrack}
               onUpdateClip={handleUpdateClip}
@@ -3144,6 +3171,8 @@ const MainStudio: React.FC = () => {
                 onUpdateTrack={handleUpdateTrack}
                 groups={groups}
                 onUpdateGroup={handleUpdateGroup}
+                soloGroupId={soloGroupId}
+                onToggleSolo={handleToggleSoloGroup}
                 onAddTrack={handleAddEmptyTrack}
                 selectedTrackId={selectedTrackId}
                 onSelectTrack={(id) => setSelectedTrackId(id)}

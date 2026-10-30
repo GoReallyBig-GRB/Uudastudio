@@ -65,4 +65,30 @@ describe('group channel', () => {
     expect(bus.level.gain.value).toBeCloseTo(0.9);
     engine.stop();
   });
+
+  it('solo plays only one group: loose clips and other groups go silent, and it all comes back', async () => {
+    const p2 = { ...project, groupSettings: { g1: { volume: 0.5, pan: 0, muted: false }, g2: { volume: 0.8, pan: 0, muted: false } } } as Project;
+    p2.tracks = [...p2.tracks, track('C', [clip('c3', 'C', 0, 5, 'g2')])];
+    engine.registerAsset({ id: 'a-c3', name: 'c3', kind: 'import', buffer: { duration: 60 } as any, sampleRate: 48000, durationSeconds: 60, numberOfChannels: 1 });
+    engine.syncTracks(p2.tracks);
+    await engine.play(p2, 0);
+    engine.setSoloGroup('g1');
+    expect(engine.groupBuses.get('g1').level.gain.value).toBeCloseTo(0.5);
+    expect(engine.groupBuses.get('g2').level.gain.value).toBe(0);
+    expect(engine.trackNodes.get('B').gainNode.gain.value).toBe(0);
+    engine.setSoloGroup(null);
+    expect(engine.groupBuses.get('g2').level.gain.value).toBeCloseTo(0.8);
+    expect(engine.trackNodes.get('B').gainNode.gain.value).toBeGreaterThan(0);
+    engine.stop();
+  });
+
+  it('a muted group is still heard while soloed', async () => {
+    const p2 = { ...project, groupSettings: { g1: { volume: 0.7, pan: 0, muted: true } } } as Project;
+    await engine.play(p2, 0);
+    engine.setSoloGroup('g1');
+    expect(engine.groupBuses.get('g1').level.gain.value).toBeCloseTo(0.7);
+    engine.setSoloGroup(null);
+    expect(engine.groupBuses.get('g1').level.gain.value).toBe(0);
+    engine.stop();
+  });
 });
