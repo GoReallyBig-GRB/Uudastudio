@@ -208,7 +208,7 @@ export function toChainSettings(s: MasteringSettings): ChainSettings {
  * ducking, effects and the master fader. A saved analysis is only trusted while this still matches.
  */
 export function mixFingerprint(project: Project, masterVolume = 1, masterMuted = false): string {
-  const parts: Array<string | number> = [project.sampleRate, masterMuted ? 0 : masterVolume, JSON.stringify(project.masterPlugins ?? null), JSON.stringify(project.groupPlugins ?? null)];
+  const parts: Array<string | number> = [project.sampleRate, masterMuted ? 0 : masterVolume, JSON.stringify(project.masterPlugins ?? null), JSON.stringify(project.groupPlugins ?? null), JSON.stringify(project.groupSettings ?? null)];
   for (const t of project.tracks) {
     parts.push(t.id, t.volume, t.pan, t.muted ? 1 : 0, t.solo ? 1 : 0, JSON.stringify(t.ducking ?? null), JSON.stringify(t.plugins ?? null));
     for (const c of t.clips) {
