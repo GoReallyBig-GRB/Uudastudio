@@ -7,6 +7,8 @@
 import { Project, Track, Clip, Asset } from '../types';
 import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 import { groupChainId, groupIdOfChain, isGroupChainId } from '../plugins/groupChain';
+import { DEFAULT_GROUP_SETTINGS, groupOutputGain, groupPan } from './groupSettings';
+import type { GroupSettings } from '../types';
 import { buildDuckCurve, duckCurveKey, scheduleDuckCurve, clearDuck, normalizeDucking } from './ducking';
 import { StreamedClipPlayer } from './streamScheduler';
 import {
@@ -103,9 +105,9 @@ export class AudioEngine {
   }> = new Map();
 
   /** One bus per clip group: grouped clips are summed here, then the group's plugin chain runs once, then the master. */
-  private groupBuses: Map<string, { input: GainNode; output: GainNode }> = new Map();
+  private groupBuses: Map<string, { input: GainNode; output: GainNode; level: GainNode; pan: StereoPannerNode | null }> = new Map();
+  private groupSettings: Record<string, GroupSettings> = {};
   /** Per-track volume/pan stages feeding the group buses for the current playback (disconnected when it stops) */
-  private groupFeedNodes: AudioNode[] = [];
 
   /** Duck curves already worked out, by track, so playing again does not re-measure the audio */
   private duckCache: Map<string, { key: string; curve: Float32Array | null }> = new Map();
@@ -196,18 +198,44 @@ export class AudioEngine {
     pluginManager.connectPluginChain(trackId, nodes.gainNode, nodes.panNode as unknown as AudioNode);
   }
 
-  private ensureGroupBus(groupId: string): { input: GainNode; output: GainNode } | null {
+  private ensureGroupBus(groupId: string): { input: GainNode; output: GainNode; level: GainNode; pan: StereoPannerNode | null } | null {
     if (!this.ctx || !this.masterGain) return null;
     let bus = this.groupBuses.get(groupId);
     if (!bus) {
+      // input -> group plugins -> output -> level (group fader / mute) -> pan -> master
       const input = this.ctx.createGain();
       const output = this.ctx.createGain();
+      const level = this.ctx.createGain();
+      const pan = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
       pluginManager.connectPluginChain(groupChainId(groupId), input, output);
-      output.connect(this.masterGain);
-      bus = { input, output };
+      output.connect(level);
+      if (pan) {
+        level.connect(pan);
+        pan.connect(this.masterGain);
+      } else {
+        level.connect(this.masterGain);
+      }
+      bus = { input, output, level, pan };
       this.groupBuses.set(groupId, bus);
+      this.applyGroupSettings(groupId);
     }
     return bus;
+  }
+
+  private applyGroupSettings(groupId: string): void {
+    const bus = this.groupBuses.get(groupId);
+    if (!bus || !this.ctx) return;
+    const s = { ...DEFAULT_GROUP_SETTINGS, ...(this.groupSettings[groupId] ?? {}) };
+    const t = this.ctx.currentTime;
+    bus.level.gain.cancelScheduledValues(t);
+    bus.level.gain.setTargetAtTime(groupOutputGain(s), t, 0.015);
+    if (bus.pan) bus.pan.pan.setTargetAtTime(groupPan(s), t, 0.015);
+  }
+
+  /** Replace all group settings (called when playback starts and whenever the project's groups change). */
+  public syncGroupSettings(settings: Record<string, GroupSettings> | undefined): void {
+    this.groupSettings = settings ?? {};
+    for (const id of this.groupBuses.keys()) this.applyGroupSettings(id);
   }
 
   /** Master bus effects: the whole mix passes through them before the compressor and limiter */
@@ -630,37 +658,21 @@ export class AudioEngine {
 
     this.scheduleDucking(project, fromTime);
 
-    // Schedule all active clips in all tracks. Grouped clips go to their group's bus (after their own track's
-    // volume, pan and mute/solo) so the group's chain processes them as one unit; the track's own plugins are not used for them.
-    const anySolo = project.tracks.some((t) => t.solo);
+    this.syncGroupSettings(project.groupSettings);
+
+    // Schedule all active clips in all tracks. Grouped clips go straight to their group's bus: they ignore their track's
+    // fader, pan and mute/solo, and the group's own plugins, level and pan process them as one unit.
     const previewGroup = this.previewTargetId && isGroupChainId(this.previewTargetId) ? groupIdOfChain(this.previewTargetId) : null;
     for (const track of project.tracks) {
       const trackNode = this.trackNodes.get(track.id);
       if (!trackNode) continue;
-      const feeds = new Map<string, GainNode>();
 
       for (const clip of track.clips) {
         if (previewGroup && clip.groupId !== previewGroup) continue;
         if (clip.groupId) {
-          let feed = feeds.get(clip.groupId);
-          if (!feed) {
-            const bus = this.ensureGroupBus(clip.groupId);
-            if (!bus) continue;
-            feed = ctx.createGain();
-            feed.gain.value = this.effectiveVolume(track, anySolo);
-            const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-            if (pan) pan.pan.value = track.pan;
-            if (pan) {
-              feed.connect(pan);
-              pan.connect(bus.input);
-              this.groupFeedNodes.push(pan);
-            } else {
-              feed.connect(bus.input);
-            }
-            this.groupFeedNodes.push(feed);
-            feeds.set(clip.groupId, feed);
-          }
-          this.scheduleClip(clip, feed, fromTime);
+          const bus = this.ensureGroupBus(clip.groupId);
+          if (!bus) continue;
+          this.scheduleClip(clip, bus.input, fromTime);
         } else {
           this.scheduleClip(clip, trackNode.gainNode, fromTime);
         }
@@ -944,10 +956,6 @@ export class AudioEngine {
       }, faded);
     }
     this.activeSources = [];
-    for (const n of this.groupFeedNodes) {
-      try { n.disconnect(); } catch { /* already disconnected */ }
-    }
-    this.groupFeedNodes = [];
   }
 
   private updateCurrentPosition(): number {

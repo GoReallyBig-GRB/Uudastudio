@@ -167,6 +167,15 @@ export interface Track {
 
 export * from '../plugins/types';
 
+/** A clip group's own channel settings. Grouped clips ignore their track's fader and pan. */
+export interface GroupSettings {
+  volume: number; // 0.0 to 1.5, default 1.0
+  pan: number; // -1 to 1
+  muted: boolean;
+  /** Index into the group colour palette; unset = picked automatically */
+  color?: number;
+}
+
 export interface ProjectSettings {
   autoRefresh: boolean;
   sampleRate: number;
@@ -185,6 +194,8 @@ export interface Project {
   masterPlugins?: import('../plugins/types').StoredPluginState[];
   /** Plugin chain of each clip group (key = Clip.groupId), saved with the project. */
   groupPlugins?: Record<string, import('../plugins/types').StoredPluginState[]>;
+  /** Level, pan and mute of each clip group (key = Clip.groupId). Removed when the group is released. */
+  groupSettings?: Record<string, GroupSettings>;
   /** Mastering on the master bus (preset, settings, on/off, saved loudness analysis), saved with the project. */
   mastering?: import('../audio/masteringSettings').MasteringSettings;
   updatedAt?: number;

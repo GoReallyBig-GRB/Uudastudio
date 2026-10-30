@@ -73,6 +73,7 @@ import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
 import { pluginManager } from './plugins/pluginManager';
 import { groupChainId } from './plugins/groupChain';
+import { dropGroupSettings } from './audio/groupSettings';
 import { withPluginStates, restorePluginStates, hasSavedPlugins, isRestoringPlugins } from './plugins/projectPlugins';
 import { TemplatesModal } from './components/TemplatesModal';
 import { SaveTemplateModal } from './components/SaveTemplateModal';
@@ -2364,7 +2365,7 @@ const MainStudio: React.FC = () => {
       };
       if (Object.keys(remaining).length > 0) next.groupPlugins = remaining;
       else delete next.groupPlugins;
-      return next;
+      return dropGroupSettings(next, groups);
     });
     let hadChain = false;
     for (const g of groups) {

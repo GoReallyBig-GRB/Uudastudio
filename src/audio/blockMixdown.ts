@@ -12,6 +12,7 @@
 import type { Asset, Clip, Project } from '../types';
 import { buildDuckCurve, scheduleDuckCurve, normalizeDucking } from './ducking';
 import { groupChainId, groupIdsOf } from '../plugins/groupChain';
+import { groupOutputGain, groupPan, groupSettingsFor } from './groupSettings';
 
 export interface SkippedPluginInfo {
   chainId: string;
@@ -122,57 +123,54 @@ async function renderWindow(
   const masterBusOut = await deps.appendPlugins(ctx, deps.masterChainId, masterBusIn, skipped);
   masterBusOut.connect(masterNode);
 
-  // Group buses: clips of a group are summed here after their own track's volume and pan, then the group's chain runs once.
+  // Group buses: the clips of a group are summed here (they ignore their track's fader, pan and mute/solo), then the group's
+  // chain runs once, then the group's own level and pan are applied. Same order as the live engine.
   const groupBuses = new Map<string, GainNode>();
   const getGroupBus = async (groupId: string): Promise<GainNode> => {
     let bus = groupBuses.get(groupId);
     if (!bus) {
       bus = ctx.createGain();
       const out = await deps.appendPlugins(ctx, groupChainId(groupId), bus, skipped);
-      out.connect(masterBusIn);
+      const settings = groupSettingsFor(project, groupId);
+      const level = ctx.createGain();
+      level.gain.setValueAtTime(groupOutputGain(settings), 0);
+      out.connect(level);
+      const pan = ctx.createStereoPanner();
+      pan.pan.setValueAtTime(groupPan(settings), 0);
+      level.connect(pan);
+      pan.connect(masterBusIn);
       groupBuses.set(groupId, bus);
     }
     return bus;
   };
 
   for (const track of project.tracks) {
-    if (track.muted) continue;
-    if (hasSolo && !track.solo) continue;
+    // Grouped clips ignore their track's mute and solo (the group has its own channel); loose clips follow them.
+    const trackAudible = !track.muted && !(hasSolo && !track.solo);
     const clips = track.clips.filter((c) => !c.muted && c.durationSeconds > 0
-      && c.startSeconds + c.durationSeconds > windowStart && c.startSeconds < windowEnd);
+      && c.startSeconds + c.durationSeconds > windowStart && c.startSeconds < windowEnd
+      && (c.groupId || trackAudible));
+    if (clips.length === 0) continue;
 
-    const trackGain = ctx.createGain();
-    trackGain.gain.setValueAtTime(track.volume, 0);
-    const trackPan = ctx.createStereoPanner();
-    trackPan.pan.setValueAtTime(track.pan, 0);
-    trackGain.connect(trackPan);
-    const trackOutput = await deps.appendPlugins(ctx, track.id, trackPan, skipped);
+    let trackGain: GainNode | null = null;
+    if (trackAudible) {
+      trackGain = ctx.createGain();
+      trackGain.gain.setValueAtTime(track.volume, 0);
+      const trackPan = ctx.createStereoPanner();
+      trackPan.pan.setValueAtTime(track.pan, 0);
+      trackGain.connect(trackPan);
+      const trackOutput = await deps.appendPlugins(ctx, track.id, trackPan, skipped);
 
-    const duck = duckCurves.get(track.id);
-    if (duck) {
-      const duckNode = ctx.createGain();
-      scheduleDuckCurve(duckNode.gain, duck, windowStart, 0);
-      trackOutput.connect(duckNode);
-      duckNode.connect(masterBusIn);
-    } else {
-      trackOutput.connect(masterBusIn);
-    }
-
-    // Where this track's grouped clips go: its own volume and pan, then the group bus (the track's plugins are not used for them)
-    const groupFeeds = new Map<string, GainNode>();
-    const feedFor = async (groupId: string): Promise<GainNode> => {
-      let feed = groupFeeds.get(groupId);
-      if (!feed) {
-        feed = ctx.createGain();
-        feed.gain.setValueAtTime(track.volume, 0);
-        const pan = ctx.createStereoPanner();
-        pan.pan.setValueAtTime(track.pan, 0);
-        feed.connect(pan);
-        pan.connect(await getGroupBus(groupId));
-        groupFeeds.set(groupId, feed);
+      const duck = duckCurves.get(track.id);
+      if (duck) {
+        const duckNode = ctx.createGain();
+        scheduleDuckCurve(duckNode.gain, duck, windowStart, 0);
+        trackOutput.connect(duckNode);
+        duckNode.connect(masterBusIn);
+      } else {
+        trackOutput.connect(masterBusIn);
       }
-      return feed;
-    };
+    }
 
     for (const clip of clips) {
       const asset = deps.getAsset(clip.assetId);
@@ -212,7 +210,7 @@ async function renderWindow(
         if (t >= playTo) break; // ramp continues past the window edge, so the slope inside it is right
       }
       source.connect(clipGain);
-      clipGain.connect(clip.groupId ? await feedFor(clip.groupId) : trackGain);
+      clipGain.connect(clip.groupId ? await getGroupBus(clip.groupId) : trackGain!);
 
       if (asset.buffer) {
         source.start(renderStart, sourceOffset, playDuration);
