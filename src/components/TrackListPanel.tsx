@@ -13,6 +13,7 @@ import { Track } from '../types';
 import { pluginManager } from '../plugins/pluginManager';
 import { formatTrackLength, trackEndSeconds } from '../utils/formatters';
 import { HoverTitle } from './ui';
+import { ColorBox } from './ColorBox';
 import { displayTitle } from './clipTitle';
 import { getTrackLabel, renameUpdate, isTrackEmpty } from '../utils/tracks';
 
@@ -108,7 +109,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
       </div>
 
       {/* Track list */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {tracks.length === 0 ? (
           <div className="text-center py-12 px-3 text-zinc-600">
             <Layers className="w-8 h-8 mx-auto mb-2 opacity-30 text-zinc-500" />
@@ -125,135 +126,118 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
               <div
                 key={track.id}
                 onClick={() => onSelectTrack(track.id)}
-                className={`group flex items-center justify-between gap-1 p-2 rounded-control border cursor-pointer transition-colors ${
+                className={`group flex items-center gap-2 px-2 py-1.5 rounded-control border cursor-pointer transition-colors ${
                   isSelected
                     ? 'bg-surface-3 border-accent/50 text-ink'
                     : 'bg-surface-2 border-line text-ink-dim hover:bg-surface-3 hover:border-line-strong'
                 }`}
               >
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className="text-[10px] font-num text-zinc-500 w-4 text-right shrink-0">{idx + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    {isEditing ? (
-                      <input
-                        ref={inputRef}
-                        value={draft}
-                        maxLength={60}
-                        autoFocus
-                        aria-label="Track name"
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onBlur={() => commitEdit(track, label)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitEdit(track, label);
-                          if (e.key === 'Escape') setEditingId(null);
-                        }}
-                        className="w-full bg-surface-3 border border-accent/60 rounded-control px-2 py-0.5 text-xs text-ink font-semibold focus:outline-none"
-                      />
-                    ) : (
-                      <div
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          startEdit(track, label);
-                        }}
-                        title="Double-click to rename"
-                        className="text-xs font-semibold truncate group-hover:text-ink"
-                      >
-                        {label}
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 text-[10px] text-zinc-500 mt-0.5">
-                      {empty ? (
-                        <span className="text-warn font-semibold">Empty</span>
-                      ) : (
-                        <span>
-                          {track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'}
-                        </span>
-                      )}
-                      {track.muted && <span className="text-danger font-semibold">Muted</span>}
-                      {track.solo && <span className="text-warn font-semibold">Solo</span>}
+                {/* Colour box: the track number until the user gives the track a colour (optional) */}
+                <ColorBox
+                  value={track.color ?? null}
+                  label={String(idx + 1)}
+                  ariaLabel={`${label} colour`}
+                  title={track.color ? 'Track colour (click to change, double-click to clear)' : 'Give this track a colour (optional)'}
+                  onChange={(hex) => onUpdateTrack(track.id, { color: hex })}
+                  onClear={() => onUpdateTrack(track.id, { color: undefined })}
+                />
+                <div className="min-w-0 flex-1">
+                  {isEditing ? (
+                    <input
+                      ref={inputRef}
+                      value={draft}
+                      maxLength={60}
+                      autoFocus
+                      aria-label="Track name"
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={() => commitEdit(track, label)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitEdit(track, label);
+                        if (e.key === 'Escape') setEditingId(null);
+                      }}
+                      className="w-full bg-surface-3 border border-accent/60 rounded-control px-2 py-0.5 text-xs text-ink font-semibold focus:outline-none"
+                    />
+                  ) : (
+                    <div
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        startEdit(track, label);
+                      }}
+                      title="Double-click to rename"
+                      className="text-xs font-semibold truncate group-hover:text-ink"
+                    >
+                      {label}
                     </div>
-                    {(() => {
-                      const picked = selectedClipIds ? track.clips.filter((c) => selectedClipIds.has(c.id)) : [];
-                      if (picked.length === 0) return null;
-                      return (
-                        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-accent">
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-                          {picked.length === 1 ? (
-                            <HoverTitle text={displayTitle(picked[0].name)} maxChars={24} className="font-semibold" />
-                          ) : (
-                            <span className="font-semibold">{picked.length} clips selected</span>
-                          )}
-                        </div>
-                      );
-                    })()}
+                  )}
+                  <div className="flex items-center gap-1.5 text-[10px] font-num text-ink-faint truncate">
+                    {empty ? (
+                      <span className="text-warn font-semibold">Empty</span>
+                    ) : (
+                      <span>
+                        {track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'} · {formatTrackLength(trackEndSeconds(track.clips))}
+                      </span>
+                    )}
+                    {track.muted && <span className="text-danger font-semibold">Muted</span>}
+                    {track.solo && <span className="text-warn font-semibold">Solo</span>}
                   </div>
+                  {(() => {
+                    const picked = selectedClipIds ? track.clips.filter((c) => selectedClipIds.has(c.id)) : [];
+                    if (picked.length === 0) return null;
+                    return (
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-accent">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+                        {picked.length === 1 ? (
+                          <HoverTitle text={displayTitle(picked[0].name)} maxChars={24} className="font-semibold" />
+                        ) : (
+                          <span className="font-semibold">{picked.length} clips selected</span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                {/* Length of the track (end of its last clip), always visible */}
-                <span
-                  title="Track length"
-                  className="shrink-0 w-12 text-right text-[10px] font-num tabular-nums text-zinc-400"
-                >
-                  {empty ? '' : formatTrackLength(trackEndSeconds(track.clips))}
-                </span>
-
                 {/* Row actions: always visible on touch, shown on hover or focus with a mouse */}
-                <div className="flex items-center gap-0.5 shrink-0 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
-                  <div className="flex flex-col -space-y-0.5">
-                    <button
-                      type="button"
-                      disabled={idx === 0}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onMoveTrack(track.id, 'up');
-                      }}
-                      title="Move up"
-                      aria-label="Move track up"
-                      className="text-zinc-500 hover:text-accent disabled:opacity-20 disabled:pointer-events-none p-0.5 cursor-pointer"
-                    >
-                      <ChevronUp className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={idx >= tracks.length - 1}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onMoveTrack(track.id, 'down');
-                      }}
-                      title="Move down"
-                      aria-label="Move track down"
-                      className="text-zinc-500 hover:text-accent disabled:opacity-20 disabled:pointer-events-none p-0.5 cursor-pointer"
-                    >
-                      <ChevronDown className="w-3 h-3" />
-                    </button>
-                  </div>
+                <div className="flex items-center shrink-0 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      startEdit(track, label);
-                    }}
+                    disabled={idx === 0}
+                    onClick={(e) => { e.stopPropagation(); onMoveTrack(track.id, 'up'); }}
+                    title="Move up"
+                    aria-label="Move track up"
+                    className="flex h-6 w-6 items-center justify-center rounded-control text-ink-dim hover:text-accent hover:bg-surface-1 disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                  >
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={idx >= tracks.length - 1}
+                    onClick={(e) => { e.stopPropagation(); onMoveTrack(track.id, 'down'); }}
+                    title="Move down"
+                    aria-label="Move track down"
+                    className="flex h-6 w-6 items-center justify-center rounded-control text-ink-dim hover:text-accent hover:bg-surface-1 disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); startEdit(track, label); }}
                     title="Rename"
                     aria-label="Rename track"
-                    className="p-1 text-zinc-500 hover:text-accent hover:bg-zinc-800 rounded-sm cursor-pointer"
+                    className="flex h-6 w-6 items-center justify-center rounded-control text-ink-dim hover:text-accent hover:bg-surface-1 cursor-pointer"
                   >
                     <Pencil className="w-3 h-3" />
                   </button>
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteTrack(track.id);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); onDeleteTrack(track.id); }}
                     title="Delete track"
                     aria-label="Delete track"
-                    className="p-1 text-zinc-500 hover:text-danger hover:bg-danger/10 rounded-sm cursor-pointer"
+                    className="flex h-6 w-6 items-center justify-center rounded-control text-ink-dim hover:text-danger hover:bg-danger/10 cursor-pointer"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
-
               </div>
             );
           })

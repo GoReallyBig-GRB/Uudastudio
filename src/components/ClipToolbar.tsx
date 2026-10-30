@@ -49,8 +49,8 @@ interface ClipToolbarProps {
   onOpenEffect?: (type: import('../types').EffectType) => void;
   onDeselect: () => void;
   /** Project title, shown at the left of this row; double-click it (or use File > Rename Project) to rename. */
-  projectName: string;
-  onRenameProject: (name: string) => void;
+  projectName?: string;
+  onRenameProject?: (name: string) => void;
   /** Pointer tool: Select edits clips, Range highlights a span of a track. */
   tool: TimelineTool;
   onToolChange: (tool: TimelineTool) => void;
@@ -80,8 +80,6 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onUpdateClip,
   onOpenDsp,
   onOpenEffect,
-  projectName,
-  onRenameProject,
   tool,
   onToolChange,
   rangeSeconds,
@@ -95,59 +93,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   const hasSelection = selectedCount > 0;
   const hasRange = rangeSeconds !== null;
 
-  // Project title: double-click to rename. File > Rename Project in the header asks for the same via an event.
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [draftName, setDraftName] = useState(projectName);
-  useEffect(() => {
-    if (!isEditingName) setDraftName(projectName);
-  }, [projectName, isEditingName]);
-  useEffect(() => {
-    const startRename = () => setIsEditingName(true);
-    window.addEventListener('uuda:rename-project', startRename);
-    return () => window.removeEventListener('uuda:rename-project', startRename);
-  }, []);
-  const submitName = () => {
-    setIsEditingName(false);
-    const trimmed = draftName.trim();
-    if (trimmed && trimmed !== projectName) onRenameProject(trimmed);
-    else setDraftName(projectName);
-  };
-
   return (
-    <div className="h-12 bg-surface-0 border-b border-line px-4 flex items-center justify-between text-xs text-ink-dim gap-3 shrink-0 select-none z-30">
-      {/* Left: project title, then the selected clip (or a hint) */}
-      <div className="flex items-center gap-3 min-w-0 shrink-0">
-        {isEditingName ? (
-          <input
-            type="text"
-            value={draftName}
-            autoFocus
-            aria-label="Project name"
-            onChange={(e) => setDraftName(e.target.value)}
-            onBlur={submitName}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submitName();
-              if (e.key === 'Escape') {
-                setDraftName(projectName);
-                setIsEditingName(false);
-              }
-            }}
-            className="h-8 w-44 rounded-control border border-accent/60 bg-surface-3 px-3 text-xs font-medium text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-          />
-        ) : (
-          <span
-            onDoubleClick={() => setIsEditingName(true)}
-            title={projectName.length > PROJECT_NAME_MAX_CHARS ? undefined : 'Double-click to rename project'}
-            className="cursor-text text-xs font-medium text-ink-dim transition-colors hover:text-ink"
-          >
-            <HoverTitle text={projectName} maxChars={PROJECT_NAME_MAX_CHARS} />
-          </span>
-        )}
-
-      </div>
-
-      <div className="h-4 w-px bg-line shrink-0" />
-
+    <div className="h-12 bg-surface-0 border-b border-line px-4 flex items-center text-xs text-ink-dim gap-3 shrink-0 select-none z-30">
       {/* Center: Primary Editing + DSP Cluster (Side-by-Side as required) */}
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-0.5 scrollbar-none">
         {/* Pointer tool: Select edits clips; Range highlights a span of one track so it can be deleted */}
@@ -343,39 +290,6 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
         ) : null}
       </div>
 
-      {/* Right: pinned controls. They never scroll or shrink, so a long name can't push them out of view. */}
-      <div className="flex shrink-0 items-center gap-2 border-l border-line pl-3">
-        {onOpenEffect && (
-          <Capsule label="Effects rack">
-            <CapsuleButton
-              title="Open Audio Effects Rack (Delay, EQ, Chorus, Flanger, Phaser, Reverb)"
-              onClick={() => onOpenEffect('reverb')}
-              icon={<Sparkles className="h-3.5 w-3.5" />}
-            >
-              Effects Rack
-            </CapsuleButton>
-          </Capsule>
-        )}
-
-        {onToggleTimelineCollapsed && (
-          <button
-            onClick={onToggleTimelineCollapsed}
-            title={
-              isTimelineCollapsed
-                ? 'Show Timeline (Waveform view)'
-                : 'Collapse Timeline to show only the Master Console'
-            }
-            className={`flex h-8 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
-              isTimelineCollapsed
-                ? 'border-accent/40 bg-accent-soft text-accent'
-                : 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink'
-            }`}
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-            <span>{isTimelineCollapsed ? 'Show Timeline' : 'Master Console'}</span>
-          </button>
-        )}
-      </div>
     </div>
   );
 };

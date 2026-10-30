@@ -732,10 +732,18 @@ app.post('/api/freesound/oauth/token', async (req: Request, res: Response): Prom
     });
 
     if (!tokenRes.ok) {
+      // Never pass Freesound's raw reply to the browser: turn it into a sentence the user can act on
       const errText = await tokenRes.text();
-      res.status(tokenRes.status).json({
-        error: `OAuth exchange failed: ${errText || tokenRes.statusText}`,
-      });
+      console.warn('Freesound OAuth exchange failed:', tokenRes.status, errText.slice(0, 200));
+      let code = '';
+      try { code = String(JSON.parse(errText)?.error ?? ''); } catch { /* not JSON */ }
+      const message =
+        code === 'invalid_grant'
+          ? 'Freesound did not accept that code. Codes work once and expire after a few minutes, and an API key cannot be used here. Press "Authorize on Freesound" for a fresh code and paste it right away.'
+          : code === 'invalid_client' || code === 'unauthorized_client'
+          ? 'Freesound did not accept this app\'s credentials. The server administrator needs to check the Freesound client ID and secret.'
+          : 'Freesound could not connect your account. Please try again.';
+      res.status(tokenRes.status === 400 ? 400 : 502).json({ error: message, code: code || undefined });
       return;
     }
 
@@ -748,6 +756,30 @@ app.post('/api/freesound/oauth/token', async (req: Request, res: Response): Prom
   } catch (err: unknown) {
     console.error('Freesound OAuth token exchange error:', err);
     res.status(500).json({ error: 'Failed to exchange authorization code for Freesound access token.' });
+  }
+});
+
+// Freesound preview audio through our server (no sign-in needed): lets anyone add a sound at preview quality using
+// the app's own API access. Only Freesound's own CDN is allowed, so this cannot be used as an open proxy.
+app.get('/api/freesound/preview', rateLimit({ name: 'fs-preview', windowMs: 60 * 1000, max: 30 }), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const raw = typeof req.query.url === 'string' ? req.query.url : '';
+    let target: URL;
+    try { target = new URL(raw); } catch { res.status(400).json({ error: 'Invalid preview address.' }); return; }
+    if (target.protocol !== 'https:' || target.hostname !== 'cdn.freesound.org') {
+      res.status(400).json({ error: 'Only Freesound previews can be fetched.' });
+      return;
+    }
+    const upstream = await fetch(target.toString());
+    if (!upstream.ok) {
+      res.status(upstream.status === 404 ? 404 : 502).json({ error: 'The preview could not be fetched from Freesound.' });
+      return;
+    }
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'audio/mpeg');
+    res.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch (err: unknown) {
+    console.error('Freesound preview error:', err);
+    res.status(500).json({ error: 'Could not fetch the preview.' });
   }
 });
 

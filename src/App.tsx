@@ -66,7 +66,8 @@ import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { formatVolumeDb } from './utils/formatters';
 import { masteringController } from './audio/masteringController';
-import { analysisIsCurrent, masteringKey, mixFingerprint, normalizeMastering, type MasteringSettings } from './audio/masteringSettings';
+import { selectionScope } from './audio/exportScope';
+import { analysisIsCurrent, masteringKey, mixFingerprint, normalizeMastering, type MasteringAnalysis, type MasteringSettings } from './audio/masteringSettings';
 import { toChainSettings } from './audio/masteringSettings';
 import { useAuth } from './hooks/useAuth';
 import { SignInPage } from './components/auth/SignInPage';
@@ -76,7 +77,7 @@ import { PluginsRackModal } from './components/PluginsRackModal';
 import { pluginManager } from './plugins/pluginManager';
 import { groupChainId } from './plugins/groupChain';
 import { dropGroupSettings, patchGroupSettings } from './audio/groupSettings';
-import { nextGroupColorIndex, nextGroupName, summarizeGroups } from './audio/groupInfo';
+import { nextGroupColorIndex, nextGroupName, nextGroupNumber, summarizeGroups } from './audio/groupInfo';
 import { GroupListPanel } from './components/GroupListPanel';
 import { withPluginStates, restorePluginStates, hasSavedPlugins, isRestoringPlugins } from './plugins/projectPlugins';
 import { TemplatesModal } from './components/TemplatesModal';
@@ -370,6 +371,21 @@ const MainStudio: React.FC = () => {
   // Keep a current project reference for unload protection without a stale event-handler closure.
   useEffect(() => { projectRef.current = project; }, [project]);
 
+  const groups = useMemo(() => summarizeGroups(project), [project.tracks, project.groupSettings]);
+
+  // Group being auditioned alone. Monitoring only: not saved, not part of undo, never affects export.
+  const [soloGroupId, setSoloGroupId] = useState<string | null>(null);
+  useEffect(() => {
+    if (soloGroupId && !groups.some((g) => g.id === soloGroupId)) setSoloGroupId(null); // ungrouped, cut or deleted
+  }, [groups, soloGroupId]);
+  useEffect(() => {
+    audioEngine.setSoloGroup(soloGroupId);
+    return () => audioEngine.setSoloGroup(null);
+  }, [soloGroupId]);
+  const handleToggleSoloGroup = useCallback((groupId: string) => {
+    setSoloGroupId((cur) => (cur === groupId ? null : groupId));
+  }, []);
+
   // Mastering is a processor on the master bus: settings live with the project (not in undo history)
   const mastering = useMemo(() => normalizeMastering(project.mastering), [project.mastering]);
   const mixKey = useMemo(
@@ -390,19 +406,62 @@ const MainStudio: React.FC = () => {
     });
   }, []);
 
+  // While a group is auditioned, mastering works on that group alone: the measurement covers only the group's own stretch of
+  // the timeline (a few seconds for a short group), never the whole project, and the Mastering panel shows that measurement.
+  const soloScope = useMemo(() => {
+    if (!soloGroupId) return null;
+    const g = groups.find((x) => x.id === soloGroupId);
+    if (!g) return null;
+    const scope = selectionScope(project, new Set(g.clipIds));
+    return scope.range ? { project: scope.project, range: scope.range, groupId: soloGroupId } : null;
+  }, [soloGroupId, groups, project]);
+  const soloMixKey = useMemo(
+    () => (soloScope ? `${mixFingerprint(soloScope.project, audioEngine.getMasterVolume(), audioEngine.getMasterMute())}|${soloScope.range.startSeconds}-${soloScope.range.endSeconds}` : ''),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [soloScope, masterFaderRev],
+  );
+  const [groupAnalysis, setGroupAnalysis] = useState<{ groupId: string; analysis: MasteringAnalysis } | null>(null);
+  useEffect(() => { if (!soloGroupId) setGroupAnalysis(null); }, [soloGroupId]);
+  const groupAnalysisCurrent =
+    !!soloScope && !!groupAnalysis && groupAnalysis.groupId === soloScope.groupId &&
+    groupAnalysis.analysis.settingsKey === masteringKey(mastering) && groupAnalysis.analysis.mixKey === soloMixKey;
+
+  // What the Mastering panel (and playback) see: the group's measurement while a group is auditioned, else the whole mix's
+  const panelMastering = useMemo<MasteringSettings>(
+    () => (soloScope ? { ...mastering, analysis: groupAnalysis && groupAnalysis.groupId === soloScope.groupId ? groupAnalysis.analysis : undefined } : mastering),
+    [soloScope, groupAnalysis, mastering],
+  );
+  const panelMixKey = soloScope ? soloMixKey : mixKey;
+
   // Playback follows the settings; the make-up gain comes from the last measurement that matches them
   useEffect(() => {
-    const matches = mastering.analysis && mastering.analysis.settingsKey === masteringKey(mastering);
-    audioEngine.setMastering(mastering, mastering.active && matches ? mastering.analysis!.gainDb : 0);
-  }, [mastering]);
+    const own = soloScope ? (panelMastering.analysis ?? null) : mastering.analysis ?? null;
+    const matches = own && own.settingsKey === masteringKey(mastering);
+    audioEngine.setMastering(mastering, mastering.active && matches ? own!.gainDb : 0);
+  }, [mastering, soloScope, panelMastering]);
 
   // Keep the measurement up to date in the background while mastering is on
   const hasAudioForMastering = project.tracks.some((t) => t.clips.length > 0);
   useEffect(() => {
-    if (!mastering.active || !hasAudioForMastering || analysisIsCurrent(mastering, mixKey)) {
-      if (!mastering.active || !hasAudioForMastering) masteringController.cancel();
+    if (!mastering.active || !hasAudioForMastering) {
+      masteringController.cancel();
       return;
     }
+    if (soloScope) {
+      // A group is being mastered: measure only the group
+      if (groupAnalysisCurrent) return;
+      const key = soloMixKey;
+      const gid = soloScope.groupId;
+      masteringController.request({
+        project: soloScope.project,
+        range: soloScope.range,
+        settings: toChainSettings(mastering),
+        sampleRate: project.sampleRate || 48000,
+        onDone: (analysis) => setGroupAnalysis({ groupId: gid, analysis: { ...analysis, mixKey: key } }),
+      }, 500);
+      return;
+    }
+    if (analysisIsCurrent(mastering, mixKey)) return;
     masteringController.request({
       project,
       settings: toChainSettings(mastering),
@@ -418,10 +477,22 @@ const MainStudio: React.FC = () => {
       },
     });
     return () => { /* a newer request replaces this one */ };
-  }, [mastering, mixKey, hasAudioForMastering, project]);
+  }, [mastering, mixKey, hasAudioForMastering, project, soloScope, soloMixKey, groupAnalysisCurrent]);
 
   const handleMeasureMasteringNow = useCallback(() => {
     if (!mastering.active || !hasAudioForMastering) return;
+    if (soloScope) {
+      const key = soloMixKey;
+      const gid = soloScope.groupId;
+      masteringController.requestNow({
+        project: soloScope.project,
+        range: soloScope.range,
+        settings: toChainSettings(mastering),
+        sampleRate: project.sampleRate || 48000,
+        onDone: (analysis) => setGroupAnalysis({ groupId: gid, analysis: { ...analysis, mixKey: key } }),
+      });
+      return;
+    }
     masteringController.requestNow({
       project: projectRef.current,
       settings: toChainSettings(mastering),
@@ -436,7 +507,7 @@ const MainStudio: React.FC = () => {
         });
       },
     });
-  }, [mastering, hasAudioForMastering, project.sampleRate]);
+  }, [mastering, hasAudioForMastering, project.sampleRate, soloScope, soloMixKey]);
 
   const [exportSelectionFirst, setExportSelectionFirst] = useState(false);
   const openExport = useCallback(() => { setExportSelectionFirst(false); setIsExportOpen(true); }, []);
@@ -1272,7 +1343,7 @@ const MainStudio: React.FC = () => {
           gain: 1.0,
           fadeInSeconds: 0,
           fadeOutSeconds: 0,
-          fadeShape: 'linear',
+          fadeShape: 'exponential',
         };
         const newTrack: Track = {
           id: trackId,
@@ -1379,7 +1450,7 @@ const MainStudio: React.FC = () => {
           gain: 1.0,
           fadeInSeconds: 0,
           fadeOutSeconds: 0,
-          fadeShape: 'linear',
+          fadeShape: 'exponential',
         };
         setProjectWithHistory((prev) => ({
           ...prev,
@@ -1409,7 +1480,7 @@ const MainStudio: React.FC = () => {
         gain: 1.0,
         fadeInSeconds: 0,
         fadeOutSeconds: 0,
-        fadeShape: 'linear',
+        fadeShape: 'exponential',
       };
 
       const newTrack: Track = {
@@ -1465,7 +1536,7 @@ const MainStudio: React.FC = () => {
       gain: 1.0,
       fadeInSeconds: 0,
       fadeOutSeconds: 0,
-      fadeShape: 'linear',
+      fadeShape: 'exponential',
     };
 
     const newTrack: Track = {
@@ -1514,7 +1585,7 @@ const MainStudio: React.FC = () => {
       gain: 1.0,
       fadeInSeconds: 0,
       fadeOutSeconds: 0,
-      fadeShape: 'linear',
+      fadeShape: 'exponential',
     };
 
     const newTrack: Track = {
@@ -1591,21 +1662,6 @@ const MainStudio: React.FC = () => {
       tracks: prev.tracks.map((t) => (t.id === trackId ? { ...t, ...updates } : t)),
     }));
   };
-
-  const groups = useMemo(() => summarizeGroups(project), [project.tracks, project.groupSettings]);
-
-  // Group being auditioned alone. Monitoring only: not saved, not part of undo, never affects export.
-  const [soloGroupId, setSoloGroupId] = useState<string | null>(null);
-  useEffect(() => {
-    if (soloGroupId && !groups.some((g) => g.id === soloGroupId)) setSoloGroupId(null); // ungrouped, cut or deleted
-  }, [groups, soloGroupId]);
-  useEffect(() => {
-    audioEngine.setSoloGroup(soloGroupId);
-    return () => audioEngine.setSoloGroup(null);
-  }, [soloGroupId]);
-  const handleToggleSoloGroup = useCallback((groupId: string) => {
-    setSoloGroupId((cur) => (cur === groupId ? null : groupId));
-  }, []);
 
   const handleUpdateGroup = useCallback((groupId: string, patch: Partial<GroupSettings>) => {
     setProjectWithHistory((prev) => patchGroupSettings(prev, groupId, patch));
@@ -2392,6 +2448,7 @@ const MainStudio: React.FC = () => {
           muted: src?.muted ?? false,
           color: nextGroupColorIndex(next),
           name: nextGroupName(next),
+          order: nextGroupNumber(next),
         });
       }
       return next;
@@ -2461,7 +2518,7 @@ const MainStudio: React.FC = () => {
         })),
       };
       // A calm colour and a name, chosen once so they stay with the group
-      return patchGroupSettings(grouped, groupId, { color: nextGroupColorIndex(prev), name: nextGroupName(prev) });
+      return patchGroupSettings(grouped, groupId, { color: nextGroupColorIndex(prev), name: nextGroupName(prev), order: nextGroupNumber(prev) });
     });
     addToast({ type: 'success', title: 'Clips grouped', message: `${selectedClipIds.size} clips now move together.` });
   };
@@ -2896,6 +2953,9 @@ const MainStudio: React.FC = () => {
           setActiveEffectType(type);
           setIsEffectsModalOpen(true);
         }}
+        onRenameProject={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
+        isTimelineCollapsed={isTimelineViewCollapsed}
+        onToggleTimelineCollapsed={() => setIsTimelineViewCollapsed(!isTimelineViewCollapsed)}
         onDeleteSelected={handleDeleteSelected}
         onSelectAll={handleSelectAll}
         onImportFiles={handleImportFiles}
@@ -2933,13 +2993,7 @@ const MainStudio: React.FC = () => {
         onMoveTrack={(id, dir) => handleMoveClipTrack(id, dir)}
         onUpdateClip={handleUpdateClip}
         onOpenDsp={(type) => handleOpenDspModal(type, selectedClip?.id)}
-        onOpenEffect={(type) => {
-          setActiveEffectType(type);
-          setIsEffectsModalOpen(true);
-        }}
         onDeselect={() => setSelectedClipIds(new Set())}
-        projectName={project.name}
-        onRenameProject={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
         tool={timelineTool}
         onToolChange={(tool) => {
           setTimelineTool(tool);
@@ -2949,8 +3003,6 @@ const MainStudio: React.FC = () => {
         onDeleteRange={handleDeleteRange}
         isControllerCollapsed={isTimelineControlsCollapsed}
         onToggleController={handleToggleTimelineControls}
-        isTimelineCollapsed={isTimelineViewCollapsed}
-        onToggleTimelineCollapsed={() => setIsTimelineViewCollapsed(!isTimelineViewCollapsed)}
       />
 
       {/* Main Workspace Body */}
@@ -3080,8 +3132,8 @@ const MainStudio: React.FC = () => {
                     isSidebarMode={false}
                     tab={masterTab}
                     onTabChange={setMasterTab}
-                    mastering={mastering}
-                    mixKey={mixKey}
+                    mastering={panelMastering}
+                    mixKey={panelMixKey}
                     isPlaying={isPlaying}
                     onMasteringChange={handleMasteringChange}
                     onMeasureMastering={handleMeasureMasteringNow}
@@ -3159,8 +3211,8 @@ const MainStudio: React.FC = () => {
                 isSidebarMode={true}
                 tab={masterTab}
                 onTabChange={setMasterTab}
-                mastering={mastering}
-                mixKey={mixKey}
+                mastering={panelMastering}
+                mixKey={panelMixKey}
                 isPlaying={isPlaying}
                 onMasteringChange={handleMasteringChange}
                 onMeasureMastering={handleMeasureMasteringNow}

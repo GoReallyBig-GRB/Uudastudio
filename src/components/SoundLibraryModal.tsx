@@ -640,7 +640,7 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
             </div>
 
             <p className="text-xs text-zinc-300 leading-relaxed">
-              Freesound requires a free user authorization code to download full uncompressed audio clips to your timeline.
+              Freesound needs a free user authorization code to give you the full-quality original. This is optional: without it, sounds are still added to your timeline at preview quality.
             </p>
 
             {connectError && (

@@ -175,3 +175,52 @@ input[type="range"] {
 .ui-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgb(0 240 255 / 0.4); }
 .ui-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px rgb(0 240 255 / 0.4); }
 .ui-range:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/*
+ * Fader caps: every range input in the app uses a mixing-desk cap, a rectangular grip with softened corners and a centre line,
+ * on a slim rounded track. Colours come from the theme tokens, so the cap follows the rest of the interface.
+ */
+:where(input[type="range"]) {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]:not(.uuda-range):not(.ui-range)::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-surface-3, #202024);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35);
+}
+input[type="range"]:not(.uuda-range):not(.ui-range)::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-surface-3, #202024);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 18px;
+  margin-top: -7px;
+  border-radius: 3px;
+  border: 1px solid rgb(0 0 0 / 0.55);
+  background:
+    linear-gradient(to right, transparent 4px, rgb(40 40 48 / 0.85) 4px, rgb(40 40 48 / 0.85) 6px, transparent 6px),
+    linear-gradient(to bottom, #f4f4f7, #b4b4be);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.6);
+  transition: box-shadow 150ms;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 9px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid rgb(0 0 0 / 0.55);
+  background:
+    linear-gradient(to right, transparent 3px, rgb(40 40 48 / 0.85) 3px, rgb(40 40 48 / 0.85) 5px, transparent 5px),
+    linear-gradient(to bottom, #f4f4f7, #b4b4be);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.65);
+}
+input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgb(0 240 255 / 0.45), 0 1px 3px rgb(0 0 0 / 0.65); }
+input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px rgb(0 240 255 / 0.45); }
+input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }

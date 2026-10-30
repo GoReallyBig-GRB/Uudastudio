@@ -21,6 +21,8 @@ export interface AnalysisJob {
   project: Project;
   settings: ChainSettings;
   sampleRate: number;
+  /** Measure only this stretch of the timeline (a group's span), not from 0 to the end of the project */
+  range?: { startSeconds: number; endSeconds: number };
   onDone: (analysis: MasteringAnalysis) => void;
 }
 
@@ -71,6 +73,7 @@ class MasteringController {
     try {
       const analysis = await analyzeProjectMastering(job.project, job.settings, {
         sampleRate: job.sampleRate,
+        range: job.range,
         isCancelled: () => this.token !== my,
         onProgress: (p) => { if (this.token === my) this.set({ state: 'analyzing', percent: p.percent }); },
       });
