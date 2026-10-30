@@ -27,6 +27,8 @@ interface TrackListPanelProps {
   onRemoveEmptyTracks: () => void;
   /** Ids of the clips currently selected on the timeline; the selected clip's name shows on its track's row. */
   selectedClipIds?: Set<string>;
+  /** Shown under the track list (the groups list) */
+  footer?: React.ReactNode;
 }
 
 export const TrackListPanel: React.FC<TrackListPanelProps> = ({
@@ -39,6 +41,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
   onUpdateTrack,
   onRemoveEmptyTracks,
   selectedClipIds,
+  footer,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -256,6 +259,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
           })
         )}
       </div>
+      {footer}
     </div>
   );
 };

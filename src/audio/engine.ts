@@ -105,7 +105,7 @@ export class AudioEngine {
   }> = new Map();
 
   /** One bus per clip group: grouped clips are summed here, then the group's plugin chain runs once, then the master. */
-  private groupBuses: Map<string, { input: GainNode; output: GainNode; level: GainNode; pan: StereoPannerNode | null }> = new Map();
+  private groupBuses: Map<string, { input: GainNode; output: GainNode; level: GainNode; pan: StereoPannerNode | null; analyser: AnalyserNode }> = new Map();
   private groupSettings: Record<string, GroupSettings> = {};
   /** Per-track volume/pan stages feeding the group buses for the current playback (disconnected when it stops) */
 
@@ -198,7 +198,7 @@ export class AudioEngine {
     pluginManager.connectPluginChain(trackId, nodes.gainNode, nodes.panNode as unknown as AudioNode);
   }
 
-  private ensureGroupBus(groupId: string): { input: GainNode; output: GainNode; level: GainNode; pan: StereoPannerNode | null } | null {
+  private ensureGroupBus(groupId: string): { input: GainNode; output: GainNode; level: GainNode; pan: StereoPannerNode | null; analyser: AnalyserNode } | null {
     if (!this.ctx || !this.masterGain) return null;
     let bus = this.groupBuses.get(groupId);
     if (!bus) {
@@ -215,7 +215,12 @@ export class AudioEngine {
       } else {
         level.connect(this.masterGain);
       }
-      bus = { input, output, level, pan };
+      // Meter tap: listens to the group's output without being part of the signal path
+      const analyser = this.ctx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.7;
+      (pan ?? level).connect(analyser);
+      bus = { input, output, level, pan, analyser };
       this.groupBuses.set(groupId, bus);
       this.applyGroupSettings(groupId);
     }
@@ -1034,6 +1039,13 @@ export class AudioEngine {
       return { peak: 0, rms: 0, clip: false };
     }
     return this.calculateMeterFromAnalyser(nodes.analyserNode);
+  }
+
+  /** Live peak and level of a group channel (zero when stopped or the group has not played yet). */
+  public getGroupMeter(groupId: string): MeterData {
+    const bus = this.groupBuses.get(groupId);
+    if (!bus || !this.isPlaying) return { peak: 0, rms: 0, clip: false };
+    return this.calculateMeterFromAnalyser(bus.analyser);
   }
 
   /**

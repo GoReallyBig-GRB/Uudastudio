@@ -30,7 +30,9 @@ import {
   Maximize2,
   Minimize2,
 } from 'lucide-react';
-import { Project, Track } from '../types';
+import { Project, Track, GroupSettings } from '../types';
+import type { GroupSummary } from '../audio/groupInfo';
+import { GroupConsoleStrip } from './GroupConsoleStrip';
 import { audioEngine, MasterLiveMetering } from '../audio/engine';
 import { formatVolumeDb, formatPan } from '../utils/formatters';
 import { getTrackLabel } from '../utils/tracks';
@@ -53,6 +55,9 @@ interface MasterConsolePanelProps {
   onTabChange: (tab: 'console' | 'meters' | 'mastering') => void;
   isSidebarMode?: boolean;
   onUpdateTrack?: (trackId: string, updates: Partial<Track>) => void;
+  /** Clip groups; each gets its own channel strip next to the tracks until it is ungrouped. */
+  groups?: GroupSummary[];
+  onUpdateGroup?: (groupId: string, patch: Partial<GroupSettings>) => void;
   onAddTrack?: () => void;
   selectedTrackId?: string | null;
   onSelectTrack?: (trackId: string) => void;
@@ -73,6 +78,8 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
   onTabChange: setActiveTab,
   isSidebarMode = true,
   onUpdateTrack,
+  groups = [],
+  onUpdateGroup,
   onAddTrack,
   selectedTrackId,
   onSelectTrack,
@@ -554,6 +561,17 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                     </div>
                   );
                 })}
+
+                {/* Group channels: one strip per clip group, until it is ungrouped */}
+                {groups.length > 0 && <div className="w-px bg-zinc-700/80 my-2 mx-1" />}
+                {groups.map((g) => (
+                  <GroupConsoleStrip
+                    key={g.id}
+                    group={g}
+                    settings={project.groupSettings?.[g.id]}
+                    onUpdate={(patch) => onUpdateGroup?.(g.id, patch)}
+                  />
+                ))}
 
                 {/* Master Channel Divider */}
                 <div className="w-px bg-zinc-700/80 my-2 mx-1" />

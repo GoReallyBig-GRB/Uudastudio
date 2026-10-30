@@ -1,8 +1,9 @@
 /**
- * X-PRO AUDIO - Clip Quick Action Strip
- * Floats near the clip on double-click / double-tap, or opens with the Q key on the selected clip.
- * Supplies instant actions: Split at Playhead, Copy, Cut, Paste, Delete, Mute, Move Up, Move Down,
- * Fades, Volume (slider & +/- 1dB), Amplify, Compress, Denoise, Change Pitch, Change Speed.
+ * Uuda Studio - Quick Actions
+ * One floating panel for whatever is selected: a clip, several clips or a whole group. Everything lives here in
+ * collapsible sections (Edit, Arrange, Group, Level and fades, Processing, Project), so there is never a second, smaller
+ * menu to get the wrong tool from. Actions that do not apply to the selection stay visible but dimmed, with a tooltip
+ * saying why. Opens on double-click, or with the Q key; drag the header to move it; the panel scrolls.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -26,13 +27,23 @@ import {
   Group,
   Ungroup,
   GripHorizontal,
+  ChevronDown,
   X,
 } from 'lucide-react';
-import { Clip } from '../types';
-import { formatVolumeDb } from '../utils/formatters';
+import { Clip, GroupSettings } from '../types';
+import { formatVolumeDb, formatPan } from '../utils/formatters';
+import { DEFAULT_GROUP_SETTINGS } from '../audio/groupSettings';
 import { DspModalType } from './DspModals';
 
+export interface QuickActionGroup {
+  id: string;
+  name: string;
+  color: string;
+  settings: GroupSettings | undefined;
+}
+
 interface ClipActionStripProps {
+  /** First selected clip (the one whose own values the single-clip sections show) */
   clip: Clip;
   position: { x: number; y: number };
   canPaste: boolean;
@@ -45,15 +56,59 @@ interface ClipActionStripProps {
   onToggleMute: (clipId: string) => void;
   onMoveTrack: (clipId: string, direction: 'up' | 'down') => void;
   onUpdateClip: (clipId: string, updates: Partial<Clip>) => void;
+  /** Apply the same change to several clips as one undo step */
+  onUpdateClips?: (clipIds: string[], updates: Partial<Clip>) => void;
   onOpenDsp: (type: DspModalType) => void;
   onOpenExport?: () => void;
   onOpenPlugins?: () => void;
-  /** How many clips are selected; with more than one, only the group-level actions are shown. */
+  /** Ids of every selected clip */
+  selectedIds?: string[];
+  /** How many clips are selected */
   selectedCount?: number;
   isGrouped?: boolean;
+  /** Set when the selection is exactly one group: its own level, pan and mute are then shown here */
+  group?: QuickActionGroup | null;
+  onUpdateGroup?: (groupId: string, patch: Partial<GroupSettings>) => void;
   onGroup?: () => void;
   onUngroup?: () => void;
 }
+
+const SECTIONS_KEY = 'uuda_quick_actions_collapsed';
+
+const readCollapsed = (): Record<string, boolean> => {
+  try {
+    const raw = localStorage.getItem(SECTIONS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const Section: React.FC<{
+  id: string;
+  title: string;
+  collapsed: boolean;
+  onToggle: (id: string) => void;
+  children: React.ReactNode;
+}> = ({ id, title, collapsed, onToggle, children }) => (
+  <div className="border-t border-line pt-1.5">
+    <button
+      type="button"
+      onClick={() => onToggle(id)}
+      aria-expanded={!collapsed}
+      className="w-full flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-ink-dim hover:text-ink cursor-pointer py-0.5"
+    >
+      <span>{title}</span>
+      <ChevronDown className={`w-3 h-3 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+    </button>
+    {!collapsed && <div className="pt-1.5 space-y-1.5">{children}</div>}
+  </div>
+);
+
+const BTN =
+  'flex items-center justify-center gap-1 p-1.5 rounded-control border border-line bg-surface-3/60 text-[10px] font-medium text-ink-dim transition-colors hover:bg-surface-3 hover:text-ink disabled:opacity-30 disabled:pointer-events-none cursor-pointer';
+const BTN_COL = BTN.replace('flex items-center justify-center gap-1', 'flex flex-col items-center justify-center gap-1');
 
 export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
   clip,
@@ -68,15 +123,30 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
   onToggleMute,
   onMoveTrack,
   onUpdateClip,
+  onUpdateClips,
   onOpenDsp,
   onOpenExport,
   onOpenPlugins,
+  selectedIds,
   selectedCount = 1,
   isGrouped = false,
+  group = null,
+  onUpdateGroup,
   onGroup,
   onUngroup,
 }) => {
   const multi = selectedCount > 1;
+  const single = !multi;
+  const ids = selectedIds && selectedIds.length > 0 ? selectedIds : [clip.id];
+
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed);
+  const toggle = (id: string) =>
+    setCollapsed((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
+      return next;
+    });
+
   // Sticky: stays open while you work (it follows the selection). Closed by the X, Escape or Q.
   useEffect(() => {
     const handleClose = () => onClose();
@@ -114,14 +184,21 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
   const onHeaderPointerUp = () => {
     dragRef.current = null;
   };
-  const left = pos.left;
-  const top = pos.top;
+
+  const only = 'Select a single clip to use this';
+  const gs = { ...DEFAULT_GROUP_SETTINGS, ...(group?.settings ?? {}) };
+  const title = group ? `${group.name} · ${selectedCount} clips` : multi ? `${selectedCount} clips selected` : clip.name;
+
+  const setMuted = (muted: boolean) => {
+    if (onUpdateClips) onUpdateClips(ids, { muted });
+    else ids.forEach((id) => onUpdateClip(id, { muted }));
+  };
 
   return (
     <div
-      style={{ left: `${left}px`, top: `${top}px` }}
+      style={{ left: `${pos.left}px`, top: `${pos.top}px` }}
       onClick={(e) => e.stopPropagation()}
-      className="clip-action-strip-container fixed z-40 bg-surface-2 border border-line-strong rounded-card shadow-float p-3 text-ink-dim text-xs w-80 max-h-[min(480px,calc(100vh-70px))] overflow-y-auto scrollbar-thin uuda-pop-in select-none space-y-2.5"
+      className="clip-action-strip-container fixed z-40 bg-surface-2 border border-line-strong rounded-card shadow-float p-3 text-ink-dim text-xs w-80 max-h-[min(520px,calc(100vh-70px))] overflow-y-auto overscroll-contain [scrollbar-width:thin] uuda-pop-in select-none space-y-2"
     >
       {/* Header */}
       <div
@@ -129,344 +206,237 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
         onPointerMove={onHeaderPointerMove}
         onPointerUp={onHeaderPointerUp}
         title="Drag to move"
-        className="flex cursor-grab touch-none items-center justify-between pb-1.5 border-b border-line active:cursor-grabbing"
+        className="flex cursor-grab touch-none items-center justify-between pb-1.5 active:cursor-grabbing"
       >
         <div className="flex items-center gap-1.5 min-w-0">
           <GripHorizontal className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
-          <span className="font-semibold text-ink truncate text-xs">{multi ? `${selectedCount} clips selected` : clip.name}</span>
-          {clip.muted && (
-            <span className="text-[9px] px-1 bg-rose-500/20 text-rose-300 rounded font-semibold">
-              MUTED
-            </span>
+          {group && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: group.color }} />}
+          <span className="font-semibold text-ink truncate text-xs">{title}</span>
+          {single && clip.muted && (
+            <span className="text-[9px] px-1 bg-danger/20 text-danger rounded font-semibold">MUTED</span>
           )}
         </div>
-        <button
-          onClick={onClose}
-          className="text-zinc-500 hover:text-zinc-200 p-0.5 rounded transition-colors"
-          title="Close action strip"
-        >
+        <button onClick={onClose} className="text-ink-faint hover:text-ink p-0.5 rounded transition-colors cursor-pointer" title="Close Quick Actions">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {!multi && (
-        <>
-      {/* Primary Clip Actions Row 1 */}
-      <div className="grid grid-cols-4 gap-1">
-        <button
-          onClick={() => {
-            onSplit(clip.id);
-            onClose();
-          }}
-          title="Split clip at playhead (S)"
-          className="flex flex-col items-center justify-center p-1.5 rounded bg-zinc-800/70 hover:bg-cyan-500/20 hover:text-cyan-300 transition-colors gap-1 border border-zinc-700/50"
-        >
-          <Scissors className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="text-[10px] font-medium">Split</span>
-        </button>
-
-        <button
-          onClick={() => {
-            onCopy(clip.id);
-            onClose();
-          }}
-          title="Copy clip (Ctrl+C)"
-          className="flex flex-col items-center justify-center p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 transition-colors gap-1 border border-zinc-700/50"
-        >
-          <Copy className="w-3.5 h-3.5 text-zinc-300" />
-          <span className="text-[10px] font-medium">Copy</span>
-        </button>
-
-        <button
-          onClick={() => {
-            onCut(clip.id);
-            onClose();
-          }}
-          title="Cut clip (Ctrl+X)"
-          className="flex flex-col items-center justify-center p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 transition-colors gap-1 border border-zinc-700/50"
-        >
-          <ScissorsLineDashed className="w-3.5 h-3.5 text-zinc-300" />
-          <span className="text-[10px] font-medium">Cut</span>
-        </button>
-
-        <button
-          disabled={!canPaste}
-          onClick={() => {
-            onPaste();
-            onClose();
-          }}
-          title="Paste at playhead on new top track (Ctrl+V)"
-          className="flex flex-col items-center justify-center p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 disabled:opacity-30 transition-colors gap-1 border border-zinc-700/50"
-        >
-          <ClipboardPaste className="w-3.5 h-3.5 text-zinc-300" />
-          <span className="text-[10px] font-medium">Paste</span>
-        </button>
-      </div>
-
-      {/* Row 2: Move Track & Mute */}
-      <div className="grid grid-cols-3 gap-1">
-        <button
-          onClick={() => onMoveTrack(clip.id, 'up')}
-          title="Move clip to track above"
-          className="flex items-center justify-center gap-1 p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 transition-colors border border-zinc-700/50 text-[10px]"
-        >
-          <ArrowUp className="w-3 h-3 text-zinc-300" />
-          <span>Move Up</span>
-        </button>
-
-        <button
-          onClick={() => onMoveTrack(clip.id, 'down')}
-          title="Move clip to track below"
-          className="flex items-center justify-center gap-1 p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 transition-colors border border-zinc-700/50 text-[10px]"
-        >
-          <ArrowDown className="w-3 h-3 text-zinc-300" />
-          <span>Move Down</span>
-        </button>
-
-        <button
-          onClick={() => onToggleMute(clip.id)}
-          title="Mute / Unmute clip"
-          className={`flex items-center justify-center gap-1 p-1.5 rounded border text-[10px] font-medium transition-colors ${
-            clip.muted
-              ? 'bg-rose-500/20 text-rose-300 border-rose-500/50'
-              : 'bg-zinc-800/70 text-zinc-300 hover:bg-zinc-700 border-zinc-700/50'
-          }`}
-        >
-          {clip.muted ? <VolumeX className="w-3 h-3 text-rose-400" /> : <Volume2 className="w-3 h-3" />}
-          <span>{clip.muted ? 'Unmute' : 'Mute'}</span>
-        </button>
-      </div>
-
-      {/* DSP Tools Strip */}
-      <div className="bg-[#0B0B0E] p-2 rounded-lg border border-zinc-800/70 space-y-1.5">
-        <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
-          <Sliders className="w-3 h-3 text-cyan-400" />
-          <span>Processing Tools</span>
-        </div>
-
+      {/* Edit: the same buttons whether one clip, several or a group is selected */}
+      <Section id="edit" title="Edit" collapsed={!!collapsed.edit} onToggle={toggle}>
         <div className="grid grid-cols-5 gap-1">
-          <button
-            onClick={() => {
-              onOpenDsp('amplify');
-              onClose();
-            }}
-            title="Amplify gain in dB with clipping warning"
-            className="flex flex-col items-center justify-center p-1 rounded bg-zinc-800 hover:bg-cyan-500/20 hover:text-cyan-300 border border-zinc-700/60 text-[9px] transition-colors gap-0.5"
-          >
-            <Sliders className="w-3 h-3 text-cyan-400" />
-            <span>Amplify</span>
+          <button disabled={!single} onClick={() => { onSplit(clip.id); onClose(); }} title={single ? 'Split clip at playhead (S)' : only} className={BTN_COL}>
+            <Scissors className="w-3.5 h-3.5 text-accent" />
+            <span>Split</span>
           </button>
-
-          <button
-            onClick={() => {
-              onOpenDsp('compress');
-              onClose();
-            }}
-            title="Dynamics Compressor with threshold & ratio"
-            className="flex flex-col items-center justify-center p-1 rounded bg-zinc-800 hover:bg-cyan-500/20 hover:text-cyan-300 border border-zinc-700/60 text-[9px] transition-colors gap-0.5"
-          >
-            <Wand2 className="w-3 h-3 text-cyan-400" />
-            <span>Compress</span>
+          <button onClick={() => onCopy(clip.id)} title={multi ? `Copy the ${selectedCount} selected clips (Ctrl+C)` : 'Copy clip (Ctrl+C)'} className={BTN_COL}>
+            <Copy className="w-3.5 h-3.5" />
+            <span>Copy</span>
           </button>
-
-          <button
-            onClick={() => {
-              onOpenDsp('denoise');
-              onClose();
-            }}
-            title="Basic noise reduction (high-pass & spectral gate)"
-            className="flex flex-col items-center justify-center p-1 rounded bg-zinc-800 hover:bg-amber-500/20 hover:text-amber-300 border border-zinc-700/60 text-[9px] transition-colors gap-0.5"
-          >
-            <Sparkles className="w-3 h-3 text-amber-400" />
-            <span>Denoise</span>
+          <button onClick={() => onCut(clip.id)} title={multi ? `Cut the ${selectedCount} selected clips (Ctrl+X)` : 'Cut clip (Ctrl+X)'} className={BTN_COL}>
+            <ScissorsLineDashed className="w-3.5 h-3.5" />
+            <span>Cut</span>
           </button>
-
-          <button
-            onClick={() => {
-              onOpenDsp('pitch');
-              onClose();
-            }}
-            title="Change pitch without changing duration"
-            className="flex flex-col items-center justify-center p-1 rounded bg-zinc-800 hover:bg-cyan-500/20 hover:text-cyan-300 border border-zinc-700/60 text-[9px] transition-colors gap-0.5"
-          >
-            <Music className="w-3 h-3 text-cyan-400" />
-            <span>Pitch</span>
+          <button disabled={!canPaste} onClick={() => onPaste()} title={canPaste ? 'Paste at the playhead (Ctrl+V)' : 'Clipboard is empty'} className={BTN_COL}>
+            <ClipboardPaste className="w-3.5 h-3.5" />
+            <span>Paste</span>
           </button>
-
           <button
-            onClick={() => {
-              onOpenDsp('speed');
-              onClose();
-            }}
-            title="Change speed without changing pitch"
-            className="flex flex-col items-center justify-center p-1 rounded bg-zinc-800 hover:bg-cyan-500/20 hover:text-cyan-300 border border-zinc-700/60 text-[9px] transition-colors gap-0.5"
+            onClick={() => { onDelete(clip.id); onClose(); }}
+            title={multi ? `Delete the ${selectedCount} selected clips (Delete)` : 'Delete clip (Delete)'}
+            className={`${BTN_COL} hover:!bg-danger/15 hover:!text-danger`}
           >
-            <Gauge className="w-3 h-3 text-cyan-400" />
-            <span>Speed</span>
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete</span>
           </button>
         </div>
-      </div>
+      </Section>
 
-      {/* On-Clip Volume & Fades Controls */}
-      <div className="space-y-1.5 bg-[#0B0B0E] p-2 rounded-lg border border-zinc-800/70 text-[11px]">
-        {/* On-clip Volume slider and +/- 1dB buttons */}
-        <div className="flex items-center justify-between gap-1.5">
-          <div className="flex items-center gap-1 text-zinc-400 shrink-0">
-            <Volume2 className="w-3 h-3 text-cyan-400" />
-            <span>Gain</span>
-          </div>
-          <span className="mono-nums text-zinc-200 font-semibold text-[10px] shrink-0">
-            {formatVolumeDb(clip.gain)}
-          </span>
-          <input
-            type="range"
-            min="0"
-            max="2.0"
-            step="0.05"
-            value={clip.gain}
-            onChange={(e) => onUpdateClip(clip.id, { gain: parseFloat(e.target.value) })}
-            className="w-20 h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
-          />
-          <button
-            onClick={() => onUpdateClip(clip.id, { gain: Math.max(0, clip.gain * 0.891) })}
-            title="Volume -1 dB"
-            className="px-1 text-[9px] bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 font-mono"
-          >
-            -1dB
+      {/* Arrange: move and mute */}
+      <Section id="arrange" title="Arrange" collapsed={!!collapsed.arrange} onToggle={toggle}>
+        <div className="grid grid-cols-3 gap-1">
+          <button disabled={!single} onClick={() => onMoveTrack(clip.id, 'up')} title={single ? 'Move clip to the track above' : only} className={BTN}>
+            <ArrowUp className="w-3 h-3" />
+            <span>Move Up</span>
           </button>
-          <button
-            onClick={() => onUpdateClip(clip.id, { gain: Math.min(2.5, clip.gain * 1.122) })}
-            title="Volume +1 dB"
-            className="px-1 text-[9px] bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 font-mono"
-          >
-            +1dB
+          <button disabled={!single} onClick={() => onMoveTrack(clip.id, 'down')} title={single ? 'Move clip to the track below' : only} className={BTN}>
+            <ArrowDown className="w-3 h-3" />
+            <span>Move Down</span>
           </button>
+          {multi ? (
+            <button onClick={() => setMuted(true)} title="Mute every selected clip" className={BTN}>
+              <VolumeX className="w-3 h-3" />
+              <span>Mute all</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => onToggleMute(clip.id)}
+              title="Mute / unmute clip"
+              className={`${BTN} ${clip.muted ? '!bg-danger/15 !text-danger !border-danger/40' : ''}`}
+            >
+              {clip.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+              <span>{clip.muted ? 'Unmute' : 'Mute'}</span>
+            </button>
+          )}
         </div>
-
-        {/* Fades */}
-        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-zinc-800/60">
-          <div>
-            <div className="flex justify-between text-zinc-400 text-[10px] mb-0.5">
-              <span>Fade In</span>
-              <span className="mono-nums text-zinc-300">{clip.fadeInSeconds.toFixed(2)}s</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max={Math.min(5, clip.durationSeconds / 2)}
-              step="0.05"
-              value={clip.fadeInSeconds}
-              onChange={(e) => onUpdateClip(clip.id, { fadeInSeconds: parseFloat(e.target.value) })}
-              className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
-            />
-          </div>
-          <div>
-            <div className="flex justify-between text-zinc-400 text-[10px] mb-0.5">
-              <span>Fade Out</span>
-              <span className="mono-nums text-zinc-300">{clip.fadeOutSeconds.toFixed(2)}s</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max={Math.min(5, clip.durationSeconds / 2)}
-              step="0.05"
-              value={clip.fadeOutSeconds}
-              onChange={(e) => onUpdateClip(clip.id, { fadeOutSeconds: parseFloat(e.target.value) })}
-              className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
-            />
-          </div>
-        </div>
-
-        {/* Fade Shape */}
-        <div className="flex items-center justify-between pt-1 border-t border-zinc-800/60 text-[10px]">
-          <span className="text-zinc-400">Curve Shape</span>
-          <button
-            onClick={() =>
-              onUpdateClip(clip.id, {
-                fadeShape: clip.fadeShape === 'linear' ? 'exponential' : 'linear',
-              })
-            }
-            className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-cyan-300 font-mono capitalize border border-zinc-700"
-          >
-            {clip.fadeShape}
+        {multi && (
+          <button onClick={() => setMuted(false)} title="Unmute every selected clip" className={`${BTN} w-full`}>
+            <Volume2 className="w-3 h-3" />
+            <span>Unmute all</span>
           </button>
-        </div>
-      </div>
+        )}
+      </Section>
 
-        </>
-      )}
-
-      {/* Group: tie clips together so they move, copy and delete as one unit */}
+      {/* Group: tie clips together, and (for a group) its own channel */}
       {(onGroup || onUngroup) && (
-        <div className="grid grid-cols-2 gap-1">
-          <button
-            disabled={!multi}
-            onClick={() => onGroup?.()}
-            title={multi ? 'Group the selected clips' : 'Shift+click two or more clips to group them'}
-            className="flex items-center justify-center gap-1.5 p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 disabled:opacity-30 disabled:hover:bg-zinc-800/70 transition-colors border border-zinc-700/50 text-[10px] font-medium"
-          >
-            <Group className="w-3 h-3 text-zinc-300" />
-            <span>Group</span>
-          </button>
-          <button
-            disabled={!isGrouped}
-            onClick={() => onUngroup?.()}
-            title={isGrouped ? 'Release the group' : 'The selection is not grouped'}
-            className="flex items-center justify-center gap-1.5 p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 disabled:opacity-30 disabled:hover:bg-zinc-800/70 transition-colors border border-zinc-700/50 text-[10px] font-medium"
-          >
-            <Ungroup className="w-3 h-3 text-zinc-300" />
-            <span>Ungroup</span>
-          </button>
-        </div>
+        <Section id="group" title="Group" collapsed={!!collapsed.group} onToggle={toggle}>
+          <div className="grid grid-cols-2 gap-1">
+            <button disabled={!multi || isGrouped} onClick={() => onGroup?.()} title={multi ? (isGrouped ? 'Already a group' : 'Group the selected clips') : 'Select two or more clips (Shift+click) to group them'} className={BTN}>
+              <Group className="w-3 h-3" />
+              <span>Group</span>
+            </button>
+            <button disabled={!isGrouped} onClick={() => onUngroup?.()} title={isGrouped ? 'Release the group and its effects' : 'The selection is not grouped'} className={BTN}>
+              <Ungroup className="w-3 h-3" />
+              <span>Ungroup</span>
+            </button>
+          </div>
+          {group && onUpdateGroup && (
+            <div className="space-y-1.5 rounded-control bg-surface-1 border border-line p-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-ink-faint w-8">VOL</span>
+                <input
+                  type="range" min="0" max="1.5" step="0.01" value={gs.volume}
+                  aria-label="Group volume"
+                  onDoubleClick={() => onUpdateGroup(group.id, { volume: 1 })}
+                  onChange={(e) => onUpdateGroup(group.id, { volume: parseFloat(e.target.value) })}
+                  className="flex-1 h-1 accent-accent cursor-pointer"
+                />
+                <span className="font-num text-[10px] text-ink w-12 text-right">{formatVolumeDb(gs.volume)}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-ink-faint w-8">PAN</span>
+                <input
+                  type="range" min="-1" max="1" step="0.05" value={gs.pan}
+                  aria-label="Group pan"
+                  onDoubleClick={() => onUpdateGroup(group.id, { pan: 0 })}
+                  onChange={(e) => onUpdateGroup(group.id, { pan: parseFloat(e.target.value) })}
+                  className="flex-1 h-1 accent-accent cursor-pointer"
+                />
+                <span className="font-num text-[10px] text-ink w-12 text-right">{formatPan(gs.pan)}</span>
+              </div>
+              <button
+                onClick={() => onUpdateGroup(group.id, { muted: !gs.muted })}
+                aria-pressed={gs.muted}
+                className={`${BTN} w-full ${gs.muted ? '!bg-danger/15 !text-danger !border-danger/40' : ''}`}
+              >
+                {gs.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                <span>{gs.muted ? 'Group muted' : 'Mute group'}</span>
+              </button>
+            </div>
+          )}
+        </Section>
       )}
 
-      {/* Export and Plugins */}
+      {/* The clip's own gain and fades */}
+      <Section id="level" title="Clip level and fades" collapsed={!!collapsed.level} onToggle={toggle}>
+        {single ? (
+          <div className="space-y-1.5 bg-surface-1 p-2 rounded-control border border-line text-[11px]">
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1 text-ink-dim shrink-0">
+                <Volume2 className="w-3 h-3 text-accent" />
+                <span>Gain</span>
+              </div>
+              <span className="font-num text-ink font-semibold text-[10px] shrink-0">{formatVolumeDb(clip.gain)}</span>
+              <input
+                type="range" min="0" max="2.0" step="0.05" value={clip.gain}
+                onChange={(e) => onUpdateClip(clip.id, { gain: parseFloat(e.target.value) })}
+                className="w-20 h-1 accent-accent cursor-pointer"
+              />
+              <button onClick={() => onUpdateClip(clip.id, { gain: Math.max(0, clip.gain * 0.891) })} title="Volume -1 dB" className="px-1 text-[9px] bg-surface-3 hover:bg-surface-3/70 rounded text-ink-dim font-num cursor-pointer">-1dB</button>
+              <button onClick={() => onUpdateClip(clip.id, { gain: Math.min(2.5, clip.gain * 1.122) })} title="Volume +1 dB" className="px-1 text-[9px] bg-surface-3 hover:bg-surface-3/70 rounded text-ink-dim font-num cursor-pointer">+1dB</button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-line">
+              {(['fadeInSeconds', 'fadeOutSeconds'] as const).map((key) => (
+                <div key={key}>
+                  <div className="flex justify-between text-ink-dim text-[10px] mb-0.5">
+                    <span>{key === 'fadeInSeconds' ? 'Fade In' : 'Fade Out'}</span>
+                    <span className="font-num text-ink">{clip[key].toFixed(2)}s</span>
+                  </div>
+                  <input
+                    type="range" min="0" max={Math.min(5, clip.durationSeconds / 2)} step="0.05" value={clip[key]}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      onUpdateClip(clip.id, key === 'fadeInSeconds' ? { fadeInSeconds: v } : { fadeOutSeconds: v });
+                    }}
+                    className="w-full h-1 accent-accent cursor-pointer"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between pt-1 border-t border-line text-[10px]">
+              <span className="text-ink-dim">Curve Shape</span>
+              <button
+                onClick={() => onUpdateClip(clip.id, { fadeShape: clip.fadeShape === 'linear' ? 'exponential' : 'linear' })}
+                className="px-2 py-0.5 rounded bg-surface-3 hover:bg-surface-3/70 text-accent font-num capitalize border border-line cursor-pointer"
+              >
+                {clip.fadeShape}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-[10px] text-ink-faint leading-snug">
+            {group
+              ? 'A group is balanced as one unit: change its level with the group volume above. Each clip keeps its own level inside the group.'
+              : 'Select a single clip to change its own gain and fades.'}
+          </div>
+        )}
+      </Section>
+
+      {/* Processing tools work on one clip's audio */}
+      <Section id="dsp" title="Processing" collapsed={!!collapsed.dsp} onToggle={toggle}>
+        <div className="grid grid-cols-5 gap-1">
+          {([
+            ['amplify', 'Amplify', Sliders, 'Amplify gain in dB with clipping warning'],
+            ['compress', 'Compress', Wand2, 'Dynamics compressor with threshold and ratio'],
+            ['denoise', 'Denoise', Sparkles, 'Basic noise reduction (high-pass and spectral gate)'],
+            ['pitch', 'Pitch', Music, 'Change pitch without changing duration'],
+            ['speed', 'Speed', Gauge, 'Change speed without changing pitch'],
+          ] as const).map(([type, label, Icon, tip]) => (
+            <button
+              key={type}
+              disabled={!single}
+              onClick={() => { onOpenDsp(type as DspModalType); onClose(); }}
+              title={single ? tip : only}
+              className={`${BTN_COL} !text-[9px] !p-1`}
+            >
+              <Icon className="w-3 h-3 text-accent" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </Section>
+
+      {/* Project-level shortcuts */}
       {(onOpenExport || onOpenPlugins) && (
-        <div className="grid grid-cols-2 gap-1">
-          {onOpenExport && (
-            <button
-              onClick={() => {
-                onOpenExport();
-                onClose();
-              }}
-              title="Export the project"
-              className="flex items-center justify-center gap-1.5 p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 transition-colors border border-zinc-700/50 text-[10px] font-medium"
-            >
-              <Download className="w-3 h-3 text-zinc-300" />
-              <span>Export</span>
-            </button>
-          )}
-          {onOpenPlugins && (
-            <button
-              onClick={() => {
-                onOpenPlugins();
-                onClose();
-              }}
-              title="Open the plugins rack"
-              className="flex items-center justify-center gap-1.5 p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 transition-colors border border-zinc-700/50 text-[10px] font-medium"
-            >
-              <Plug className="w-3 h-3 text-zinc-300" />
-              <span>Plugins</span>
-            </button>
-          )}
-        </div>
+        <Section id="project" title={group ? 'Export and effects' : 'Export and plugins'} collapsed={!!collapsed.project} onToggle={toggle}>
+          <div className="grid grid-cols-2 gap-1">
+            {onOpenExport && (
+              <button onClick={() => { onOpenExport(); onClose(); }} title="Export the project (or the selection)" className={BTN}>
+                <Download className="w-3 h-3" />
+                <span>Export</span>
+              </button>
+            )}
+            {onOpenPlugins && (
+              <button onClick={() => { onOpenPlugins(); onClose(); }} title={group ? 'Open the group effects rack' : 'Open the plugins rack'} className={BTN}>
+                <Plug className="w-3 h-3" />
+                <span>{group ? 'Group effects' : 'Plugins'}</span>
+              </button>
+            )}
+          </div>
+        </Section>
       )}
 
-      {/* Delete button footer */}
-      <div className="pt-1 border-t border-zinc-800 flex justify-between items-center text-[10px]">
-        <span className="text-zinc-500 font-mono">
-          {multi ? `${selectedCount} clips` : `Duration: ${clip.durationSeconds.toFixed(3)}s`}
-        </span>
-        <button
-          onClick={() => {
-            onDelete(clip.id);
-            onClose();
-          }}
-          className="flex items-center gap-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-2 py-1 rounded transition-colors"
-        >
-          <Trash2 className="w-3 h-3" />
-          <span>Delete</span>
-        </button>
+      <div className="pt-1 border-t border-line text-[10px] font-num text-ink-faint">
+        {multi ? `${selectedCount} clips` : `Duration: ${clip.durationSeconds.toFixed(3)}s`}
       </div>
     </div>
   );
