@@ -71,6 +71,7 @@ import { UserDashboard } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
 import { pluginManager } from './plugins/pluginManager';
+import { groupChainId } from './plugins/groupChain';
 import { withPluginStates, restorePluginStates, hasSavedPlugins, isRestoringPlugins } from './plugins/projectPlugins';
 import { TemplatesModal } from './components/TemplatesModal';
 import { SaveTemplateModal } from './components/SaveTemplateModal';
@@ -215,6 +216,8 @@ const MainStudio: React.FC = () => {
 
   // Modular Audio Plugins, Expanded Voiceover Studio & Sound Library Modal States
   const [isPluginsRackModalOpen, setIsPluginsRackModalOpen] = useState<boolean>(false);
+  // Set when the rack is opened from a clip group, so it starts on that group's chain
+  const [rackGroupId, setRackGroupId] = useState<string | null>(null);
   const [isVoiceoverModalOpen, setIsVoiceoverModalOpen] = useState<boolean>(false);
   const [isSoundLibraryModalOpen, setIsSoundLibraryModalOpen] = useState<boolean>(false);
 
@@ -2280,19 +2283,36 @@ const MainStudio: React.FC = () => {
     addToast({ type: 'success', title: 'Clips grouped', message: `${selectedClipIds.size} clips now move together.` });
   };
 
-  /** Release every group that the selected clips belong to. */
+  /** Release every group that the selected clips belong to. Everything applied to a group (its plugin chain) goes with it. */
   const handleUngroupSelected = () => {
     const groups = new Set<string>();
     for (const t of project.tracks) for (const c of t.clips) if (selectedClipIds.has(c.id) && c.groupId) groups.add(c.groupId);
     if (groups.size === 0) return;
-    setProjectWithHistory((prev) => ({
-      ...prev,
-      tracks: prev.tracks.map((t) => ({
-        ...t,
-        clips: t.clips.map((c) => (c.groupId && groups.has(c.groupId) ? { ...c, groupId: undefined } : c)),
-      })),
-    }));
-    addToast({ type: 'info', title: 'Clips ungrouped', message: 'The clips are independent again.' });
+    // One history step: clips, group chain data and (below) the live chain change together, so Undo brings them all back.
+    setProjectWithHistory((prev) => {
+      const remaining = { ...(prev.groupPlugins ?? {}) };
+      for (const g of groups) delete remaining[g];
+      const next: Project = {
+        ...prev,
+        tracks: prev.tracks.map((t) => ({
+          ...t,
+          clips: t.clips.map((c) => (c.groupId && groups.has(c.groupId) ? { ...c, groupId: undefined } : c)),
+        })),
+      };
+      if (Object.keys(remaining).length > 0) next.groupPlugins = remaining;
+      else delete next.groupPlugins;
+      return next;
+    });
+    let hadChain = false;
+    for (const g of groups) {
+      if (pluginManager.getPluginsForTrack(groupChainId(g)).length > 0) hadChain = true;
+      pluginManager.clearTrack(groupChainId(g));
+    }
+    addToast({
+      type: 'info',
+      title: 'Clips ungrouped',
+      message: hadChain ? 'The clips are independent again, and the group\'s plugins were removed.' : 'The clips are independent again.',
+    });
   };
 
   const handleSelectAll = () => {
@@ -2890,7 +2910,10 @@ const MainStudio: React.FC = () => {
               onToggleMuteClip={handleToggleMuteClip}
               onOpenDspModal={(type) => handleOpenDspModal(type)}
               onOpenExport={openExportSelection}
-              onOpenPlugins={() => setIsPluginsRackModalOpen(true)}
+              onOpenPlugins={(groupId) => {
+                setRackGroupId(groupId ?? null);
+                setIsPluginsRackModalOpen(true);
+              }}
               onGroupSelected={handleGroupSelected}
               onUngroupSelected={handleUngroupSelected}
               onMoveClipTrack={handleMoveClipTrack}
@@ -3043,7 +3066,11 @@ const MainStudio: React.FC = () => {
       {/* Modular Audio Plugins Rack Modal (WAM 2.0 & Native DSP Stems) */}
       <PluginsRackModal
         isOpen={isPluginsRackModalOpen}
-        onClose={() => setIsPluginsRackModalOpen(false)}
+        onClose={() => {
+          setIsPluginsRackModalOpen(false);
+          setRackGroupId(null);
+        }}
+        initialGroupId={rackGroupId}
         tracks={project.tracks}
         project={project}
         selectedTrackId={selectedTrackId}

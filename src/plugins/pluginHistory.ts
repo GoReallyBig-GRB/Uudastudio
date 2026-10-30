@@ -13,10 +13,12 @@ import { Project, Track } from '../types';
 import { pluginManager, MASTER_TRACK_ID } from './pluginManager';
 import { restorePluginStates } from './projectPlugins';
 import { StoredPluginState } from './types';
+import { groupChainId, groupIdsOf } from './groupChain';
 
 export interface LivePluginStates {
   tracks: Record<string, StoredPluginState[]>;
   master: StoredPluginState[];
+  groups?: Record<string, StoredPluginState[]>;
 }
 
 function norm(list: StoredPluginState[] | undefined): unknown[] {
@@ -28,13 +30,21 @@ export function pluginSignature(project: Project): string {
     .filter((t) => (t.plugins?.length ?? 0) > 0)
     .map((t) => [t.id, norm(t.plugins)])
     .sort((a, b) => ((a[0] as string) < (b[0] as string) ? -1 : 1));
-  return JSON.stringify([tracks, norm(project.masterPlugins)]);
+  const groups = Object.entries(project.groupPlugins ?? {})
+    .filter(([, l]) => l.length > 0)
+    .map(([g, l]) => [g, norm(l)])
+    .sort((a, b) => ((a[0] as string) < (b[0] as string) ? -1 : 1));
+  return JSON.stringify(groups.length > 0 ? [tracks, norm(project.masterPlugins), groups] : [tracks, norm(project.masterPlugins)]);
 }
 
 export async function collectLive(project: Project): Promise<LivePluginStates> {
   const tracks: Record<string, StoredPluginState[]> = {};
   for (const t of project.tracks) tracks[t.id] = await pluginManager.exportTrackPluginStates(t.id);
-  return { tracks, master: await pluginManager.exportTrackPluginStates(MASTER_TRACK_ID) };
+  const groups: Record<string, StoredPluginState[]> = {};
+  for (const g of new Set([...groupIdsOf(project), ...Object.keys(project.groupPlugins ?? {})])) {
+    groups[g] = await pluginManager.exportTrackPluginStates(groupChainId(g));
+  }
+  return { tracks, master: await pluginManager.exportTrackPluginStates(MASTER_TRACK_ID), groups };
 }
 
 /** The project with its plugin data replaced by the live chains (everything else untouched) */
@@ -46,8 +56,11 @@ export function attachLive(project: Project, live: LivePluginStates): Project {
     const { plugins: _drop, ...rest } = t;
     return rest as Track;
   });
-  const { masterPlugins: _m, ...base } = project;
-  return live.master.length > 0 ? { ...base, tracks, masterPlugins: live.master } : { ...base, tracks };
+  const { masterPlugins: _m, groupPlugins: _g, ...base } = project;
+  const groupPlugins: Record<string, StoredPluginState[]> = {};
+  for (const [g, states] of Object.entries(live.groups ?? {})) if (states.length > 0) groupPlugins[g] = states;
+  const withMaster: Project = live.master.length > 0 ? { ...base, tracks, masterPlugins: live.master } : { ...base, tracks };
+  return Object.keys(groupPlugins).length > 0 ? { ...withMaster, groupPlugins } : withMaster;
 }
 
 /**
