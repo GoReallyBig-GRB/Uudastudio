@@ -23,7 +23,7 @@ export function groupPan(s: GroupSettings): number {
 }
 
 function isDefault(s: GroupSettings): boolean {
-  return s.volume === DEFAULT_GROUP_SETTINGS.volume && s.pan === DEFAULT_GROUP_SETTINGS.pan && !s.muted && s.color === undefined && s.name === undefined;
+  return s.volume === DEFAULT_GROUP_SETTINGS.volume && s.pan === DEFAULT_GROUP_SETTINGS.pan && !s.muted && s.color === undefined && s.name === undefined && s.order === undefined;
 }
 
 /** Returns a new project with the patch applied; settings equal to the defaults are not stored. */

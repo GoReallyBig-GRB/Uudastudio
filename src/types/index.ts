@@ -163,6 +163,8 @@ export interface Track {
   plugins?: import('../plugins/types').StoredPluginState[];
   /** Auto-duck under other tracks; see audio/ducking.ts */
   ducking?: DuckingSettings;
+  /** Optional track colour (#rrggbb). Unset = the default clip look. Clips of a group always take the group's colour. */
+  color?: string;
 }
 
 export * from '../plugins/types';
@@ -172,10 +174,12 @@ export interface GroupSettings {
   volume: number; // 0.0 to 1.5, default 1.0
   pan: number; // -1 to 1
   muted: boolean;
-  /** Index into the group colour palette; unset = picked automatically */
-  color?: number;
-  /** "Group 1", "Group 2", ... given when the group is created */
+  /** A palette index (picked automatically when the group is made) or any colour the user chose, as #rrggbb */
+  color?: number | string;
+  /** "Group 1", "Group 2", ... given when the group is created; the user can rename it */
   name?: string;
+  /** Creation number, so the list keeps its order when groups are renamed */
+  order?: number;
 }
 
 export interface ProjectSettings {

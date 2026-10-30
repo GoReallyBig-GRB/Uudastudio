@@ -9,7 +9,7 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
-import { groupColor, summarizeGroups } from '../audio/groupInfo';
+import { colorFromHex, groupColor, summarizeGroups, withAlpha } from '../audio/groupInfo';
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { calculateZoomScrollLeft } from './timelineZoom';
 import { getVisibleClipPixelRange } from './timelineViewport';
@@ -456,7 +456,9 @@ export const Timeline: React.FC<TimelineProps> = ({
         [...track.clips].sort((a, b) => a.startSeconds - b.startSeconds).forEach((c, i) => orderIndex.set(c.id, i));
         for (const clip of track.clips) {
           // Grouped clips take their group's colour; loose clips alternate between the two cyan-grey shades
-          const shade = clip.groupId ? groupColor(project, clip.groupId) : CLIP_SHADES[(orderIndex.get(clip.id) ?? 0) % CLIP_SHADES.length];
+          // Group colour (always on), else the track's own colour if it has one, else the alternating cyan-grey shades
+          const tint = clip.groupId ? groupColor(project, clip.groupId) : track.color ? colorFromHex(track.color) : null;
+          const shade = tint ?? CLIP_SHADES[(orderIndex.get(clip.id) ?? 0) % CLIP_SHADES.length];
           let renderStart = clip.startSeconds;
           let renderDuration = clip.durationSeconds;
           const isSelected = tool !== 'range' && selectedClipIds.has(clip.id);
@@ -482,7 +484,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
           // Clip Background Pill
           ctx.save();
-          ctx.fillStyle = isSelected
+          ctx.fillStyle = isSelected && !tint
             ? 'rgba(0, 240, 255, 0.16)'
             : isGhost
             ? 'rgba(56, 189, 248, 0.08)'
@@ -630,10 +632,16 @@ export const Timeline: React.FC<TimelineProps> = ({
           ctx.roundRect(renderX, clipY, renderW, clipH, 4);
 
           if (isSelected) {
-            ctx.strokeStyle = '#00F0FF';
-            ctx.lineWidth = 1.8;
-            ctx.shadowColor = '#00F0FF';
-            ctx.shadowBlur = 8;
+            // Coloured clips glow in their own colour; plain clips keep the cyan highlight
+            const glow = tint ? tint.border : '#00F0FF';
+            if (tint) {
+              ctx.fillStyle = withAlpha(glow, 0.16);
+              ctx.fill();
+            }
+            ctx.strokeStyle = glow;
+            ctx.lineWidth = 2;
+            ctx.shadowColor = glow;
+            ctx.shadowBlur = 10;
             ctx.stroke();
           } else if (isGhost) {
             ctx.strokeStyle = '#38bdf8';

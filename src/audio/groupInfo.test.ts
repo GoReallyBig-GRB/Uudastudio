@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Clip, Project } from '../types';
-import { GROUP_PALETTE, formatGroupSpan, groupColorIndex, nextGroupColorIndex, nextGroupName, summarizeGroups } from './groupInfo';
+import { GROUP_PALETTE, colorFromHex, formatGroupSpan, groupColor, groupColorIndex, isHexColor, nextGroupColorIndex, nextGroupName, summarizeGroups, withAlpha } from './groupInfo';
 
 const clip = (id: string, start: number, dur: number, groupId?: string): Clip => ({
   id, trackId: 't', assetId: 'a', name: id, startSeconds: start, offsetSeconds: 0, durationSeconds: dur,
@@ -69,5 +69,46 @@ describe('formatGroupSpan', () => {
     expect(formatGroupSpan(12.34)).toBe('12.3s');
     expect(formatGroupSpan(65.2)).toBe('1:05.2');
     expect(formatGroupSpan(723)).toBe('12:03');
+  });
+});
+
+describe('custom colours', () => {
+  it('accepts only #rrggbb', () => {
+    expect(isHexColor('#a1B2c3')).toBe(true);
+    expect(isHexColor('#abc')).toBe(false);
+    expect(isHexColor('red')).toBe(false);
+    expect(isHexColor(3)).toBe(false);
+  });
+
+  it('derives a border, a dark body and a lighter waveform from the picked colour', () => {
+    const c = colorFromHex('#ff0000');
+    expect(c.border).toBe('#ff0000');
+    expect(c.fill.startsWith('rgba(')).toBe(true);
+    expect(c.wave).toMatch(/^#[0-9a-f]{6}$/);
+    expect(c.wave).not.toBe('#ff0000');
+  });
+
+  it('a group with a picked colour uses it, keeps no palette slot, and does not shift the others', () => {
+    const p = proj([clip('a', 0, 1, 'g1'), clip('b', 0, 1, 'g2')], [], {
+      g1: { volume: 1, pan: 0, muted: false, color: '#123456' },
+      g2: { volume: 1, pan: 0, muted: false, color: 0 },
+    });
+    expect(groupColorIndex(p, 'g1')).toBe(-1);
+    expect(groupColor(p, 'g1').border).toBe('#123456');
+    expect(summarizeGroups(p).find((g) => g.id === 'g1')?.colorIndex).toBe(-1);
+    expect(nextGroupColorIndex(p)).not.toBe(0); // palette slot 0 is still taken by g2
+  });
+
+  it('keeps list order when a group is renamed', () => {
+    const p = proj([clip('a', 5, 1, 'g2'), clip('b', 0, 1, 'g1')], [], {
+      g1: { volume: 1, pan: 0, muted: false, name: 'Drums', order: 1 },
+      g2: { volume: 1, pan: 0, muted: false, name: 'Atmos', order: 2 },
+    });
+    expect(summarizeGroups(p).map((g) => g.name)).toEqual(['Drums', 'Atmos']);
+    expect(nextGroupName(p)).toBe('Group 3');
+  });
+
+  it('withAlpha builds an rgba string', () => {
+    expect(withAlpha('#ff8000', 0.5)).toBe('rgba(255, 128, 0, 0.5)');
   });
 });

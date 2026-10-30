@@ -310,7 +310,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
             aria-label={`Record into ${label}`}
             className="w-5 h-5 rounded-control bg-surface-3 text-ink-dim hover:text-danger hover:bg-danger/10 border border-line flex items-center justify-center transition-colors cursor-pointer"
           >
-            <Mic className="w-3 h-3" />
+            <Mic className="w-3 h-3 text-danger" />
           </button>
           {/* Modular Audio Plugins Rack button */}
           <button

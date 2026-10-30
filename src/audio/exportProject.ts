@@ -95,12 +95,13 @@ export function currentMixKey(project: Project): string {
 export async function analyzeProjectMastering(
   project: Project,
   settings: ChainSettings,
-  options: { sampleRate: number; onProgress?: (p: ExportProgress) => void; isCancelled?: () => boolean; deps?: MixdownDeps },
+  options: { sampleRate: number; range?: { startSeconds: number; endSeconds: number }; onProgress?: (p: ExportProgress) => void; isCancelled?: () => boolean; deps?: MixdownDeps },
 ): Promise<MasteringAnalysis> {
   const deps = options.deps ?? makeMixdownDeps();
   const result = await analyzeMastering(project, deps, {
     sampleRate: options.sampleRate,
     settings,
+    range: options.range,
     onProgress: options.onProgress,
     isCancelled: options.isCancelled,
   });

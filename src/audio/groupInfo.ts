@@ -30,8 +30,11 @@ export const GROUP_PALETTE: readonly GroupColor[] = [
 export interface GroupSummary {
   id: string;
   name: string;
+  /** Palette index, or -1 for a colour the user picked */
   colorIndex: number;
   color: GroupColor;
+  /** Creation number (list order) */
+  order: number | undefined;
   clipCount: number;
   trackCount: number;
   /** Where the first clip starts and the last clip ends */
@@ -42,18 +45,51 @@ export interface GroupSummary {
   clipIds: string[];
 }
 
+export const isHexColor = (v: unknown): v is string => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v);
+
+const hexToRgb = (hex: string): [number, number, number] => [
+  parseInt(hex.slice(1, 3), 16),
+  parseInt(hex.slice(3, 5), 16),
+  parseInt(hex.slice(5, 7), 16),
+];
+const toHex = (n: number): string => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0');
+const mix = (a: [number, number, number], b: [number, number, number], t: number): [number, number, number] =>
+  [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+/** "#rrggbb" plus an alpha as an rgba() string (used for glows and tints). */
+export function withAlpha(hex: string, alpha: number): string {
+  const [r, g, b] = hexToRgb(isHexColor(hex) ? hex : '#00f0ff');
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/**
+ * Clip colours from any colour the user picked: the border is the colour itself, the body is a dark base with a hint of it,
+ * and the waveform is a lighter tint, so a custom colour sits in the interface the way the built-in ones do.
+ */
+export function colorFromHex(hex: string): GroupColor {
+  const safe = isHexColor(hex) ? hex : '#5fb3a6';
+  const rgb = hexToRgb(safe);
+  const [fr, fg, fb] = mix([20, 20, 24], rgb, 0.17);
+  const [wr, wg, wb] = mix(rgb, [255, 255, 255], 0.28);
+  return { border: safe.toLowerCase(), fill: `rgba(${Math.round(fr)}, ${Math.round(fg)}, ${Math.round(fb)}, 0.92)`, wave: `#${toHex(wr)}${toHex(wg)}${toHex(wb)}` };
+}
+
 function hashIndex(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return h % GROUP_PALETTE.length;
 }
 
+/** Palette index of a group; -1 when the user picked a colour of their own. */
 export function groupColorIndex(project: Pick<Project, 'groupSettings'>, groupId: string): number {
   const c = project.groupSettings?.[groupId]?.color;
+  if (isHexColor(c)) return -1;
   return typeof c === 'number' && c >= 0 && c < GROUP_PALETTE.length ? Math.floor(c) : hashIndex(groupId);
 }
 
 export function groupColor(project: Pick<Project, 'groupSettings'>, groupId: string): GroupColor {
+  const c = project.groupSettings?.[groupId]?.color;
+  if (isHexColor(c)) return colorFromHex(c);
   return GROUP_PALETTE[groupColorIndex(project, groupId)];
 }
 
@@ -67,20 +103,30 @@ export function groupIdsInProject(project: Pick<Project, 'tracks'>): string[] {
 /** The palette entry used by the fewest existing groups (the first unused one while there is one). */
 export function nextGroupColorIndex(project: Pick<Project, 'tracks' | 'groupSettings'>): number {
   const counts = new Array<number>(GROUP_PALETTE.length).fill(0);
-  for (const id of groupIdsInProject(project)) counts[groupColorIndex(project, id)]++;
+  for (const id of groupIdsInProject(project)) {
+    const i = groupColorIndex(project, id);
+    if (i >= 0) counts[i]++;
+  }
   let best = 0;
   for (let i = 1; i < counts.length; i++) if (counts[i] < counts[best]) best = i;
   return best;
 }
 
-/** "Group 1", "Group 2", ... one more than the highest number in use. */
-export function nextGroupName(project: Pick<Project, 'tracks' | 'groupSettings'>): string {
+/** Creation number of the next group: one more than the highest in use (renamed groups keep their number in `order`). */
+export function nextGroupNumber(project: Pick<Project, 'tracks' | 'groupSettings'>): number {
   let max = 0;
   for (const id of groupIdsInProject(project)) {
-    const m = /^Group (\d+)$/.exec(project.groupSettings?.[id]?.name ?? '');
+    const st = project.groupSettings?.[id];
+    if (typeof st?.order === 'number') { max = Math.max(max, st.order); continue; }
+    const m = /^Group (\d+)$/.exec(st?.name ?? '');
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
-  return `Group ${max + 1}`;
+  return max + 1;
+}
+
+/** "Group 1", "Group 2", ... */
+export function nextGroupName(project: Pick<Project, 'tracks' | 'groupSettings'>): string {
+  return `Group ${nextGroupNumber(project)}`;
 }
 
 /** One entry per group that still has clips, in the order the groups were created (by name number, then first start). */
@@ -100,11 +146,13 @@ export function summarizeGroups(project: Pick<Project, 'tracks' | 'groupSettings
   const out: GroupSummary[] = [];
   for (const [id, g] of map) {
     const colorIndex = groupColorIndex(project, id);
+    const color = groupColor(project, id);
     out.push({
       id,
       name: project.groupSettings?.[id]?.name ?? 'Group',
       colorIndex,
-      color: GROUP_PALETTE[colorIndex],
+      color,
+      order: project.groupSettings?.[id]?.order,
       clipCount: g.clipIds.length,
       trackCount: g.tracks.size,
       startSeconds: g.start,
@@ -114,6 +162,7 @@ export function summarizeGroups(project: Pick<Project, 'tracks' | 'groupSettings
     });
   }
   const num = (s: GroupSummary) => {
+    if (typeof s.order === 'number') return s.order;
     const m = /^Group (\d+)$/.exec(s.name);
     return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
   };

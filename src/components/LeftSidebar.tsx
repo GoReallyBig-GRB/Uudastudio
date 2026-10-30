@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Sparkles } from 'lucide-react';
+import { Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Sparkles, Settings } from 'lucide-react';
 import { TrackListPanel } from './TrackListPanel';
 import { VoicePanel } from './VoicePanel';
 import { SoundLibraryPanel } from './SoundLibraryPanel';
@@ -149,6 +149,14 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
         {/* Bottom Rail Section: Admin Panel (if admin) & Profile / Sign-in */}
         <div className="flex flex-col items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('uuda:open-settings'))}
+            title="Studio Settings"
+            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-transparent text-ink-faint transition-colors hover:bg-white/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
           {/* Admin Panel Icon (Exclusively visible to confirmed Admins) */}
           {isAdmin && (
             <button
