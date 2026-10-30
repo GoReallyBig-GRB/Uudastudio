@@ -46,6 +46,7 @@ import { StatusBar } from './components/StatusBar';
 import { RecordingModal } from './components/RecordingModal';
 import { takeStartSeconds } from './components/recordingMonitor';
 import { nextPartName } from './components/clipTitle';
+import { copyRange, pasteRange, type RangeClipboard } from './components/rangeClipboard';
 import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
@@ -170,6 +171,9 @@ const MainStudio: React.FC = () => {
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set());
   const [clipboardClip, setClipboardClip] = useState<Clip | null>(null);
+  // A copied time range (one or several tracks). Whichever of the two was copied last is what Paste uses.
+  const [rangeClipboard, setRangeClipboard] = useState<RangeClipboard | null>(null);
+  const [clipboardKind, setClipboardKind] = useState<'clip' | 'range'>('clip');
   const [activeDspModal, setActiveDspModal] = useState<DspModalType>(null);
   const [dspTargetClipId, setDspTargetClipId] = useState<string | null>(null);
   const [isAutosaving, setIsAutosaving] = useState<boolean>(false);
@@ -1654,6 +1658,7 @@ const MainStudio: React.FC = () => {
 
   // 7. Clip Editing & Clipboard Actions
   const handleCopyClip = (clipId?: string) => {
+    setClipboardKind('clip');
     const idToCopy = clipId || selectedClip?.id;
     if (!idToCopy) {
       addToast({ type: 'warning', title: 'Copy Warning', message: 'No clip selected to copy.' });
@@ -1674,6 +1679,7 @@ const MainStudio: React.FC = () => {
   };
 
   const handleCutClip = (clipId?: string) => {
+    setClipboardKind('clip');
     const idToCut = clipId || selectedClip?.id;
     if (!idToCut) {
       addToast({ type: 'warning', title: 'Cut Warning', message: 'No clip selected to cut.' });
@@ -2234,6 +2240,60 @@ const MainStudio: React.FC = () => {
     });
   };
 
+  /** Copy the highlighted range (all tracks it covers) so Paste can lay the same stack of tracks back. */
+  const handleCopyRange = (): boolean => {
+    const sel = rangeSelection;
+    if (!sel) return false;
+    const cb = copyRange(project.tracks, rangeTrackIds(sel), sel.startSeconds, sel.endSeconds);
+    if (!cb) {
+      addToast({ type: 'info', title: 'Nothing to copy', message: 'There is no audio in that range.' });
+      return false;
+    }
+    setRangeClipboard(cb);
+    setClipboardKind('range');
+    addToast({
+      type: 'success',
+      title: 'Range copied',
+      message: `${cb.durationSeconds.toFixed(2)}s from ${cb.layers.length} ${cb.layers.length === 1 ? 'track' : 'tracks'}. Paste puts it at the playhead.`,
+    });
+    return true;
+  };
+
+  /** Cut = copy, then ripple-delete the range. */
+  const handleCutRange = () => {
+    if (handleCopyRange()) handleDeleteRange();
+  };
+
+  /** Lay a copied range back at the playhead, as the same stack of tracks (starting on the selected track). */
+  const handlePasteRange = () => {
+    if (!rangeClipboard) return;
+    const selectedIndex = project.tracks.findIndex((t) => t.id === selectedTrackId);
+    const sourceIndex = project.tracks.findIndex((t) => t.id === rangeClipboard.layers[0]?.sourceTrackId);
+    const startIndex = selectedIndex >= 0 ? selectedIndex : sourceIndex >= 0 ? sourceIndex : 0;
+    const stamp = () => `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const result = pasteRange(
+      project.tracks,
+      rangeClipboard,
+      playheadSecondsRef.current,
+      startIndex,
+      () => `clip-${stamp()}`,
+      (index) => ({ id: `track-${stamp()}`, name: `Track ${index + 1}`, clips: [], volume: 1.0, pan: 0, muted: false, solo: false }),
+    );
+    setProjectWithHistory((prev) => ({ ...prev, tracks: result.tracks }));
+    setSelectedClipIds(new Set(result.addedClipIds));
+    addToast({
+      type: 'success',
+      title: 'Range pasted',
+      message: `Pasted ${rangeClipboard.layers.length} ${rangeClipboard.layers.length === 1 ? 'track' : 'tracks'} at ${playheadSecondsRef.current.toFixed(2)}s${result.createdTrackIds.length ? ` (added ${result.createdTrackIds.length} ${result.createdTrackIds.length === 1 ? 'track' : 'tracks'})` : ''}.`,
+    });
+  };
+
+  /** Copy, Cut and Paste choose between a highlighted range and a clip by what is highlighted / copied last. */
+  const copyAny = (clipId?: string) => (rangeSelection ? handleCopyRange() : handleCopyClip(clipId));
+  const cutAny = (clipId?: string) => (rangeSelection ? handleCutRange() : handleCutClip(clipId));
+  const pasteAny = (...args: [string?, number?]) => (clipboardKind === 'range' && rangeClipboard ? handlePasteRange() : handlePasteClip(...args));
+  const canPasteAny = clipboardKind === 'range' ? !!rangeClipboard : !!clipboardClip;
+
   /** Remove the highlighted range from every track it covers; each track slides its own later audio left to close the gap. */
   const handleDeleteRange = () => {
     const sel = rangeSelection;
@@ -2502,7 +2562,10 @@ const MainStudio: React.FC = () => {
 
       // Ctrl+C / Cmd+C: Copy selected clip
       if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
-        if (selectedClipIds.size === 1) {
+        if (rangeSelection) {
+          e.preventDefault();
+          handleCopyRange();
+        } else if (selectedClipIds.size === 1) {
           e.preventDefault();
           handleCopyClip();
         }
@@ -2510,7 +2573,10 @@ const MainStudio: React.FC = () => {
 
       // Ctrl+X / Cmd+X: Cut selected clip
       if ((e.ctrlKey || e.metaKey) && (e.key === 'x' || e.key === 'X')) {
-        if (selectedClipIds.size === 1) {
+        if (rangeSelection) {
+          e.preventDefault();
+          handleCutRange();
+        } else if (selectedClipIds.size === 1) {
           e.preventDefault();
           handleCutClip();
         }
@@ -2518,7 +2584,10 @@ const MainStudio: React.FC = () => {
 
       // Ctrl+V / Cmd+V: Paste at playhead on new top track
       if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
-        if (clipboardClip) {
+        if (clipboardKind === 'range' && rangeClipboard) {
+          e.preventDefault();
+          handlePasteRange();
+        } else if (clipboardClip) {
           e.preventDefault();
           handlePasteClip();
         }
@@ -2681,10 +2750,10 @@ const MainStudio: React.FC = () => {
             handleDuplicateClip(clipId);
           }
         }}
-        onCopy={() => handleCopyClip()}
-        onCut={() => handleCutClip()}
-        onPaste={handlePasteClip}
-        canPaste={!!clipboardClip}
+        onCopy={() => copyAny()}
+        onCut={() => cutAny()}
+        onPaste={() => pasteAny()}
+        canPaste={canPasteAny}
         hasSelectedClip={!!selectedClip}
         onToggleMuteClip={() => selectedClip && handleToggleMuteClip(selectedClip.id)}
         onMoveClip={(dir) => selectedClip && handleMoveClipTrack(selectedClip.id, dir)}
@@ -2721,11 +2790,11 @@ const MainStudio: React.FC = () => {
       {/* Selected Clip Toolbar (Permanent accessible fallback docked below Header) */}
       <ClipToolbar
         clip={selectedClip}
-        canPaste={!!clipboardClip}
+        canPaste={canPasteAny}
         onSplit={(id) => handleSplitClip(id)}
-        onCopy={(id) => handleCopyClip(id)}
-        onCut={(id) => handleCutClip(id)}
-        onPaste={handlePasteClip}
+        onCopy={(id) => copyAny(id)}
+        onCut={(id) => cutAny(id)}
+        onPaste={() => pasteAny()}
         onDelete={(id) => handleDeleteClip(id)}
         onToggleMute={(id) => handleToggleMuteClip(id)}
         onMoveTrack={(id, dir) => handleMoveClipTrack(id, dir)}
