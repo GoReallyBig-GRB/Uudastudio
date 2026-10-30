@@ -80,7 +80,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
           ctx.clearRect(0, 0, w, h);
 
           // Background meter trough
-          ctx.fillStyle = '#08080C';
+          ctx.fillStyle = '#0a0a0b';
           ctx.fillRect(0, 0, w, h);
 
           if (audioEngine.getIsPlaying() && !track.muted) {
@@ -137,14 +137,14 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
           e.stopPropagation();
           onSelectTrack(track.id);
         }}
-        className={`h-[80px] w-[32px] shrink-0 sticky left-0 z-10 border-r border-b border-zinc-700/80 py-1.5 flex flex-col items-center justify-between transition-colors select-none ${
+        className={`h-[80px] w-[32px] shrink-0 sticky left-0 z-10 border-r border-b border-line py-1.5 flex flex-col items-center justify-between transition-colors select-none ${
           isSelected
-            ? 'bg-[#181824] shadow-[inset_3px_0_0_#00F0FF]'
-            : 'bg-[#121216] hover:bg-[#15151c]'
+            ? 'bg-surface-3 shadow-[inset_2px_0_0_var(--color-accent)]'
+            : 'bg-surface-1 hover:bg-surface-2'
         }`}
         title={`${label} (click to select)`}
       >
-        <span className="w-5 h-4 rounded-xs bg-zinc-800 text-[9px] font-mono font-bold text-zinc-300 flex items-center justify-center">
+        <span className="w-5 h-4 rounded-full bg-surface-3 text-[9px] font-num font-bold text-ink-dim flex items-center justify-center">
           {index + 1}
         </span>
 
@@ -158,8 +158,8 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
             title={track.muted ? 'Unmute Track' : 'Mute Track'}
             className={`w-5 h-3.5 text-[8px] font-bold rounded flex items-center justify-center transition-colors ${
               track.muted
-                ? 'bg-rose-500 text-white'
-                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                ? 'bg-danger text-white'
+                : 'text-ink-faint hover:text-ink hover:bg-white/5'
             }`}
           >
             M
@@ -173,15 +173,15 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
             title={track.solo ? 'Unsolo Track' : 'Solo Track'}
             className={`w-5 h-3.5 text-[8px] font-bold rounded flex items-center justify-center transition-colors ${
               track.solo
-                ? 'bg-amber-400 text-black'
-                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                ? 'bg-warn text-surface-0'
+                : 'text-ink-faint hover:text-ink hover:bg-white/5'
             }`}
           >
             S
           </button>
         </div>
 
-        <div className="w-1.5 h-3.5 bg-black rounded-xs overflow-hidden border border-zinc-800">
+        <div className="w-1.5 h-3.5 bg-surface-0 rounded-full overflow-hidden border border-line">
           <canvas ref={meterCanvasRef} width={6} height={14} className="w-full h-full block" />
         </div>
       </div>
@@ -194,10 +194,10 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
         e.stopPropagation();
         onSelectTrack(track.id);
       }}
-      className={`h-[80px] w-[272px] shrink-0 sticky left-0 z-10 border-r border-b border-zinc-700/80 px-2.5 py-1.5 flex flex-col justify-between transition-colors select-none ${
+      className={`h-[80px] w-[272px] shrink-0 sticky left-0 z-10 border-r border-b border-line px-2.5 py-1.5 flex flex-col justify-between transition-colors select-none ${
         isSelected
-          ? 'bg-[#181824] shadow-[inset_3px_0_0_#00F0FF]'
-          : 'bg-[#121216] hover:bg-[#15151c]'
+          ? 'bg-surface-3 shadow-[inset_2px_0_0_var(--color-accent)]'
+          : 'bg-surface-1 hover:bg-surface-2'
       }`}
     >
       {/* Top Header: Track Badge, Name, M/S, Delete */}
@@ -205,7 +205,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {/* Audition-style Track Number Badge */}
           <div className="flex items-center gap-0.5 shrink-0">
-            <span className="w-4 h-4 rounded-xs bg-zinc-800 border border-zinc-700 text-[10px] font-mono text-zinc-300 font-bold flex items-center justify-center">
+            <span className="w-4 h-4 rounded-full bg-surface-3 border border-line text-[10px] font-num text-ink-dim font-bold flex items-center justify-center">
               {index + 1}
             </span>
 
@@ -219,7 +219,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
                   onMoveTrack(track.id, 'up');
                 }}
                 title="Move Track Up"
-                className="text-zinc-500 hover:text-cyan-300 disabled:opacity-20 p-0.5 transition-colors"
+                className="text-ink-faint hover:text-ink disabled:opacity-20 p-0.5 transition-colors"
               >
                 <ChevronUp className="w-2.5 h-2.5" />
               </button>
@@ -231,7 +231,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
                   onMoveTrack(track.id, 'down');
                 }}
                 title="Move Track Down"
-                className="text-zinc-500 hover:text-cyan-300 disabled:opacity-20 p-0.5 transition-colors"
+                className="text-ink-faint hover:text-ink disabled:opacity-20 p-0.5 transition-colors"
               >
                 <ChevronDown className="w-2.5 h-2.5" />
               </button>
@@ -253,13 +253,13 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
                   setIsEditingName(false);
                 }
               }}
-              className="bg-black/80 border border-cyan-500 rounded px-1.5 py-0.5 text-xs text-zinc-100 font-semibold w-full focus:outline-none"
+              className="bg-surface-3 border border-accent/60 rounded-control px-1.5 py-0.5 text-xs text-ink font-semibold w-full focus:outline-none"
             />
           ) : (
             <span
               onDoubleClick={() => setIsEditingName(true)}
               title="Double-click to rename"
-              className="text-xs font-semibold text-zinc-200 truncate cursor-text hover:text-cyan-300 transition-colors"
+              className="text-xs font-semibold text-ink truncate cursor-text hover:text-accent transition-colors"
             >
               {label}
             </span>
@@ -275,10 +275,10 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
               onUpdateTrack(track.id, { muted: !track.muted });
             }}
             title={track.muted ? 'Unmute Track (M)' : 'Mute Track (M)'}
-            className={`w-5 h-5 rounded-xs text-[10px] font-bold tracking-tight transition-all flex items-center justify-center cursor-pointer ${
+            className={`w-5 h-5 rounded-control text-[10px] font-bold tracking-tight transition-colors flex items-center justify-center cursor-pointer ${
               track.muted
-                ? 'bg-rose-500 text-white font-extrabold shadow-[0_0_8px_rgba(244,63,94,0.6)]'
-                : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/80 border border-zinc-700/60'
+                ? 'bg-danger text-white'
+                : 'bg-surface-3 text-ink-dim hover:text-ink hover:bg-white/10 border border-line'
             }`}
           >
             M
@@ -290,10 +290,10 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
               onUpdateTrack(track.id, { solo: !track.solo });
             }}
             title={track.solo ? 'Unsolo Track (S)' : 'Solo Track (S)'}
-            className={`w-5 h-5 rounded-xs text-[10px] font-bold tracking-tight transition-all flex items-center justify-center cursor-pointer ${
+            className={`w-5 h-5 rounded-control text-[10px] font-bold tracking-tight transition-colors flex items-center justify-center cursor-pointer ${
               track.solo
-                ? 'bg-amber-400 text-black font-extrabold shadow-[0_0_8px_rgba(251,191,36,0.6)]'
-                : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/80 border border-zinc-700/60'
+                ? 'bg-warn text-surface-0'
+                : 'bg-surface-3 text-ink-dim hover:text-ink hover:bg-white/10 border border-line'
             }`}
           >
             S
@@ -308,7 +308,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
             }}
             title="Record into this track at the playhead"
             aria-label={`Record into ${label}`}
-            className="w-5 h-5 rounded-xs bg-zinc-800 text-rose-400 hover:text-white hover:bg-rose-500/80 border border-zinc-700/60 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-5 h-5 rounded-control bg-surface-3 text-ink-dim hover:text-danger hover:bg-danger/10 border border-line flex items-center justify-center transition-colors cursor-pointer"
           >
             <Mic className="w-3 h-3" />
           </button>
@@ -321,14 +321,14 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
               window.dispatchEvent(new CustomEvent('uuda:open-plugins-modal', { detail: { trackId: track.id } }));
             }}
             title={pluginCount > 0 ? `${pluginCount} Plugin(s) Loaded — Click to open FX Rack` : "Add Audio Plugins / Effects to this track (WAM 2.0 & Native)"}
-            className={`px-1.5 h-5 rounded-xs text-[9px] font-bold tracking-tight transition-all flex items-center gap-0.5 justify-center cursor-pointer ${
+            className={`px-1.5 h-5 rounded-control text-[9px] font-bold tracking-tight transition-colors flex items-center gap-0.5 justify-center cursor-pointer ${
               pluginCount > 0
-                ? 'bg-purple-600 hover:bg-purple-500 text-white font-extrabold shadow-[0_0_8px_rgba(168,85,247,0.7)] border border-purple-400'
-                : 'bg-zinc-800 text-purple-300 hover:text-white hover:bg-purple-900/40 border border-purple-500/40'
+                ? 'bg-accent-soft text-accent border border-accent/40'
+                : 'bg-surface-3 text-ink-dim hover:text-ink hover:bg-white/10 border border-line'
             }`}
           >
             <span>FX</span>
-            {pluginCount > 0 && <span className="text-[8px] bg-purple-950 px-1 rounded-full font-mono">{pluginCount}</span>}
+            {pluginCount > 0 && <span className="text-[8px] bg-accent/20 px-1 rounded-full font-num">{pluginCount}</span>}
           </button>
           <button
             type="button"
@@ -337,7 +337,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
               onDeleteTrack(track.id);
             }}
             title="Delete Track"
-            className="w-5 h-5 rounded-xs text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 flex items-center justify-center transition-colors"
+            className="w-5 h-5 rounded-control text-ink-faint hover:text-danger hover:bg-danger/10 flex items-center justify-center transition-colors"
           >
             <Trash2 className="w-3 h-3" />
           </button>
@@ -348,18 +348,18 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
       <div className="grid grid-cols-2 gap-2 text-[10px] my-auto">
         {/* Volume: subtle cyan/teal highlight */}
         <div className="flex flex-col gap-0.5">
-          <div className="flex justify-between items-center text-zinc-400">
+          <div className="flex justify-between items-center text-ink-dim">
             <span
               onDoubleClick={() => onUpdateTrack(track.id, { volume: 1.0 })}
               title="Double-click to reset volume to 0.0 dB"
-              className="flex items-center gap-0.5 text-cyan-400/90 font-semibold cursor-pointer hover:text-cyan-300"
+              className="flex items-center gap-0.5 text-accent font-semibold cursor-pointer hover:brightness-125"
             >
               <span>Vol</span>
             </span>
             <span
               onDoubleClick={() => onUpdateTrack(track.id, { volume: 1.0 })}
               title="Double-click to reset"
-              className="mono-nums text-zinc-300 font-mono text-[9px] cursor-pointer"
+              className="mono-nums text-ink-dim font-num text-[9px] cursor-pointer"
             >
               {formatVolumeDb(track.volume)}
             </span>
@@ -371,24 +371,24 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
             step="0.01"
             value={track.volume}
             onChange={(e) => onUpdateTrack(track.id, { volume: parseFloat(e.target.value) })}
-            className="w-full h-1 bg-zinc-800 accent-cyan-400 rounded-none appearance-none cursor-pointer"
+            className="w-full h-1 bg-surface-3 accent-[var(--color-accent)] rounded-none appearance-none cursor-pointer"
           />
         </div>
 
         {/* Pan: subtle amber/gold highlight */}
         <div className="flex flex-col gap-0.5">
-          <div className="flex justify-between items-center text-zinc-400">
+          <div className="flex justify-between items-center text-ink-dim">
             <span
               onDoubleClick={() => onUpdateTrack(track.id, { pan: 0.0 })}
               title="Double-click to center pan (C)"
-              className="text-amber-400/90 font-semibold cursor-pointer hover:text-amber-300"
+              className="text-ink-dim font-semibold cursor-pointer hover:text-ink"
             >
               Pan
             </span>
             <span
               onDoubleClick={() => onUpdateTrack(track.id, { pan: 0.0 })}
               title="Double-click to center pan"
-              className="mono-nums text-zinc-300 font-mono text-[9px] cursor-pointer"
+              className="mono-nums text-ink-dim font-num text-[9px] cursor-pointer"
             >
               {formatPan(track.pan)}
             </span>
@@ -400,13 +400,13 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
             step="0.05"
             value={track.pan}
             onChange={(e) => onUpdateTrack(track.id, { pan: parseFloat(e.target.value) })}
-            className="w-full h-1 bg-zinc-800 accent-amber-400 rounded-none appearance-none cursor-pointer"
+            className="w-full h-1 bg-surface-3 accent-[var(--color-ink-dim)] rounded-none appearance-none cursor-pointer"
           />
         </div>
       </div>
 
       {/* Bottom: Slim High-Definition VU Level Meter */}
-      <div className="h-1.5 w-full bg-black rounded-xs overflow-hidden border border-zinc-800">
+      <div className="h-1.5 w-full bg-surface-0 rounded-full overflow-hidden border border-line">
         <canvas ref={meterCanvasRef} width={250} height={6} className="w-full h-full block" />
       </div>
     </div>

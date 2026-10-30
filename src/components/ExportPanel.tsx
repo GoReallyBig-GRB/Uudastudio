@@ -5,6 +5,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Download, Loader2, X } from 'lucide-react';
 import type { Project } from '../types';
+import { selectionScope } from '../audio/exportScope';
 import { exportProjectToFile, measureExportedBlob, triggerFileDownload, type LoudnessStats } from '../audio/exportProject';
 import { masteringController } from '../audio/masteringController';
 import { planMixdown } from '../audio/blockMixdown';
@@ -28,6 +29,10 @@ interface ExportPanelProps {
   mixKey: string;
   onEditMastering: () => void;
   onClose: () => void;
+  /** Clips selected on the timeline. When there are any, the panel offers to export only those. */
+  selectedClipIds?: ReadonlySet<string>;
+  /** Opened from "Export" on a selection: start with the selected clips chosen. */
+  startWithSelection?: boolean;
 }
 
 interface Finished {
@@ -55,8 +60,17 @@ const FORMATS: Array<{ value: ExportFormat; name: string; detail: string }> = [
   { value: 'uuda', name: 'Project', detail: 'Editable later' },
 ];
 
-export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mixKey, onEditMastering, onClose }) => {
-  const [title, setTitle] = useState(project.name || 'Uuda Studio Export');
+export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, mastering, mixKey, onEditMastering, onClose, selectedClipIds, startWithSelection = false }) => {
+  // Scope: the whole project, or only the selected clips (and their groups), from where they start to where they end
+  const selection = useMemo(
+    () => (selectedClipIds && selectedClipIds.size > 0 ? selectionScope(fullProject, selectedClipIds) : null),
+    [fullProject, selectedClipIds],
+  );
+  const [scope, setScope] = useState<'all' | 'selection'>(startWithSelection && selection ? 'selection' : 'all');
+  const useSelection = scope === 'selection' && !!selection && !!selection.range;
+  const project = useSelection ? selection!.project : fullProject;
+  const exportRange = useSelection ? selection!.range! : undefined;
+  const [title, setTitle] = useState(fullProject.name || 'Uuda Studio Export');
   const [format, setFormat] = useState<ExportFormat>('wav');
   const [kbps, setKbps] = useState<Mp3Bitrate>(192);
   const [optimise48, setOptimise48] = useState(false);
@@ -70,7 +84,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mi
   const hasAudio = project.tracks.some((t) => t.clips.length > 0);
   const isAudio = format !== 'uuda';
   const sampleRate = project.sampleRate || 48000;
-  const seconds = useMemo(() => planMixdown(project, sampleRate).totalFrames / sampleRate, [project, sampleRate]);
+  const seconds = useMemo(() => planMixdown(project, sampleRate, exportRange).totalFrames / sampleRate, [project, sampleRate, exportRange]);
   const mp3TooHigh = format === 'mp3' && sampleRate > MP3_MAX_RATE;
   const blocked = mp3TooHigh && !optimise48;
   const outRate = mp3TooHigh ? MP3_MAX_RATE : sampleRate;
@@ -86,7 +100,9 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mi
       format: format as 'wav' | 'mp3',
       wavBitDepth: 24,
       mp3Kbps: kbps,
-      mastering: applied ? { settings: mastering, gainDb: matched && outRate === sampleRate ? mastering.analysis!.gainDb : undefined } : null,
+      range: exportRange,
+      // The saved loudness analysis describes the whole mix, so it is only reused for a whole-project export
+      mastering: applied ? { settings: mastering, gainDb: matched && !useSelection && outRate === sampleRate ? mastering.analysis!.gainDb : undefined } : null,
       sampleRate: outRate,
       onProgress: (p) => setProgress({ percent: p.percent, message: p.message }),
       isCancelled: () => cancelled.current,
@@ -110,7 +126,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mi
     try {
       let result: Finished;
       if (format === 'uuda') {
-        const blob = encodeProjectFile({ ...project, name: title.trim() || safeBaseName(title) }, (id) => audioEngine.getAsset(id));
+        const blob = encodeProjectFile({ ...fullProject, name: title.trim() || safeBaseName(title) }, (id) => audioEngine.getAsset(id));
         result = { filename: `${safeBaseName(title)}.uuda`, blob, verifiedFromFile: false, mastered: false };
       } else {
         result = await exportAudio();
@@ -193,6 +209,27 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project, mastering, mi
                   <span className="mono-nums shrink-0 text-sm text-zinc-500">.{format}</span>
                 </div>
               </div>
+
+              {selection && format !== 'uuda' && (
+                <div>
+                  <div className="mb-2 text-xs font-medium text-zinc-400">What to export</div>
+                  <div role="radiogroup" aria-label="What to export" className="grid grid-cols-2 gap-2.5">
+                    {([
+                      { value: 'all' as const, name: 'Whole project', detail: 'Every track and clip' },
+                      { value: 'selection' as const, name: `Selected (${selection.clipCount} ${selection.clipCount === 1 ? 'clip' : 'clips'})`, detail: `${selection.trackCount} ${selection.trackCount === 1 ? 'track' : 'tracks'}, only their own length` },
+                    ]).map((o) => (
+                      <button
+                        key={o.value} type="button" role="radio" aria-checked={scope === o.value}
+                        onClick={() => setScope(o.value)}
+                        className={`rounded-2xl border px-4 py-3 text-left transition-colors ${scope === o.value ? 'border-cyan-300/60 bg-cyan-300/10' : 'border-zinc-800 bg-[#0e0e13] hover:bg-zinc-900'}`}
+                      >
+                        <div className="text-sm font-semibold">{o.name}</div>
+                        <div className="text-[11px] text-zinc-500">{o.detail}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <div className="mb-2 text-xs font-medium text-zinc-400">Format</div>

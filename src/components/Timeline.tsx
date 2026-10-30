@@ -15,7 +15,7 @@ import { getVisibleClipPixelRange } from './timelineViewport';
 import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
-import type { RangeSelection, TimelineTool } from './rangeDelete';
+import { rangeTrackIds, type RangeSelection, type TimelineTool } from './rangeDelete';
 import { TITLE_PAD_X, displayTitle, fitTitle, formatClipLength, placeTip } from './clipTitle';
 import { TimelineRuler } from './TimelineRuler';
 import { ClipActionStrip } from './ClipActionStrip';
@@ -50,7 +50,7 @@ interface TimelineProps {
   onToggleMuteClip: (clipId: string) => void;
   onOpenDspModal: (type: import('./DspModals').DspModalType) => void;
   onOpenExport?: () => void;
-  onOpenPlugins?: () => void;
+  onOpenPlugins?: (groupId?: string) => void;
   onGroupSelected?: () => void;
   onUngroupSelected?: () => void;
   onMoveClipTrack: (clipId: string, direction: 'up' | 'down') => void;
@@ -195,7 +195,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   // Marquee selection state
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   // Range tool drag: where it began (time and screen x) and whether the pointer has moved far enough to count as a drag.
-  const [rangeDrag, setRangeDrag] = useState<{ trackId: string; anchorSeconds: number; startClientX: number; moved: boolean } | null>(null);
+  const [rangeDrag, setRangeDrag] = useState<{ trackId: string; trackIndex: number; anchorSeconds: number; startClientX: number; moved: boolean } | null>(null);
 
   // Fade handle drag state
   const [fadeDrag, setFadeDrag] = useState<FadeDragState | null>(null);
@@ -429,11 +429,11 @@ export const Timeline: React.FC<TimelineProps> = ({
       ctx.save();
 
       // Background and centerline use the same viewport-local coordinate system as clips.
-      ctx.fillStyle = trackIndex % 2 === 0 ? '#0B0B10' : '#0E0E14';
+      ctx.fillStyle = trackIndex % 2 === 0 ? '#0a0a0b' : '#0e0e10';
       ctx.fillRect(0, 0, width, height);
 
       // Subtle horizontal centerline
-      ctx.strokeStyle = '#181822';
+      ctx.strokeStyle = '#1c1c20';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, height / 2 + 0.5);
@@ -771,7 +771,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       onSelectTrack(track.id);
       onRangeSelect(null);
       if (selectedClipIds.size > 0) onSelectClips(new Set());
-      setRangeDrag({ trackId: track.id, anchorSeconds: Math.max(0, timeAtClick), startClientX: e.clientX, moved: false });
+      setRangeDrag({ trackId: track.id, trackIndex, anchorSeconds: Math.max(0, timeAtClick), startClientX: e.clientX, moved: false });
       return;
     }
 
@@ -917,8 +917,14 @@ export const Timeline: React.FC<TimelineProps> = ({
         const x = e.clientX - rect.left + laneScrollContainerRef.current.scrollLeft - currentHeaderWidth;
         const here = Math.max(0, x / pixelsPerSecond);
         if (!rangeDrag.moved) setRangeDrag({ ...rangeDrag, moved: true });
+        // Dragging up or down across lanes widens the range to every track between where it began and the pointer
+        const y = e.clientY - rect.top + laneScrollContainerRef.current.scrollTop;
+        const overIndex = Math.max(0, Math.min(project.tracks.length - 1, Math.floor(y / ROW_HEIGHT)));
+        const lo = Math.min(rangeDrag.trackIndex, overIndex);
+        const hi = Math.max(rangeDrag.trackIndex, overIndex);
         onRangeSelect({
           trackId: rangeDrag.trackId,
+          trackIds: project.tracks.slice(lo, hi + 1).map((t) => t.id),
           startSeconds: Math.min(rangeDrag.anchorSeconds, here),
           endSeconds: Math.max(rangeDrag.anchorSeconds, here),
         });
@@ -1343,7 +1349,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 onMoveTrack={onMoveTrack}
                 onRecordTrack={onRecordTrack}
                 rangeTool={tool === 'range'}
-                rangeHighlight={rangeSelection && rangeSelection.trackId === track.id ? rangeSelection : null}
+                rangeHighlight={rangeSelection && rangeTrackIds(rangeSelection).includes(track.id) ? rangeSelection : null}
                 renderWaveforms={renderTrackWaveforms}
                 onLanePointerDown={handleLanePointerDown}
                 onLanePointerMoveHover={handleLanePointerMoveHover}
@@ -1378,7 +1384,11 @@ export const Timeline: React.FC<TimelineProps> = ({
           onUpdateClip={onUpdateClip}
           onOpenDsp={onOpenDspModal}
           onOpenExport={onOpenExport}
-          onOpenPlugins={onOpenPlugins}
+          onOpenPlugins={() => {
+            let groupId: string | undefined;
+            for (const t of project.tracks) for (const c of t.clips) if (!groupId && selectedClipIds.has(c.id) && c.groupId) groupId = c.groupId;
+            onOpenPlugins?.(groupId);
+          }}
           onGroup={onGroupSelected}
           onUngroup={onUngroupSelected}
         />
@@ -1517,7 +1527,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
   return (
     <div
       style={{ height: `${ROW_HEIGHT}px` }}
-      className="flex w-full min-w-max border-b border-zinc-700 bg-[#121216] relative shadow-[0_1px_0_rgba(0,0,0,0.4)]"
+      className="flex w-full min-w-max border-b border-line bg-surface-1 relative shadow-[0_1px_0_rgba(0,0,0,0.4)]"
     >
       {/* Sticky Track Controls Column (272px or 32px collapsed) */}
       <TrackControls
@@ -1541,7 +1551,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
         onPointerLeave={onLanePointerLeave}
         onDoubleClick={(e) => onLaneDoubleClick(e, track)}
         onContextMenu={(e) => onLaneContextMenu(e, track)}
-        className={`h-full relative overflow-hidden bg-[#0E0E14] hover:bg-[#101018] transition-colors border-b border-zinc-700/90 ${rangeTool ? 'cursor-crosshair' : ''}`}
+        className={`h-full relative overflow-hidden bg-surface-0 hover:bg-surface-1 transition-colors border-b border-line ${rangeTool ? 'cursor-crosshair' : ''}`}
       >
         <canvas
           ref={canvasRef}
@@ -1560,7 +1570,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
         {rangeHighlight && (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 border-x border-cyan-300/70 bg-cyan-400/15"
+            className="pointer-events-none absolute inset-y-0 border-x border-accent/60 bg-accent/15"
             style={{
               left: `${rangeHighlight.startSeconds * pixelsPerSecond}px`,
               width: `${Math.max(1, (rangeHighlight.endSeconds - rangeHighlight.startSeconds) * pixelsPerSecond)}px`,

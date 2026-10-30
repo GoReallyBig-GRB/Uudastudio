@@ -46,7 +46,8 @@ import { StatusBar } from './components/StatusBar';
 import { RecordingModal } from './components/RecordingModal';
 import { takeStartSeconds } from './components/recordingMonitor';
 import { nextPartName } from './components/clipTitle';
-import { deleteRangeFromClips, type RangeSelection, type TimelineTool } from './components/rangeDelete';
+import { copyRange, pasteRange, type RangeClipboard } from './components/rangeClipboard';
+import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
 import { DspModals, DspModalType } from './components/DspModals';
@@ -71,6 +72,7 @@ import { UserDashboard } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
 import { pluginManager } from './plugins/pluginManager';
+import { groupChainId } from './plugins/groupChain';
 import { withPluginStates, restorePluginStates, hasSavedPlugins, isRestoringPlugins } from './plugins/projectPlugins';
 import { TemplatesModal } from './components/TemplatesModal';
 import { SaveTemplateModal } from './components/SaveTemplateModal';
@@ -169,6 +171,9 @@ const MainStudio: React.FC = () => {
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set());
   const [clipboardClip, setClipboardClip] = useState<Clip | null>(null);
+  // A copied time range (one or several tracks). Whichever of the two was copied last is what Paste uses.
+  const [rangeClipboard, setRangeClipboard] = useState<RangeClipboard | null>(null);
+  const [clipboardKind, setClipboardKind] = useState<'clip' | 'range'>('clip');
   const [activeDspModal, setActiveDspModal] = useState<DspModalType>(null);
   const [dspTargetClipId, setDspTargetClipId] = useState<string | null>(null);
   const [isAutosaving, setIsAutosaving] = useState<boolean>(false);
@@ -215,6 +220,8 @@ const MainStudio: React.FC = () => {
 
   // Modular Audio Plugins, Expanded Voiceover Studio & Sound Library Modal States
   const [isPluginsRackModalOpen, setIsPluginsRackModalOpen] = useState<boolean>(false);
+  // Set when the rack is opened from a clip group, so it starts on that group's chain
+  const [rackGroupId, setRackGroupId] = useState<string | null>(null);
   const [isVoiceoverModalOpen, setIsVoiceoverModalOpen] = useState<boolean>(false);
   const [isSoundLibraryModalOpen, setIsSoundLibraryModalOpen] = useState<boolean>(false);
 
@@ -425,7 +432,10 @@ const MainStudio: React.FC = () => {
     });
   }, [mastering, hasAudioForMastering, project.sampleRate]);
 
-  const openExport = useCallback(() => { setIsExportOpen(true); }, []);
+  const [exportSelectionFirst, setExportSelectionFirst] = useState(false);
+  const openExport = useCallback(() => { setExportSelectionFirst(false); setIsExportOpen(true); }, []);
+  // Export from Quick Actions: the selected clips (and their groups) are what the user means
+  const openExportSelection = useCallback(() => { setExportSelectionFirst(true); setIsExportOpen(true); }, []);
   const openMastering = useCallback(() => { setIsExportOpen(false); setMasterTab('mastering'); setIsRightSidebarOpen(true); }, []);
 
   // Protect unsaved portable project changes when the tab is closed or navigated away.
@@ -1648,6 +1658,7 @@ const MainStudio: React.FC = () => {
 
   // 7. Clip Editing & Clipboard Actions
   const handleCopyClip = (clipId?: string) => {
+    setClipboardKind('clip');
     const idToCopy = clipId || selectedClip?.id;
     if (!idToCopy) {
       addToast({ type: 'warning', title: 'Copy Warning', message: 'No clip selected to copy.' });
@@ -1668,6 +1679,7 @@ const MainStudio: React.FC = () => {
   };
 
   const handleCutClip = (clipId?: string) => {
+    setClipboardKind('clip');
     const idToCut = clipId || selectedClip?.id;
     if (!idToCut) {
       addToast({ type: 'warning', title: 'Cut Warning', message: 'No clip selected to cut.' });
@@ -2228,35 +2240,92 @@ const MainStudio: React.FC = () => {
     });
   };
 
-  /** Remove the highlighted range from its track and slide the rest of that track left to close the gap. */
+  /** Copy the highlighted range (all tracks it covers) so Paste can lay the same stack of tracks back. */
+  const handleCopyRange = (): boolean => {
+    const sel = rangeSelection;
+    if (!sel) return false;
+    const cb = copyRange(project.tracks, rangeTrackIds(sel), sel.startSeconds, sel.endSeconds);
+    if (!cb) {
+      addToast({ type: 'info', title: 'Nothing to copy', message: 'There is no audio in that range.' });
+      return false;
+    }
+    setRangeClipboard(cb);
+    setClipboardKind('range');
+    addToast({
+      type: 'success',
+      title: 'Range copied',
+      message: `${cb.durationSeconds.toFixed(2)}s from ${cb.layers.length} ${cb.layers.length === 1 ? 'track' : 'tracks'}. Paste puts it at the playhead.`,
+    });
+    return true;
+  };
+
+  /** Cut = copy, then ripple-delete the range. */
+  const handleCutRange = () => {
+    if (handleCopyRange()) handleDeleteRange();
+  };
+
+  /** Lay a copied range back at the playhead, as the same stack of tracks (starting on the selected track). */
+  const handlePasteRange = () => {
+    if (!rangeClipboard) return;
+    const selectedIndex = project.tracks.findIndex((t) => t.id === selectedTrackId);
+    const sourceIndex = project.tracks.findIndex((t) => t.id === rangeClipboard.layers[0]?.sourceTrackId);
+    const startIndex = selectedIndex >= 0 ? selectedIndex : sourceIndex >= 0 ? sourceIndex : 0;
+    const stamp = () => `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const result = pasteRange(
+      project.tracks,
+      rangeClipboard,
+      playheadSecondsRef.current,
+      startIndex,
+      () => `clip-${stamp()}`,
+      (index) => ({ id: `track-${stamp()}`, name: `Track ${index + 1}`, clips: [], volume: 1.0, pan: 0, muted: false, solo: false }),
+    );
+    setProjectWithHistory((prev) => ({ ...prev, tracks: result.tracks }));
+    setSelectedClipIds(new Set(result.addedClipIds));
+    addToast({
+      type: 'success',
+      title: 'Range pasted',
+      message: `Pasted ${rangeClipboard.layers.length} ${rangeClipboard.layers.length === 1 ? 'track' : 'tracks'} at ${playheadSecondsRef.current.toFixed(2)}s${result.createdTrackIds.length ? ` (added ${result.createdTrackIds.length} ${result.createdTrackIds.length === 1 ? 'track' : 'tracks'})` : ''}.`,
+    });
+  };
+
+  /** Copy, Cut and Paste choose between a highlighted range and a clip by what is highlighted / copied last. */
+  const copyAny = (clipId?: string) => (rangeSelection ? handleCopyRange() : handleCopyClip(clipId));
+  const cutAny = (clipId?: string) => (rangeSelection ? handleCutRange() : handleCutClip(clipId));
+  const pasteAny = (...args: [string?, number?]) => (clipboardKind === 'range' && rangeClipboard ? handlePasteRange() : handlePasteClip(...args));
+  const canPasteAny = clipboardKind === 'range' ? !!rangeClipboard : !!clipboardClip;
+
+  /** Remove the highlighted range from every track it covers; each track slides its own later audio left to close the gap. */
   const handleDeleteRange = () => {
     const sel = rangeSelection;
     if (!sel) return;
-    const track = project.tracks.find((t) => t.id === sel.trackId);
-    if (!track) {
+    const ids = rangeTrackIds(sel).filter((id) => project.tracks.some((t) => t.id === id));
+    if (ids.length === 0) {
       setRangeSelection(null);
       return;
     }
-    const result = deleteRangeFromClips(
-      track.clips,
+    const result = deleteRangeFromTracks(
+      project.tracks,
+      ids,
       sel.startSeconds,
       sel.endSeconds,
       () => `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
     );
     setRangeSelection(null);
-    if (result.removedSeconds === 0) {
-      addToast({ type: 'info', title: 'Nothing to delete', message: 'There is no audio in that range on this track.' });
+    if (result.changedTrackIds.length === 0) {
+      addToast({ type: 'info', title: 'Nothing to delete', message: ids.length > 1 ? 'There is no audio in that range on these tracks.' : 'There is no audio in that range on this track.' });
       return;
     }
+    // One history step for every track, so a single Undo brings the whole range back
     setProjectWithHistory((prev) => ({
       ...prev,
-      tracks: prev.tracks.map((t) => (t.id === sel.trackId ? { ...t, clips: result.clips } : t)),
+      tracks: prev.tracks.map((t) => result.tracks.find((r) => r.id === t.id && result.changedTrackIds.includes(t.id)) ?? t),
     }));
     setSelectedClipIds(new Set());
+    const n = result.changedTrackIds.length;
     addToast({
       type: 'success',
       title: 'Range Deleted',
-      message: `Removed ${result.removedSeconds.toFixed(2)}s from this track and closed the gap.`,
+      message: `Removed ${result.removedSeconds.toFixed(2)}s from ${n === 1 ? 'this track' : `${n} tracks`} and closed the gap${n === 1 ? '' : 's'}.`,
     });
   };
 
@@ -2277,19 +2346,36 @@ const MainStudio: React.FC = () => {
     addToast({ type: 'success', title: 'Clips grouped', message: `${selectedClipIds.size} clips now move together.` });
   };
 
-  /** Release every group that the selected clips belong to. */
+  /** Release every group that the selected clips belong to. Everything applied to a group (its plugin chain) goes with it. */
   const handleUngroupSelected = () => {
     const groups = new Set<string>();
     for (const t of project.tracks) for (const c of t.clips) if (selectedClipIds.has(c.id) && c.groupId) groups.add(c.groupId);
     if (groups.size === 0) return;
-    setProjectWithHistory((prev) => ({
-      ...prev,
-      tracks: prev.tracks.map((t) => ({
-        ...t,
-        clips: t.clips.map((c) => (c.groupId && groups.has(c.groupId) ? { ...c, groupId: undefined } : c)),
-      })),
-    }));
-    addToast({ type: 'info', title: 'Clips ungrouped', message: 'The clips are independent again.' });
+    // One history step: clips, group chain data and (below) the live chain change together, so Undo brings them all back.
+    setProjectWithHistory((prev) => {
+      const remaining = { ...(prev.groupPlugins ?? {}) };
+      for (const g of groups) delete remaining[g];
+      const next: Project = {
+        ...prev,
+        tracks: prev.tracks.map((t) => ({
+          ...t,
+          clips: t.clips.map((c) => (c.groupId && groups.has(c.groupId) ? { ...c, groupId: undefined } : c)),
+        })),
+      };
+      if (Object.keys(remaining).length > 0) next.groupPlugins = remaining;
+      else delete next.groupPlugins;
+      return next;
+    });
+    let hadChain = false;
+    for (const g of groups) {
+      if (pluginManager.getPluginsForTrack(groupChainId(g)).length > 0) hadChain = true;
+      pluginManager.clearTrack(groupChainId(g));
+    }
+    addToast({
+      type: 'info',
+      title: 'Clips ungrouped',
+      message: hadChain ? 'The clips are independent again, and the group\'s plugins were removed.' : 'The clips are independent again.',
+    });
   };
 
   const handleSelectAll = () => {
@@ -2476,7 +2562,10 @@ const MainStudio: React.FC = () => {
 
       // Ctrl+C / Cmd+C: Copy selected clip
       if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
-        if (selectedClipIds.size === 1) {
+        if (rangeSelection) {
+          e.preventDefault();
+          handleCopyRange();
+        } else if (selectedClipIds.size === 1) {
           e.preventDefault();
           handleCopyClip();
         }
@@ -2484,7 +2573,10 @@ const MainStudio: React.FC = () => {
 
       // Ctrl+X / Cmd+X: Cut selected clip
       if ((e.ctrlKey || e.metaKey) && (e.key === 'x' || e.key === 'X')) {
-        if (selectedClipIds.size === 1) {
+        if (rangeSelection) {
+          e.preventDefault();
+          handleCutRange();
+        } else if (selectedClipIds.size === 1) {
           e.preventDefault();
           handleCutClip();
         }
@@ -2492,7 +2584,10 @@ const MainStudio: React.FC = () => {
 
       // Ctrl+V / Cmd+V: Paste at playhead on new top track
       if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
-        if (clipboardClip) {
+        if (clipboardKind === 'range' && rangeClipboard) {
+          e.preventDefault();
+          handlePasteRange();
+        } else if (clipboardClip) {
           e.preventDefault();
           handlePasteClip();
         }
@@ -2655,10 +2750,10 @@ const MainStudio: React.FC = () => {
             handleDuplicateClip(clipId);
           }
         }}
-        onCopy={() => handleCopyClip()}
-        onCut={() => handleCutClip()}
-        onPaste={handlePasteClip}
-        canPaste={!!clipboardClip}
+        onCopy={() => copyAny()}
+        onCut={() => cutAny()}
+        onPaste={() => pasteAny()}
+        canPaste={canPasteAny}
         hasSelectedClip={!!selectedClip}
         onToggleMuteClip={() => selectedClip && handleToggleMuteClip(selectedClip.id)}
         onMoveClip={(dir) => selectedClip && handleMoveClipTrack(selectedClip.id, dir)}
@@ -2695,11 +2790,11 @@ const MainStudio: React.FC = () => {
       {/* Selected Clip Toolbar (Permanent accessible fallback docked below Header) */}
       <ClipToolbar
         clip={selectedClip}
-        canPaste={!!clipboardClip}
+        canPaste={canPasteAny}
         onSplit={(id) => handleSplitClip(id)}
-        onCopy={(id) => handleCopyClip(id)}
-        onCut={(id) => handleCutClip(id)}
-        onPaste={handlePasteClip}
+        onCopy={(id) => copyAny(id)}
+        onCut={(id) => cutAny(id)}
+        onPaste={() => pasteAny()}
         onDelete={(id) => handleDeleteClip(id)}
         onToggleMute={(id) => handleToggleMuteClip(id)}
         onMoveTrack={(id, dir) => handleMoveClipTrack(id, dir)}
@@ -2886,8 +2981,11 @@ const MainStudio: React.FC = () => {
               canPaste={!!clipboardClip}
               onToggleMuteClip={handleToggleMuteClip}
               onOpenDspModal={(type) => handleOpenDspModal(type)}
-              onOpenExport={openExport}
-              onOpenPlugins={() => setIsPluginsRackModalOpen(true)}
+              onOpenExport={openExportSelection}
+              onOpenPlugins={(groupId) => {
+                setRackGroupId(groupId ?? null);
+                setIsPluginsRackModalOpen(true);
+              }}
               onGroupSelected={handleGroupSelected}
               onUngroupSelected={handleUngroupSelected}
               onMoveClipTrack={handleMoveClipTrack}
@@ -2938,7 +3036,7 @@ const MainStudio: React.FC = () => {
       </div>
 
       {isExportOpen && (
-        <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => setIsExportOpen(false)} />
+        <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => setIsExportOpen(false)} selectedClipIds={selectedClipIds} startWithSelection={exportSelectionFirst} />
       )}
 
       {/* Bottom Status Bar */}
@@ -3040,7 +3138,11 @@ const MainStudio: React.FC = () => {
       {/* Modular Audio Plugins Rack Modal (WAM 2.0 & Native DSP Stems) */}
       <PluginsRackModal
         isOpen={isPluginsRackModalOpen}
-        onClose={() => setIsPluginsRackModalOpen(false)}
+        onClose={() => {
+          setIsPluginsRackModalOpen(false);
+          setRackGroupId(null);
+        }}
+        initialGroupId={rackGroupId}
         tracks={project.tracks}
         project={project}
         selectedTrackId={selectedTrackId}

@@ -89,6 +89,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onToggleTimelineCollapsed,
 }) => {
   const hasClip = !!clip;
+  const hasRange = rangeSeconds !== null;
 
   // Project title: double-click to rename. File > Rename Project in the header asks for the same via an event.
   const [isEditingName, setIsEditingName] = useState(false);
@@ -176,23 +177,23 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             Split
           </CapsuleButton>
           <CapsuleButton
-            title={hasClip ? 'Cut clip (Ctrl+X)' : 'Select a clip to cut'}
-            disabled={!hasClip}
-            onClick={() => hasClip && onCut(clip.id)}
+            title={hasRange ? 'Cut the highlighted range and close the gap (Ctrl+X)' : hasClip ? 'Cut clip (Ctrl+X)' : 'Select a clip or highlight a range to cut'}
+            disabled={!hasClip && !hasRange}
+            onClick={() => (hasRange || hasClip) && onCut(clip?.id ?? '')}
             icon={<ScissorsLineDashed className="h-3.5 w-3.5" />}
           >
             Cut
           </CapsuleButton>
           <CapsuleButton
-            title={hasClip ? 'Copy clip (Ctrl+C)' : 'Select a clip to copy'}
-            disabled={!hasClip}
-            onClick={() => hasClip && onCopy(clip.id)}
+            title={hasRange ? 'Copy the highlighted range, across all its tracks (Ctrl+C)' : hasClip ? 'Copy clip (Ctrl+C)' : 'Select a clip or highlight a range to copy'}
+            disabled={!hasClip && !hasRange}
+            onClick={() => (hasRange || hasClip) && onCopy(clip?.id ?? '')}
             icon={<Copy className="h-3.5 w-3.5" />}
           >
             Copy
           </CapsuleButton>
           <CapsuleButton
-            title={canPaste ? 'Paste clip at playhead onto active track (Ctrl+V)' : 'Clipboard is empty'}
+            title={canPaste ? 'Paste at the playhead, onto the active track (Ctrl+V)' : 'Clipboard is empty'}
             disabled={!canPaste}
             onClick={onPaste}
             icon={<ClipboardPaste className="h-3.5 w-3.5" />}

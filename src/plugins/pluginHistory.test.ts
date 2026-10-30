@@ -4,6 +4,7 @@ import { findPluginDescriptor } from './registry';
 import { pluginSignature, collectLive, attachLive, applySnapshot } from './pluginHistory';
 import { makeContext } from '../test/fakeAudioContext';
 import { Project, Track } from '../types';
+import { groupChainId } from './groupChain';
 
 const track = (id: string): Track => ({ id, name: id, clips: [], volume: 1, pan: 0, muted: false, solo: false });
 const project = (ids: string[]): Project => ({
@@ -125,5 +126,37 @@ describe('plugin chains in history', () => {
     expect(edits).toBeGreaterThan(n);
     off();
     pluginManager.clearAll();
+  });
+});
+
+describe('group chains in history', () => {
+  const grouped = (): Project => {
+    const p = project(['t1']);
+    p.tracks[0].clips = [{ id: 'c1', trackId: 't1', assetId: 'a', name: 'c1', startSeconds: 0, offsetSeconds: 0, durationSeconds: 1, gain: 1, fadeInSeconds: 0, fadeOutSeconds: 0, fadeShape: 'linear', groupId: 'g1' }];
+    return p;
+  };
+
+  it('a group chain is saved with the snapshot and changes the signature', async () => {
+    pluginManager.clearAll();
+    const ctx = makeContext();
+    const base = grouped();
+    const empty = pluginSignature(await snap(base));
+    await pluginManager.addPluginToTrack(ctx, groupChainId('g1'), comp());
+    const withChain = await snap(base);
+    expect(withChain.groupPlugins?.g1).toHaveLength(1);
+    expect(pluginSignature(withChain)).not.toBe(empty);
+  });
+
+  it('undo rebuilds a removed group chain from the snapshot', async () => {
+    pluginManager.clearAll();
+    const ctx = makeContext();
+    const base = grouped();
+    await pluginManager.addPluginToTrack(ctx, groupChainId('g1'), comp());
+    const before = await snap(base);
+    pluginManager.clearTrack(groupChainId('g1'));
+    expect(pluginManager.getPluginsForTrack(groupChainId('g1'))).toHaveLength(0);
+    const rebuilt = await applySnapshot(ctx, before);
+    expect(rebuilt).toBe(true);
+    expect(pluginManager.getPluginsForTrack(groupChainId('g1'))).toHaveLength(1);
   });
 });

@@ -14,6 +14,7 @@
 import { Project, Track } from '../types';
 import { pluginManager, MASTER_TRACK_ID } from './pluginManager';
 import { StoredPluginState } from './types';
+import { groupChainId, groupIdsOf } from './groupChain';
 
 let restoring = 0;
 
@@ -40,14 +41,25 @@ export async function withPluginStates(project: Project): Promise<Project> {
   if (liveMaster.length > 0) masterPlugins = liveMaster;
   else if (restoring > 0) masterPlugins = project.masterPlugins;
 
-  const base = without(project, 'masterPlugins') as Project;
-  return masterPlugins && masterPlugins.length > 0 ? { ...base, tracks, masterPlugins } : { ...base, tracks };
+  // Group chains: one per group that still has clips (or that the project already carries while a restore runs)
+  const groupPlugins: Record<string, StoredPluginState[]> = {};
+  const groupIds = new Set([...groupIdsOf(project), ...Object.keys(project.groupPlugins ?? {})]);
+  for (const g of groupIds) {
+    const live = await pluginManager.exportTrackPluginStates(groupChainId(g));
+    if (live.length > 0) groupPlugins[g] = live;
+    else if (restoring > 0 && project.groupPlugins?.[g]?.length) groupPlugins[g] = project.groupPlugins[g];
+  }
+
+  const base = without(without(project, 'masterPlugins'), 'groupPlugins') as Project;
+  const out: Project = masterPlugins && masterPlugins.length > 0 ? { ...base, tracks, masterPlugins } : { ...base, tracks };
+  return Object.keys(groupPlugins).length > 0 ? { ...out, groupPlugins } : out;
 }
 
 /** True when the project carries any saved chain */
 export function hasSavedPlugins(project: Project): boolean {
   return (
     (project.masterPlugins?.length ?? 0) > 0 ||
+    Object.values(project.groupPlugins ?? {}).some((l) => l.length > 0) ||
     project.tracks.some((t) => (t.plugins?.length ?? 0) > 0)
   );
 }
@@ -72,6 +84,9 @@ export async function restorePluginStates(
     }
     if (project.masterPlugins && project.masterPlugins.length > 0) {
       await pluginManager.restoreTrackPluginStates(audioCtx, MASTER_TRACK_ID, project.masterPlugins);
+    }
+    for (const [groupId, states] of Object.entries(project.groupPlugins ?? {})) {
+      if (states.length > 0) await pluginManager.restoreTrackPluginStates(audioCtx, groupChainId(groupId), states);
     }
   } finally {
     restoring--;
