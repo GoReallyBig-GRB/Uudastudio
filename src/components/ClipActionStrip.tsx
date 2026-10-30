@@ -27,6 +27,7 @@ import {
   Group,
   Ungroup,
   GripHorizontal,
+  Headphones,
   ChevronDown,
   X,
 } from 'lucide-react';
@@ -69,6 +70,8 @@ interface ClipActionStripProps {
   /** Set when the selection is exactly one group: its own level, pan and mute are then shown here */
   group?: QuickActionGroup | null;
   onUpdateGroup?: (groupId: string, patch: Partial<GroupSettings>) => void;
+  soloGroupId?: string | null;
+  onToggleSolo?: (groupId: string) => void;
   onGroup?: () => void;
   onUngroup?: () => void;
 }
@@ -132,6 +135,8 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
   isGrouped = false,
   group = null,
   onUpdateGroup,
+  soloGroupId = null,
+  onToggleSolo,
   onGroup,
   onUngroup,
 }) => {
@@ -331,6 +336,17 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
                 {gs.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
                 <span>{gs.muted ? 'Group muted' : 'Mute group'}</span>
               </button>
+              {onToggleSolo && (
+                <button
+                  onClick={() => onToggleSolo(group.id)}
+                  aria-pressed={soloGroupId === group.id}
+                  title="Hear only this group while you work (monitoring only; export is not affected)"
+                  className={`${BTN} w-full ${soloGroupId === group.id ? '!bg-warn !text-black !border-warn' : ''}`}
+                >
+                  <Headphones className="w-3 h-3" />
+                  <span>{soloGroupId === group.id ? 'Soloed: hearing only this group' : 'Solo group'}</span>
+                </button>
+              )}
             </div>
           )}
         </Section>

@@ -58,6 +58,8 @@ interface MasterConsolePanelProps {
   /** Clip groups; each gets its own channel strip next to the tracks until it is ungrouped. */
   groups?: GroupSummary[];
   onUpdateGroup?: (groupId: string, patch: Partial<GroupSettings>) => void;
+  soloGroupId?: string | null;
+  onToggleSolo?: (groupId: string) => void;
   onAddTrack?: () => void;
   selectedTrackId?: string | null;
   onSelectTrack?: (trackId: string) => void;
@@ -80,6 +82,8 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
   onUpdateTrack,
   groups = [],
   onUpdateGroup,
+  soloGroupId = null,
+  onToggleSolo,
   onAddTrack,
   selectedTrackId,
   onSelectTrack,
@@ -570,6 +574,9 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                     group={g}
                     settings={project.groupSettings?.[g.id]}
                     onUpdate={(patch) => onUpdateGroup?.(g.id, patch)}
+                    solo={soloGroupId === g.id}
+                    dimmed={!!soloGroupId && soloGroupId !== g.id}
+                    onToggleSolo={() => onToggleSolo?.(g.id)}
                   />
                 ))}
 

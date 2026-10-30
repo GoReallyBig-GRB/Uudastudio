@@ -18,9 +18,12 @@ interface GroupListPanelProps {
   onSelectGroup: (groupId: string) => void;
   onUpdateGroup: (groupId: string, patch: Partial<GroupSettings>) => void;
   onOpenGroupPlugins?: (groupId: string) => void;
+  /** Group being auditioned alone (clicking a row toggles it) */
+  soloGroupId?: string | null;
+  onToggleSolo?: (groupId: string) => void;
 }
 
-export const GroupListPanel: React.FC<GroupListPanelProps> = ({ groups, settings, selectedClipIds, onSelectGroup, onUpdateGroup, onOpenGroupPlugins }) => {
+export const GroupListPanel: React.FC<GroupListPanelProps> = ({ groups, settings, selectedClipIds, onSelectGroup, onUpdateGroup, onOpenGroupPlugins, soloGroupId = null, onToggleSolo }) => {
   if (groups.length === 0) return null;
   return (
     <div className="shrink-0 border-t border-line bg-surface-1 max-h-[46%] overflow-y-auto overscroll-contain [scrollbar-width:thin]">
@@ -33,23 +36,37 @@ export const GroupListPanel: React.FC<GroupListPanelProps> = ({ groups, settings
         {groups.map((g) => {
           const s = { ...DEFAULT_GROUP_SETTINGS, ...(settings?.[g.id] ?? {}) };
           const isSelected = g.clipIds.length > 0 && g.clipIds.every((id) => selectedClipIds?.has(id));
+          const isSolo = soloGroupId === g.id;
+          const isDimmed = !!soloGroupId && !isSolo;
           return (
             <div
               key={g.id}
               onClick={() => onSelectGroup(g.id)}
-              style={isSelected ? { borderColor: g.color.border } : undefined}
+              style={isSelected || isSolo ? { borderColor: g.color.border } : undefined}
               className={`rounded-control border p-2 cursor-pointer transition-colors ${
-                isSelected ? 'bg-surface-3' : 'border-line bg-surface-2 hover:bg-surface-3'
-              }`}
+                isSelected || isSolo ? 'bg-surface-3' : 'border-line bg-surface-2 hover:bg-surface-3'
+              } ${isDimmed ? 'opacity-55' : ''}`}
             >
               <div className="flex items-center gap-2 min-w-0">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: g.color.border }} />
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium text-ink truncate">{g.name}</div>
                   <div className="text-[10px] text-ink-faint font-num">
-                    {g.clipCount} {g.clipCount === 1 ? 'clip' : 'clips'} · {formatGroupSpan(g.durationSeconds)}
+                    {g.clipCount} {g.clipCount === 1 ? 'clip' : 'clips'} · {formatGroupSpan(g.durationSeconds)}{isSolo ? ' · solo' : ''}
                   </div>
                 </div>
+                {onToggleSolo && (
+                  <button
+                    type="button"
+                    title={isSolo ? 'Stop auditioning this group' : 'Hear only this group'}
+                    aria-label={`Solo ${g.name}`}
+                    aria-pressed={isSolo}
+                    onClick={(e) => { e.stopPropagation(); onToggleSolo(g.id); }}
+                    className={`px-1.5 py-0.5 rounded-sm text-[10px] font-bold cursor-pointer ${isSolo ? 'bg-warn text-black' : 'text-ink-dim hover:text-ink hover:bg-surface-1'}`}
+                  >
+                    S
+                  </button>
+                )}
                 {onOpenGroupPlugins && (
                   <button
                     type="button"

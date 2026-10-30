@@ -56,6 +56,8 @@ interface TimelineProps {
   /** Same change to several clips as one undo step (Quick Actions: mute all) */
   onUpdateClips?: (clipIds: string[], updates: Partial<Clip>) => void;
   onUpdateGroup?: (groupId: string, patch: Partial<GroupSettings>) => void;
+  soloGroupId?: string | null;
+  onToggleSolo?: (groupId: string) => void;
   onUngroupSelected?: () => void;
   onMoveClipTrack: (clipId: string, direction: 'up' | 'down') => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
@@ -147,6 +149,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   onGroupSelected,
   onUpdateClips,
   onUpdateGroup,
+  soloGroupId = null,
+  onToggleSolo,
   onUngroupSelected,
   onMoveClipTrack,
   onMoveTrack,
@@ -1387,6 +1391,8 @@ export const Timeline: React.FC<TimelineProps> = ({
             return summary ? { id: gid, name: summary.name, color: summary.color.border, settings: project.groupSettings?.[gid] } : null;
           })()}
           onUpdateGroup={onUpdateGroup}
+          soloGroupId={soloGroupId}
+          onToggleSolo={onToggleSolo}
           isGrouped={project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && !!c.groupId))}
           position={actionStrip.position}
           canPaste={canPaste}

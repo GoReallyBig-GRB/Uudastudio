@@ -16,6 +16,11 @@ interface GroupConsoleStripProps {
   group: GroupSummary;
   settings: GroupSettings | undefined;
   onUpdate: (patch: Partial<GroupSettings>) => void;
+  /** This group is being auditioned alone */
+  solo?: boolean;
+  /** Another group is being auditioned, so this one is silent */
+  dimmed?: boolean;
+  onToggleSolo?: () => void;
 }
 
 const LEDS = 14;
@@ -26,7 +31,7 @@ const peakToLevel = (peak: number): number => {
   return Math.min(1, Math.max(0, (20 * Math.log10(peak) + 48) / 48));
 };
 
-export const GroupConsoleStrip: React.FC<GroupConsoleStripProps> = ({ group, settings, onUpdate }) => {
+export const GroupConsoleStrip: React.FC<GroupConsoleStripProps> = ({ group, settings, onUpdate, solo = false, dimmed = false, onToggleSolo }) => {
   const s = { ...DEFAULT_GROUP_SETTINGS, ...(settings ?? {}) };
   const [level, setLevel] = useState(0);
   const raf = useRef<number | null>(null);
@@ -52,7 +57,7 @@ export const GroupConsoleStrip: React.FC<GroupConsoleStripProps> = ({ group, set
   return (
     <div
       style={{ borderColor: group.color.border }}
-      className="w-[68px] shrink-0 rounded-xl p-2.5 flex flex-col justify-between items-center text-center border bg-[#121218]"
+      className={`w-[68px] shrink-0 rounded-xl p-2.5 flex flex-col justify-between items-center text-center border bg-[#121218] transition-opacity ${dimmed ? 'opacity-50' : ''}`}
     >
       <div className="w-full space-y-1">
         <div className="flex items-center justify-between text-[9px] font-mono">
@@ -78,7 +83,7 @@ export const GroupConsoleStrip: React.FC<GroupConsoleStripProps> = ({ group, set
         />
       </div>
 
-      <div className="w-full flex mb-2">
+      <div className="w-full flex gap-1 mb-2">
         <button
           type="button"
           aria-pressed={s.muted}
@@ -89,6 +94,17 @@ export const GroupConsoleStrip: React.FC<GroupConsoleStripProps> = ({ group, set
           }`}
         >
           M
+        </button>
+        <button
+          type="button"
+          aria-pressed={solo}
+          onClick={() => onToggleSolo?.()}
+          title={solo ? 'Stop auditioning this group' : 'Hear only this group'}
+          className={`flex-1 py-1 rounded text-[9px] font-extrabold transition-all cursor-pointer ${
+            solo ? 'bg-amber-400 text-black shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
+          }`}
+        >
+          S
         </button>
       </div>
 
