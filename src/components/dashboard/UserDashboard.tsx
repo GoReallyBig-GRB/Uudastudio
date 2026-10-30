@@ -457,9 +457,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
             <span>Projects</span>
           </button>
 
+          <div className="pt-4 mt-auto border-t border-zinc-800/80 space-y-1">
           <button
             onClick={() => setActiveTab('support')}
-            className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
               activeTab === 'support' ? 'bg-cyan-500/15 text-cyan-300 font-semibold border border-cyan-500/30' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
             }`}
           >
@@ -472,7 +473,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
             )}
           </button>
 
-          <div className="pt-4 mt-auto border-t border-zinc-800/80">
             <button
               onClick={() => setActiveTab('privacy')}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${

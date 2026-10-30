@@ -2780,8 +2780,6 @@ const MainStudio: React.FC = () => {
           addToast({ type: 'info', title: 'Timeline Refreshed', message: 'Manual redraw completed.' });
         }}
         onClearSession={handleClearSession}
-        activeSidebarTab={sidebarTab}
-        onSelectSidebarTab={setSidebarTab}
         onOpenExport={openExport}
         onOpenPlugins={() => setIsPluginsRackModalOpen(true)}
         onOpenVoiceoverModal={() => setIsVoiceoverModalOpen(true)}

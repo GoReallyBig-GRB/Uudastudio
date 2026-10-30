@@ -37,6 +37,7 @@ import {
   LayoutTemplate,
 } from 'lucide-react';
 import { Project } from '../types';
+import { ModalShell } from './ui';
 import { audioEngine } from '../audio/engine';
 import { formatTimecode } from '../utils/formatters';
 
@@ -78,8 +79,6 @@ interface HeaderProps {
   pixelsPerSecond?: number;
   canUndo: boolean;
   canRedo: boolean;
-  activeSidebarTab?: 'tracks' | 'voice' | 'library';
-  onSelectSidebarTab?: (tab: 'tracks' | 'voice' | 'library') => void;
   onOpenExport: () => void;
   onPlay: () => void;
   onPause: () => void;
@@ -132,8 +131,6 @@ export const Header: React.FC<HeaderProps> = ({
   pixelsPerSecond,
   canUndo,
   canRedo,
-  activeSidebarTab,
-  onSelectSidebarTab,
   onOpenExport,
   onPlay,
   onPause,
@@ -447,6 +444,19 @@ export const Header: React.FC<HeaderProps> = ({
                 <div>
                   <div className="font-medium">Import Audio Files...</div>
                 </div>
+              </button>
+
+              <div className="h-px bg-line my-1" />
+
+              <button
+                onClick={() => {
+                  setIsProjectMenuOpen(false);
+                  setIsSettingsOpen(true);
+                }}
+                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
+              >
+                <Settings className="w-4 h-4 text-ink-dim" />
+                <div className="font-medium">Studio Settings...</div>
               </button>
 
               <div className="h-px bg-line my-1" />
@@ -789,20 +799,18 @@ export const Header: React.FC<HeaderProps> = ({
           <span>Voiceover</span>
         </button>
 
-        {/* Sound Library Button */}
-        {onSelectSidebarTab && (
-          <button
-            onClick={() => {
-              window.dispatchEvent(new CustomEvent('xpro:close-popups'));
-              onSelectSidebarTab('library');
-            }}
-            title="Open Sound Library (Freesound CC0)"
-            className={`${PILL_LAYOUT} ${activeSidebarTab === 'library' ? PILL_ON : PILL_IDLE}`}
-          >
-            <Music className="w-3.5 h-3.5" />
-            <span>Sound Library</span>
-          </button>
-        )}
+        {/* Sound Library Button: opens the Freesound search and preview window directly */}
+        <button
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('xpro:close-popups'));
+            window.dispatchEvent(new CustomEvent('uuda:open-library-modal'));
+          }}
+          title="Search and preview sounds from Freesound (CC0)"
+          className={`${PILL_LAYOUT} ${PILL_IDLE}`}
+        >
+          <Music className="w-3.5 h-3.5" />
+          <span>Sound Library</span>
+        </button>
 
         {/* Modular Audio Plugins Button */}
         <button
@@ -831,35 +839,17 @@ export const Header: React.FC<HeaderProps> = ({
           <span>Export</span>
         </button>
 
-        {/* Settings button */}
-        <div className="relative">
-          <button
-            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-            title="Settings & Audio Engine Status"
-            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-line bg-surface-1 text-ink-dim transition-colors hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-
-          {isSettingsOpen && (
-            <div
-              onClick={() => setIsSettingsOpen(false)}
-              className="right-0 absolute top-full mt-1.5 w-64 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] bg-surface-2 border border-line-strong rounded-card shadow-float z-50 text-xs text-ink-dim uuda-pop-in p-3"
-            >
-              <div className="font-medium text-ink pb-2 mb-2 border-b border-line flex items-center justify-between">
-                <span>Studio Settings</span>
-                <span className="text-[10px] text-zinc-500 font-mono">Phase 1</span>
-              </div>
-
+        <ModalShell open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} title="Studio Settings" size="sm">
+          <div className="text-xs text-ink-dim">
               {/* Auto Refresh Setting */}
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-medium text-ink">Auto-Refresh</div>
-                                      </div>
+                    <div className="text-[11px] text-ink-faint">Repaint the timeline as soon as you edit</div>
+                  </div>
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
+                    onClick={() => {
                       onToggleAutoRefresh();
                     }}
                     className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
@@ -878,10 +868,10 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="flex items-center justify-between pt-2 border-t border-line">
                   <div>
                     <div className="font-medium text-ink">Duck Playing Tracks</div>
-                                      </div>
+                    <div className="text-[11px] text-ink-faint">Lower other tracks while another plays</div>
+                  </div>
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
+                    onClick={() => {
                       onToggleDucking();
                     }}
                     className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
@@ -898,9 +888,9 @@ export const Header: React.FC<HeaderProps> = ({
 
                 {project.settings.duckPlayingTracks && (
                   <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] text-zinc-400">
+                    <div className="flex justify-between text-[10px] text-ink-dim">
                       <span>Ducking Gain</span>
-                      <span className="mono-nums text-cyan-400 font-semibold">{project.settings.duckingAmountDb} dB</span>
+                      <span className="font-num text-accent font-semibold">{project.settings.duckingAmountDb} dB</span>
                     </div>
                     <input
                       type="range"
@@ -909,23 +899,23 @@ export const Header: React.FC<HeaderProps> = ({
                       step="1"
                       value={project.settings.duckingAmountDb}
                       onChange={(e) => onUpdateDuckingDb(parseInt(e.target.value, 10))}
-                      className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                      className="w-full h-1 bg-surface-3 rounded appearance-none cursor-pointer"
                     />
                   </div>
                 )}
 
                 <div className="pt-2 border-t border-line space-y-1 text-[11px]">
-                  <div className="flex justify-between text-zinc-400">
+                  <div className="flex justify-between text-ink-dim">
                     <span>Sample Rate:</span>
-                    <span className="font-mono text-zinc-200">{audioEngine.getSampleRate()} Hz</span>
+                    <span className="font-num text-ink">{audioEngine.getSampleRate()} Hz</span>
                   </div>
-                  <div className="flex justify-between text-zinc-400">
+                  <div className="flex justify-between text-ink-dim">
                     <span>Latency Hint:</span>
-                    <span className="font-mono text-zinc-200">interactive</span>
+                    <span className="font-num text-ink">interactive</span>
                   </div>
-                  <div className="flex justify-between text-zinc-400">
+                  <div className="flex justify-between text-ink-dim">
                     <span>IndexedDB Autosave:</span>
-                    <span className="text-emerald-400 flex items-center gap-0.5">
+                    <span className="text-ok flex items-center gap-0.5">
                       <Check className="w-3 h-3" /> Active
                     </span>
                   </div>
@@ -933,8 +923,7 @@ export const Header: React.FC<HeaderProps> = ({
 
                 <div className="pt-2 border-t border-line">
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
+                    onClick={() => {
                       setIsSettingsOpen(false);
                       onClearSession();
                     }}
@@ -944,9 +933,8 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+          </div>
+        </ModalShell>
       </div>
     </header>
   );
