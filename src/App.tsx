@@ -425,7 +425,10 @@ const MainStudio: React.FC = () => {
     });
   }, [mastering, hasAudioForMastering, project.sampleRate]);
 
-  const openExport = useCallback(() => { setIsExportOpen(true); }, []);
+  const [exportSelectionFirst, setExportSelectionFirst] = useState(false);
+  const openExport = useCallback(() => { setExportSelectionFirst(false); setIsExportOpen(true); }, []);
+  // Export from Quick Actions: the selected clips (and their groups) are what the user means
+  const openExportSelection = useCallback(() => { setExportSelectionFirst(true); setIsExportOpen(true); }, []);
   const openMastering = useCallback(() => { setIsExportOpen(false); setMasterTab('mastering'); setIsRightSidebarOpen(true); }, []);
 
   // Protect unsaved portable project changes when the tab is closed or navigated away.
@@ -2886,7 +2889,7 @@ const MainStudio: React.FC = () => {
               canPaste={!!clipboardClip}
               onToggleMuteClip={handleToggleMuteClip}
               onOpenDspModal={(type) => handleOpenDspModal(type)}
-              onOpenExport={openExport}
+              onOpenExport={openExportSelection}
               onOpenPlugins={() => setIsPluginsRackModalOpen(true)}
               onGroupSelected={handleGroupSelected}
               onUngroupSelected={handleUngroupSelected}
@@ -2938,7 +2941,7 @@ const MainStudio: React.FC = () => {
       </div>
 
       {isExportOpen && (
-        <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => setIsExportOpen(false)} />
+        <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => setIsExportOpen(false)} selectedClipIds={selectedClipIds} startWithSelection={exportSelectionFirst} />
       )}
 
       {/* Bottom Status Bar */}
