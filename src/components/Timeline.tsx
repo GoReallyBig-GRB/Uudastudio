@@ -9,12 +9,12 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
-import { groupColor } from '../audio/groupInfo';
+import { groupColor, summarizeGroups } from '../audio/groupInfo';
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { calculateZoomScrollLeft } from './timelineZoom';
 import { getVisibleClipPixelRange } from './timelineViewport';
 import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
-import { Project, Track, Clip, Asset } from '../types';
+import { Project, Track, Clip, Asset, GroupSettings } from '../types';
 import { TrackControls } from './TrackControls';
 import { rangeTrackIds, type RangeSelection, type TimelineTool } from './rangeDelete';
 import { TITLE_PAD_X, displayTitle, fitTitle, formatClipLength, placeTip } from './clipTitle';
@@ -53,6 +53,9 @@ interface TimelineProps {
   onOpenExport?: () => void;
   onOpenPlugins?: (groupId?: string) => void;
   onGroupSelected?: () => void;
+  /** Same change to several clips as one undo step (Quick Actions: mute all) */
+  onUpdateClips?: (clipIds: string[], updates: Partial<Clip>) => void;
+  onUpdateGroup?: (groupId: string, patch: Partial<GroupSettings>) => void;
   onUngroupSelected?: () => void;
   onMoveClipTrack: (clipId: string, direction: 'up' | 'down') => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
@@ -142,6 +145,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   onOpenExport,
   onOpenPlugins,
   onGroupSelected,
+  onUpdateClips,
+  onUpdateGroup,
   onUngroupSelected,
   onMoveClipTrack,
   onMoveTrack,
@@ -1369,6 +1374,19 @@ export const Timeline: React.FC<TimelineProps> = ({
         <ClipActionStrip
           clip={stripClip}
           selectedCount={selectedClipIds.size}
+          selectedIds={Array.from(selectedClipIds)}
+          onUpdateClips={onUpdateClips}
+          group={(() => {
+            // exactly one group selected: its own level, pan and mute show in Quick Actions
+            const gids = new Set<string | undefined>();
+            for (const t of project.tracks) for (const c of t.clips) if (selectedClipIds.has(c.id)) gids.add(c.groupId);
+            if (gids.size !== 1) return null;
+            const [gid] = [...gids];
+            if (!gid) return null;
+            const summary = summarizeGroups(project).find((g) => g.id === gid);
+            return summary ? { id: gid, name: summary.name, color: summary.color.border, settings: project.groupSettings?.[gid] } : null;
+          })()}
+          onUpdateGroup={onUpdateGroup}
           isGrouped={project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && !!c.groupId))}
           position={actionStrip.position}
           canPaste={canPaste}

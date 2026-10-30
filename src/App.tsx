@@ -2242,6 +2242,18 @@ const MainStudio: React.FC = () => {
     }));
   };
 
+  /** The same change to several clips as ONE undo step */
+  const handleUpdateClips = (clipIds: string[], updates: Partial<Clip>) => {
+    const ids = new Set(clipIds);
+    setProjectWithHistory((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((track) => ({
+        ...track,
+        clips: track.clips.map((c) => (ids.has(c.id) ? { ...c, ...updates } : c)),
+      })),
+    }));
+  };
+
   const handleDeleteSelected = () => {
     if (selectedClipIds.size === 0) return;
     setProjectWithHistory((prev) => ({
@@ -3102,6 +3114,8 @@ const MainStudio: React.FC = () => {
                 setIsPluginsRackModalOpen(true);
               }}
               onGroupSelected={handleGroupSelected}
+              onUpdateClips={handleUpdateClips}
+              onUpdateGroup={handleUpdateGroup}
               onUngroupSelected={handleUngroupSelected}
               onMoveClipTrack={handleMoveClipTrack}
               onUpdateClip={handleUpdateClip}
