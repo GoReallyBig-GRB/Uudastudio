@@ -9,6 +9,7 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
+import { groupColor } from '../audio/groupInfo';
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { calculateZoomScrollLeft } from './timelineZoom';
 import { getVisibleClipPixelRange } from './timelineViewport';
@@ -445,7 +446,8 @@ export const Timeline: React.FC<TimelineProps> = ({
         const orderIndex = new Map<string, number>();
         [...track.clips].sort((a, b) => a.startSeconds - b.startSeconds).forEach((c, i) => orderIndex.set(c.id, i));
         for (const clip of track.clips) {
-          const shade = CLIP_SHADES[(orderIndex.get(clip.id) ?? 0) % CLIP_SHADES.length];
+          // Grouped clips take their group's colour; loose clips alternate between the two cyan-grey shades
+          const shade = clip.groupId ? groupColor(project, clip.groupId) : CLIP_SHADES[(orderIndex.get(clip.id) ?? 0) % CLIP_SHADES.length];
           let renderStart = clip.startSeconds;
           let renderDuration = clip.durationSeconds;
           const isSelected = tool !== 'range' && selectedClipIds.has(clip.id);
@@ -674,7 +676,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         ctx.restore();
       }
     },
-    [project.tracks, selectedClipIds, draggingClips, pixelsPerSecond, scrollLeft, timelineWidth, waveformVersion, tool]
+    [project.tracks, project.groupSettings, selectedClipIds, draggingClips, pixelsPerSecond, scrollLeft, timelineWidth, waveformVersion, tool]
   );
 
   // Mouse hover over clip edges to show col-resize cursor

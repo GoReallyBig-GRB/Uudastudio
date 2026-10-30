@@ -43,6 +43,8 @@ interface LeftSidebarProps {
   onUpdateTrack: (trackId: string, updates: Partial<Track>) => void;
   onRemoveEmptyTracks: () => void;
   selectedClipIds?: Set<string>;
+  // Groups list (under the tracks)
+  groupsFooter?: React.ReactNode;
   // VoicePanel props
   onAddVoiceTrack: (asset: Asset, metadata: VoiceMetadata) => void;
   existingVoiceMetadata?: VoiceMetadata | null;
@@ -63,6 +65,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onOpenPlugins,
   onOpenVoiceoverModal,
   onOpenLibraryModal,
+  groupsFooter,
   tracks,
   selectedTrackId,
   onSelectTrack,
@@ -210,6 +213,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               onUpdateTrack={onUpdateTrack}
               onRemoveEmptyTracks={onRemoveEmptyTracks}
               selectedClipIds={selectedClipIds}
+              footer={groupsFooter}
             />
           )}
 

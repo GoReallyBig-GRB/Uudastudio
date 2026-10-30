@@ -174,6 +174,8 @@ export interface GroupSettings {
   muted: boolean;
   /** Index into the group colour palette; unset = picked automatically */
   color?: number;
+  /** "Group 1", "Group 2", ... given when the group is created */
+  name?: string;
 }
 
 export interface ProjectSettings {

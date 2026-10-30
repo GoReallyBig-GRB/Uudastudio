@@ -34,6 +34,8 @@ import type { TimelineTool } from './rangeDelete';
 
 interface ClipToolbarProps {
   clip: Clip | null;
+  /** How many clips are selected; Cut and Copy work on several at once, the other clip actions need exactly one. */
+  selectedCount?: number;
   canPaste: boolean;
   onSplit: (clipId: string) => void;
   onCopy: (clipId: string) => void;
@@ -66,6 +68,7 @@ const PROJECT_NAME_MAX_CHARS = 20;
 
 export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   clip,
+  selectedCount = clip ? 1 : 0,
   canPaste,
   onSplit,
   onCopy,
@@ -89,6 +92,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onToggleTimelineCollapsed,
 }) => {
   const hasClip = !!clip;
+  const hasSelection = selectedCount > 0;
   const hasRange = rangeSeconds !== null;
 
   // Project title: double-click to rename. File > Rename Project in the header asks for the same via an event.
@@ -177,17 +181,17 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             Split
           </CapsuleButton>
           <CapsuleButton
-            title={hasRange ? 'Cut the highlighted range and close the gap (Ctrl+X)' : hasClip ? 'Cut clip (Ctrl+X)' : 'Select a clip or highlight a range to cut'}
-            disabled={!hasClip && !hasRange}
-            onClick={() => (hasRange || hasClip) && onCut(clip?.id ?? '')}
+            title={hasRange ? 'Cut the highlighted range and close the gap (Ctrl+X)' : hasSelection ? 'Cut the selected clips (Ctrl+X)' : 'Select a clip or highlight a range to cut'}
+            disabled={!hasSelection && !hasRange}
+            onClick={() => (hasRange || hasSelection) && onCut(clip?.id ?? '')}
             icon={<ScissorsLineDashed className="h-3.5 w-3.5" />}
           >
             Cut
           </CapsuleButton>
           <CapsuleButton
-            title={hasRange ? 'Copy the highlighted range, across all its tracks (Ctrl+C)' : hasClip ? 'Copy clip (Ctrl+C)' : 'Select a clip or highlight a range to copy'}
-            disabled={!hasClip && !hasRange}
-            onClick={() => (hasRange || hasClip) && onCopy(clip?.id ?? '')}
+            title={hasRange ? 'Copy the highlighted range, across all its tracks (Ctrl+C)' : hasSelection ? 'Copy the selected clips (Ctrl+C)' : 'Select a clip or highlight a range to copy'}
+            disabled={!hasSelection && !hasRange}
+            onClick={() => (hasRange || hasSelection) && onCopy(clip?.id ?? '')}
             icon={<Copy className="h-3.5 w-3.5" />}
           >
             Copy

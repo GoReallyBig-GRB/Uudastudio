@@ -108,6 +108,8 @@ interface HeaderProps {
   onPaste: () => void;
   canPaste: boolean;
   hasSelectedClip: boolean;
+  /** One or more clips selected (Cut and Copy work on several at once) */
+  hasClipSelection?: boolean;
   onToggleMuteClip: () => void;
   onMoveClip: (dir: 'up' | 'down') => void;
   onOpenDsp: (type: import('./DspModals').DspModalType) => void;
@@ -160,6 +162,7 @@ export const Header: React.FC<HeaderProps> = ({
   onPaste,
   canPaste,
   hasSelectedClip,
+  hasClipSelection,
   onToggleMuteClip,
   onMoveClip,
   onOpenDsp,
@@ -520,7 +523,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="font-num text-[10px] text-ink-faint">S</span>
               </button>
               <button
-                disabled={!hasSelectedClip}
+                disabled={!(hasClipSelection ?? hasSelectedClip)}
                 onClick={onCut}
                 className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
@@ -528,7 +531,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="font-num text-[10px] text-ink-faint">Ctrl+X</span>
               </button>
               <button
-                disabled={!hasSelectedClip}
+                disabled={!(hasClipSelection ?? hasSelectedClip)}
                 onClick={onCopy}
                 className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >

@@ -396,6 +396,45 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
         </>
       )}
 
+      {/* Several clips (or a group) selected: copy, cut, paste and delete them as one unit */}
+      {multi && (
+        <div className="grid grid-cols-4 gap-1">
+          <button
+            onClick={() => onCopy(clip.id)}
+            title={`Copy the ${selectedCount} selected clips (Ctrl+C)`}
+            className="flex flex-col items-center justify-center p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 transition-colors gap-1 border border-zinc-700/50"
+          >
+            <Copy className="w-3.5 h-3.5 text-zinc-300" />
+            <span className="text-[10px] font-medium">Copy</span>
+          </button>
+          <button
+            onClick={() => onCut(clip.id)}
+            title={`Cut the ${selectedCount} selected clips (Ctrl+X)`}
+            className="flex flex-col items-center justify-center p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 transition-colors gap-1 border border-zinc-700/50"
+          >
+            <ScissorsLineDashed className="w-3.5 h-3.5 text-zinc-300" />
+            <span className="text-[10px] font-medium">Cut</span>
+          </button>
+          <button
+            disabled={!canPaste}
+            onClick={() => onPaste()}
+            title={canPaste ? 'Paste at the playhead (Ctrl+V)' : 'Clipboard is empty'}
+            className="flex flex-col items-center justify-center p-1.5 rounded bg-zinc-800/70 hover:bg-zinc-700 disabled:opacity-30 disabled:hover:bg-zinc-800/70 transition-colors gap-1 border border-zinc-700/50"
+          >
+            <ClipboardPaste className="w-3.5 h-3.5 text-zinc-300" />
+            <span className="text-[10px] font-medium">Paste</span>
+          </button>
+          <button
+            onClick={() => onDelete(clip.id)}
+            title={`Delete the ${selectedCount} selected clips (Delete)`}
+            className="flex flex-col items-center justify-center p-1.5 rounded bg-zinc-800/70 hover:bg-danger/20 hover:text-danger transition-colors gap-1 border border-zinc-700/50"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-medium">Delete</span>
+          </button>
+        </div>
+      )}
+
       {/* Group: tie clips together so they move, copy and delete as one unit */}
       {(onGroup || onUngroup) && (
         <div className="grid grid-cols-2 gap-1">
