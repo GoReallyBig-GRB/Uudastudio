@@ -50,11 +50,11 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     ctx.clearRect(0, 0, width, height);
 
     // Background
-    ctx.fillStyle = '#101015';
+    ctx.fillStyle = '#0a0a0b';
     ctx.fillRect(0, 0, width, height);
 
     // Bottom border
-    ctx.strokeStyle = '#272730';
+    ctx.strokeStyle = '#1c1c20';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, height - 0.5);
@@ -133,29 +133,29 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   };
 
   return (
-    <div className="h-7 w-full flex shrink-0 border-b border-zinc-800/80 bg-[#101015] select-none">
+    <div className="h-7 w-full flex shrink-0 border-b border-line bg-surface-0 select-none">
       {/* Collapsible Header matching track controls */}
       {isControlsCollapsed ? (
-        <div className="w-[32px] shrink-0 border-r border-zinc-700/80 flex items-center justify-center bg-[#0d0d12] transition-all duration-200">
+        <div className="w-[32px] shrink-0 border-r border-line flex items-center justify-center bg-surface-1 transition-all duration-200">
           <button
             type="button"
             onClick={onToggleCollapseControls}
             aria-expanded="false"
             aria-label="Expand Track Controls"
             title="Expand Track Controls (Show volume, pan, mute, solo)"
-            className="w-6 h-6 rounded flex items-center justify-center text-zinc-400 hover:text-cyan-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="w-6 h-6 rounded flex items-center justify-center text-ink-dim hover:text-ink hover:bg-white/5 transition-colors cursor-pointer"
           >
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
       ) : (
-        <div className="w-[272px] shrink-0 border-r border-zinc-700/80 px-2.5 flex items-center justify-between text-zinc-400 transition-all duration-200">
-          <div className="flex items-center gap-1.5 text-xs font-mono font-medium">
-            <Clock className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="text-zinc-200 font-semibold tracking-wider text-[11px]">TIMELINE</span>
+        <div className="w-[272px] shrink-0 border-r border-line px-2.5 flex items-center justify-between text-ink-dim transition-all duration-200">
+          <div className="flex items-center gap-1.5 text-xs font-num font-medium">
+            <Clock className="w-3.5 h-3.5 text-ink-faint" />
+            <span className="text-ink font-semibold tracking-wider text-[11px]">TIMELINE</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-mono text-cyan-400 font-bold bg-[#0A0A0E] px-1.5 py-0.5 rounded border border-zinc-800">
+            <span className="text-[10px] font-num text-accent font-bold bg-surface-1 px-2 py-0.5 rounded-full border border-line">
               {formatTimecode(playheadSeconds)}
             </span>
             <button
@@ -164,7 +164,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
               aria-expanded="true"
               aria-label="Collapse Track Controls"
               title="Collapse Track Controls (Expand waveform workspace)"
-              className="p-1 rounded text-zinc-500 hover:text-cyan-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+              className="p-1 rounded text-ink-faint hover:text-ink hover:bg-white/5 transition-colors cursor-pointer"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>

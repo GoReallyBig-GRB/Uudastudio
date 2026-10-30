@@ -429,11 +429,11 @@ export const Timeline: React.FC<TimelineProps> = ({
       ctx.save();
 
       // Background and centerline use the same viewport-local coordinate system as clips.
-      ctx.fillStyle = trackIndex % 2 === 0 ? '#0B0B10' : '#0E0E14';
+      ctx.fillStyle = trackIndex % 2 === 0 ? '#0a0a0b' : '#0e0e10';
       ctx.fillRect(0, 0, width, height);
 
       // Subtle horizontal centerline
-      ctx.strokeStyle = '#181822';
+      ctx.strokeStyle = '#1c1c20';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, height / 2 + 0.5);
@@ -1527,7 +1527,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
   return (
     <div
       style={{ height: `${ROW_HEIGHT}px` }}
-      className="flex w-full min-w-max border-b border-zinc-700 bg-[#121216] relative shadow-[0_1px_0_rgba(0,0,0,0.4)]"
+      className="flex w-full min-w-max border-b border-line bg-surface-1 relative shadow-[0_1px_0_rgba(0,0,0,0.4)]"
     >
       {/* Sticky Track Controls Column (272px or 32px collapsed) */}
       <TrackControls
@@ -1551,7 +1551,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
         onPointerLeave={onLanePointerLeave}
         onDoubleClick={(e) => onLaneDoubleClick(e, track)}
         onContextMenu={(e) => onLaneContextMenu(e, track)}
-        className={`h-full relative overflow-hidden bg-[#0E0E14] hover:bg-[#101018] transition-colors border-b border-zinc-700/90 ${rangeTool ? 'cursor-crosshair' : ''}`}
+        className={`h-full relative overflow-hidden bg-surface-0 hover:bg-surface-1 transition-colors border-b border-line ${rangeTool ? 'cursor-crosshair' : ''}`}
       >
         <canvas
           ref={canvasRef}
@@ -1570,7 +1570,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
         {rangeHighlight && (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 border-x border-cyan-300/70 bg-cyan-400/15"
+            className="pointer-events-none absolute inset-y-0 border-x border-accent/60 bg-accent/15"
             style={{
               left: `${rangeHighlight.startSeconds * pixelsPerSecond}px`,
               width: `${Math.max(1, (rangeHighlight.endSeconds - rangeHighlight.startSeconds) * pixelsPerSecond)}px`,
