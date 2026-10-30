@@ -55,6 +55,9 @@ export interface MasterLiveMetering {
 /** Longest stretch the rack preview loops */
 const PREVIEW_MAX_SECONDS = 20;
 
+/** Length of the short fade that removes the click when a clip starts or stops mid-wave */
+const DECLICK_SECONDS = 0.008;
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -107,9 +110,11 @@ export class AudioEngine {
   private activeSources: Array<{
     source: AudioBufferSourceNode;
     gainNode: GainNode;
+    /** Short ramp stage after the clip gain: fades in a clip that starts mid-wave and out when stopped, so neither clicks */
+    declick?: GainNode;
   }> = [];
   // Clips of long (file-backed) assets: each reads and schedules short segments ahead of the playhead
-  private activeStreams: Array<{ player: StreamedClipPlayer; gainNode: GainNode }> = [];
+  private activeStreams: Array<{ player: StreamedClipPlayer; gainNode: GainNode; declick?: GainNode }> = [];
   // First segments read before the transport clock starts, so streamed clips begin in sync
   private streamPreload: Map<string, Float32Array[]> = new Map();
   private playToken = 0;
@@ -686,7 +691,15 @@ export class AudioEngine {
       }
     }
 
-    clipGain.connect(destination);
+    // Declick stage: a clip that begins right now (playing from the middle of it, or straight after an edit) starts at
+    // the wave's current value, which is a click unless it is faded in over a few milliseconds.
+    const declick = this.ctx.createGain();
+    if (whenToStartInCtx <= this.ctx.currentTime + 0.02) {
+      declick.gain.setValueAtTime(0, whenToStartInCtx);
+      declick.gain.linearRampToValueAtTime(1, whenToStartInCtx + DECLICK_SECONDS);
+    }
+    clipGain.connect(declick);
+    declick.connect(destination);
 
     if (asset.buffer) {
       const source = this.ctx.createBufferSource();
@@ -694,7 +707,7 @@ export class AudioEngine {
       source.connect(clipGain);
       try {
         source.start(whenToStartInCtx, offsetInAudioBuffer, durationToPlay);
-        this.activeSources.push({ source, gainNode: clipGain });
+        this.activeSources.push({ source, gainNode: clipGain, declick });
       } catch {
         // Buffer start exception safeguard
       }
@@ -720,7 +733,7 @@ export class AudioEngine {
       preloaded: this.streamPreload.get(clip.id) ?? null,
       onError: (e) => console.warn('Streamed playback stopped:', e),
     });
-    this.activeStreams.push({ player, gainNode: clipGain });
+    this.activeStreams.push({ player, gainNode: clipGain, declick });
     player.start();
   }
 
@@ -831,26 +844,52 @@ export class AudioEngine {
     this.playToken++;
     this.clearScheduledStop();
     this.clearAllDucks();
-    for (const item of this.activeStreams) {
+    // Stopping dead in the middle of a wave is a click, so each clip is faded out over a few milliseconds first and
+    // only then stopped and disconnected. A new playback can start straight away; the old tail overlaps it harmlessly.
+    const now = this.ctx ? this.ctx.currentTime : 0;
+    const fadeOut = (declick: GainNode | undefined) => {
+      if (!declick || !this.ctx) return false;
       try {
-        item.player.stop();
-        item.gainNode.gain.cancelScheduledValues(0);
-        item.gainNode.disconnect();
+        declick.gain.cancelScheduledValues(now);
+        declick.gain.setValueAtTime(declick.gain.value, now);
+        declick.gain.linearRampToValueAtTime(0, now + DECLICK_SECONDS);
+        return true;
       } catch {
-        // already stopped
+        return false;
       }
+    };
+    const later = (fn: () => void, faded: boolean) => {
+      if (faded && typeof setTimeout !== 'undefined') setTimeout(fn, DECLICK_SECONDS * 1000 + 30);
+      else fn();
+    };
+    for (const item of this.activeStreams) {
+      const faded = fadeOut(item.declick);
+      later(() => {
+        try {
+          item.player.stop();
+          item.gainNode.gain.cancelScheduledValues(0);
+          item.gainNode.disconnect();
+          item.declick?.disconnect();
+        } catch {
+          // already stopped
+        }
+      }, faded);
     }
     this.activeStreams = [];
     this.streamPreload.clear();
     for (const item of this.activeSources) {
-      try {
-        item.gainNode.gain.cancelScheduledValues(0);
-        item.source.stop();
-        item.source.disconnect();
-        item.gainNode.disconnect();
-      } catch {
-        // already stopped
-      }
+      const faded = fadeOut(item.declick);
+      later(() => {
+        try {
+          item.gainNode.gain.cancelScheduledValues(0);
+          item.source.stop();
+          item.source.disconnect();
+          item.gainNode.disconnect();
+          item.declick?.disconnect();
+        } catch {
+          // already stopped
+        }
+      }, faded);
     }
     this.activeSources = [];
   }
