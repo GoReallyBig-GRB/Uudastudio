@@ -15,7 +15,7 @@ import { getVisibleClipPixelRange } from './timelineViewport';
 import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset } from '../types';
 import { TrackControls } from './TrackControls';
-import type { RangeSelection, TimelineTool } from './rangeDelete';
+import { rangeTrackIds, type RangeSelection, type TimelineTool } from './rangeDelete';
 import { TITLE_PAD_X, displayTitle, fitTitle, formatClipLength, placeTip } from './clipTitle';
 import { TimelineRuler } from './TimelineRuler';
 import { ClipActionStrip } from './ClipActionStrip';
@@ -195,7 +195,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   // Marquee selection state
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   // Range tool drag: where it began (time and screen x) and whether the pointer has moved far enough to count as a drag.
-  const [rangeDrag, setRangeDrag] = useState<{ trackId: string; anchorSeconds: number; startClientX: number; moved: boolean } | null>(null);
+  const [rangeDrag, setRangeDrag] = useState<{ trackId: string; trackIndex: number; anchorSeconds: number; startClientX: number; moved: boolean } | null>(null);
 
   // Fade handle drag state
   const [fadeDrag, setFadeDrag] = useState<FadeDragState | null>(null);
@@ -771,7 +771,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       onSelectTrack(track.id);
       onRangeSelect(null);
       if (selectedClipIds.size > 0) onSelectClips(new Set());
-      setRangeDrag({ trackId: track.id, anchorSeconds: Math.max(0, timeAtClick), startClientX: e.clientX, moved: false });
+      setRangeDrag({ trackId: track.id, trackIndex, anchorSeconds: Math.max(0, timeAtClick), startClientX: e.clientX, moved: false });
       return;
     }
 
@@ -917,8 +917,14 @@ export const Timeline: React.FC<TimelineProps> = ({
         const x = e.clientX - rect.left + laneScrollContainerRef.current.scrollLeft - currentHeaderWidth;
         const here = Math.max(0, x / pixelsPerSecond);
         if (!rangeDrag.moved) setRangeDrag({ ...rangeDrag, moved: true });
+        // Dragging up or down across lanes widens the range to every track between where it began and the pointer
+        const y = e.clientY - rect.top + laneScrollContainerRef.current.scrollTop;
+        const overIndex = Math.max(0, Math.min(project.tracks.length - 1, Math.floor(y / ROW_HEIGHT)));
+        const lo = Math.min(rangeDrag.trackIndex, overIndex);
+        const hi = Math.max(rangeDrag.trackIndex, overIndex);
         onRangeSelect({
           trackId: rangeDrag.trackId,
+          trackIds: project.tracks.slice(lo, hi + 1).map((t) => t.id),
           startSeconds: Math.min(rangeDrag.anchorSeconds, here),
           endSeconds: Math.max(rangeDrag.anchorSeconds, here),
         });
@@ -1343,7 +1349,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 onMoveTrack={onMoveTrack}
                 onRecordTrack={onRecordTrack}
                 rangeTool={tool === 'range'}
-                rangeHighlight={rangeSelection && rangeSelection.trackId === track.id ? rangeSelection : null}
+                rangeHighlight={rangeSelection && rangeTrackIds(rangeSelection).includes(track.id) ? rangeSelection : null}
                 renderWaveforms={renderTrackWaveforms}
                 onLanePointerDown={handleLanePointerDown}
                 onLanePointerMoveHover={handleLanePointerMoveHover}

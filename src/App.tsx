@@ -46,7 +46,7 @@ import { StatusBar } from './components/StatusBar';
 import { RecordingModal } from './components/RecordingModal';
 import { takeStartSeconds } from './components/recordingMonitor';
 import { nextPartName } from './components/clipTitle';
-import { deleteRangeFromClips, type RangeSelection, type TimelineTool } from './components/rangeDelete';
+import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
 import { DspModals, DspModalType } from './components/DspModals';
@@ -2228,35 +2228,38 @@ const MainStudio: React.FC = () => {
     });
   };
 
-  /** Remove the highlighted range from its track and slide the rest of that track left to close the gap. */
+  /** Remove the highlighted range from every track it covers; each track slides its own later audio left to close the gap. */
   const handleDeleteRange = () => {
     const sel = rangeSelection;
     if (!sel) return;
-    const track = project.tracks.find((t) => t.id === sel.trackId);
-    if (!track) {
+    const ids = rangeTrackIds(sel).filter((id) => project.tracks.some((t) => t.id === id));
+    if (ids.length === 0) {
       setRangeSelection(null);
       return;
     }
-    const result = deleteRangeFromClips(
-      track.clips,
+    const result = deleteRangeFromTracks(
+      project.tracks,
+      ids,
       sel.startSeconds,
       sel.endSeconds,
       () => `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
     );
     setRangeSelection(null);
-    if (result.removedSeconds === 0) {
-      addToast({ type: 'info', title: 'Nothing to delete', message: 'There is no audio in that range on this track.' });
+    if (result.changedTrackIds.length === 0) {
+      addToast({ type: 'info', title: 'Nothing to delete', message: ids.length > 1 ? 'There is no audio in that range on these tracks.' : 'There is no audio in that range on this track.' });
       return;
     }
+    // One history step for every track, so a single Undo brings the whole range back
     setProjectWithHistory((prev) => ({
       ...prev,
-      tracks: prev.tracks.map((t) => (t.id === sel.trackId ? { ...t, clips: result.clips } : t)),
+      tracks: prev.tracks.map((t) => result.tracks.find((r) => r.id === t.id && result.changedTrackIds.includes(t.id)) ?? t),
     }));
     setSelectedClipIds(new Set());
+    const n = result.changedTrackIds.length;
     addToast({
       type: 'success',
       title: 'Range Deleted',
-      message: `Removed ${result.removedSeconds.toFixed(2)}s from this track and closed the gap.`,
+      message: `Removed ${result.removedSeconds.toFixed(2)}s from ${n === 1 ? 'this track' : `${n} tracks`} and closed the gap${n === 1 ? '' : 's'}.`,
     });
   };
 

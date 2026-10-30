@@ -11,7 +11,7 @@
  *
  * Pure and framework-free so the rules can be unit-tested without a browser.
  */
-import type { Clip } from '../types';
+import type { Clip, Track } from '../types';
 import { nextPartName } from './clipTitle';
 
 /** Which tool the timeline pointer uses: Select moves and edits clips; Range highlights a span of one track. */
@@ -19,7 +19,10 @@ export type TimelineTool = 'select' | 'range';
 
 /** A highlighted span of time on one track. startSeconds is always before endSeconds. */
 export interface RangeSelection {
+  /** The track the drag began on. */
   trackId: string;
+  /** Every track the range covers (always includes trackId). Absent means just trackId. */
+  trackIds?: string[];
   startSeconds: number;
   endSeconds: number;
 }
@@ -108,4 +111,41 @@ export const deleteRangeFromClips = (
   }
 
   return { clips: out, removedSeconds: changed.length > 0 ? gap : 0, changedClipIds: changed };
+};
+
+/** The tracks a range covers. */
+export const rangeTrackIds = (sel: Pick<RangeSelection, 'trackId' | 'trackIds'>): string[] =>
+  sel.trackIds && sel.trackIds.length > 0 ? sel.trackIds : [sel.trackId];
+
+export interface TracksRangeDeleteResult {
+  tracks: Track[];
+  /** Length of the range removed (same on every changed track), or 0 when nothing changed. */
+  removedSeconds: number;
+  /** Ids of the tracks that actually lost audio. */
+  changedTrackIds: string[];
+}
+
+/**
+ * Ripple-delete the same time range from several tracks at once. Each track closes its own gap and the others are
+ * never touched; tracks with no audio in the range are left as they were.
+ */
+export const deleteRangeFromTracks = (
+  tracks: readonly Track[],
+  trackIds: readonly string[],
+  rangeStart: number,
+  rangeEnd: number,
+  makeId: () => string,
+): TracksRangeDeleteResult => {
+  const included = new Set(trackIds);
+  const changedTrackIds: string[] = [];
+  let removedSeconds = 0;
+  const out = tracks.map((t) => {
+    if (!included.has(t.id)) return t;
+    const res = deleteRangeFromClips(t.clips, rangeStart, rangeEnd, makeId);
+    if (res.removedSeconds === 0) return t;
+    changedTrackIds.push(t.id);
+    removedSeconds = res.removedSeconds;
+    return { ...t, clips: res.clips };
+  });
+  return { tracks: out, removedSeconds, changedTrackIds };
 };

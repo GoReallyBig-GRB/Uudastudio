@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Clip } from '../types';
-import { deleteRangeFromClips, normalizeRange } from './rangeDelete';
+import type { Clip, Track } from '../types';
+import { deleteRangeFromClips, deleteRangeFromTracks, normalizeRange, rangeTrackIds } from './rangeDelete';
 
 const clip = (id: string, start: number, duration: number, extra: Partial<Clip> = {}): Clip => ({
   id,
@@ -126,5 +126,40 @@ describe('ripple delete on one track', () => {
   it('deleting a range that covers everything leaves the track empty', () => {
     const res = deleteRangeFromClips([clip('a', 1, 2), clip('b', 4, 2)], 0, 10, makeId);
     expect(res.clips).toHaveLength(0);
+  });
+});
+
+const track = (id: string, clips: Clip[]): Track => ({ id, name: id, clips, volume: 1, pan: 0, muted: false, solo: false });
+
+describe('ripple delete across several tracks', () => {
+  it('removes the span from every included track and closes each gap on its own', () => {
+    const tracks = [
+      track('t1', [clip('a', 0, 10)]),
+      track('t2', [clip('b', 2, 3), clip('c', 8, 4)]),
+      track('t3', [clip('d', 0, 10)]),
+    ];
+    const res = deleteRangeFromTracks(tracks, ['t1', 't2'], 4, 6, makeId);
+    expect(res.removedSeconds).toBe(2);
+    expect(res.changedTrackIds).toEqual(['t1', 't2']);
+    expect(res.tracks[0].clips).toHaveLength(2); // t1 clip split around the span
+    expect(res.tracks[1].clips.find((c) => c.id === 'c')!.startSeconds).toBe(6); // t2 later clip slides left
+    expect(res.tracks[2]).toBe(tracks[2]); // t3 untouched
+  });
+
+  it('leaves a track alone when it has no audio in the range', () => {
+    const tracks = [track('t1', [clip('a', 0, 2)]), track('t2', [clip('b', 0, 10)])];
+    const res = deleteRangeFromTracks(tracks, ['t1', 't2'], 5, 7, makeId);
+    expect(res.tracks[0]).toBe(tracks[0]);
+    expect(res.changedTrackIds).toEqual(['t2']);
+  });
+
+  it('reports nothing changed for an empty range', () => {
+    const tracks = [track('t1', [clip('a', 0, 10)])];
+    expect(deleteRangeFromTracks(tracks, ['t1'], 3, 3, makeId).changedTrackIds).toEqual([]);
+  });
+
+  it('rangeTrackIds falls back to the anchor track', () => {
+    expect(rangeTrackIds({ trackId: 't1' })).toEqual(['t1']);
+    expect(rangeTrackIds({ trackId: 't1', trackIds: ['t1', 't2'] })).toEqual(['t1', 't2']);
   });
 });
