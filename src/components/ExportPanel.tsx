@@ -6,6 +6,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Download, Loader2, X } from 'lucide-react';
 import type { Project } from '../types';
 import { selectionScope } from '../audio/exportScope';
+import { applyTempLevels, hasTempLevels, type TempClipLevels } from '../audio/tempClipLevels';
 import { exportProjectToFile, measureExportedBlob, triggerFileDownload, type LoudnessStats } from '../audio/exportProject';
 import { masteringController } from '../audio/masteringController';
 import { planMixdown } from '../audio/blockMixdown';
@@ -33,6 +34,9 @@ interface ExportPanelProps {
   selectedClipIds?: ReadonlySet<string>;
   /** Opened from "Export" on a selection: start with the selected clips chosen. */
   startWithSelection?: boolean;
+  /** Temporary per-clip levels from the group being mastered: applied to this export only, never saved */
+  tempClipLevels?: TempClipLevels;
+  onResetTempLevels?: () => void;
 }
 
 interface Finished {
@@ -60,7 +64,7 @@ const FORMATS: Array<{ value: ExportFormat; name: string; detail: string }> = [
   { value: 'uuda', name: 'Project', detail: 'Editable later' },
 ];
 
-export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, mastering, mixKey, onEditMastering, onClose, selectedClipIds, startWithSelection = false }) => {
+export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, mastering, mixKey, onEditMastering, onClose, selectedClipIds, startWithSelection = false, tempClipLevels = {}, onResetTempLevels }) => {
   // Scope: the whole project, or only the selected clips (and their groups), from where they start to where they end
   const selection = useMemo(
     () => (selectedClipIds && selectedClipIds.size > 0 ? selectionScope(fullProject, selectedClipIds) : null),
@@ -68,7 +72,9 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
   );
   const [scope, setScope] = useState<'all' | 'selection'>(startWithSelection && selection ? 'selection' : 'all');
   const useSelection = scope === 'selection' && !!selection && !!selection.range;
-  const project = useSelection ? selection!.project : fullProject;
+  const tempActive = hasTempLevels(tempClipLevels);
+  const baseProject = useSelection ? selection!.project : fullProject;
+  const project = useMemo(() => applyTempLevels(baseProject, tempClipLevels), [baseProject, tempClipLevels]);
   const exportRange = useSelection ? selection!.range! : undefined;
   const [title, setTitle] = useState(fullProject.name || 'Uuda Studio Export');
   const [format, setFormat] = useState<ExportFormat>('wav');
@@ -102,7 +108,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
       mp3Kbps: kbps,
       range: exportRange,
       // The saved loudness analysis describes the whole mix, so it is only reused for a whole-project export
-      mastering: applied ? { settings: mastering, gainDb: matched && !useSelection && outRate === sampleRate ? mastering.analysis!.gainDb : undefined } : null,
+      mastering: applied ? { settings: mastering, gainDb: matched && !useSelection && !tempActive && outRate === sampleRate ? mastering.analysis!.gainDb : undefined } : null,
       sampleRate: outRate,
       onProgress: (p) => setProgress({ percent: p.percent, message: p.message }),
       isCancelled: () => cancelled.current,
@@ -198,6 +204,16 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
         ) : (
           <>
             <div className={`flex-1 space-y-7 overflow-y-auto px-5 pb-6 pt-5 transition-opacity sm:px-7 ${running ? 'pointer-events-none opacity-40' : ''}`} aria-busy={running}>
+              {tempActive && (
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-cyan-400/30 bg-cyan-400/5 px-4 py-3 text-xs text-zinc-300">
+                  <span>Temporary clip levels are applied to this export ({Object.keys(tempClipLevels).length} {Object.keys(tempClipLevels).length === 1 ? 'clip' : 'clips'}). They are not saved.</span>
+                  {onResetTempLevels && (
+                    <button type="button" onClick={onResetTempLevels} className="shrink-0 rounded-full border border-zinc-700 px-3 py-1 font-semibold text-zinc-100 hover:bg-zinc-800">
+                      Reset
+                    </button>
+                  )}
+                </div>
+              )}
               <div>
                 <label htmlFor="export-title" className="mb-2 block text-xs font-medium text-zinc-400">Name</label>
                 <div className="flex items-baseline gap-2 border-b border-zinc-700 pb-2 transition-colors focus-within:border-cyan-300">

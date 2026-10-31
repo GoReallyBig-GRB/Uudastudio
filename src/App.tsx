@@ -67,6 +67,8 @@ import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProje
 import { formatVolumeDb } from './utils/formatters';
 import { masteringController } from './audio/masteringController';
 import { selectionScope } from './audio/exportScope';
+import { applyTempLevels, hasTempLevels, levelFactors, pruneTempLevels, setTempLevel, type TempClipLevels } from './audio/tempClipLevels';
+import { getTrackLabel as trackLabelOf } from './utils/tracks';
 import { analysisIsCurrent, masteringKey, mixFingerprint, normalizeMastering, type MasteringAnalysis, type MasteringSettings } from './audio/masteringSettings';
 import { toChainSettings } from './audio/masteringSettings';
 import { useAuth } from './hooks/useAuth';
@@ -386,6 +388,22 @@ const MainStudio: React.FC = () => {
     setSoloGroupId((cur) => (cur === groupId ? null : groupId));
   }, []);
 
+  // Temporary per-clip levels for the group being mastered. Not saved, not in undo; heard live and applied to the export.
+  const [tempClipLevels, setTempClipLevels] = useState<TempClipLevels>({});
+  useEffect(() => { audioEngine.setTempClipLevels(levelFactors(tempClipLevels)); }, [tempClipLevels]);
+  useEffect(() => { setTempClipLevels({}); }, [soloGroupId]); // a different group (or none): start clean
+  useEffect(() => {
+    // Drop levels of clips that no longer exist (deleted, cut, ungrouped)
+    setTempClipLevels((cur) => {
+      if (!hasTempLevels(cur)) return cur;
+      const valid = new Set(project.tracks.flatMap((t) => t.clips.map((c) => c.id)));
+      const next = pruneTempLevels(cur, valid);
+      return Object.keys(next).length === Object.keys(cur).length ? cur : next;
+    });
+  }, [project.tracks]);
+  const handleTempClipLevel = useCallback((clipId: string, db: number) => setTempClipLevels((cur) => setTempLevel(cur, clipId, db)), []);
+  const handleResetTempLevels = useCallback(() => setTempClipLevels({}), []);
+
   // Mastering is a processor on the master bus: settings live with the project (not in undo history)
   const mastering = useMemo(() => normalizeMastering(project.mastering), [project.mastering]);
   const mixKey = useMemo(
@@ -413,13 +431,22 @@ const MainStudio: React.FC = () => {
     const g = groups.find((x) => x.id === soloGroupId);
     if (!g) return null;
     const scope = selectionScope(project, new Set(g.clipIds));
-    return scope.range ? { project: scope.project, range: scope.range, groupId: soloGroupId } : null;
-  }, [soloGroupId, groups, project]);
+    return scope.range ? { project: applyTempLevels(scope.project, tempClipLevels), range: scope.range, groupId: soloGroupId } : null;
+  }, [soloGroupId, groups, project, tempClipLevels]);
   const soloMixKey = useMemo(
     () => (soloScope ? `${mixFingerprint(soloScope.project, audioEngine.getMasterVolume(), audioEngine.getMasterMute())}|${soloScope.range.startSeconds}-${soloScope.range.endSeconds}` : ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [soloScope, masterFaderRev],
   );
+  const levelGroup = useMemo(() => {
+    if (!soloGroupId) return null;
+    const g = groups.find((x) => x.id === soloGroupId);
+    if (!g) return null;
+    const ids = new Set(g.clipIds);
+    const clips = project.tracks.flatMap((t, ti) => t.clips.filter((c) => ids.has(c.id)).map((c) => ({ id: c.id, name: c.name, trackLabel: trackLabelOf(t, ti), start: c.startSeconds })));
+    clips.sort((a, b) => a.start - b.start);
+    return { name: g.name, color: g.color.border, clips: clips.map(({ id, name, trackLabel }) => ({ id, name, trackLabel })) };
+  }, [soloGroupId, groups, project.tracks]);
   const [groupAnalysis, setGroupAnalysis] = useState<{ groupId: string; analysis: MasteringAnalysis } | null>(null);
   useEffect(() => { if (!soloGroupId) setGroupAnalysis(null); }, [soloGroupId]);
   const groupAnalysisCurrent =
@@ -3145,6 +3172,10 @@ const MainStudio: React.FC = () => {
                     onUpdateGroup={handleUpdateGroup}
                     soloGroupId={soloGroupId}
                     onToggleSolo={handleToggleSoloGroup}
+                    levelGroup={levelGroup}
+                    tempClipLevels={tempClipLevels}
+                    onTempClipLevel={handleTempClipLevel}
+                    onResetTempLevels={handleResetTempLevels}
                     onAddTrack={handleAddEmptyTrack}
                     selectedTrackId={selectedTrackId}
                     onSelectTrack={(id) => setSelectedTrackId(id)}
@@ -3219,12 +3250,16 @@ const MainStudio: React.FC = () => {
                 onTogglePlay={() => (isPlaying ? handlePause() : handlePlay())}
                 onOpenExport={openExport}
                 onMasterFaderChange={() => setMasterFaderRev((r) => r + 1)}
-                onClose={() => setIsRightSidebarOpen(false)}
+                onClose={() => { setIsRightSidebarOpen(false); setTempClipLevels({}); }}
                 onUpdateTrack={handleUpdateTrack}
                 groups={groups}
                 onUpdateGroup={handleUpdateGroup}
                 soloGroupId={soloGroupId}
                 onToggleSolo={handleToggleSoloGroup}
+                levelGroup={levelGroup}
+                tempClipLevels={tempClipLevels}
+                onTempClipLevel={handleTempClipLevel}
+                onResetTempLevels={handleResetTempLevels}
                 onAddTrack={handleAddEmptyTrack}
                 selectedTrackId={selectedTrackId}
                 onSelectTrack={(id) => setSelectedTrackId(id)}
@@ -3248,7 +3283,7 @@ const MainStudio: React.FC = () => {
       </div>
 
       {isExportOpen && (
-        <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => setIsExportOpen(false)} selectedClipIds={selectedClipIds} startWithSelection={exportSelectionFirst} />
+        <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => { setIsExportOpen(false); setTempClipLevels({}); }} selectedClipIds={selectedClipIds} startWithSelection={exportSelectionFirst} tempClipLevels={tempClipLevels} onResetTempLevels={handleResetTempLevels} />
       )}
 
       {/* Bottom Status Bar */}

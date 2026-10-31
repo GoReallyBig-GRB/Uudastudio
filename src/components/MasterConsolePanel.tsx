@@ -33,6 +33,8 @@ import {
 import { Project, Track, GroupSettings } from '../types';
 import type { GroupSummary } from '../audio/groupInfo';
 import { GroupConsoleStrip } from './GroupConsoleStrip';
+import { GroupClipLevels, type LevelClip } from './GroupClipLevels';
+import type { TempClipLevels } from '../audio/tempClipLevels';
 import { audioEngine, MasterLiveMetering } from '../audio/engine';
 import { formatVolumeDb, formatPan } from '../utils/formatters';
 import { getTrackLabel } from '../utils/tracks';
@@ -60,6 +62,11 @@ interface MasterConsolePanelProps {
   onUpdateGroup?: (groupId: string, patch: Partial<GroupSettings>) => void;
   soloGroupId?: string | null;
   onToggleSolo?: (groupId: string) => void;
+  /** The group being mastered (soloed): its clips get temporary level sliders in the Mastering tab */
+  levelGroup?: { name: string; color: string; clips: LevelClip[] } | null;
+  tempClipLevels?: TempClipLevels;
+  onTempClipLevel?: (clipId: string, db: number) => void;
+  onResetTempLevels?: () => void;
   onAddTrack?: () => void;
   selectedTrackId?: string | null;
   onSelectTrack?: (trackId: string) => void;
@@ -84,6 +91,10 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
   onUpdateGroup,
   soloGroupId = null,
   onToggleSolo,
+  levelGroup = null,
+  tempClipLevels = {},
+  onTempClipLevel,
+  onResetTempLevels,
   onAddTrack,
   selectedTrackId,
   onSelectTrack,
@@ -870,16 +881,30 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
         )}
 
         {activeTab === 'mastering' && (
-          <MasteringPanel
-            settings={mastering}
-            mixKey={mixKey}
-            hasAudio={project.tracks.some((t) => t.clips.length > 0)}
-            isPlaying={isPlaying}
-            onChange={onMasteringChange}
-            onMeasureNow={onMeasureMastering}
-            onTogglePlay={onTogglePlay}
-            onExport={onOpenExport}
-          />
+          <div className="flex h-full min-h-0 flex-col">
+            {levelGroup && onTempClipLevel && onResetTempLevels && (
+              <GroupClipLevels
+                groupName={levelGroup.name}
+                color={levelGroup.color}
+                clips={levelGroup.clips}
+                levels={tempClipLevels}
+                onChange={onTempClipLevel}
+                onReset={onResetTempLevels}
+              />
+            )}
+            <div className="min-h-0 flex-1">
+              <MasteringPanel
+                settings={mastering}
+                mixKey={mixKey}
+                hasAudio={project.tracks.some((t) => t.clips.length > 0)}
+                isPlaying={isPlaying}
+                onChange={onMasteringChange}
+                onMeasureNow={onMeasureMastering}
+                onTogglePlay={onTogglePlay}
+                onExport={onOpenExport}
+              />
+            </div>
+          </div>
         )}
       </div>
     </div>
