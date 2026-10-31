@@ -45,6 +45,9 @@ interface TimelineProps {
   onSeek: (seconds: number) => void;
   /** Single-track view: only this track is shown, large. null shows every track. */
   focusTrackId?: string | null;
+  onToggleFocus?: () => void;
+  focusSolo?: boolean;
+  onToggleFocusSolo?: () => void;
   onSplitClip: (clipId: string) => void;
   onSilence?: () => void;
   onRangeGain?: (db: number) => void;
@@ -173,6 +176,9 @@ export const Timeline: React.FC<TimelineProps> = ({
   onTracksAutoRemoved,
   onSeek,
   focusTrackId = null,
+  onToggleFocus,
+  focusSolo = true,
+  onToggleFocusSolo,
   onSplitClip,
   onSilence,
   onRangeGain,
@@ -1564,6 +1570,10 @@ export const Timeline: React.FC<TimelineProps> = ({
         <ClipActionStrip
           clip={stripClip}
           range={actionStrip.range && rangeSelection ? { seconds: rangeSelection.endSeconds - rangeSelection.startSeconds } : null}
+          focusActive={focused}
+          onToggleFocus={onToggleFocus}
+          focusSolo={focusSolo}
+          onToggleFocusSolo={onToggleFocusSolo}
           onSilence={onSilence}
           onRangeGain={onRangeGain}
           onDeleteRange={onDeleteRange}

@@ -201,6 +201,12 @@ const MainStudio: React.FC = () => {
   const [timelineTool, setTimelineTool] = useState<TimelineTool>('select');
   // Single-track view: the id of the one track shown large (the rest of the mix keeps playing), or null for all tracks
   const [focusTrackId, setFocusTrackId] = useState<string | null>(null);
+  // In single-track view the track is soloed by default (so edits that change its length never fight the rest of the mix); switch to hear the full mix
+  const [focusSolo, setFocusSolo] = useState(true);
+  useEffect(() => {
+    audioEngine.setFocusSolo(focusTrackId && focusSolo ? focusTrackId : null);
+    return () => audioEngine.setFocusSolo(null);
+  }, [focusTrackId, focusSolo]);
   const [rangeSelection, setRangeSelection] = useState<RangeSelection | null>(null);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('tracks');
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState<boolean>(false);
@@ -3251,6 +3257,8 @@ const MainStudio: React.FC = () => {
         }}
         focusActive={!!focusTrackId}
         onToggleFocus={toggleFocusTrack}
+        focusSolo={focusSolo}
+        onToggleFocusSolo={() => setFocusSolo((v) => !v)}
         rangeSeconds={rangeSelection ? rangeSelection.endSeconds - rangeSelection.startSeconds : null}
         onDeleteRange={handleDeleteRange}
         isControllerCollapsed={isTimelineControlsCollapsed}
@@ -3424,6 +3432,9 @@ const MainStudio: React.FC = () => {
               onMoveTrack={handleMoveTrack}
               tool={timelineTool}
               focusTrackId={focusTrackId}
+              onToggleFocus={toggleFocusTrack}
+              focusSolo={focusSolo}
+              onToggleFocusSolo={() => setFocusSolo((v) => !v)}
               rangeSelection={rangeSelection}
               onRangeSelect={setRangeSelection}
               onRecordTrack={(trackId) => {
