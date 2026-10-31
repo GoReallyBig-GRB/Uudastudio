@@ -50,6 +50,7 @@ import { nextPartName } from './components/clipTitle';
 import { copyRange, pasteRange, type RangeClipboard } from './components/rangeClipboard';
 import { copyClipSet, pasteClipSet, type ClipSetClipboard } from './components/clipSetClipboard';
 import { isolateRangeInTracks } from './components/rangeIsolate';
+import { breakChainAt, chainHead, chainIds, expandChains, remapSpliceIds, selectionUnitCount, spreadUpdate } from './components/spliceChains';
 import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
@@ -178,7 +179,11 @@ const MainStudio: React.FC = () => {
   const [pixelsPerSecond, setPixelsPerSecond] = useState<number>(60);
   const [timelineViewportWidth, setTimelineViewportWidth] = useState<number>(1200);
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
-  const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set());
+  // What was clicked; the selection the app works with also includes every piece joined to a clicked piece
+  const [rawSelectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set());
+  const selectedClipIds = useMemo(() => expandChains(project.tracks, rawSelectedClipIds), [project.tracks, rawSelectedClipIds]);
+  /** How many clips the user sees selected: a spliced clip (pieces joined end to end) counts once */
+  const selectedUnitCount = useMemo(() => selectionUnitCount(project.tracks, selectedClipIds), [project.tracks, selectedClipIds]);
   const [clipboardClip, setClipboardClip] = useState<Clip | null>(null);
   // A copied time range (one or several tracks). Whichever of the two was copied last is what Paste uses.
   const [rangeClipboard, setRangeClipboard] = useState<RangeClipboard | null>(null);
@@ -194,6 +199,14 @@ const MainStudio: React.FC = () => {
   const recordStartSecondsRef = useRef<number>(0);
   // Pointer tool and the highlighted range (one track, a span of time) that Delete removes and closes up.
   const [timelineTool, setTimelineTool] = useState<TimelineTool>('select');
+  // Single-track view: the id of the one track shown large (the rest of the mix keeps playing), or null for all tracks
+  const [focusTrackId, setFocusTrackId] = useState<string | null>(null);
+  // In single-track view the track is soloed by default (so edits that change its length never fight the rest of the mix); switch to hear the full mix
+  const [focusSolo, setFocusSolo] = useState(true);
+  useEffect(() => {
+    audioEngine.setFocusSolo(focusTrackId && focusSolo ? focusTrackId : null);
+    return () => audioEngine.setFocusSolo(null);
+  }, [focusTrackId, focusSolo]);
   const [rangeSelection, setRangeSelection] = useState<RangeSelection | null>(null);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('tracks');
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState<boolean>(false);
@@ -274,14 +287,11 @@ const MainStudio: React.FC = () => {
 
   // Single selected clip memo for quick toolbar and DSP actions
   const selectedClip = useMemo(() => {
-    if (selectedClipIds.size !== 1) return null;
+    if (selectedUnitCount !== 1) return null;
+    // One clip, or the first piece of one spliced clip
     const [id] = Array.from(selectedClipIds);
-    for (const track of project.tracks) {
-      const found = track.clips.find((c) => c.id === id);
-      if (found) return found;
-    }
-    return null;
-  }, [project.tracks, selectedClipIds]);
+    return chainHead(project.tracks, id);
+  }, [project.tracks, selectedClipIds, selectedUnitCount]);
 
   const dspTargetClip = useMemo(() => {
     if (!dspTargetClipId) return selectedClip;
@@ -1876,6 +1886,7 @@ const MainStudio: React.FC = () => {
         trackId: targetTrack.id,
         name: `${clipboardClip.name} (Pasted)`,
         groupId: undefined,
+        spliceId: undefined,
         startSeconds: pasteTime,
       };
 
@@ -1903,6 +1914,7 @@ const MainStudio: React.FC = () => {
         trackId: newTrackId,
         name: `${clipboardClip.name} (Pasted)`,
         groupId: undefined,
+        spliceId: undefined,
         startSeconds: pasteTime,
       };
       const newTrack: Track = {
@@ -1942,10 +1954,18 @@ const MainStudio: React.FC = () => {
       return;
     }
 
+    // A clip made of joined pieces splits where the playhead is: pick the piece under it
+    const joinedIds = chainIds(project.tracks, idToSplit);
+    const ph = playheadSecondsRef.current;
+    const splitId =
+      joinedIds.length > 1
+        ? project.tracks.flatMap((t) => t.clips).find((c) => joinedIds.includes(c.id) && ph > c.startSeconds && ph < c.startSeconds + c.durationSeconds)?.id ?? idToSplit
+        : idToSplit;
+
     let targetClip: Clip | undefined;
     let targetTrack: Track | undefined;
     for (const track of project.tracks) {
-      const c = track.clips.find((cl) => cl.id === idToSplit);
+      const c = track.clips.find((cl) => cl.id === splitId);
       if (c) {
         targetClip = c;
         targetTrack = track;
@@ -1990,6 +2010,8 @@ const MainStudio: React.FC = () => {
       fadeOutSeconds: Math.min(targetClip.fadeOutSeconds, leftDuration / 2),
     };
 
+    const newSpliceId = `sp-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const laterPieces = targetClip.spliceId ? breakChainAt(targetTrack.clips, splitId, playheadSecondsRef.current, newSpliceId) : new Map<string, Partial<Clip>>();
     const rightClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const rightClip: Clip = {
       id: rightClipId,
@@ -2004,14 +2026,16 @@ const MainStudio: React.FC = () => {
       fadeOutSeconds: targetClip.fadeOutSeconds,
       fadeShape: targetClip.fadeShape,
       muted: targetClip.muted,
+      // Splitting ends the join: this half and every later piece of the same clip become a clip of their own
+      spliceId: targetClip.spliceId ? newSpliceId : undefined,
     };
 
     setProjectWithHistory((prev) => {
       const updatedTracks = prev.tracks.map((track) => {
         if (track.id !== targetTrack!.id) return track;
-        const clipIdx = track.clips.findIndex((c) => c.id === idToSplit);
+        const clipIdx = track.clips.findIndex((c) => c.id === splitId);
         if (clipIdx === -1) return track;
-        const newClips = [...track.clips];
+        const newClips = track.clips.map((c) => (laterPieces.has(c.id) ? { ...c, ...laterPieces.get(c.id) } : c));
         newClips.splice(clipIdx, 1, leftClip, rightClip);
         return { ...track, clips: newClips };
       });
@@ -2056,6 +2080,7 @@ const MainStudio: React.FC = () => {
           ...clip,
           id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
           name: `${clip.name} (Copy)`,
+          spliceId: undefined,
           startSeconds: clip.startSeconds + clip.durationSeconds + 0.5,
         };
 
@@ -2073,14 +2098,10 @@ const MainStudio: React.FC = () => {
   const handleToggleMuteClip = (clipId?: string) => {
     const idToMute = clipId || selectedClip?.id;
     if (!idToMute) return;
-
-    setProjectWithHistory((prev) => ({
-      ...prev,
-      tracks: prev.tracks.map((track) => ({
-        ...track,
-        clips: track.clips.map((c) => (c.id === idToMute ? { ...c, muted: !c.muted } : c)),
-      })),
-    }));
+    let current: Clip | undefined;
+    for (const track of project.tracks) current = current ?? track.clips.find((c) => c.id === idToMute);
+    if (!current) return;
+    handleUpdateClip(idToMute, { muted: !current.muted });
   };
 
   const handleMoveClipTrack = (clipId?: string, direction: 'up' | 'down' = 'up') => {
@@ -2345,13 +2366,17 @@ const MainStudio: React.FC = () => {
   };
 
   const handleUpdateClip = (clipId: string, updates: Partial<Clip>) => {
-    setProjectWithHistory((prev) => ({
-      ...prev,
-      tracks: prev.tracks.map((track) => ({
-        ...track,
-        clips: track.clips.map((c) => (c.id === clipId ? { ...c, ...updates } : c)),
-      })),
-    }));
+    setProjectWithHistory((prev) => {
+      // A spliced clip is one clip: level, mute and curve reach every piece, a fade-in the first piece, a fade-out the last
+      const spread = spreadUpdate(prev.tracks, clipId, updates);
+      return {
+        ...prev,
+        tracks: prev.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.map((c) => (spread.has(c.id) ? { ...c, ...spread.get(c.id) } : c)),
+        })),
+      };
+    });
   };
 
   /** The same change to several clips as ONE undo step */
@@ -2388,7 +2413,7 @@ const MainStudio: React.FC = () => {
    * either side stays put), then `patch` is applied to the pieces inside the range, all as ONE undo step. The pieces stay
    * selected afterwards so the clip toolbar carries straight on. Returns the ids of the pieces, or null when nothing was there.
    */
-  const editRange = (patch?: (c: Clip) => Partial<Clip>): string[] | null => {
+  const editRange = (patch?: (c: Clip) => Partial<Clip>, joined = false): string[] | null => {
     const sel = rangeSelection;
     if (!sel) return null;
     const ids = rangeTrackIds(sel).filter((id) => project.tracks.some((t) => t.id === id));
@@ -2398,6 +2423,7 @@ const MainStudio: React.FC = () => {
       sel.startSeconds,
       sel.endSeconds,
       () => `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      joined,
     );
     setRangeSelection(null);
     if (result.innerClipIds.length === 0) {
@@ -2422,7 +2448,7 @@ const MainStudio: React.FC = () => {
   /** Silence: a highlighted range, or the selected clips, goes quiet (it can be undone, or the piece unmuted). */
   const handleSilence = () => {
     if (rangeSelection) {
-      const done = editRange(() => ({ muted: true }));
+      const done = editRange(() => ({ muted: true }), true);
       if (done) addToast({ type: 'success', title: 'Range silenced', message: 'That part is now muted. Undo, or unmute the piece, to bring it back.' });
       return;
     }
@@ -2436,7 +2462,7 @@ const MainStudio: React.FC = () => {
   /** Make the highlighted range louder or quieter by a number of dB (non-destructive clip gain on the piece). */
   const handleRangeGain = (db: number) => {
     const factor = Math.pow(10, db / 20);
-    const done = editRange((c) => ({ gain: Math.min(2.5, Math.max(0, c.gain * factor)) }));
+    const done = editRange((c) => ({ gain: Math.min(2.5, Math.max(0, c.gain * factor)) }), true);
     if (done) addToast({ type: 'success', title: db < 0 ? 'Range softened' : 'Range boosted', message: `${db > 0 ? '+' : ''}${db} dB on the highlighted part.` });
   };
 
@@ -2446,9 +2472,77 @@ const MainStudio: React.FC = () => {
     else handleSplitClip(clipId);
   };
 
+  /**
+   * Render the pieces of an edited clip (parts deleted, silenced or lowered) into ONE piece of audio, so processing tools
+   * that work on a single stretch of audio can run on it. Only for audio held in memory; long audio kept on disk is
+   * refused with a message rather than loaded whole. Returns the id of the resulting clip.
+   */
+  const consolidateClip = async (clipId: string): Promise<string | null> => {
+    const ids = chainIds(project.tracks, clipId);
+    const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => ids.includes(c.id)).sort((a, b) => a.startSeconds - b.startSeconds);
+    if (pieces.length < 2) return clipId;
+    const assets = pieces.map((c) => audioEngine.getAsset(c.assetId));
+    if (assets.some((x) => !x || !x.buffer)) {
+      addToast({ type: 'warning', title: 'Not available for long audio yet', message: 'This edited clip is too long to process whole. Highlight a part with the Range tool (X) and process that instead.' });
+      return null;
+    }
+    const first = pieces[0];
+    const last = pieces[pieces.length - 1];
+    const sampleRate = assets[0]!.sampleRate || 48000;
+    const channels = Math.max(1, Math.min(2, Math.max(...assets.map((x) => x!.numberOfChannels || 1))));
+    const total = last.startSeconds + last.durationSeconds - first.startSeconds;
+    const ctx = new OfflineAudioContext(channels, Math.max(128, Math.round(total * sampleRate)), sampleRate);
+    pieces.forEach((piece, i) => {
+      if (piece.muted) return;
+      const src = ctx.createBufferSource();
+      src.buffer = assets[i]!.buffer!;
+      const g = ctx.createGain();
+      g.gain.value = piece.gain;
+      src.connect(g);
+      g.connect(ctx.destination);
+      src.start(Math.max(0, piece.startSeconds - first.startSeconds), Math.max(0, piece.offsetSeconds || 0), piece.durationSeconds);
+    });
+    const rendered = await ctx.startRendering();
+    const newAsset: Asset = {
+      id: `asset-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      name: `${first.name} (edited)`,
+      kind: assets[0]!.kind,
+      buffer: rendered,
+      sampleRate: rendered.sampleRate,
+      durationSeconds: rendered.duration,
+      numberOfChannels: rendered.numberOfChannels,
+    };
+    audioEngine.registerAsset(newAsset);
+    await saveAssetToDB(newAsset);
+    peakProvider.clearAsset(newAsset.id);
+    const drop = new Set(ids);
+    drop.delete(first.id);
+    setProjectWithHistory((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((t) => ({
+        ...t,
+        clips: t.clips
+          .filter((c) => !drop.has(c.id))
+          .map((c) =>
+            c.id === first.id
+              ? { ...c, assetId: newAsset.id, offsetSeconds: 0, durationSeconds: total, gain: 1, muted: false, spliceId: undefined, fadeOutSeconds: last.fadeOutSeconds }
+              : c,
+          ),
+      })),
+    }));
+    setSelectedClipIds(new Set([first.id]));
+    return first.id;
+  };
+
   /** Processing tools on a range: the range is split out, then the tool opens on its piece. */
   const openDspAny = (type: DspModalType) => {
     if (!rangeSelection) {
+      // An edited clip (joined pieces) is first rendered into one piece of audio, then the tool opens on it
+      const target = selectedClip;
+      if (target && chainIds(project.tracks, target.id).length > 1) {
+        void consolidateClip(target.id).then((id) => { if (id) handleOpenDspModal(type, id); });
+        return;
+      }
       handleOpenDspModal(type);
       return;
     }
@@ -2502,13 +2596,24 @@ const MainStudio: React.FC = () => {
       () => `clip-${stamp()}`,
       (index) => ({ id: `track-${stamp()}`, name: `Track ${index + 1}`, clips: [], volume: 1.0, pan: 0, muted: false, solo: false }),
     );
-    setProjectWithHistory((prev) => ({ ...prev, tracks: result.tracks }));
+    setProjectWithHistory((prev) => ({ ...prev, tracks: withFreshSplices(result.tracks, result.addedClipIds) }));
     setSelectedClipIds(new Set(result.addedClipIds));
     addToast({
       type: 'success',
       title: 'Range pasted',
       message: `Pasted ${rangeClipboard.layers.length} ${rangeClipboard.layers.length === 1 ? 'track' : 'tracks'} at ${playheadSecondsRef.current.toFixed(2)}s${result.createdTrackIds.length ? ` (added ${result.createdTrackIds.length} ${result.createdTrackIds.length === 1 ? 'track' : 'tracks'})` : ''}.`,
     });
+  };
+
+  /** Pasted pieces of a spliced clip get their own join ids, so a copy never merges with the clip it came from */
+  const withFreshSplices = (tracks: Track[], addedIds: string[]): Track[] => {
+    const added = new Set(addedIds);
+    const fresh = remapSpliceIds(
+      tracks.flatMap((t) => t.clips.filter((c) => added.has(c.id))),
+      () => `sp-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    );
+    const byId = new Map(fresh.map((c) => [c.id, c]));
+    return tracks.map((t) => ({ ...t, clips: t.clips.map((c) => byId.get(c.id) ?? c) }));
   };
 
   /** Copy several clips at once (a group or any multi-selection): same relative timing, same stack of tracks. */
@@ -2553,7 +2658,7 @@ const MainStudio: React.FC = () => {
       () => `group-${stamp()}`,
     );
     setProjectWithHistory((prev) => {
-      let next: Project = { ...prev, tracks: result.tracks };
+      let next: Project = { ...prev, tracks: withFreshSplices(result.tracks, result.addedClipIds) };
       // Each pasted group starts with the level, pan and mute of the group it was copied from, under a fresh colour and name
       for (const [oldId, newId] of Object.entries(result.groupMap)) {
         const src = prev.groupSettings?.[oldId];
@@ -2581,6 +2686,20 @@ const MainStudio: React.FC = () => {
       : clipboardKind === 'set' && clipSetClipboard ? handlePasteSet()
       : handlePasteClip(...args);
   const canPasteAny = clipboardKind === 'range' ? !!rangeClipboard : clipboardKind === 'set' ? !!clipSetClipboard : !!clipboardClip;
+
+  /** Single-track view on or off. On: the selected clip's track, else the selected track, else the first one. */
+  const toggleFocusTrack = () => {
+    if (focusTrackId) {
+      setFocusTrackId(null);
+      return;
+    }
+    const clipTrack = selectedClip ? project.tracks.find((t) => t.clips.some((c) => c.id === selectedClip.id))?.id : undefined;
+    const rangeTrack = rangeSelection?.trackId;
+    const id = rangeTrack ?? clipTrack ?? selectedTrackId ?? project.tracks[0]?.id ?? null;
+    if (!id) return;
+    setSelectedTrackId(id);
+    setFocusTrackId(id);
+  };
 
   /** Remove the highlighted range from every track it covers; each track slides its own later audio left to close the gap. */
   const handleDeleteRange = () => {
@@ -2821,6 +2940,23 @@ const MainStudio: React.FC = () => {
         }
       }
 
+      // Z / X: Select tool / Range tool (next to each other, so a long edit never needs the mouse for this)
+      if ((e.key === 'z' || e.key === 'Z' || e.key === 'x' || e.key === 'X') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        if (e.key === 'z' || e.key === 'Z') {
+          setTimelineTool('select');
+          setRangeSelection(null);
+        } else {
+          setTimelineTool('range');
+        }
+      }
+
+      // F: single-track view on / off (the selected clip's track, else the selected track, else the first)
+      if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        toggleFocusTrack();
+      }
+
       // R: Open Recording Studio
       if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
@@ -2829,7 +2965,7 @@ const MainStudio: React.FC = () => {
 
       // S: Split selected clip at playhead
       if (e.key === 's' || e.key === 'S') {
-        if (selectedClipIds.size === 1) {
+        if (selectedUnitCount === 1) {
           const [clipId] = Array.from(selectedClipIds);
           handleSplitClip(clipId);
         }
@@ -2904,7 +3040,7 @@ const MainStudio: React.FC = () => {
 
       // M: Mute / unmute selected clip
       if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey) {
-        if (selectedClipIds.size === 1) {
+        if (selectedUnitCount === 1) {
           e.preventDefault();
           handleToggleMuteClip();
         }
@@ -2932,12 +3068,12 @@ const MainStudio: React.FC = () => {
       }
 
       // Arrow Up / Down: Move selected clip between tracks
-      if (e.key === 'ArrowUp' && selectedClipIds.size === 1) {
+      if (e.key === 'ArrowUp' && selectedUnitCount === 1) {
         e.preventDefault();
         const [clipId] = Array.from(selectedClipIds);
         handleMoveClipTrack(clipId, 'up');
       }
-      if (e.key === 'ArrowDown' && selectedClipIds.size === 1) {
+      if (e.key === 'ArrowDown' && selectedUnitCount === 1) {
         e.preventDefault();
         const [clipId] = Array.from(selectedClipIds);
         handleMoveClipTrack(clipId, 'down');
@@ -2959,6 +3095,8 @@ const MainStudio: React.FC = () => {
     clipSetClipboard,
     selectedTrackId,
     rangeSelection,
+    focusTrackId,
+    selectedUnitCount,
   ]);
 
   // Mouse wheel zoom (Ctrl + Wheel)
@@ -3044,7 +3182,7 @@ const MainStudio: React.FC = () => {
         onUndo={handleUndo}
         onRedo={handleRedo}
         onSplit={() => {
-          if (selectedClipIds.size === 1) {
+          if (selectedUnitCount === 1) {
             const [clipId] = Array.from(selectedClipIds);
             handleSplitClip(clipId);
           }
@@ -3097,7 +3235,7 @@ const MainStudio: React.FC = () => {
       {/* Selected Clip Toolbar (Permanent accessible fallback docked below Header) */}
       <ClipToolbar
         clip={selectedClip}
-        selectedCount={selectedClipIds.size}
+        selectedCount={selectedUnitCount}
         canPaste={canPasteAny}
         onSplit={(id) => splitAny(id)}
         onSilence={handleSilence}
@@ -3117,6 +3255,10 @@ const MainStudio: React.FC = () => {
           setTimelineTool(tool);
           if (tool === 'select') setRangeSelection(null);
         }}
+        focusActive={!!focusTrackId}
+        onToggleFocus={toggleFocusTrack}
+        focusSolo={focusSolo}
+        onToggleFocusSolo={() => setFocusSolo((v) => !v)}
         rangeSeconds={rangeSelection ? rangeSelection.endSeconds - rangeSelection.startSeconds : null}
         onDeleteRange={handleDeleteRange}
         isControllerCollapsed={isTimelineControlsCollapsed}
@@ -3289,6 +3431,10 @@ const MainStudio: React.FC = () => {
               onDeleteTrack={handleDeleteTrack}
               onMoveTrack={handleMoveTrack}
               tool={timelineTool}
+              focusTrackId={focusTrackId}
+              onToggleFocus={toggleFocusTrack}
+              focusSolo={focusSolo}
+              onToggleFocusSolo={() => setFocusSolo((v) => !v)}
               rangeSelection={rangeSelection}
               onRangeSelect={setRangeSelection}
               onRecordTrack={(trackId) => {
@@ -3385,7 +3531,7 @@ const MainStudio: React.FC = () => {
         sampleRate={project.sampleRate}
         trackCount={project.tracks.length}
         clipCount={totalClips}
-        selectedClipCount={selectedClipIds.size}
+        selectedClipCount={selectedUnitCount}
         playheadSeconds={playheadSeconds}
         totalDurationSeconds={totalDurationSeconds}
         isPlaying={isPlaying}

@@ -86,9 +86,14 @@ export const deleteRangeFromClips = (
     const keepLeft = start < range.start && leftDuration >= MIN_PIECE_SECONDS;
     const keepRight = end > range.end && rightDuration >= MIN_PIECE_SECONDS;
 
+    // A clip cut in the middle stays ONE clip: its two pieces share a splice id, so they touch end to end as one
+    // (the audio is not copied, and an explicit Split is the only thing that divides them).
+    const joined = keepLeft && keepRight ? clip.spliceId ?? `sp-${clip.id}` : clip.spliceId;
+
     if (keepLeft) {
       out.push({
         ...clip,
+        spliceId: joined,
         durationSeconds: leftDuration,
         // The clip's old end fade belonged to the end that was removed; nothing is added at the cut.
         fadeOutSeconds: 0,
@@ -100,7 +105,8 @@ export const deleteRangeFromClips = (
         ...clip,
         // The first piece keeps the clip's id; a second piece from the same clip gets a new one.
         id: keepLeft ? makeId() : clip.id,
-        name: keepLeft ? nextPartName(clip.name) : clip.name,
+        spliceId: joined,
+        name: clip.name,
         startSeconds: range.start,
         offsetSeconds: (clip.offsetSeconds || 0) + (range.end - start),
         durationSeconds: rightDuration,

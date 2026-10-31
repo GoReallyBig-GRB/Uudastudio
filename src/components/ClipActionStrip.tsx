@@ -28,6 +28,7 @@ import {
   Ungroup,
   GripHorizontal,
   Headphones,
+  Maximize2,
   ChevronDown,
   X,
 } from 'lucide-react';
@@ -80,6 +81,11 @@ interface ClipActionStripProps {
   range?: { seconds: number } | null;
   onRangeGain?: (db: number) => void;
   onDeleteRange?: () => void;
+  /** Single-track view */
+  focusActive?: boolean;
+  onToggleFocus?: () => void;
+  focusSolo?: boolean;
+  onToggleFocusSolo?: () => void;
 }
 
 const SECTIONS_KEY = 'uuda_quick_actions_collapsed';
@@ -149,6 +155,10 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
   range = null,
   onRangeGain,
   onDeleteRange,
+  focusActive = false,
+  onToggleFocus,
+  focusSolo = true,
+  onToggleFocusSolo,
 }) => {
   const inRange = !!range;
   const multi = !inRange && selectedCount > 1;
@@ -460,6 +470,34 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
           ))}
         </div>
       </Section>
+
+      {/* View: single-track view, and whether to hear that track alone */}
+      {onToggleFocus && (
+        <Section id="view" title="View" collapsed={!!collapsed.view} onToggle={toggle}>
+          <div className="grid grid-cols-2 gap-1">
+            <button
+              onClick={() => { onToggleFocus(); onClose(); }}
+              aria-pressed={focusActive}
+              title={focusActive ? 'Back to all tracks (F)' : 'Single-track view: work on this track alone, large (F)'}
+              className={`${BTN} ${focusActive ? '!bg-accent-soft !text-accent !border-accent/50' : ''}`}
+            >
+              <Maximize2 className="w-3 h-3" />
+              <span>{focusActive ? 'All tracks' : 'Focus track'}</span>
+            </button>
+            {focusActive && onToggleFocusSolo && (
+              <button
+                onClick={onToggleFocusSolo}
+                aria-pressed={focusSolo}
+                title={focusSolo ? 'Hearing only this track. Click to hear the full mix.' : 'Hearing the full mix. Click to hear only this track.'}
+                className={`${BTN} ${focusSolo ? '!bg-warn !text-black !border-warn' : ''}`}
+              >
+                <Headphones className="w-3 h-3" />
+                <span>{focusSolo ? 'Solo on' : 'Full mix'}</span>
+              </button>
+            )}
+          </div>
+        </Section>
+      )}
 
       {/* Project-level shortcuts */}
       {(onOpenExport || onOpenPlugins) && (

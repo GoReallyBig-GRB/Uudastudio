@@ -26,6 +26,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
+  Maximize2,
+  Headphones,
 } from 'lucide-react';
 import { Clip } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
@@ -57,6 +59,12 @@ interface ClipToolbarProps {
   /** Pointer tool: Select edits clips, Range highlights a span of a track. */
   tool: TimelineTool;
   onToolChange: (tool: TimelineTool) => void;
+  /** Single-track view: only the chosen track is shown, large */
+  focusActive: boolean;
+  onToggleFocus: () => void;
+  /** In single-track view: hear only this track (true) or the full mix (false) */
+  focusSolo: boolean;
+  onToggleFocusSolo: () => void;
   /** Length of the highlighted range in seconds, or null when there is none. */
   rangeSeconds: number | null;
   onDeleteRange: () => void;
@@ -179,6 +187,10 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onOpenEffect,
   tool,
   onToolChange,
+  focusActive,
+  onToggleFocus,
+  focusSolo,
+  onToggleFocusSolo,
   rangeSeconds,
   onDeleteRange,
   projectName,
@@ -249,13 +261,37 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-0.5 scrollbar-none">
         {/* Pointer tool: Select edits clips; Range highlights a span of one track so it can be deleted */}
         <Capsule label="Timeline tool">
-          <CapsuleButton title="Select tool: move and edit clips" active={tool === 'select'} onClick={() => onToolChange('select')}>
+          <CapsuleButton title="Select tool: move and edit clips (Z)" active={tool === 'select'} onClick={() => onToolChange('select')}>
             Select
           </CapsuleButton>
-          <CapsuleButton title="Range tool: highlight part of a track (or hold Alt while dragging)" active={tool === 'range'} onClick={() => onToolChange('range')}>
+          <CapsuleButton title="Range tool: highlight part of a track (X, or hold Alt while dragging)" active={tool === 'range'} onClick={() => onToolChange('range')}>
             Range
           </CapsuleButton>
         </Capsule>
+        <button
+          onClick={onToggleFocus}
+          aria-pressed={focusActive}
+          title={focusActive ? 'Back to all tracks (F)' : 'Single-track view: work on this track alone, large (F)'}
+          className={`flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+            focusActive ? 'border-accent/50 bg-accent-soft text-accent' : 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink'
+          }`}
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+          <span>{focusActive ? 'All tracks' : 'Focus'}</span>
+        </button>
+        {focusActive && (
+          <button
+            onClick={onToggleFocusSolo}
+            aria-pressed={focusSolo}
+            title={focusSolo ? 'Hearing only this track. Click to hear the full mix.' : 'Hearing the full mix. Click to hear only this track.'}
+            className={`flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/50 ${
+              focusSolo ? 'border-warn bg-warn text-black' : 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink'
+            }`}
+          >
+            <Headphones className="h-3.5 w-3.5" />
+            <span>{focusSolo ? 'Solo' : 'Full mix'}</span>
+          </button>
+        )}
         {rangeSeconds !== null && (
           <button
             onClick={onDeleteRange}

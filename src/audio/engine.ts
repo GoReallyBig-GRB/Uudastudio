@@ -111,6 +111,8 @@ export class AudioEngine {
   private groupSettings: Record<string, GroupSettings> = {};
   /** Group being auditioned alone: everything else is silent (monitoring only; never saved, never exported) */
   private soloGroupId: string | null = null;
+  /** Single-track view with solo: only this track is heard (monitoring only; export is not affected) */
+  private focusSoloTrackId: string | null = null;
   private lastTracks: Track[] = [];
   /** Temporary per-clip level multipliers (group mastering). Never saved; see audio/tempClipLevels.ts */
   private tempClipFactors: Record<string, number> = {};
@@ -261,6 +263,13 @@ export class AudioEngine {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     for (const { clipId, node } of this.clipTrims) node.gain.setTargetAtTime(factors[clipId] ?? 1, t, 0.015);
+  }
+
+  /** Hear only one track (single-track view with solo). null = the normal mix. Applies live to the track; grouped clips on other tracks stop at the next play. */
+  public setFocusSolo(trackId: string | null): void {
+    this.focusSoloTrackId = trackId;
+    if (!this.ctx) return;
+    if (this.lastTracks.length > 0) this.syncTracks(this.lastTracks);
   }
 
   public getSoloGroup(): string | null {
@@ -502,6 +511,7 @@ export class AudioEngine {
   /** Gain a track should have right now, honouring mute/solo and an active rack preview */
   private effectiveVolume(track: Track, anySolo: boolean): number {
     if (this.soloGroupId) return 0; // loose clips are silent while a group is auditioned
+    if (this.focusSoloTrackId) return track.id === this.focusSoloTrackId ? track.volume : 0; // heard even if the track was muted
     if (this.previewTargetId && this.previewTargetId !== MASTER_TRACK_ID && !isGroupChainId(this.previewTargetId)) {
       return track.id === this.previewTargetId ? track.volume : 0;
     }
@@ -743,6 +753,8 @@ export class AudioEngine {
   private scheduleClip(clip: Clip, destination: AudioNode, currentPlayhead: number): void {
     if (!this.ctx) return;
     if (clip.muted) return; // Muted clip produces no sound
+    // Single-track solo: a grouped clip plays on its group's channel, not its track's, so it is skipped here when it belongs to another track
+    if (this.focusSoloTrackId && clip.groupId && !this.lastTracks.find((t) => t.id === this.focusSoloTrackId)?.clips.some((c) => c.id === clip.id)) return;
     const asset = this.assets.get(clip.assetId);
     if (!asset || (!asset.buffer && !asset.source)) return;
 

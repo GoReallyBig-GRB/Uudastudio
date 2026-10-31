@@ -267,6 +267,14 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                   <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">R</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-zinc-400">Select tool / Range tool</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Z / X</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Single-track view (focus)</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">F</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-zinc-400">Split Clip at Playhead</span>
                   <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">S</span>
                 </div>

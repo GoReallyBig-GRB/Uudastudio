@@ -20,6 +20,12 @@ export interface Clip {
   muted?: boolean;
   effects?: TrackEffect[];
   versionHistory?: ClipVersion[];
+  /**
+   * Pieces of one clip that were edited (a part deleted, silenced or lowered) share a spliceId. Pieces with the same spliceId
+   * that touch end to end behave as ONE clip: one outline, selected, moved, copied and deleted together. Only an explicit
+   * Split breaks them apart. The audio is never copied; each piece still points at the same source.
+   */
+  spliceId?: string;
   /** Clips sharing a groupId are selected, moved and deleted together until ungrouped. */
   groupId?: string;
 }

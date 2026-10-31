@@ -26,6 +26,11 @@ export const isolateRangeInTracks = (
   rangeStart: number,
   rangeEnd: number,
   makeId: () => string,
+  /**
+   * true: the pieces stay ONE clip (they share a splice id), used for silence and level changes so a track is never
+   * broken into separate clips. false: the pieces become separate clips (Split out, and processing a range).
+   */
+  joined = false,
 ): IsolateResult => {
   const range = normalizeRange(rangeStart, rangeEnd);
   if (!range) return { tracks: [...tracks], innerClipIds: [], changedTrackIds: [] };
@@ -58,15 +63,20 @@ export const isolateRangeInTracks = (
       }
       changed = true;
       const offset = clip.offsetSeconds || 0;
+      // Joined: all pieces share the clip's splice id. Separate: the pieces from the range onward leave any existing join.
+      const keepTag = joined ? clip.spliceId ?? `sp-${clip.id}` : clip.spliceId;
+      const innerTag = joined ? keepTag : undefined;
+      const rightTag = joined ? keepTag : undefined;
       if (hasLeft) {
-        clips.push({ ...clip, durationSeconds: leftDur, fadeOutSeconds: 0 });
+        clips.push({ ...clip, spliceId: keepTag, durationSeconds: leftDur, fadeOutSeconds: 0 });
       }
       const innerId = hasLeft ? makeId() : clip.id;
       innerClipIds.push(innerId);
       clips.push({
         ...clip,
         id: innerId,
-        name: hasLeft ? nextPartName(clip.name) : clip.name,
+        name: hasLeft && !joined ? nextPartName(clip.name) : clip.name,
+        spliceId: hasLeft ? innerTag : keepTag,
         startSeconds: innerStart,
         offsetSeconds: offset + (innerStart - start),
         durationSeconds: innerEnd - innerStart,
@@ -77,7 +87,8 @@ export const isolateRangeInTracks = (
         clips.push({
           ...clip,
           id: makeId(),
-          name: nextPartName(clip.name),
+          name: joined ? clip.name : nextPartName(clip.name),
+          spliceId: rightTag,
           startSeconds: innerEnd,
           offsetSeconds: offset + (innerEnd - start),
           durationSeconds: rightDur,
