@@ -26,6 +26,7 @@ import { pluginManager } from '../plugins/pluginManager';
 import { pruneEmptiedTracks, getTrackLabel } from '../utils/tracks';
 import { formatTimecode } from '../utils/formatters';
 import { gainToY, yToGain } from './clipGainLine';
+import { chainIds, seamFlags, selectionUnitCount } from './spliceChains';
 
 interface TimelineProps {
   project: Project;
@@ -42,6 +43,8 @@ interface TimelineProps {
   /** Lanes that were emptied by a clip move and removed (untouched default lanes only) */
   onTracksAutoRemoved?: (trackIds: string[]) => void;
   onSeek: (seconds: number) => void;
+  /** Single-track view: only this track is shown, large. null shows every track. */
+  focusTrackId?: string | null;
   onSplitClip: (clipId: string) => void;
   onSilence?: () => void;
   onRangeGain?: (db: number) => void;
@@ -91,6 +94,28 @@ interface MarqueeState {
   currentY: number;
 }
 
+/** Open the outline of a clip piece: a side that touches another piece of the same clip is left open, so no seam shows. */
+function traceOutline(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, openL: boolean, openR: boolean) {
+  const x0 = openL ? x : x + r;
+  const x1 = openR ? x + w : x + w - r;
+  ctx.moveTo(x0, y);
+  ctx.lineTo(x1, y);
+  ctx.moveTo(x0, y + h);
+  ctx.lineTo(x1, y + h);
+  if (!openL) {
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x, y, x, y + r, r);
+    ctx.lineTo(x, y + h - r);
+    ctx.arcTo(x, y + h, x + r, y + h, r);
+  }
+  if (!openR) {
+    ctx.moveTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  }
+}
+
 interface FadeDragState {
   clipId: string;
   type: 'in' | 'out';
@@ -116,6 +141,8 @@ interface EdgeTrimDragState {
 }
 
 const ROW_HEIGHT = 80;
+/** Height of the one visible track in single-track view */
+const FOCUS_ROW_HEIGHT = 320;
 
 /** Device pixels per CSS pixel, so the waveform canvas is drawn at full sharpness on high-density screens. */
 const getDpr = (): number => Math.min(3, Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) || 1));
@@ -145,6 +172,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   onUpdateProject,
   onTracksAutoRemoved,
   onSeek,
+  focusTrackId = null,
   onSplitClip,
   onSilence,
   onRangeGain,
@@ -215,6 +243,11 @@ export const Timeline: React.FC<TimelineProps> = ({
         return all.find((c) => selectedClipIds.has(c.id)) ?? all.find((c) => c.id === actionStrip.clip.id) ?? null;
       })()
     : null;
+
+  // Single-track view: just the focused track, tall. Playback and everything else is unchanged.
+  const focusIndex = focusTrackId ? project.tracks.findIndex((t) => t.id === focusTrackId) : -1;
+  const focused = focusIndex >= 0;
+  const rowHeight = focused ? FOCUS_ROW_HEIGHT : ROW_HEIGHT;
 
   // Dragging clips state
   const [draggingClips, setDraggingClips] = useState<DraggingClipsState | null>(null);
@@ -407,7 +440,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       }
 
       if (e.key === 's' || e.key === 'S') {
-        if (!e.ctrlKey && !e.metaKey && selectedClipIds.size === 1) {
+        if (!e.ctrlKey && !e.metaKey && selectionUnitCount(project.tracks, selectedClipIds) === 1) {
           e.preventDefault();
           const [clipId] = Array.from(selectedClipIds);
           onSplitClip(clipId);
@@ -481,9 +514,19 @@ export const Timeline: React.FC<TimelineProps> = ({
 
       try {
         // Neighbouring clips on a track alternate between two border shades so where one ends and the next begins is clear.
+        // Pieces of one edited clip (touching end to end) are drawn as a single clip: no seam, one shade, one title.
+        const seams = seamFlags(track.clips);
         const orderIndex = new Map<string, number>();
-        [...track.clips].sort((a, b) => a.startSeconds - b.startSeconds).forEach((c, i) => orderIndex.set(c.id, i));
+        let shadeStep = -1;
+        [...track.clips].sort((a, b) => a.startSeconds - b.startSeconds).forEach((c) => {
+          if (!seams.get(c.id)?.left) shadeStep += 1;
+          orderIndex.set(c.id, Math.max(0, shadeStep));
+        });
+        const drawn: Array<{ x: number; w: number; seamR: boolean; name: string; selected: boolean }> = [];
         for (const clip of track.clips) {
+          const sm = seams.get(clip.id);
+          const seamL = !!sm?.left;
+          const seamR = !!sm?.right;
           // Grouped clips take their group's colour; loose clips alternate between the two cyan-grey shades
           // Group colour (always on), else the track's own colour if it has one, else the alternating cyan-grey shades
           const tint = clip.groupId ? groupColor(project, clip.groupId) : track.color ? colorFromHex(track.color) : null;
@@ -520,13 +563,13 @@ export const Timeline: React.FC<TimelineProps> = ({
             ? 'rgba(56, 189, 248, 0.08)'
             : shade.fill;
           ctx.beginPath();
-          ctx.roundRect(renderX, clipY, renderW, clipH, 4);
+          ctx.roundRect(renderX, clipY, renderW + (seamR ? 1 : 0), clipH, [seamL ? 0 : 4, seamR ? 0 : 4, seamR ? 0 : 4, seamL ? 0 : 4]);
           ctx.fill();
 
           // Clip waveform clipping region
           ctx.save();
           ctx.beginPath();
-          ctx.roundRect(renderX, clipY, renderW, clipH, 4);
+          ctx.roundRect(renderX, clipY, renderW + (seamR ? 1 : 0), clipH, [seamL ? 0 : 4, seamR ? 0 : 4, seamR ? 0 : 4, seamL ? 0 : 4]);
           ctx.clip();
 
           // Waveform bars
@@ -659,7 +702,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           // Clip Border and Selection Glow
           ctx.save();
           ctx.beginPath();
-          ctx.roundRect(renderX, clipY, renderW, clipH, 4);
+          ctx.roundRect(renderX, clipY, renderW + (seamR ? 1 : 0), clipH, [seamL ? 0 : 4, seamR ? 0 : 4, seamR ? 0 : 4, seamL ? 0 : 4]);
 
           if (isSelected) {
             // Every clip glows in its own colour (a coloured clip stays that colour, only brighter and glowing)
@@ -670,25 +713,31 @@ export const Timeline: React.FC<TimelineProps> = ({
             ctx.lineWidth = 2;
             ctx.shadowColor = glow;
             ctx.shadowBlur = 10;
+            ctx.beginPath();
+            traceOutline(ctx, renderX, clipY, renderW, clipH, 4, seamL, seamR);
             ctx.stroke();
           } else if (isGhost) {
             ctx.strokeStyle = '#38bdf8';
             ctx.lineWidth = 1.2;
             ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            traceOutline(ctx, renderX, clipY, renderW, clipH, 4, seamL, seamR);
             ctx.stroke();
           } else {
             ctx.strokeStyle = shade.border;
             ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            traceOutline(ctx, renderX, clipY, renderW, clipH, 4, seamL, seamR);
             ctx.stroke();
           }
           ctx.restore();
 
           // Volume line (single clips only; groups are levelled from the Master Console)
-          if (!clip.groupId && !isGhost && renderW > 40 && clipH > 24 && (isSelected || clip.gain !== 1)) {
+          if (!clip.groupId && !sm && !isGhost && renderW > 40 && clipH > 24 && (isSelected || clip.gain !== 1)) {
             const ly = gainToY(clip.gain, clipY, clipH);
             ctx.save();
             ctx.beginPath();
-            ctx.roundRect(renderX, clipY, renderW, clipH, 4);
+            ctx.roundRect(renderX, clipY, renderW + (seamR ? 1 : 0), clipH, [seamL ? 0 : 4, seamR ? 0 : 4, seamR ? 0 : 4, seamL ? 0 : 4]);
             ctx.clip();
             ctx.strokeStyle = isSelected ? '#f5c451' : 'rgba(245, 196, 81, 0.45)';
             ctx.lineWidth = isSelected ? 1.5 : 1;
@@ -708,37 +757,47 @@ export const Timeline: React.FC<TimelineProps> = ({
             ctx.restore();
           }
 
-          // Clip Title bar text
-          ctx.save();
-          ctx.font = '10px "Plus Jakarta Sans", sans-serif';
-          ctx.fillStyle = isSelected ? '#f1f5f9' : '#cbd5e1';
-          // Fit the title inside this clip (ellipsis, or nothing on a very narrow clip) so it never spills onto neighbours.
-          const titleText = fitTitle(displayTitle(clip.name), renderW - TITLE_PAD_X * 2, (str) => ctx.measureText(str).width);
-          if (titleText) ctx.fillText(titleText, renderX + TITLE_PAD_X, clipY + 12);
-          ctx.restore();
+          // Titles are drawn once per clip, after every piece, across the whole clip
+          drawn.push({ x: renderX, w: renderW, seamR, name: clip.name, selected: isSelected });
 
-          // Draw Trimming Edge Grippers (Point 6: Left and right edge handles for inward waveform deletion)
+          // Draw Trimming Edge Grippers (left and right edge handles for inward waveform deletion), at the ends of the whole clip
           if (isSelected) {
             ctx.save();
-            // Left edge trim handle (vertical bar + arrows)
             ctx.fillStyle = '#00F0FF';
-            ctx.fillRect(renderX - 1, clipY + 12, 3, clipH - 24);
-
-            // Right edge trim handle
-            ctx.fillRect(renderX + renderW - 2, clipY + 12, 3, clipH - 24);
+            if (!seamL) ctx.fillRect(renderX - 1, clipY + 12, 3, clipH - 24);
+            if (!seamR) ctx.fillRect(renderX + renderW - 2, clipY + 12, 3, clipH - 24);
 
             // Fade handles (dots at top corners)
-            ctx.beginPath();
-            const inHandleX = renderX + Math.min(renderW / 2, (clip.fadeInSeconds || 0) * pixelsPerSecond);
-            ctx.arc(inHandleX, clipY + 4, 3.5, 0, Math.PI * 2);
-            ctx.fill();
-
-            const outHandleX = renderX + renderW - Math.min(renderW / 2, (clip.fadeOutSeconds || 0) * pixelsPerSecond);
-            ctx.beginPath();
-            ctx.arc(outHandleX, clipY + 4, 3.5, 0, Math.PI * 2);
-            ctx.fill();
+            if (!seamL) {
+              ctx.beginPath();
+              const inHandleX = renderX + Math.min(renderW / 2, (clip.fadeInSeconds || 0) * pixelsPerSecond);
+              ctx.arc(inHandleX, clipY + 4, 3.5, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            if (!seamR) {
+              const outHandleX = renderX + renderW - Math.min(renderW / 2, (clip.fadeOutSeconds || 0) * pixelsPerSecond);
+              ctx.beginPath();
+              ctx.arc(outHandleX, clipY + 4, 3.5, 0, Math.PI * 2);
+              ctx.fill();
+            }
             ctx.restore();
           }
+        }
+
+        // Clip title bar text: one per clip, fitted to the clip's whole width so it never spills onto neighbours
+        drawn.sort((p, q) => p.x - q.x);
+        for (let i = 0; i < drawn.length; i++) {
+          const head = drawn[i];
+          let last = i;
+          while (drawn[last].seamR && last + 1 < drawn.length) last += 1;
+          const totalW = drawn[last].x + drawn[last].w - head.x;
+          ctx.save();
+          ctx.font = '10px "Plus Jakarta Sans", sans-serif';
+          ctx.fillStyle = head.selected ? '#f1f5f9' : '#cbd5e1';
+          const titleText = fitTitle(displayTitle(head.name), totalW - TITLE_PAD_X * 2, (str) => ctx.measureText(str).width);
+          if (titleText) ctx.fillText(titleText, head.x + TITLE_PAD_X, 16); // 4px lane padding + 12px baseline
+          ctx.restore();
+          i = last;
         }
       } catch (renderError) {
         console.error('Fatal render error in track waveform canvas:', renderError);
@@ -804,11 +863,13 @@ export const Timeline: React.FC<TimelineProps> = ({
     else hideTitleTip();
 
     let isNearEdge = false;
+    const hoverSeams = seamFlags(track.clips);
     for (const clip of track.clips) {
       if (timeAtClick >= clip.startSeconds - 0.2 && timeAtClick <= clip.startSeconds + clip.durationSeconds + 0.2) {
         const leftEdgePx = clip.startSeconds * pixelsPerSecond;
         const rightEdgePx = (clip.startSeconds + clip.durationSeconds) * pixelsPerSecond;
-        if (Math.abs(clickX - leftEdgePx) <= 8 || Math.abs(clickX - rightEdgePx) <= 8) {
+        const hs = hoverSeams.get(clip.id);
+        if ((!hs?.left && Math.abs(clickX - leftEdgePx) <= 8) || (!hs?.right && Math.abs(clickX - rightEdgePx) <= 8)) {
           isNearEdge = true;
           break;
         }
@@ -861,17 +922,20 @@ export const Timeline: React.FC<TimelineProps> = ({
     let clickedFadeType: 'in' | 'out' | null = null;
     let clickedEdge: 'left' | 'right' | null = null;
 
+    // Where pieces of one edited clip touch, there is no edge to trim and no fade handle: it is one clip
+    const seams = seamFlags(track.clips);
     for (const clip of track.clips) {
       const leftEdgePx = clip.startSeconds * pixelsPerSecond;
       const rightEdgePx = (clip.startSeconds + clip.durationSeconds) * pixelsPerSecond;
+      const sm = seams.get(clip.id);
 
       // Check edge trimmer within 8px
-      if (Math.abs(clickX - leftEdgePx) <= 8 && clickY > 16) {
+      if (!sm?.left && Math.abs(clickX - leftEdgePx) <= 8 && clickY > 16) {
         clickedClip = clip;
         clickedEdge = 'left';
         break;
       }
-      if (Math.abs(clickX - rightEdgePx) <= 8 && clickY > 16) {
+      if (!sm?.right && Math.abs(clickX - rightEdgePx) <= 8 && clickY > 16) {
         clickedClip = clip;
         clickedEdge = 'right';
         break;
@@ -885,9 +949,9 @@ export const Timeline: React.FC<TimelineProps> = ({
           const fadeInPixel = clip.startSeconds * pixelsPerSecond + (clip.fadeInSeconds || 0) * pixelsPerSecond;
           const fadeOutPixel = (clip.startSeconds + clip.durationSeconds) * pixelsPerSecond - (clip.fadeOutSeconds || 0) * pixelsPerSecond;
 
-          if (Math.abs(clickX - fadeInPixel) <= 12) {
+          if (!sm?.left && Math.abs(clickX - fadeInPixel) <= 12) {
             clickedFadeType = 'in';
-          } else if (Math.abs(clickX - fadeOutPixel) <= 12) {
+          } else if (!sm?.right && Math.abs(clickX - fadeOutPixel) <= 12) {
             clickedFadeType = 'out';
           }
         }
@@ -896,7 +960,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     }
 
     // The on-clip volume line: grab it on a selected single clip and pull up or down (Ctrl+click resets to 0 dB).
-    if (clickedClip && !clickedEdge && !clickedFadeType && !clickedClip.groupId && selectedClipIds.has(clickedClip.id)) {
+    if (clickedClip && !clickedEdge && !clickedFadeType && !clickedClip.groupId && !seams.has(clickedClip.id) && selectedClipIds.has(clickedClip.id)) {
       const laneH = rect.height - 8;
       const lineY = gainToY(clickedClip.gain, 4, laneH);
       if (laneH > 24 && clickY > 16 && Math.abs(clickY - lineY) <= 5) {
@@ -945,7 +1009,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       let newSelected = new Set(selectedClipIds);
       if (e.shiftKey) {
         if (newSelected.has(clickedClip.id)) {
-          newSelected.delete(clickedClip.id);
+          for (const cid of chainIds(project.tracks, clickedClip.id)) newSelected.delete(cid);
         } else {
           newSelected.add(clickedClip.id);
         }
@@ -996,9 +1060,9 @@ export const Timeline: React.FC<TimelineProps> = ({
       }
       setMarquee({
         startX: clickX,
-        startY: trackIndex * ROW_HEIGHT + clickY,
+        startY: (focused ? 0 : trackIndex) * rowHeight + clickY,
         currentX: clickX,
-        currentY: trackIndex * ROW_HEIGHT + clickY,
+        currentY: (focused ? 0 : trackIndex) * rowHeight + clickY,
       });
     }
   };
@@ -1015,7 +1079,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         if (!rangeDrag.moved) setRangeDrag({ ...rangeDrag, moved: true });
         // Dragging up or down across lanes widens the range to every track between where it began and the pointer
         const y = e.clientY - rect.top + laneScrollContainerRef.current.scrollTop;
-        const overIndex = Math.max(0, Math.min(project.tracks.length - 1, Math.floor(y / ROW_HEIGHT)));
+        const overIndex = focused ? focusIndex : Math.max(0, Math.min(project.tracks.length - 1, Math.floor(y / rowHeight)));
         const lo = Math.min(rangeDrag.trackIndex, overIndex);
         const hi = Math.max(rangeDrag.trackIndex, overIndex);
         onRangeSelect({
@@ -1061,7 +1125,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         const dx = e.clientX - draggingClips.startX;
         const dy = e.clientY - draggingClips.startY;
         const dt = dx / pixelsPerSecond;
-        const drow = Math.round(dy / ROW_HEIGHT);
+        const drow = focused ? 0 : Math.round(dy / rowHeight);
 
         setDraggingClips(prev => (prev ? { ...prev, currentDt: dt, currentDrow: drow } : null));
       }
@@ -1080,8 +1144,8 @@ export const Timeline: React.FC<TimelineProps> = ({
 
         const startTime = minX / pixelsPerSecond;
         const endTime = maxX / pixelsPerSecond;
-        const startTrack = Math.floor(minY / ROW_HEIGHT);
-        const endTrack = Math.floor(maxY / ROW_HEIGHT);
+        const startTrack = focused ? focusIndex : Math.floor(minY / rowHeight);
+        const endTrack = focused ? focusIndex : Math.floor(maxY / rowHeight);
 
         const selected = new Set<string>();
         for (let tIdx = 0; tIdx < project.tracks.length; tIdx++) {
@@ -1229,6 +1293,9 @@ export const Timeline: React.FC<TimelineProps> = ({
   }, [
     edgeTrimDrag,
     draggingClips,
+    focused,
+    focusIndex,
+    rowHeight,
     marquee,
     rangeDrag,
     fadeDrag,
@@ -1457,9 +1524,12 @@ export const Timeline: React.FC<TimelineProps> = ({
             )}
 
             {/* Track rows (Controls + Waveform in ONE grid container) */}
-            {project.tracks.map((track, trackIndex) => (
+            {(focused ? [project.tracks[focusIndex]] : project.tracks).map((track, visibleIndex) => {
+              const trackIndex = focused ? focusIndex : visibleIndex;
+              return (
               <TrackRowContainer
                 key={track.id}
+                rowHeight={rowHeight}
                 track={track}
                 trackIndex={trackIndex}
                 totalTracks={project.tracks.length}
@@ -1483,7 +1553,8 @@ export const Timeline: React.FC<TimelineProps> = ({
                 onLaneDoubleClick={handleLaneDoubleClick}
                 onLaneContextMenu={handleLaneContextMenu}
               />
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1496,7 +1567,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           onSilence={onSilence}
           onRangeGain={onRangeGain}
           onDeleteRange={onDeleteRange}
-          selectedCount={selectedClipIds.size}
+          selectedCount={selectionUnitCount(project.tracks, selectedClipIds)}
           selectedIds={Array.from(selectedClipIds)}
           onUpdateClips={onUpdateClips}
           group={(() => {
@@ -1637,9 +1708,11 @@ interface TrackRowContainerProps {
   onLanePointerLeave: () => void;
   onLaneDoubleClick: (e: React.MouseEvent<HTMLDivElement>, track: Track) => void;
   onLaneContextMenu: (e: React.MouseEvent<HTMLDivElement>, track: Track) => void;
+  rowHeight: number;
 }
 
 const TrackRowContainer = React.memo<TrackRowContainerProps>(({
+  rowHeight,
   track,
   trackIndex,
   totalTracks,
@@ -1667,11 +1740,11 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
 
   useEffect(() => {
     renderWaveforms(canvasRef.current, track, trackIndex);
-  }, [track, trackIndex, isSelected, laneWidth, timelineWidth, scrollLeft, renderWaveforms]);
+  }, [track, trackIndex, isSelected, laneWidth, timelineWidth, scrollLeft, renderWaveforms, rowHeight]);
 
   return (
     <div
-      style={{ height: `${ROW_HEIGHT}px` }}
+      style={{ height: `${rowHeight}px` }}
       className="flex w-full min-w-max border-b border-line bg-surface-1 relative shadow-[0_1px_0_rgba(0,0,0,0.4)]"
     >
       {/* Sticky Track Controls Column (272px or 32px collapsed) */}
@@ -1701,13 +1774,13 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
         <canvas
           ref={canvasRef}
           width={Math.round(Math.max(100, timelineWidth) * getDpr())}
-          height={Math.round(ROW_HEIGHT * getDpr())}
+          height={Math.round(rowHeight * getDpr())}
           style={{
             position: 'absolute',
             left: `${scrollLeft}px`,
             top: 0,
             width: `${timelineWidth}px`,
-            height: `${ROW_HEIGHT}px`,
+            height: `${rowHeight}px`,
             pointerEvents: 'none',
           }}
           className="block pointer-events-none"

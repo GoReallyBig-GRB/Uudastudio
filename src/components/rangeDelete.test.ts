@@ -42,6 +42,9 @@ describe('ripple delete on one track', () => {
     expect(left).toMatchObject({ id: 'c', startSeconds: 0, offsetSeconds: 0, durationSeconds: 4 });
     expect(right).toMatchObject({ startSeconds: 4, offsetSeconds: 6, durationSeconds: 4 });
     expect(right.id).not.toBe('c');
+    // Both pieces share a splice id: they stay ONE clip until an explicit Split
+    expect(left.spliceId).toBeTruthy();
+    expect(right.spliceId).toBe(left.spliceId);
     // Contiguous on the timeline: the left piece ends exactly where the right piece starts.
     expect(left.startSeconds + left.durationSeconds).toBe(right.startSeconds);
     // And the source audio skips exactly the removed 2 seconds: 0..4 then 6..10.

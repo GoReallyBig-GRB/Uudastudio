@@ -49,4 +49,20 @@ describe('isolateRangeInTracks', () => {
     expect(isolateRangeInTracks(ts, ['t1', 't2'], 4, 6, mk).innerClipIds).toHaveLength(2);
     expect(isolateRangeInTracks(ts, ['t1'], 5, 5, mk).innerClipIds).toEqual([]);
   });
+
+  it('joined: the three pieces share a splice id and keep the clip name', () => {
+    const r = isolateRangeInTracks([track('t1', [clip('c', 0, 10)])], ['t1'], 4, 6, mk, true);
+    const cs = r.tracks[0].clips;
+    expect(new Set(cs.map((c) => c.spliceId)).size).toBe(1);
+    expect(cs[0].spliceId).toBeTruthy();
+    expect(cs.every((c) => c.name === 'c')).toBe(true);
+  });
+
+  it('separate: only the first piece keeps any join', () => {
+    const r = isolateRangeInTracks([track('t1', [clip('c', 0, 10, { spliceId: 'old' })])], ['t1'], 4, 6, mk, false);
+    const cs = r.tracks[0].clips;
+    expect(cs[0].spliceId).toBe('old');
+    expect(cs[1].spliceId).toBeUndefined();
+    expect(cs[2].spliceId).toBeUndefined();
+  });
 });

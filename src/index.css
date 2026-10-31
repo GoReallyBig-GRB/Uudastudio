@@ -96,7 +96,7 @@ input[type="range"] {
   appearance: none;
   height: 6px;
   box-sizing: border-box;
-  border: 1px solid rgb(255 255 255 / 0.7);
+  border: 1px solid #8e8e9a;
   border-radius: 999px;
   background: linear-gradient(to right, #00F0FF var(--fill, 0%), #000 var(--fill, 0%));
   outline: none;
@@ -152,7 +152,7 @@ input[type="range"] {
   appearance: none;
   height: 6px;
   box-sizing: border-box;
-  border: 1px solid rgb(255 255 255 / 0.7);
+  border: 1px solid #8e8e9a;
   border-radius: 999px;
   background: linear-gradient(to right, var(--color-accent) var(--fill, 0%), #000 var(--fill, 0%));
   outline: none;
@@ -194,14 +194,14 @@ input[type="range"] {
 input[type="range"]:not(.uuda-range):not(.ui-range)::-webkit-slider-runnable-track {
   height: 6px;
   box-sizing: border-box;
-  border: 1px solid rgb(255 255 255 / 0.7);
+  border: 1px solid #8e8e9a;
   border-radius: 999px;
   background: #000;
 }
 input[type="range"]:not(.uuda-range):not(.ui-range)::-moz-range-track {
   height: 6px;
   box-sizing: border-box;
-  border: 1px solid rgb(255 255 255 / 0.7);
+  border: 1px solid #8e8e9a;
   border-radius: 999px;
   background: #000;
 }
