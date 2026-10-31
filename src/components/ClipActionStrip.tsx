@@ -74,6 +74,12 @@ interface ClipActionStripProps {
   onToggleSolo?: (groupId: string) => void;
   onGroup?: () => void;
   onUngroup?: () => void;
+  /** Silence the selected clips, or the highlighted range */
+  onSilence?: () => void;
+  /** Set while a time range is highlighted: Quick Actions then acts on that range */
+  range?: { seconds: number } | null;
+  onRangeGain?: (db: number) => void;
+  onDeleteRange?: () => void;
 }
 
 const SECTIONS_KEY = 'uuda_quick_actions_collapsed';
@@ -139,8 +145,13 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
   onToggleSolo,
   onGroup,
   onUngroup,
+  onSilence,
+  range = null,
+  onRangeGain,
+  onDeleteRange,
 }) => {
-  const multi = selectedCount > 1;
+  const inRange = !!range;
+  const multi = !inRange && selectedCount > 1;
   const single = !multi;
   const ids = selectedIds && selectedIds.length > 0 ? selectedIds : [clip.id];
 
@@ -192,7 +203,7 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
 
   const only = 'Select a single clip to use this';
   const gs = { ...DEFAULT_GROUP_SETTINGS, ...(group?.settings ?? {}) };
-  const title = group ? `${group.name} · ${selectedCount} clips` : multi ? `${selectedCount} clips selected` : clip.name;
+  const title = inRange ? `Range · ${range!.seconds.toFixed(2)}s` : group ? `${group.name} · ${selectedCount} clips` : multi ? `${selectedCount} clips selected` : clip.name;
 
   const setMuted = (muted: boolean) => {
     if (onUpdateClips) onUpdateClips(ids, { muted });
@@ -217,7 +228,7 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
           <GripHorizontal className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
           {group && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: group.color }} />}
           <span className="font-semibold text-ink truncate text-xs">{title}</span>
-          {single && clip.muted && (
+          {single && !inRange && clip.muted && (
             <span className="text-[9px] px-1 bg-danger/20 text-danger rounded font-semibold">MUTED</span>
           )}
         </div>
@@ -228,16 +239,16 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
 
       {/* Edit: the same buttons whether one clip, several or a group is selected */}
       <Section id="edit" title="Edit" collapsed={!!collapsed.edit} onToggle={toggle}>
-        <div className="grid grid-cols-5 gap-1">
-          <button disabled={!single} onClick={() => { onSplit(clip.id); onClose(); }} title={single ? 'Split clip at playhead (S)' : only} className={BTN_COL}>
+        <div className="grid grid-cols-3 gap-1">
+          <button disabled={!single} onClick={() => { onSplit(clip.id); onClose(); }} title={inRange ? 'Split the range out at both edges' : single ? 'Split clip at playhead (S)' : only} className={BTN_COL}>
             <Scissors className="w-3.5 h-3.5 text-accent" />
-            <span>Split</span>
+            <span>{inRange ? 'Split out' : 'Split'}</span>
           </button>
-          <button onClick={() => onCopy(clip.id)} title={multi ? `Copy the ${selectedCount} selected clips (Ctrl+C)` : 'Copy clip (Ctrl+C)'} className={BTN_COL}>
+          <button onClick={() => onCopy(clip.id)} title={inRange ? 'Copy the highlighted range (Ctrl+C)' : multi ? `Copy the ${selectedCount} selected clips (Ctrl+C)` : 'Copy clip (Ctrl+C)'} className={BTN_COL}>
             <Copy className="w-3.5 h-3.5" />
             <span>Copy</span>
           </button>
-          <button onClick={() => onCut(clip.id)} title={multi ? `Cut the ${selectedCount} selected clips (Ctrl+X)` : 'Cut clip (Ctrl+X)'} className={BTN_COL}>
+          <button onClick={() => { onCut(clip.id); if (inRange) onClose(); }} title={inRange ? 'Cut the highlighted range and close the gap (Ctrl+X)' : multi ? `Cut the ${selectedCount} selected clips (Ctrl+X)` : 'Cut clip (Ctrl+X)'} className={BTN_COL}>
             <ScissorsLineDashed className="w-3.5 h-3.5" />
             <span>Cut</span>
           </button>
@@ -245,19 +256,38 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
             <ClipboardPaste className="w-3.5 h-3.5" />
             <span>Paste</span>
           </button>
+          {onSilence && (
+            <button
+              onClick={() => { onSilence(); if (inRange) onClose(); }}
+              title={inRange ? 'Silence the highlighted range (mutes just that part)' : multi ? 'Silence the selected clips' : 'Silence this clip'}
+              className={BTN_COL}
+            >
+              <VolumeX className="w-3.5 h-3.5" />
+              <span>Silence</span>
+            </button>
+          )}
           <button
-            onClick={() => { onDelete(clip.id); onClose(); }}
-            title={multi ? `Delete the ${selectedCount} selected clips (Delete)` : 'Delete clip (Delete)'}
+            onClick={() => { if (inRange && onDeleteRange) onDeleteRange(); else onDelete(clip.id); onClose(); }}
+            title={inRange ? 'Delete the highlighted range and close the gap (Delete)' : multi ? `Delete the ${selectedCount} selected clips (Delete)` : 'Delete clip (Delete)'}
             className={`${BTN_COL} hover:!bg-danger/15 hover:!text-danger`}
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Delete</span>
           </button>
         </div>
+        {inRange && onRangeGain && (
+          <div className="grid grid-cols-4 gap-1">
+            {[-6, -3, 3, 6].map((db) => (
+              <button key={db} onClick={() => { onRangeGain(db); onClose(); }} title={`${db > 0 ? 'Raise' : 'Lower'} the highlighted range by ${Math.abs(db)} dB`} className={BTN}>
+                <span className="font-num">{db > 0 ? '+' : '−'}{Math.abs(db)} dB</span>
+              </button>
+            ))}
+          </div>
+        )}
       </Section>
 
-      {/* Arrange: move and mute */}
-      <Section id="arrange" title="Arrange" collapsed={!!collapsed.arrange} onToggle={toggle}>
+      {/* Arrange: move and mute (not for a range, which is a part of a clip, not a clip) */}
+      {!inRange && <Section id="arrange" title="Arrange" collapsed={!!collapsed.arrange} onToggle={toggle}>
         <div className="grid grid-cols-3 gap-1">
           <button disabled={!single} onClick={() => onMoveTrack(clip.id, 'up')} title={single ? 'Move clip to the track above' : only} className={BTN}>
             <ArrowUp className="w-3 h-3" />
@@ -289,10 +319,10 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
             <span>Unmute all</span>
           </button>
         )}
-      </Section>
+      </Section>}
 
       {/* Group: tie clips together, and (for a group) its own channel */}
-      {(onGroup || onUngroup) && (
+      {!inRange && (onGroup || onUngroup) && (
         <Section id="group" title="Group" collapsed={!!collapsed.group} onToggle={toggle}>
           <div className="grid grid-cols-2 gap-1">
             <button disabled={!multi || isGrouped} onClick={() => onGroup?.()} title={multi ? (isGrouped ? 'Already a group' : 'Group the selected clips') : 'Select two or more clips (Shift+click) to group them'} className={BTN}>
@@ -353,7 +383,7 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
       )}
 
       {/* The clip's own gain and fades */}
-      <Section id="level" title="Clip level and fades" collapsed={!!collapsed.level} onToggle={toggle}>
+      {!inRange && <Section id="level" title="Clip level and fades" collapsed={!!collapsed.level} onToggle={toggle}>
         {single ? (
           <div className="space-y-1.5 bg-surface-1 p-2 rounded-control border border-line text-[11px]">
             <div className="flex items-center justify-between gap-1.5">
@@ -405,7 +435,7 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
               : 'Select a single clip to change its own gain and fades.'}
           </div>
         )}
-      </Section>
+      </Section>}
 
       {/* Processing tools work on one clip's audio */}
       <Section id="dsp" title="Processing" collapsed={!!collapsed.dsp} onToggle={toggle}>
@@ -421,7 +451,7 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
               key={type}
               disabled={!single}
               onClick={() => { onOpenDsp(type as DspModalType); onClose(); }}
-              title={single ? tip : only}
+              title={inRange ? `${tip} (applies to the highlighted range)` : single ? tip : only}
               className={`${BTN_COL} !text-[9px] !p-1`}
             >
               <Icon className="w-3 h-3 text-accent" />
@@ -452,7 +482,7 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
       )}
 
       <div className="pt-1 border-t border-line text-[10px] font-num text-ink-faint">
-        {multi ? `${selectedCount} clips` : `Duration: ${clip.durationSeconds.toFixed(3)}s`}
+        {inRange ? `Range: ${range!.seconds.toFixed(3)}s` : multi ? `${selectedCount} clips` : `Duration: ${clip.durationSeconds.toFixed(3)}s`}
       </div>
     </div>
   );

@@ -49,6 +49,7 @@ import { takeStartSeconds } from './components/recordingMonitor';
 import { nextPartName } from './components/clipTitle';
 import { copyRange, pasteRange, type RangeClipboard } from './components/rangeClipboard';
 import { copyClipSet, pasteClipSet, type ClipSetClipboard } from './components/clipSetClipboard';
+import { isolateRangeInTracks } from './components/rangeIsolate';
 import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
@@ -2382,6 +2383,86 @@ const MainStudio: React.FC = () => {
     });
   };
 
+  /**
+   * Edit the highlighted range in place. The range is first split out of the clips it touches (nothing moves; the audio on
+   * either side stays put), then `patch` is applied to the pieces inside the range, all as ONE undo step. The pieces stay
+   * selected afterwards so the clip toolbar carries straight on. Returns the ids of the pieces, or null when nothing was there.
+   */
+  const editRange = (patch?: (c: Clip) => Partial<Clip>): string[] | null => {
+    const sel = rangeSelection;
+    if (!sel) return null;
+    const ids = rangeTrackIds(sel).filter((id) => project.tracks.some((t) => t.id === id));
+    const result = isolateRangeInTracks(
+      project.tracks,
+      ids,
+      sel.startSeconds,
+      sel.endSeconds,
+      () => `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    );
+    setRangeSelection(null);
+    if (result.innerClipIds.length === 0) {
+      addToast({ type: 'info', title: 'Nothing in that range', message: 'There is no audio in the highlighted range.' });
+      return null;
+    }
+    const inner = new Set(result.innerClipIds);
+    if (result.changedTrackIds.length > 0 || patch) {
+      setProjectWithHistory((prev) => ({
+        ...prev,
+        tracks: prev.tracks.map((t) => {
+          const replaced = result.changedTrackIds.includes(t.id) ? result.tracks.find((r) => r.id === t.id) ?? t : t;
+          if (!patch) return replaced;
+          return { ...replaced, clips: replaced.clips.map((c) => (inner.has(c.id) ? { ...c, ...patch(c) } : c)) };
+        }),
+      }));
+    }
+    setSelectedClipIds(inner);
+    return result.innerClipIds;
+  };
+
+  /** Silence: a highlighted range, or the selected clips, goes quiet (it can be undone, or the piece unmuted). */
+  const handleSilence = () => {
+    if (rangeSelection) {
+      const done = editRange(() => ({ muted: true }));
+      if (done) addToast({ type: 'success', title: 'Range silenced', message: 'That part is now muted. Undo, or unmute the piece, to bring it back.' });
+      return;
+    }
+    if (selectedClipIds.size === 0) {
+      addToast({ type: 'info', title: 'Nothing to silence', message: 'Select a clip, or highlight a range with the Range tool.' });
+      return;
+    }
+    handleUpdateClips(Array.from(selectedClipIds), { muted: true });
+  };
+
+  /** Make the highlighted range louder or quieter by a number of dB (non-destructive clip gain on the piece). */
+  const handleRangeGain = (db: number) => {
+    const factor = Math.pow(10, db / 20);
+    const done = editRange((c) => ({ gain: Math.min(2.5, Math.max(0, c.gain * factor)) }));
+    if (done) addToast({ type: 'success', title: db < 0 ? 'Range softened' : 'Range boosted', message: `${db > 0 ? '+' : ''}${db} dB on the highlighted part.` });
+  };
+
+  /** Split: at the playhead for a clip, at the two edges for a highlighted range. */
+  const splitAny = (clipId?: string) => {
+    if (rangeSelection) editRange();
+    else handleSplitClip(clipId);
+  };
+
+  /** Processing tools on a range: the range is split out, then the tool opens on its piece. */
+  const openDspAny = (type: DspModalType) => {
+    if (!rangeSelection) {
+      handleOpenDspModal(type);
+      return;
+    }
+    const anchor = rangeSelection.trackId;
+    const inner = editRange();
+    if (!inner || inner.length === 0) return;
+    const anchorClip = project.tracks.find((t) => t.id === anchor)?.clips.find((c) => inner.includes(c.id));
+    const target = anchorClip?.id ?? inner[0];
+    if (inner.length > 1) {
+      addToast({ type: 'info', title: 'One track at a time', message: 'Processing opened for the first track in the range. Select the other pieces and repeat to process them too.' });
+    }
+    handleOpenDspModal(type, target);
+  };
+
   /** Copy the highlighted range (all tracks it covers) so Paste can lay the same stack of tracks back. */
   const handleCopyRange = (): boolean => {
     const sel = rangeSelection;
@@ -2982,7 +3063,7 @@ const MainStudio: React.FC = () => {
         hasClipSelection={selectedClipIds.size > 0}
         onToggleMuteClip={() => selectedClip && handleToggleMuteClip(selectedClip.id)}
         onMoveClip={(dir) => selectedClip && handleMoveClipTrack(selectedClip.id, dir)}
-        onOpenDsp={(type) => handleOpenDspModal(type)}
+        onOpenDsp={(type) => openDspAny(type)}
         onOpenEffect={(type) => {
           setActiveEffectType(type);
           setIsEffectsModalOpen(true);
@@ -3018,7 +3099,8 @@ const MainStudio: React.FC = () => {
         clip={selectedClip}
         selectedCount={selectedClipIds.size}
         canPaste={canPasteAny}
-        onSplit={(id) => handleSplitClip(id)}
+        onSplit={(id) => splitAny(id)}
+        onSilence={handleSilence}
         onCopy={(id) => copyAny(id)}
         onCut={(id) => cutAny(id)}
         onPaste={() => pasteAny()}
@@ -3026,7 +3108,7 @@ const MainStudio: React.FC = () => {
         onToggleMute={(id) => handleToggleMuteClip(id)}
         onMoveTrack={(id, dir) => handleMoveClipTrack(id, dir)}
         onUpdateClip={handleUpdateClip}
-        onOpenDsp={(type) => handleOpenDspModal(type, selectedClip?.id)}
+        onOpenDsp={(type) => openDspAny(type)}
         onDeselect={() => setSelectedClipIds(new Set())}
         projectName={project.name}
         onRenameProject={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
@@ -3216,7 +3298,10 @@ const MainStudio: React.FC = () => {
               onUpdateProject={(p) => setProjectWithHistory(p)}
               onTracksAutoRemoved={handleTracksAutoRemoved}
               onSeek={handleSeek}
-              onSplitClip={handleSplitClip}
+              onSplitClip={splitAny}
+              onSilence={handleSilence}
+              onRangeGain={handleRangeGain}
+              onDeleteRange={handleDeleteRange}
               onDeleteClip={handleDeleteClip}
               onDuplicateClip={handleDuplicateClip}
               onCopyClip={copyAny}
@@ -3224,7 +3309,7 @@ const MainStudio: React.FC = () => {
               onPasteClip={pasteAny}
               canPaste={canPasteAny}
               onToggleMuteClip={handleToggleMuteClip}
-              onOpenDspModal={(type) => handleOpenDspModal(type)}
+              onOpenDspModal={(type) => openDspAny(type)}
               onOpenExport={openExportSelection}
               onOpenPlugins={(groupId) => {
                 setRackGroupId(groupId ?? null);

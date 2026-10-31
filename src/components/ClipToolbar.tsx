@@ -39,6 +39,8 @@ interface ClipToolbarProps {
   selectedCount?: number;
   canPaste: boolean;
   onSplit: (clipId: string) => void;
+  /** Silence the selected clips, or the highlighted range */
+  onSilence: () => void;
   onCopy: (clipId: string) => void;
   onCut: (clipId: string) => void;
   onPaste: () => void;
@@ -165,6 +167,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   selectedCount = clip ? 1 : 0,
   canPaste,
   onSplit,
+  onSilence,
   onCopy,
   onCut,
   onPaste,
@@ -267,9 +270,9 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
         {/* GROUP 1: Split, Cut, Copy, Paste */}
         <Capsule label="Clip edit">
           <CapsuleButton
-            title={hasClip ? 'Split clip at playhead (S)' : 'Select a clip to split'}
-            disabled={!hasClip}
-            onClick={() => hasClip && onSplit(clip.id)}
+            title={hasRange ? 'Split the highlighted range out at both edges (so it can be silenced, raised, lowered or processed)' : hasClip ? 'Split clip at playhead (S)' : 'Select a clip to split'}
+            disabled={!hasClip && !hasRange}
+            onClick={() => (hasRange || hasClip) && onSplit(clip?.id ?? '')}
             icon={<Scissors className="h-3.5 w-3.5" />}
           >
             Split
@@ -298,46 +301,54 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
           >
             Paste
           </CapsuleButton>
+          <CapsuleButton
+            title={hasRange ? 'Silence the highlighted range (mutes just that part)' : hasSelection ? 'Silence the selected clips' : 'Select a clip or highlight a range to silence'}
+            disabled={!hasSelection && !hasRange}
+            onClick={onSilence}
+            icon={<VolumeX className="h-3.5 w-3.5" />}
+          >
+            Silence
+          </CapsuleButton>
         </Capsule>
 
         {/* GROUP 2: DSP processing, then the effects rack */}
         <Capsule label="Processing">
           <CapsuleButton
-            title={hasClip ? 'Amplify gain in dB with clipping warning' : 'Select a clip to amplify'}
-            disabled={!hasClip}
-            onClick={() => hasClip && onOpenDsp('amplify')}
+            title={hasClip || hasRange ? 'Amplify gain in dB with clipping warning' : 'Select a clip or highlight a range to amplify'}
+            disabled={!hasClip && !hasRange}
+            onClick={() => (hasClip || hasRange) && onOpenDsp('amplify')}
             icon={<Sliders className="h-3.5 w-3.5" />}
           >
             Amplify
           </CapsuleButton>
           <CapsuleButton
-            title={hasClip ? 'Dynamics Compressor with threshold, ratio, attack, release' : 'Select a clip to compress'}
-            disabled={!hasClip}
-            onClick={() => hasClip && onOpenDsp('compress')}
+            title={hasClip || hasRange ? 'Dynamics Compressor with threshold, ratio, attack, release' : 'Select a clip or highlight a range to compress'}
+            disabled={!hasClip && !hasRange}
+            onClick={() => (hasClip || hasRange) && onOpenDsp('compress')}
             icon={<Wand2 className="h-3.5 w-3.5" />}
           >
             Compress
           </CapsuleButton>
           <CapsuleButton
-            title={hasClip ? 'Noise reduction with 24dB/oct rumble cut & spectral gating' : 'Select a clip to denoise'}
-            disabled={!hasClip}
-            onClick={() => hasClip && onOpenDsp('denoise')}
+            title={hasClip || hasRange ? 'Noise reduction with 24dB/oct rumble cut & spectral gating' : 'Select a clip or highlight a range to denoise'}
+            disabled={!hasClip && !hasRange}
+            onClick={() => (hasClip || hasRange) && onOpenDsp('denoise')}
             icon={<Sparkles className="h-3.5 w-3.5" />}
           >
             Denoise
           </CapsuleButton>
           <CapsuleButton
-            title={hasClip ? 'Change pitch without changing duration (-12 to +12 semitones)' : 'Select a clip to change pitch'}
-            disabled={!hasClip}
-            onClick={() => hasClip && onOpenDsp('pitch')}
+            title={hasClip || hasRange ? 'Change pitch without changing duration (-12 to +12 semitones)' : 'Select a clip or highlight a range to change pitch'}
+            disabled={!hasClip && !hasRange}
+            onClick={() => (hasClip || hasRange) && onOpenDsp('pitch')}
             icon={<Music className="h-3.5 w-3.5" />}
           >
             Pitch
           </CapsuleButton>
           <CapsuleButton
-            title={hasClip ? 'Change tempo/speed without changing pitch (WSOLA time-stretch)' : 'Select a clip to change speed'}
-            disabled={!hasClip}
-            onClick={() => hasClip && onOpenDsp('speed')}
+            title={hasClip || hasRange ? 'Change tempo/speed without changing pitch (WSOLA time-stretch)' : 'Select a clip or highlight a range to change speed'}
+            disabled={!hasClip && !hasRange}
+            onClick={() => (hasClip || hasRange) && onOpenDsp('speed')}
             icon={<Gauge className="h-3.5 w-3.5" />}
           >
             Speed
