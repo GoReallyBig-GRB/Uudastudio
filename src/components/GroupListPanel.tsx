@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Link2, Volume2, VolumeX, SlidersHorizontal, Pencil, ChevronUp, ChevronDown } from 'lucide-react';
+import { Link2, Volume2, VolumeX, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import type { GroupSettings } from '../types';
 import { formatGroupSpan, type GroupSummary } from '../audio/groupInfo';
 import { DEFAULT_GROUP_SETTINGS } from '../audio/groupSettings';
@@ -25,19 +25,18 @@ interface GroupListPanelProps {
   onToggleSolo?: (groupId: string) => void;
 }
 
-const EXPANDED_KEY = 'uuda_groups_expanded';
 const iconBtn = 'flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-ink-dim hover:text-ink hover:bg-surface-1 cursor-pointer transition-colors';
 
 export const GroupListPanel: React.FC<GroupListPanelProps> = ({
   groups, settings, selectedClipIds, onSelectGroup, onUpdateGroup, onOpenGroupPlugins, soloGroupId = null, onToggleSolo,
 }) => {
-  const [expanded, setExpanded] = useState<boolean>(() => {
-    try { return localStorage.getItem(EXPANDED_KEY) === '1'; } catch { return false; }
-  });
-  const toggleExpanded = () =>
-    setExpanded((v) => {
-      try { localStorage.setItem(EXPANDED_KEY, v ? '0' : '1'); } catch { /* storage unavailable */ }
-      return !v;
+  // Each strip opens and closes on its own (all start closed)
+  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
+  const toggleOpen = (id: string) =>
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
     });
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -64,16 +63,6 @@ export const GroupListPanel: React.FC<GroupListPanelProps> = ({
         <Link2 className="w-3.5 h-3.5 text-ink-dim shrink-0" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">Groups</span>
         <span className="text-[10px] font-num px-2 text-ink-dim bg-surface-3 rounded-full">{groups.length}</span>
-        <button
-          type="button"
-          onClick={toggleExpanded}
-          aria-expanded={expanded}
-          title={expanded ? 'Show the compact list' : 'Show volume and pan for every group'}
-          aria-label={expanded ? 'Collapse groups' : 'Expand groups'}
-          className={`${iconBtn} ml-auto`}
-        >
-          {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-        </button>
       </div>
 
       <div className="px-2 pb-2 space-y-1">
@@ -83,6 +72,7 @@ export const GroupListPanel: React.FC<GroupListPanelProps> = ({
           const isSolo = soloGroupId === g.id;
           const isDimmed = !!soloGroupId && !isSolo;
           const isEditing = editingId === g.id;
+          const expanded = openIds.has(g.id);
           return (
             <div
               key={g.id}
@@ -94,7 +84,18 @@ export const GroupListPanel: React.FC<GroupListPanelProps> = ({
             >
               {/* Compact row: the same columns for every group */}
               <div className="flex items-center gap-2 min-w-0">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleOpen(g.id); }}
+                  aria-expanded={expanded}
+                  aria-label={expanded ? `Collapse ${g.name}` : `Expand ${g.name}`}
+                  title={expanded ? 'Hide volume and pan' : 'Show volume and pan'}
+                  className="flex h-5 w-4 shrink-0 items-center justify-center rounded-control text-ink-dim hover:text-ink cursor-pointer transition-colors"
+                >
+                  <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+                </button>
                 <ColorBox
+                  size="sm"
                   value={g.color.border}
                   ariaLabel={`${g.name} colour`}
                   title="Group colour (click to change)"
@@ -133,15 +134,6 @@ export const GroupListPanel: React.FC<GroupListPanelProps> = ({
                 </div>
 
                 <div className="flex items-center shrink-0">
-                  <button
-                    type="button"
-                    title="Rename group"
-                    aria-label={`Rename ${g.name}`}
-                    onClick={(e) => { e.stopPropagation(); setEditingId(g.id); setDraft(g.name); }}
-                    className={`${iconBtn} opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </button>
                   {onToggleSolo && (
                     <button
                       type="button"
@@ -149,7 +141,7 @@ export const GroupListPanel: React.FC<GroupListPanelProps> = ({
                       aria-label={`Solo ${g.name}`}
                       aria-pressed={isSolo}
                       onClick={(e) => { e.stopPropagation(); onToggleSolo(g.id); }}
-                      className={`${iconBtn} text-[10px] font-bold ${isSolo ? '!bg-warn !text-black' : ''}`}
+                      className={`${iconBtn} !h-[18px] !w-[18px] text-[9px] font-bold ${isSolo ? '!bg-warn !text-black' : ''}`}
                     >
                       S
                     </button>
@@ -180,7 +172,7 @@ export const GroupListPanel: React.FC<GroupListPanelProps> = ({
 
               {/* Full view adds volume and pan, in aligned columns */}
               {expanded && (
-                <div className="mt-1.5 space-y-1 pl-7" onClick={(e) => e.stopPropagation()}>
+                <div className="mt-1.5 space-y-1 pl-10" onClick={(e) => e.stopPropagation()}>
                   <div className="grid grid-cols-[2rem_minmax(0,1fr)_3.25rem] items-center gap-2">
                     <span className="text-[9px] font-num text-ink-faint">VOL</span>
                     <input

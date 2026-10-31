@@ -6,7 +6,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { Database, HelpCircle, Activity, Radio, ZoomIn, ZoomOut, Maximize2, Clock } from 'lucide-react';
-import { formatTimecode } from '../utils/formatters';
+import { formatTimecode, formatVolumeDb } from '../utils/formatters';
 import { audioEngine } from '../audio/engine';
 
 interface StatusBarProps {
@@ -23,6 +23,9 @@ interface StatusBarProps {
   onZoomFit: () => void;
   isAutosaving: boolean;
   lastSavedAt: Date | null;
+  /** Gain of the single selected clip (linear), or null when no single loose clip is selected */
+  selectedClipGain?: number | null;
+  onNudgeClipGain?: (deltaDb: number) => void;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -39,6 +42,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   onZoomFit,
   isAutosaving,
   lastSavedAt,
+  selectedClipGain = null,
+  onNudgeClipGain,
 }) => {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const masterMeterRef = useRef<HTMLCanvasElement | null>(null);
@@ -132,6 +137,16 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             </>
           )}
         </div>
+
+        {/* Gain of the selected clip, nudged in 1 dB steps */}
+        {selectedClipGain !== null && onNudgeClipGain && (
+          <div className="flex items-center gap-1 text-[11px] text-zinc-400" title="Gain of the selected clip">
+            <span>Clip gain</span>
+            <button type="button" onClick={() => onNudgeClipGain(-1)} title="Volume -1 dB" className="rounded-full bg-surface-3 px-1.5 py-0.5 font-num text-[10px] hover:bg-white/10 cursor-pointer">-1</button>
+            <strong className="min-w-[3.5rem] text-center font-num text-zinc-200">{formatVolumeDb(selectedClipGain)}</strong>
+            <button type="button" onClick={() => onNudgeClipGain(1)} title="Volume +1 dB" className="rounded-full bg-surface-3 px-1.5 py-0.5 font-num text-[10px] hover:bg-white/10 cursor-pointer">+1</button>
+          </div>
+        )}
       </div>
 
       {/* Center Section: Dual Timer Display & Master VU Level Display */}

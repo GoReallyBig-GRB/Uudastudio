@@ -70,8 +70,13 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
     () => (selectedClipIds && selectedClipIds.size > 0 ? selectionScope(fullProject, selectedClipIds) : null),
     [fullProject, selectedClipIds],
   );
-  const [scope, setScope] = useState<'all' | 'selection'>(startWithSelection && selection ? 'selection' : 'all');
-  const useSelection = scope === 'selection' && !!selection && !!selection.range;
+  // Started from a grouped clip: the group is what is being exported, so "Whole project" is switched off to avoid mistakes.
+  const lockedToSelection = useMemo(() => {
+    if (!selection || !selectedClipIds) return false;
+    return fullProject.tracks.some((t) => t.clips.some((c) => !!c.groupId && selectedClipIds.has(c.id)));
+  }, [fullProject, selection, selectedClipIds]);
+  const [scope, setScope] = useState<'all' | 'selection'>((startWithSelection || lockedToSelection) && selection ? 'selection' : 'all');
+  const useSelection = (lockedToSelection || scope === 'selection') && !!selection && !!selection.range;
   const tempActive = hasTempLevels(tempClipLevels);
   const baseProject = useSelection ? selection!.project : fullProject;
   const project = useMemo(() => applyTempLevels(baseProject, tempClipLevels), [baseProject, tempClipLevels]);
@@ -235,15 +240,20 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
                       { value: 'selection' as const, name: `Selected (${selection.clipCount} ${selection.clipCount === 1 ? 'clip' : 'clips'})`, detail: `${selection.trackCount} ${selection.trackCount === 1 ? 'track' : 'tracks'}, only their own length` },
                     ]).map((o) => (
                       <button
-                        key={o.value} type="button" role="radio" aria-checked={scope === o.value}
+                        key={o.value} type="button" role="radio"
+                        aria-checked={(lockedToSelection ? 'selection' : scope) === o.value}
+                        disabled={lockedToSelection && o.value === 'all'}
                         onClick={() => setScope(o.value)}
-                        className={`rounded-2xl border px-4 py-3 text-left transition-colors ${scope === o.value ? 'border-cyan-300/60 bg-cyan-300/10' : 'border-zinc-800 bg-[#0e0e13] hover:bg-zinc-900'}`}
+                        className={`rounded-2xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${(lockedToSelection ? 'selection' : scope) === o.value ? 'border-cyan-300/60 bg-cyan-300/10' : 'border-zinc-800 bg-[#0e0e13] hover:bg-zinc-900 disabled:hover:bg-[#0e0e13]'}`}
                       >
                         <div className="text-sm font-semibold">{o.name}</div>
                         <div className="text-[11px] text-zinc-500">{o.detail}</div>
                       </button>
                     ))}
                   </div>
+                  {lockedToSelection && (
+                    <div className="mt-2 text-[11px] text-zinc-500">Locked to the selected group so the rest of the mix is never included by mistake. Click empty timeline space to deselect, then export for the whole project.</div>
+                  )}
                 </div>
               )}
 

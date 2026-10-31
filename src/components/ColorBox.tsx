@@ -19,9 +19,11 @@ interface ColorBoxProps {
   onClear?: () => void;
   /** Picker starting colour when there is no value */
   fallback?: string;
+  /** 'sm' is a quarter smaller (group strips) */
+  size?: 'sm' | 'md';
 }
 
-export const ColorBox: React.FC<ColorBoxProps> = ({ value, label, title, ariaLabel, onChange, onClear, fallback = '#5fb3a6' }) => {
+export const ColorBox: React.FC<ColorBoxProps> = ({ value, label, title, ariaLabel, onChange, onClear, fallback = '#5fb3a6', size = 'md' }) => {
   const ref = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
 
@@ -49,7 +51,7 @@ export const ColorBox: React.FC<ColorBoxProps> = ({ value, label, title, ariaLab
           onClear();
         }
       }}
-      className="relative flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-[5px] border border-line-strong text-[9px] font-num text-ink-faint transition-shadow hover:shadow-[0_0_0_2px_rgb(255_255_255/0.12)] focus-within:ring-2 focus-within:ring-accent/60"
+      className={`relative flex ${size === 'sm' ? 'h-[15px] w-[15px]' : 'h-5 w-5'} shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-[5px] border border-line-strong text-[9px] font-num text-ink-faint transition-shadow hover:shadow-[0_0_0_2px_rgb(255_255_255/0.12)] focus-within:ring-2 focus-within:ring-accent/60`}
       style={shown ? { background: shown, borderColor: 'rgb(0 0 0 / 0.35)' } : undefined}
     >
       {!shown && label}
