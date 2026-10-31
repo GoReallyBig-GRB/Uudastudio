@@ -195,28 +195,13 @@ export const Header: React.FC<HeaderProps> = ({
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Project title: double-click to rename; File > Rename Project asks for the same through an event.
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [draftName, setDraftName] = useState(project.name);
   useEffect(() => {
-    if (!isEditingName) setDraftName(project.name);
-  }, [project.name, isEditingName]);
-  useEffect(() => {
-    const startRename = () => setIsEditingName(true);
     const openSettings = () => setIsSettingsOpen(true);
-    window.addEventListener('uuda:rename-project', startRename);
     window.addEventListener('uuda:open-settings', openSettings);
     return () => {
-      window.removeEventListener('uuda:rename-project', startRename);
       window.removeEventListener('uuda:open-settings', openSettings);
     };
   }, []);
-  const submitName = () => {
-    setIsEditingName(false);
-    const trimmed = draftName.trim();
-    if (trimmed && trimmed !== project.name) onRenameProject?.(trimmed);
-    else setDraftName(project.name);
-  };
   const [recentProjects, setRecentProjects] = useState<RecentProjectEntry[]>(() => readRecentProjects());
 
   // Keep a small local index only; project/audio data remains in the existing save systems.
@@ -296,36 +281,6 @@ export const Header: React.FC<HeaderProps> = ({
             UUDA <span className="text-gold font-semibold text-xs tracking-[0.18em]">STUDIO</span>
           </span>
         </div>
-
-        <div className="h-4 w-px bg-line" />
-
-        {/* Project title (double-click to rename) */}
-        {isEditingName ? (
-          <input
-            type="text"
-            value={draftName}
-            autoFocus
-            aria-label="Project name"
-            onChange={(e) => setDraftName(e.target.value)}
-            onBlur={submitName}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submitName();
-              if (e.key === 'Escape') {
-                setDraftName(project.name);
-                setIsEditingName(false);
-              }
-            }}
-            className="h-8 w-44 rounded-control border border-accent/60 bg-surface-3 px-3 text-xs font-medium text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-          />
-        ) : (
-          <span
-            onDoubleClick={() => onRenameProject && setIsEditingName(true)}
-            title={`${project.name} (double-click to rename)`}
-            className="max-w-[10rem] truncate cursor-text text-xs font-medium text-ink-dim transition-colors hover:text-ink"
-          >
-            {project.name}
-          </span>
-        )}
 
         <div className="h-4 w-px bg-line" />
 

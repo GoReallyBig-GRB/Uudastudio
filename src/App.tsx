@@ -536,6 +536,13 @@ const MainStudio: React.FC = () => {
     });
   }, [mastering, hasAudioForMastering, project.sampleRate, soloScope, soloMixKey]);
 
+  // While a group is soloed, exporting means that group (even if nothing is selected)
+  const exportClipIds = useMemo(() => {
+    if (!soloGroupId) return selectedClipIds;
+    const ids = new Set<string>();
+    for (const t of project.tracks) for (const c of t.clips) if (c.groupId === soloGroupId) ids.add(c.id);
+    return ids.size > 0 ? ids : selectedClipIds;
+  }, [soloGroupId, project.tracks, selectedClipIds]);
   const [exportSelectionFirst, setExportSelectionFirst] = useState(false);
   const openExport = useCallback(() => { setExportSelectionFirst(false); setIsExportOpen(true); }, []);
   // Export from Quick Actions: the selected clips (and their groups) are what the user means
@@ -1383,7 +1390,7 @@ const MainStudio: React.FC = () => {
         };
 
         // The track becomes usable after decode; IndexedDB durability is a separate state.
-        setProjectWithHistory((prev) => ({ ...prev, tracks: [newTrack, ...prev.tracks] }));
+        setProjectWithHistory((prev) => ({ ...prev, tracks: [...prev.tracks, newTrack] }));
         setSelectedTrackId(trackId);
         setSelectedClipIds(new Set([clipId]));
         trackAdded = true;
@@ -1523,7 +1530,7 @@ const MainStudio: React.FC = () => {
       // Insert at index 0 (top track)
       setProjectWithHistory((prev) => ({
         ...prev,
-        tracks: [newTrack, ...prev.tracks],
+        tracks: [...prev.tracks, newTrack],
       }));
 
       setSelectedTrackId(trackId);
@@ -1579,7 +1586,7 @@ const MainStudio: React.FC = () => {
     // Insert at index 0 (top track)
     setProjectWithHistory((prev) => ({
       ...prev,
-      tracks: [newTrack, ...prev.tracks],
+      tracks: [...prev.tracks, newTrack],
     }));
 
     setSelectedTrackId(trackId);
@@ -1628,7 +1635,7 @@ const MainStudio: React.FC = () => {
     // Insert at index 0 (top track)
     setProjectWithHistory((prev) => ({
       ...prev,
-      tracks: [newTrack, ...prev.tracks],
+      tracks: [...prev.tracks, newTrack],
     }));
 
     setSelectedTrackId(trackId);
@@ -1678,7 +1685,7 @@ const MainStudio: React.FC = () => {
     // Insert at index 0 (top)
     setProjectWithHistory((prev) => ({
       ...prev,
-      tracks: [newTrack, ...prev.tracks],
+      tracks: [...prev.tracks, newTrack],
     }));
     setSelectedTrackId(trackId);
   };
@@ -3021,6 +3028,8 @@ const MainStudio: React.FC = () => {
         onUpdateClip={handleUpdateClip}
         onOpenDsp={(type) => handleOpenDspModal(type, selectedClip?.id)}
         onDeselect={() => setSelectedClipIds(new Set())}
+        projectName={project.name}
+        onRenameProject={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
         tool={timelineTool}
         onToolChange={(tool) => {
           setTimelineTool(tool);
@@ -3283,7 +3292,7 @@ const MainStudio: React.FC = () => {
       </div>
 
       {isExportOpen && (
-        <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => { setIsExportOpen(false); setTempClipLevels({}); }} selectedClipIds={selectedClipIds} startWithSelection={exportSelectionFirst} tempClipLevels={tempClipLevels} onResetTempLevels={handleResetTempLevels} />
+        <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => { setIsExportOpen(false); setTempClipLevels({}); }} selectedClipIds={exportClipIds} startWithSelection={exportSelectionFirst} tempClipLevels={tempClipLevels} onResetTempLevels={handleResetTempLevels} />
       )}
 
       {/* Bottom Status Bar */}
@@ -3301,6 +3310,12 @@ const MainStudio: React.FC = () => {
         onZoomFit={handleZoomFit}
         isAutosaving={isAutosaving}
         lastSavedAt={lastSavedAt}
+        selectedClipGain={selectedClip && !selectedClip.groupId ? selectedClip.gain : null}
+        onNudgeClipGain={(db) => {
+          if (!selectedClip) return;
+          const g = db < 0 ? Math.max(0, selectedClip.gain * 0.891) : Math.min(2.5, selectedClip.gain * 1.122);
+          handleUpdateClip(selectedClip.id, { gain: g });
+        }}
       />
 
       <TemplatesModal isOpen={isTemplatesModalOpen} onClose={() => setIsTemplatesModalOpen(false)} hasWork={project.tracks.length > 0} projectName={project.name} signedIn={!!user} refreshKey={templateListVersion} onUseTemplate={handleUseTemplate} />

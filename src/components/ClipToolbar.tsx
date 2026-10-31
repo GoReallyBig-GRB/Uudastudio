@@ -15,6 +15,7 @@ import {
   Sliders,
   Wand2,
   Sparkles,
+  ChevronDown,
   Music,
   Gauge,
   Volume2,
@@ -49,8 +50,8 @@ interface ClipToolbarProps {
   onOpenEffect?: (type: import('../types').EffectType) => void;
   onDeselect: () => void;
   /** Project title, shown at the left of this row; double-click it (or use File > Rename Project) to rename. */
-  projectName?: string;
-  onRenameProject?: (name: string) => void;
+  projectName: string;
+  onRenameProject: (name: string) => void;
   /** Pointer tool: Select edits clips, Range highlights a span of a track. */
   tool: TimelineTool;
   onToolChange: (tool: TimelineTool) => void;
@@ -65,6 +66,99 @@ interface ClipToolbarProps {
 
 /** Longest project name shown at the left of the toolbar. */
 const PROJECT_NAME_MAX_CHARS = 20;
+
+
+/** One "Fade" button for a clip: a menu with fade in, fade out (seconds) and the curve shape (exponential is the default). */
+const FadeMenu: React.FC<{ clip: Clip; onUpdateClip: (clipId: string, updates: Partial<Clip>) => void }> = ({ clip, onUpdateClip }) => {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  const btnRef = React.useRef<HTMLButtonElement>(null);
+  const maxFade = Math.max(0, Math.min(10, clip.durationSeconds / 2));
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest('[data-fade-menu]') || btnRef.current?.contains(t))) return;
+      setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ left: Math.min(window.innerWidth - 264, Math.max(8, r.left)), top: r.bottom + 6 });
+    setOpen((v) => !v);
+  };
+  const shape = clip.fadeShape === 'linear' ? 'linear' : 'exponential';
+  const row = (label: string, key: 'fadeInSeconds' | 'fadeOutSeconds') => (
+    <div className="grid grid-cols-[3.5rem_minmax(0,1fr)_3rem] items-center gap-2">
+      <span className="text-[10px] text-ink-dim">{label}</span>
+      <input
+        type="range" min="0" max={maxFade} step="0.05" value={Math.min(clip[key], maxFade)}
+        aria-label={label}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          onUpdateClip(clip.id, key === 'fadeInSeconds' ? { fadeInSeconds: v } : { fadeOutSeconds: v });
+        }}
+        className="w-full h-4 accent-accent cursor-pointer"
+      />
+      <span className="text-[10px] font-num text-ink text-right">{clip[key].toFixed(2)}s</span>
+    </div>
+  );
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        title="Fade in, fade out and curve shape"
+        className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface-1 px-3.5 text-xs font-medium text-ink-dim transition-colors hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+      >
+        <span>Fade</span>
+        <span className="font-num text-[10px] uppercase text-accent">{shape === 'linear' ? 'Lin' : 'Exp'}</span>
+        <ChevronDown className="h-3 w-3 opacity-60" />
+      </button>
+      {open && (
+        <div
+          data-fade-menu
+          style={{ left: pos.left, top: pos.top }}
+          className="fixed z-50 w-64 space-y-2.5 rounded-card border border-line-strong bg-surface-2 p-3 shadow-float uuda-pop-in"
+        >
+          {row('Fade in', 'fadeInSeconds')}
+          {row('Fade out', 'fadeOutSeconds')}
+          <div className="border-t border-line pt-2">
+            <div className="mb-1 text-[10px] text-ink-dim">Curve</div>
+            <div className="grid grid-cols-2 gap-1" role="radiogroup" aria-label="Fade curve">
+              {([['exponential', 'Exponential'], ['linear', 'Linear']] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={shape === value}
+                  onClick={() => onUpdateClip(clip.id, { fadeShape: value })}
+                  className={`rounded-control border px-2 py-1.5 text-[11px] font-medium cursor-pointer transition-colors ${
+                    shape === value ? 'border-accent/60 bg-accent-soft text-accent' : 'border-line bg-surface-3/60 text-ink-dim hover:text-ink hover:bg-surface-3'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
 
 export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   clip,
@@ -84,6 +178,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onToolChange,
   rangeSeconds,
   onDeleteRange,
+  projectName,
+  onRenameProject,
   isControllerCollapsed = false,
   onToggleController,
   isTimelineCollapsed = false,
@@ -93,8 +189,59 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   const hasSelection = selectedCount > 0;
   const hasRange = rangeSeconds !== null;
 
+  // Project title: double-click to rename. File > Rename Project in the header asks for the same via an event.
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [draftName, setDraftName] = useState(projectName);
+  useEffect(() => {
+    if (!isEditingName) setDraftName(projectName);
+  }, [projectName, isEditingName]);
+  useEffect(() => {
+    const startRename = () => setIsEditingName(true);
+    window.addEventListener('uuda:rename-project', startRename);
+    return () => window.removeEventListener('uuda:rename-project', startRename);
+  }, []);
+  const submitName = () => {
+    setIsEditingName(false);
+    const trimmed = draftName.trim();
+    if (trimmed && trimmed !== projectName) onRenameProject(trimmed);
+    else setDraftName(projectName);
+  };
+
   return (
-    <div className="h-12 bg-surface-0 border-b border-line px-4 flex items-center text-xs text-ink-dim gap-3 shrink-0 select-none z-30">
+    <div className="h-12 bg-surface-0 border-b border-line px-4 flex items-center justify-between text-xs text-ink-dim gap-3 shrink-0 select-none z-30">
+      {/* Left: project title, then the selected clip (or a hint) */}
+      <div className="flex items-center gap-3 min-w-0 shrink-0">
+        {isEditingName ? (
+          <input
+            type="text"
+            value={draftName}
+            autoFocus
+            aria-label="Project name"
+            onChange={(e) => setDraftName(e.target.value)}
+            onBlur={submitName}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submitName();
+              if (e.key === 'Escape') {
+                setDraftName(projectName);
+                setIsEditingName(false);
+              }
+            }}
+            className="h-8 w-44 rounded-control border border-accent/60 bg-surface-3 px-3 text-xs font-medium text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          />
+        ) : (
+          <span
+            onDoubleClick={() => setIsEditingName(true)}
+            title={projectName.length > PROJECT_NAME_MAX_CHARS ? undefined : 'Double-click to rename project'}
+            className="cursor-text text-xs font-medium text-ink-dim transition-colors hover:text-ink"
+          >
+            <HoverTitle text={projectName} maxChars={PROJECT_NAME_MAX_CHARS} />
+          </span>
+        )}
+
+      </div>
+
+      <div className="h-4 w-px bg-line shrink-0" />
+
       {/* Center: Primary Editing + DSP Cluster (Side-by-Side as required) */}
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-0.5 scrollbar-none">
         {/* Pointer tool: Select edits clips; Range highlights a span of one track so it can be deleted */}
@@ -234,58 +381,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               </button>
             </div>
 
-            {/* Inline Volume controls */}
-            <div className="flex h-8 items-center gap-1.5 px-3 rounded-full bg-surface-1 border border-line text-[11px] shrink-0">
-              <Volume2 className="w-3 h-3 text-zinc-400" />
-              <span className="mono-nums font-semibold text-zinc-200 text-[10px]">
-                {formatVolumeDb(clip.gain)}
-              </span>
-              <button
-                onClick={() => onUpdateClip(clip.id, { gain: Math.max(0, clip.gain * 0.891) })}
-                title="Volume -1 dB"
-                className="px-1.5 py-0.5 text-[10px] bg-surface-3 hover:bg-white/10 rounded-full cursor-pointer"
-              >
-                -1dB
-              </button>
-              <button
-                onClick={() => onUpdateClip(clip.id, { gain: Math.min(2.5, clip.gain * 1.122) })}
-                title="Volume +1 dB"
-                className="px-1.5 py-0.5 text-[10px] bg-surface-3 hover:bg-white/10 rounded-full cursor-pointer"
-              >
-                +1dB
-              </button>
-            </div>
-
-            {/* Fades */}
-            <div className="flex h-8 items-center gap-1.5 text-[10px] text-ink-dim px-3 bg-surface-1 rounded-full border border-line shrink-0">
-              <span>Fade In:</span>
-              <input
-                type="number"
-                min="0"
-                max={clip.durationSeconds / 2}
-                step="0.1"
-                value={clip.fadeInSeconds.toFixed(1)}
-                onChange={(e) => onUpdateClip(clip.id, { fadeInSeconds: Math.max(0, parseFloat(e.target.value) || 0) })}
-                className="w-10 bg-surface-3 border border-line rounded-control px-1 py-0.5 text-center text-ink"
-              />
-              <span>Out:</span>
-              <input
-                type="number"
-                min="0"
-                max={clip.durationSeconds / 2}
-                step="0.1"
-                value={clip.fadeOutSeconds.toFixed(1)}
-                onChange={(e) => onUpdateClip(clip.id, { fadeOutSeconds: Math.max(0, parseFloat(e.target.value) || 0) })}
-                className="w-10 bg-surface-3 border border-line rounded-control px-1 py-0.5 text-center text-ink"
-              />
-              <button
-                onClick={() => onUpdateClip(clip.id, { fadeShape: clip.fadeShape === 'linear' ? 'exponential' : 'linear' })}
-                title="Toggle Fade Curve Shape"
-                className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded font-mono text-[9px] uppercase text-cyan-300 cursor-pointer"
-              >
-                {clip.fadeShape}
-              </button>
-            </div>
+            {/* Fade: one button; its menu holds fade in, fade out and the curve */}
+            <FadeMenu clip={clip} onUpdateClip={onUpdateClip} />
           </>
         ) : null}
       </div>

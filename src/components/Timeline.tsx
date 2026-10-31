@@ -25,6 +25,7 @@ import { audioEngine } from '../audio/engine';
 import { pluginManager } from '../plugins/pluginManager';
 import { pruneEmptiedTracks, getTrackLabel } from '../utils/tracks';
 import { formatTimecode } from '../utils/formatters';
+import { gainToY, yToGain } from './clipGainLine';
 
 interface TimelineProps {
   project: Project;
@@ -93,6 +94,12 @@ interface FadeDragState {
   startX: number;
   initialFade: number;
   maxFade: number;
+}
+
+interface GainDragState {
+  clipId: string;
+  laneTop: number;
+  clipH: number;
 }
 
 interface EdgeTrimDragState {
@@ -209,6 +216,9 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   // Fade handle drag state
   const [fadeDrag, setFadeDrag] = useState<FadeDragState | null>(null);
+
+  // On-clip volume line drag
+  const [gainDrag, setGainDrag] = useState<GainDragState | null>(null);
 
   // Drag-and-drop file overlay state
   const [isDragOverFiles, setIsDragOverFiles] = useState<boolean>(false);
@@ -482,11 +492,12 @@ export const Timeline: React.FC<TimelineProps> = ({
           const clipH = height - 8;
           const visiblePixels = getVisibleClipPixelRange(renderX, renderW, width);
 
+          // Highlight colour: the clip's own hue, brighter (never a different colour)
+          const hi = tint ? tint.border : shade.wave;
+
           // Clip Background Pill
           ctx.save();
-          ctx.fillStyle = isSelected && !tint
-            ? 'rgba(0, 240, 255, 0.16)'
-            : isGhost
+          ctx.fillStyle = isGhost
             ? 'rgba(56, 189, 248, 0.08)'
             : shade.fill;
           ctx.beginPath();
@@ -520,12 +531,12 @@ export const Timeline: React.FC<TimelineProps> = ({
               const maxAmp = (clipH / 2 - 6) * Math.min(2.0, clip.gain);
 
               // Softer, slightly see-through strokes so dense audio reads as a clean outline, not a solid block.
-              ctx.globalAlpha = 0.85;
-              ctx.strokeStyle = isSelected
-                ? '#00F0FF'
-                : clip.muted
-                ? '#52525b'
-                : shade.wave;
+              ctx.globalAlpha = isSelected ? 1 : 0.85;
+              ctx.strokeStyle = clip.muted ? '#52525b' : shade.wave;
+              if (isSelected && !clip.muted) {
+                ctx.shadowColor = hi;
+                ctx.shadowBlur = 4;
+              }
               ctx.lineWidth = 1;
               ctx.beginPath();
 
@@ -632,12 +643,10 @@ export const Timeline: React.FC<TimelineProps> = ({
           ctx.roundRect(renderX, clipY, renderW, clipH, 4);
 
           if (isSelected) {
-            // Coloured clips glow in their own colour; plain clips keep the cyan highlight
-            const glow = tint ? tint.border : '#00F0FF';
-            if (tint) {
-              ctx.fillStyle = withAlpha(glow, 0.16);
-              ctx.fill();
-            }
+            // Every clip glows in its own colour (a coloured clip stays that colour, only brighter and glowing)
+            const glow = hi;
+            ctx.fillStyle = withAlpha(glow, 0.14);
+            ctx.fill();
             ctx.strokeStyle = glow;
             ctx.lineWidth = 2;
             ctx.shadowColor = glow;
@@ -655,10 +664,35 @@ export const Timeline: React.FC<TimelineProps> = ({
           }
           ctx.restore();
 
+          // Volume line (single clips only; groups are levelled from the Master Console)
+          if (!clip.groupId && !isGhost && renderW > 40 && clipH > 24 && (isSelected || clip.gain !== 1)) {
+            const ly = gainToY(clip.gain, clipY, clipH);
+            ctx.save();
+            ctx.beginPath();
+            ctx.roundRect(renderX, clipY, renderW, clipH, 4);
+            ctx.clip();
+            ctx.strokeStyle = isSelected ? '#f5c451' : 'rgba(245, 196, 81, 0.45)';
+            ctx.lineWidth = isSelected ? 1.5 : 1;
+            ctx.setLineDash(isSelected ? [] : [3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(renderX, ly);
+            ctx.lineTo(renderX + renderW, ly);
+            ctx.stroke();
+            if (isSelected) {
+              const db = clip.gain > 0 ? 20 * Math.log10(clip.gain) : -Infinity;
+              const label = Number.isFinite(db) ? `${db > 0 ? '+' : ''}${db.toFixed(1)} dB` : '-∞ dB';
+              ctx.font = '9px "JetBrains Mono", monospace';
+              ctx.fillStyle = '#f5c451';
+              ctx.textAlign = 'right';
+              ctx.fillText(label, renderX + renderW - 6, Math.min(clipY + clipH - 3, Math.max(clipY + 10, ly - 3)));
+            }
+            ctx.restore();
+          }
+
           // Clip Title bar text
           ctx.save();
           ctx.font = '10px "Plus Jakarta Sans", sans-serif';
-          ctx.fillStyle = isSelected ? '#e0faff' : '#cbd5e1';
+          ctx.fillStyle = isSelected ? '#f1f5f9' : '#cbd5e1';
           // Fit the title inside this clip (ellipsis, or nothing on a very narrow clip) so it never spills onto neighbours.
           const titleText = fitTitle(displayTitle(clip.name), renderW - TITLE_PAD_X * 2, (str) => ctx.measureText(str).width);
           if (titleText) ctx.fillText(titleText, renderX + TITLE_PAD_X, clipY + 12);
@@ -726,7 +760,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   const handleLanePointerMoveHover = (e: React.PointerEvent<HTMLDivElement>, track: Track) => {
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
-    if (draggingClips || edgeTrimDrag || marquee || fadeDrag || rangeDrag) {
+    if (draggingClips || edgeTrimDrag || marquee || fadeDrag || gainDrag || rangeDrag) {
       hideTitleTip();
       return;
     }
@@ -830,6 +864,21 @@ export const Timeline: React.FC<TimelineProps> = ({
           }
         }
         break;
+      }
+    }
+
+    // The on-clip volume line: grab it on a selected single clip and pull up or down (Ctrl+click resets to 0 dB).
+    if (clickedClip && !clickedEdge && !clickedFadeType && !clickedClip.groupId && selectedClipIds.has(clickedClip.id)) {
+      const laneH = rect.height - 8;
+      const lineY = gainToY(clickedClip.gain, 4, laneH);
+      if (laneH > 24 && clickY > 16 && Math.abs(clickY - lineY) <= 5) {
+        e.stopPropagation();
+        if (e.ctrlKey || e.metaKey) {
+          onUpdateClip(clickedClip.id, { gain: 1 });
+        } else {
+          setGainDrag({ clipId: clickedClip.id, laneTop: rect.top, clipH: laneH });
+        }
+        return;
       }
     }
 
@@ -1020,6 +1069,11 @@ export const Timeline: React.FC<TimelineProps> = ({
         onSelectClips(selected);
       }
 
+      // 3b. Volume line drag
+      if (gainDrag) {
+        onUpdateClip(gainDrag.clipId, { gain: yToGain(e.clientY - gainDrag.laneTop, 4, gainDrag.clipH) });
+      }
+
       // 4. Fade drag
       if (fadeDrag) {
         const dx = e.clientX - fadeDrag.startX;
@@ -1133,6 +1187,9 @@ export const Timeline: React.FC<TimelineProps> = ({
       if (fadeDrag) {
         setFadeDrag(null);
       }
+      if (gainDrag) {
+        setGainDrag(null);
+      }
     };
 
     window.addEventListener('pointermove', handleWindowPointerMove);
@@ -1147,6 +1204,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     marquee,
     rangeDrag,
     fadeDrag,
+    gainDrag,
     pixelsPerSecond,
     onRangeSelect,
     onSeek,
@@ -1328,7 +1386,7 @@ export const Timeline: React.FC<TimelineProps> = ({
               Drop audio files (.wav, .mp3, .m4a) anywhere or click <strong className="text-zinc-300">Import Audio</strong> in the top bar.
             </p>
             <div className="text-[11px] font-mono text-zinc-600 bg-zinc-900/60 px-3 py-1.5 rounded border border-zinc-800/80">
-              New tracks are automatically inserted at index 0 on top
+              New tracks are added below the existing ones
             </div>
           </div>
         ) : (
