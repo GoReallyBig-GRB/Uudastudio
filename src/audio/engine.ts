@@ -112,6 +112,9 @@ export class AudioEngine {
   /** Group being auditioned alone: everything else is silent (monitoring only; never saved, never exported) */
   private soloGroupId: string | null = null;
   private lastTracks: Track[] = [];
+  /** Temporary per-clip level multipliers (group mastering). Never saved; see audio/tempClipLevels.ts */
+  private tempClipFactors: Record<string, number> = {};
+  private clipTrims: Array<{ clipId: string; node: GainNode }> = [];
   /** Per-track volume/pan stages feeding the group buses for the current playback (disconnected when it stops) */
 
   /** Duck curves already worked out, by track, so playing again does not re-measure the audio */
@@ -250,6 +253,14 @@ export class AudioEngine {
     if (!this.ctx) return;
     if (this.lastTracks.length > 0) this.syncTracks(this.lastTracks);
     for (const id of this.groupBuses.keys()) this.applyGroupSettings(id);
+  }
+
+  /** Temporary per-clip levels as linear multipliers (clip id -> factor). Applies live to clips that are playing. */
+  public setTempClipLevels(factors: Record<string, number>): void {
+    this.tempClipFactors = factors;
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    for (const { clipId, node } of this.clipTrims) node.gain.setTargetAtTime(factors[clipId] ?? 1, t, 0.015);
   }
 
   public getSoloGroup(): string | null {
@@ -789,7 +800,13 @@ export class AudioEngine {
       declick.gain.linearRampToValueAtTime(1, whenToStartInCtx + DECLICK_SECONDS);
     }
     clipGain.connect(declick);
-    declick.connect(destination);
+    // Trim stage: the temporary per-clip level used while mastering a group (1 = no change). It sits after the clip's own
+    // gain and fades, so it can change while playing without disturbing them.
+    const trim = this.ctx.createGain();
+    trim.gain.value = this.tempClipFactors[clip.id] ?? 1;
+    declick.connect(trim);
+    trim.connect(destination);
+    this.clipTrims.push({ clipId: clip.id, node: trim });
 
     if (asset.buffer) {
       const source = this.ctx.createBufferSource();
@@ -982,6 +999,10 @@ export class AudioEngine {
       }, faded);
     }
     this.activeSources = [];
+    for (const t of this.clipTrims) {
+      try { t.node.disconnect(); } catch { /* already disconnected */ }
+    }
+    this.clipTrims = [];
   }
 
   private updateCurrentPosition(): number {

@@ -91,4 +91,17 @@ describe('group channel', () => {
     expect(engine.groupBuses.get('g1').level.gain.value).toBe(0);
     engine.stop();
   });
+
+  it('temporary clip levels reach the clips that are playing, and clear again', async () => {
+    delete engine.scheduleClip; // use the real scheduling here
+    await engine.play(project, 0);
+    const trims = engine.clipTrims.filter((t: any) => t.clipId === 'c2');
+    expect(trims.length).toBeGreaterThan(0);
+    engine.setTempClipLevels({ c2: 0.5 });
+    expect(trims[0].node.gain.value).toBeCloseTo(0.5);
+    engine.setTempClipLevels({});
+    expect(trims[0].node.gain.value).toBe(1);
+    engine.stop();
+    expect(engine.clipTrims.length).toBe(0);
+  });
 });
