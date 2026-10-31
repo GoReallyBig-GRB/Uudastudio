@@ -43,6 +43,9 @@ interface TimelineProps {
   onTracksAutoRemoved?: (trackIds: string[]) => void;
   onSeek: (seconds: number) => void;
   onSplitClip: (clipId: string) => void;
+  onSilence?: () => void;
+  onRangeGain?: (db: number) => void;
+  onDeleteRange?: () => void;
   onDeleteClip: (clipId: string) => void;
   onDuplicateClip: (clipId: string) => void;
   onCopyClip: (clipId: string) => void;
@@ -143,6 +146,9 @@ export const Timeline: React.FC<TimelineProps> = ({
   onTracksAutoRemoved,
   onSeek,
   onSplitClip,
+  onSilence,
+  onRangeGain,
+  onDeleteRange,
   onDeleteClip,
   onDuplicateClip,
   onCopyClip,
@@ -193,12 +199,19 @@ export const Timeline: React.FC<TimelineProps> = ({
   const [actionStrip, setActionStrip] = useState<{
     clip: Clip;
     position: { x: number; y: number };
+    /** Opened on a highlighted range, so Quick Actions edits the range */
+    range?: boolean;
   } | null>(null);
+  // A range strip lasts only as long as the range does
+  useEffect(() => {
+    if (actionStrip?.range && !rangeSelection) setActionStrip(null);
+  }, [actionStrip, rangeSelection]);
 
   // The clip Quick Actions shows: follows the selection while it is open, and always the live copy (not a stale snapshot).
   const stripClip = actionStrip
     ? (() => {
         const all = project.tracks.flatMap((t) => t.clips);
+        if (actionStrip.range) return all.find((c) => c.id === actionStrip.clip.id) ?? null;
         return all.find((c) => selectedClipIds.has(c.id)) ?? all.find((c) => c.id === actionStrip.clip.id) ?? null;
       })()
     : null;
@@ -408,8 +421,14 @@ export const Timeline: React.FC<TimelineProps> = ({
           }
         }
       } else if ((e.key === 'q' || e.key === 'Q') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        // Q: open (or close) Quick Actions for the selected clip, near the pointer.
-        if (selectedClipIds.size >= 1 && !rangeSelection) {
+        // Q: open (or close) Quick Actions for the selected clip, or the highlighted range, near the pointer.
+        if (rangeSelection) {
+          e.preventDefault();
+          const rep = rangeRepClip();
+          if (!rep) return;
+          const at = lastPointerRef.current ?? { x: window.innerWidth / 2 - 160, y: 200 };
+          setActionStrip((open) => (open ? null : { clip: rep, range: true, position: { x: Math.min(window.innerWidth - 320, at.x + 8), y: at.y + 8 } }));
+        } else if (selectedClipIds.size >= 1) {
           e.preventDefault();
           const [clipId] = Array.from(selectedClipIds);
           const target = project.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
@@ -822,6 +841,15 @@ export const Timeline: React.FC<TimelineProps> = ({
     // Range tool (or Alt held): dragging highlights a span of this track. It never moves, trims or fades a clip.
     if (tool === 'range' || e.altKey) {
       onSelectTrack(track.id);
+      // Clicking inside the range that is already highlighted keeps it (so double-click opens Quick Actions for it)
+      if (
+        rangeSelection &&
+        rangeTrackIds(rangeSelection).includes(track.id) &&
+        timeAtClick >= rangeSelection.startSeconds &&
+        timeAtClick <= rangeSelection.endSeconds
+      ) {
+        return;
+      }
       onRangeSelect(null);
       if (selectedClipIds.size > 0) onSelectClips(new Set());
       setRangeDrag({ trackId: track.id, trackIndex, anchorSeconds: Math.max(0, timeAtClick), startClientX: e.clientX, moved: false });
@@ -1216,12 +1244,33 @@ export const Timeline: React.FC<TimelineProps> = ({
     onTracksAutoRemoved,
   ]);
 
+  /** A clip the highlighted range touches (Quick Actions needs one to anchor to). Prefers the given track. */
+  const rangeRepClip = (preferTrackId?: string): Clip | null => {
+    if (!rangeSelection) return null;
+    const ids = rangeTrackIds(rangeSelection);
+    const ordered = [...project.tracks].filter((t) => ids.includes(t.id)).sort((a, b) => (a.id === preferTrackId ? -1 : b.id === preferTrackId ? 1 : 0));
+    for (const t of ordered) {
+      const hit = t.clips.find((c) => c.startSeconds < rangeSelection.endSeconds && c.startSeconds + c.durationSeconds > rangeSelection.startSeconds);
+      if (hit) return hit;
+    }
+    return null;
+  };
+
   // Double click on lane: opens quick-action strip
   const handleLaneDoubleClick = (e: React.MouseEvent<HTMLDivElement>, track: Track) => {
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const timeAtClick = clickX / pixelsPerSecond;
+
+    // Inside a highlighted range: Quick Actions works on the range
+    if (rangeSelection && rangeTrackIds(rangeSelection).includes(track.id) && timeAtClick >= rangeSelection.startSeconds && timeAtClick <= rangeSelection.endSeconds) {
+      const rep = rangeRepClip(track.id);
+      if (rep) {
+        setActionStrip({ clip: rep, range: true, position: { x: Math.min(window.innerWidth - 320, e.clientX + 8), y: e.clientY + 8 } });
+        return;
+      }
+    }
 
     for (const clip of track.clips) {
       if (timeAtClick >= clip.startSeconds && timeAtClick <= clip.startSeconds + clip.durationSeconds) {
@@ -1443,6 +1492,10 @@ export const Timeline: React.FC<TimelineProps> = ({
       {actionStrip && stripClip && (
         <ClipActionStrip
           clip={stripClip}
+          range={actionStrip.range && rangeSelection ? { seconds: rangeSelection.endSeconds - rangeSelection.startSeconds } : null}
+          onSilence={onSilence}
+          onRangeGain={onRangeGain}
+          onDeleteRange={onDeleteRange}
           selectedCount={selectedClipIds.size}
           selectedIds={Array.from(selectedClipIds)}
           onUpdateClips={onUpdateClips}
