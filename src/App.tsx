@@ -912,6 +912,26 @@ const MainStudio: React.FC = () => {
     setPlayheadSeconds(0);
   };
 
+  /** End of the last clip on any track */
+  const contentEndSeconds = () => project.tracks.reduce((m, t) => t.clips.reduce((mm, c) => Math.max(mm, c.startSeconds + c.durationSeconds), m), 0);
+
+  /** Jump the playhead by `delta` seconds (negative = back); keeps playing if it was playing */
+  const handleSkip = (delta: number) => {
+    handleSeek(playheadSecondsRef.current + delta);
+  };
+
+  /** The opposite of Return to Start: the playhead goes to the end of the audio */
+  const handleGoToEnd = () => {
+    const end = contentEndSeconds();
+    if (isPlaying) {
+      audioEngine.pause();
+      setIsPlaying(false);
+    }
+    audioEngine.seek(end);
+    playheadSecondsRef.current = end;
+    setPlayheadSeconds(end);
+  };
+
   const handleReturnToStart = useCallback(() => {
     if (isPlaying) {
       audioEngine.pause();
@@ -3167,6 +3187,12 @@ const MainStudio: React.FC = () => {
         return;
       }
 
+      // End: playhead to the end of the audio
+      if (e.code === 'End' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        handleGoToEnd();
+      }
+
       // Space: Play / Pause
       if (e.code === 'Space') {
         e.preventDefault();
@@ -3404,6 +3430,8 @@ const MainStudio: React.FC = () => {
         onPause={handlePause}
         onStop={handleStop}
         onReturnToStart={handleReturnToStart}
+        onSkip={handleSkip}
+        onGoToEnd={handleGoToEnd}
         onNewProject={handleNewProject}
         onSaveAndNewProject={handleSaveAndNewProject}
         onOpenNewProjectInTab={handleOpenNewProjectInTab}

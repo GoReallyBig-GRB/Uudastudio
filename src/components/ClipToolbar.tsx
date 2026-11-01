@@ -135,7 +135,7 @@ const FadeMenu: React.FC<{ clip: Clip; onUpdateClip: (clipId: string, updates: P
         onClick={toggle}
         aria-expanded={open}
         title="Fade in, fade out and curve shape"
-        className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface-1 px-3.5 text-xs font-medium text-ink-dim transition-colors hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        className="flex h-[22px] shrink-0 cursor-pointer items-center gap-1 rounded-full border border-line bg-surface-1 px-2.5 text-[10px] font-semibold text-ink-dim transition-colors hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
       >
         <span>Fade</span>
         <span className="font-num text-[10px] uppercase text-accent">{shape === 'linear' ? 'Lin' : 'Exp'}</span>
@@ -228,227 +228,208 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
     else setDraftName(projectName);
   };
 
+  const none = !hasClip && !hasRange;
+  const idle = 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink';
+  const PILL = "flex h-[22px] shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40";
   return (
-    <div className="bg-surface-0 border-b border-line px-4 py-1.5 flex flex-col gap-1 text-xs text-ink-dim shrink-0 select-none z-30">
-      {/* Row 1: where you are and how you point and see: project, tool, view, then the edit actions */}
-      <div className="flex items-center gap-2 min-w-0">
-        <div className="flex items-center gap-3 min-w-0 shrink-0">
-        {isEditingName ? (
-          <input
-            type="text"
-            value={draftName}
-            autoFocus
-            aria-label="Project name"
-            onChange={(e) => setDraftName(e.target.value)}
-            onBlur={submitName}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submitName();
-              if (e.key === 'Escape') {
-                setDraftName(projectName);
-                setIsEditingName(false);
-              }
-            }}
-            className="h-8 w-44 rounded-control border border-accent/60 bg-surface-3 px-3 text-xs font-medium text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-          />
-        ) : (
-          <span
-            onDoubleClick={() => setIsEditingName(true)}
-            title={projectName.length > PROJECT_NAME_MAX_CHARS ? undefined : 'Double-click to rename project'}
-            className="cursor-text text-xs font-medium text-ink-dim transition-colors hover:text-ink"
-          >
-            <HoverTitle text={projectName} maxChars={PROJECT_NAME_MAX_CHARS} />
-          </span>
-        )}
-
+    <div className="bg-surface-0 border-b border-line px-4 py-1 flex flex-col gap-1 text-[10px] text-ink-dim shrink-0 select-none z-30">
+      {/* Row 1: project, pointer tool and view on the left; the edit actions on the right */}
+      <div className="flex items-center justify-between gap-3 min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          {isEditingName ? (
+            <input
+              type="text"
+              value={draftName}
+              autoFocus
+              aria-label="Project name"
+              onChange={(e) => setDraftName(e.target.value)}
+              onBlur={submitName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitName();
+                if (e.key === 'Escape') {
+                  setDraftName(projectName);
+                  setIsEditingName(false);
+                }
+              }}
+              className="h-6 w-44 rounded-control border border-accent/60 bg-surface-3 px-2 text-[11px] font-medium text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            />
+          ) : (
+            <span
+              onDoubleClick={() => setIsEditingName(true)}
+              title={projectName.length > PROJECT_NAME_MAX_CHARS ? undefined : 'Double-click to rename project'}
+              className="cursor-text text-[11px] font-medium text-ink-dim transition-colors hover:text-ink"
+            >
+              <HoverTitle text={projectName} maxChars={PROJECT_NAME_MAX_CHARS} />
+            </span>
+          )}
+          <div className="h-3.5 w-px bg-line shrink-0" />
+          <Capsule label="Timeline tool" size="sm">
+            <CapsuleButton title="Select tool: move and edit clips (Z)" active={tool === 'select'} onClick={() => onToolChange('select')}>
+              Select
+            </CapsuleButton>
+            <CapsuleButton title="Range tool: highlight part of a track (X, or hold Alt while dragging)" active={tool === 'range'} onClick={() => onToolChange('range')}>
+              Range
+            </CapsuleButton>
+          </Capsule>
+          <Capsule label="View" size="sm">
+            <CapsuleButton
+              title={focusActive ? 'Back to all tracks (F)' : 'Single-track view: work on this track alone, large (F)'}
+              active={focusActive}
+              onClick={onToggleFocus}
+              icon={<Maximize2 className="h-3 w-3" />}
+            >
+              {focusActive ? 'All tracks' : 'Focus'}
+            </CapsuleButton>
+            <CapsuleButton
+              title={!focusActive ? 'In Focus view you can hear only this track or the full mix' : focusSolo ? 'Hearing only this track. Click to hear the full mix.' : 'Hearing the full mix. Click to hear only this track.'}
+              active={focusActive && focusSolo}
+              disabled={!focusActive}
+              onClick={onToggleFocusSolo}
+              icon={<Headphones className="h-3 w-3" />}
+            >
+              {focusSolo ? 'Solo' : 'Full mix'}
+            </CapsuleButton>
+          </Capsule>
         </div>
-        <div className="h-4 w-px bg-line shrink-0" />
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none">
-        <Capsule label="Timeline tool">
-          <CapsuleButton title="Select tool: move and edit clips (Z)" active={tool === 'select'} onClick={() => onToolChange('select')}>
-            Select
-          </CapsuleButton>
-          <CapsuleButton title="Range tool: highlight part of a track (X, or hold Alt while dragging)" active={tool === 'range'} onClick={() => onToolChange('range')}>
-            Range
-          </CapsuleButton>
-        </Capsule>
-        <button
-          onClick={onToggleFocus}
-          aria-pressed={focusActive}
-          title={focusActive ? 'Back to all tracks (F)' : 'Single-track view: work on this track alone, large (F)'}
-          className={`flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
-            focusActive ? 'border-accent/50 bg-accent-soft text-accent' : 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink'
-          }`}
-        >
-          <Maximize2 className="h-3.5 w-3.5" />
-          <span>{focusActive ? 'All tracks' : 'Focus'}</span>
-        </button>
-        {focusActive && (
-          <button
-            onClick={onToggleFocusSolo}
-            aria-pressed={focusSolo}
-            title={focusSolo ? 'Hearing only this track. Click to hear the full mix.' : 'Hearing the full mix. Click to hear only this track.'}
-            className={`flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/50 ${
-              focusSolo ? 'border-warn bg-warn text-black' : 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink'
-            }`}
-          >
-            <Headphones className="h-3.5 w-3.5" />
-            <span>{focusSolo ? 'Solo' : 'Full mix'}</span>
-          </button>
-        )}
-        <Capsule label="Clip edit">
-          <CapsuleButton
-            title={hasRange ? 'Split the highlighted range out at both edges (so it can be silenced, raised, lowered or processed)' : hasClip ? 'Split clip at playhead (S)' : 'Select a clip to split'}
-            disabled={!hasClip && !hasRange}
-            onClick={() => (hasRange || hasClip) && onSplit(clip?.id ?? '')}
-            icon={<Scissors className="h-3.5 w-3.5" />}
-          >
-            Split
-          </CapsuleButton>
-          <CapsuleButton
-            title={hasRange ? 'Cut the highlighted range and close the gap (Ctrl+X)' : hasSelection ? 'Cut the selected clips (Ctrl+X)' : 'Select a clip or highlight a range to cut'}
-            disabled={!hasSelection && !hasRange}
-            onClick={() => (hasRange || hasSelection) && onCut(clip?.id ?? '')}
-            icon={<ScissorsLineDashed className="h-3.5 w-3.5" />}
-          >
-            Cut
-          </CapsuleButton>
-          <CapsuleButton
-            title={hasRange ? 'Copy the highlighted range, across all its tracks (Ctrl+C)' : hasSelection ? 'Copy the selected clips (Ctrl+C)' : 'Select a clip or highlight a range to copy'}
-            disabled={!hasSelection && !hasRange}
-            onClick={() => (hasRange || hasSelection) && onCopy(clip?.id ?? '')}
-            icon={<Copy className="h-3.5 w-3.5" />}
-          >
-            Copy
-          </CapsuleButton>
-          <CapsuleButton
-            title={canPaste ? 'Paste at the playhead, onto the active track (Ctrl+V)' : 'Clipboard is empty'}
-            disabled={!canPaste}
-            onClick={onPaste}
-            icon={<ClipboardPaste className="h-3.5 w-3.5" />}
-          >
-            Paste
-          </CapsuleButton>
-          <CapsuleButton
-            title={hasRange ? 'Silence the highlighted range (mutes just that part)' : hasSelection ? 'Silence the selected clips' : 'Select a clip or highlight a range to silence'}
-            disabled={!hasSelection && !hasRange}
-            onClick={onSilence}
-            icon={<VolumeX className="h-3.5 w-3.5" />}
-          >
-            Silence
-          </CapsuleButton>
-        </Capsule>
 
-        {rangeSeconds !== null && (
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Capsule label="Clip edit" size="sm">
+            <CapsuleButton
+              title={hasRange ? 'Split the highlighted range out at both edges (so it can be silenced, raised, lowered or processed)' : hasClip ? 'Split clip at playhead (S)' : 'Select a clip to split'}
+              disabled={none}
+              onClick={() => (hasRange || hasClip) && onSplit(clip?.id ?? '')}
+              icon={<Scissors className="h-3 w-3" />}
+            >
+              Split
+            </CapsuleButton>
+            <CapsuleButton
+              title={hasRange ? 'Cut the highlighted range and close the gap (Ctrl+X)' : hasSelection ? 'Cut the selected clips (Ctrl+X)' : 'Select a clip or highlight a range to cut'}
+              disabled={!hasSelection && !hasRange}
+              onClick={() => (hasRange || hasSelection) && onCut(clip?.id ?? '')}
+              icon={<ScissorsLineDashed className="h-3 w-3" />}
+            >
+              Cut
+            </CapsuleButton>
+            <CapsuleButton
+              title={hasRange ? 'Copy the highlighted range (Ctrl+C)' : hasSelection ? 'Copy the selected clips (Ctrl+C)' : 'Select a clip or highlight a range to copy'}
+              disabled={!hasSelection && !hasRange}
+              onClick={() => (hasRange || hasSelection) && onCopy(clip?.id ?? '')}
+              icon={<Copy className="h-3 w-3" />}
+            >
+              Copy
+            </CapsuleButton>
+            <CapsuleButton
+              title={canPaste ? 'Paste at the playhead, onto the active track (Ctrl+V)' : 'Clipboard is empty'}
+              disabled={!canPaste}
+              onClick={onPaste}
+              icon={<ClipboardPaste className="h-3 w-3" />}
+            >
+              Paste
+            </CapsuleButton>
+            <CapsuleButton
+              title={hasRange ? 'Silence the highlighted range (mutes just that part)' : hasSelection ? 'Silence the selected clips' : 'Select a clip or highlight a range to silence'}
+              disabled={!hasSelection && !hasRange}
+              onClick={onSilence}
+              icon={<VolumeX className="h-3 w-3" />}
+            >
+              Silence
+            </CapsuleButton>
+          </Capsule>
           <button
             onClick={onDeleteRange}
-            title="Delete the highlighted range from this track and close the gap (Delete)"
-            className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-danger/40 bg-danger/10 px-3.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/50"
+            disabled={!hasRange}
+            title={hasRange ? 'Delete the highlighted range from this track and close the gap (Delete)' : 'Highlight a range (Range tool, X) to delete it'}
+            className={`${PILL} ${hasRange ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 focus-visible:ring-danger/50' : idle}`}
           >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span>Delete {rangeSeconds.toFixed(2)}s</span>
+            <Trash2 className="h-3 w-3" />
+            <span>{hasRange ? `Delete ${rangeSeconds!.toFixed(2)}s` : 'Delete range'}</span>
           </button>
-        )}
-
         </div>
       </div>
 
-      {/* Row 2: what is done to the audio: noise removal, level and timing, then the clip's own settings */}
-      <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none">
-        {/* Noise removal: learn the noise, then remove it. One cluster, in the order it is used. */}
-        <Capsule label="Noise removal">
-          <CapsuleButton
-            title={hasRange ? 'Use the highlighted range as the noise sample: Denoise then removes only that noise from the whole track' : 'Highlight a few seconds with no speech (Range tool, X) to use as the noise sample'}
-            disabled={!hasRange}
-            onClick={onCaptureNoise}
-            icon={<Fingerprint className="h-3.5 w-3.5" />}
+      {/* Row 2: what is done to the audio on the left (noise removal, then level and timing); the clip's own settings on the right */}
+      <div className="flex items-center justify-between gap-3 min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-px scrollbar-none">
+          {/* Noise removal: learn the noise, then remove it. One cluster, in the order it is used. */}
+          <Capsule label="Noise removal" size="sm">
+            <CapsuleButton
+              title={hasRange ? 'Use the highlighted range as the noise sample: Denoise then removes only that noise from the whole track' : 'Highlight a few seconds with no speech (Range tool, X) to use as the noise sample'}
+              disabled={!hasRange || !onCaptureNoise}
+              onClick={onCaptureNoise}
+              icon={<Fingerprint className="h-3 w-3" />}
             >
-            {hasNoisePrint ? 'Noise sample ✓' : 'Noise sample'}
+              {hasNoisePrint ? 'Noise sample ✓' : 'Noise sample'}
             </CapsuleButton>
-          <CapsuleButton
-            title={hasClip || hasRange ? (hasNoisePrint ? 'Remove the sampled noise from the selected clip or range' : 'Remove background noise. For best results take a Noise sample first (highlight a stretch with no speech)') : 'Select a clip or highlight a range to denoise'}
-            disabled={!hasClip && !hasRange}
-            onClick={() => (hasClip || hasRange) && onOpenDsp('denoise')}
-            icon={<Sparkles className="h-3.5 w-3.5" />}
-          >
-            Denoise
-          </CapsuleButton>
-        </Capsule>
-        <Capsule label="Level and timing">
-          <CapsuleButton
-            title={hasClip || hasRange ? 'Amplify gain in dB with clipping warning' : 'Select a clip or highlight a range to amplify'}
-            disabled={!hasClip && !hasRange}
-            onClick={() => (hasClip || hasRange) && onOpenDsp('amplify')}
-            icon={<Sliders className="h-3.5 w-3.5" />}
-          >
-            Amplify
-          </CapsuleButton>
-          <CapsuleButton
-            title={hasClip || hasRange ? 'Dynamics Compressor with threshold, ratio, attack, release' : 'Select a clip or highlight a range to compress'}
-            disabled={!hasClip && !hasRange}
-            onClick={() => (hasClip || hasRange) && onOpenDsp('compress')}
-            icon={<Wand2 className="h-3.5 w-3.5" />}
-          >
-            Compress
-          </CapsuleButton>
-          <CapsuleButton
-            title={hasClip || hasRange ? 'Change pitch without changing duration (-12 to +12 semitones)' : 'Select a clip or highlight a range to change pitch'}
-            disabled={!hasClip && !hasRange}
-            onClick={() => (hasClip || hasRange) && onOpenDsp('pitch')}
-            icon={<Music className="h-3.5 w-3.5" />}
-          >
-            Pitch
-          </CapsuleButton>
-          <CapsuleButton
-            title={hasClip || hasRange ? 'Change tempo/speed without changing pitch (WSOLA time-stretch)' : 'Select a clip or highlight a range to change speed'}
-            disabled={!hasClip && !hasRange}
-            onClick={() => (hasClip || hasRange) && onOpenDsp('speed')}
-            icon={<Gauge className="h-3.5 w-3.5" />}
-          >
-            Speed
-          </CapsuleButton>
-        </Capsule>
-
-        <div className="h-4 w-px bg-line mx-1 shrink-0" />
-        {hasClip ? (
-          <>
-            {/* Mute Clip */}
-            <button
-              onClick={() => onToggleMute(clip.id)}
-              title="Mute / Unmute clip"
-              className={`flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-colors ${
-                clip.muted
-                  ? 'border-danger/40 bg-danger/10 text-danger'
-                  : 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink'
-              }`}
+            <CapsuleButton
+              title={hasClip || hasRange ? (hasNoisePrint ? 'Remove the sampled noise from the selected clip or range' : 'Remove background noise. For best results take a Noise sample first (highlight a stretch with no speech)') : 'Select a clip or highlight a range to denoise'}
+              disabled={none}
+              onClick={() => !none && onOpenDsp('denoise')}
+              icon={<Sparkles className="h-3 w-3" />}
             >
-              {clip.muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-              <span>{clip.muted ? 'Muted' : 'Mute'}</span>
-            </button>
+              Denoise
+            </CapsuleButton>
+          </Capsule>
+          <Capsule label="Level and timing" size="sm">
+            <CapsuleButton
+              title={hasClip || hasRange ? 'Amplify gain in dB with clipping warning' : 'Select a clip or highlight a range to amplify'}
+              disabled={none}
+              onClick={() => !none && onOpenDsp('amplify')}
+              icon={<Sliders className="h-3 w-3" />}
+            >
+              Amplify
+            </CapsuleButton>
+            <CapsuleButton
+              title={hasClip || hasRange ? 'Dynamics Compressor with threshold, ratio, attack, release' : 'Select a clip or highlight a range to compress'}
+              disabled={none}
+              onClick={() => !none && onOpenDsp('compress')}
+              icon={<Wand2 className="h-3 w-3" />}
+            >
+              Compress
+            </CapsuleButton>
+            <CapsuleButton
+              title={hasClip || hasRange ? 'Change pitch without changing duration (-12 to +12 semitones)' : 'Select a clip or highlight a range to change pitch'}
+              disabled={none}
+              onClick={() => !none && onOpenDsp('pitch')}
+              icon={<Music className="h-3 w-3" />}
+            >
+              Pitch
+            </CapsuleButton>
+            <CapsuleButton
+              title={hasClip || hasRange ? 'Change tempo/speed without changing pitch (WSOLA time-stretch)' : 'Select a clip or highlight a range to change speed'}
+              disabled={none}
+              onClick={() => !none && onOpenDsp('speed')}
+              icon={<Gauge className="h-3 w-3" />}
+            >
+              Speed
+            </CapsuleButton>
+          </Capsule>
+        </div>
 
-            {/* Move Up / Down */}
-            <div className="flex items-center divide-x divide-line overflow-hidden rounded-full border border-line bg-surface-1">
-              <button
-                onClick={() => onMoveTrack(clip.id, 'up')}
-                title="Move clip to track above (Arrow Up)"
-                className="flex h-8 w-9 items-center justify-center text-ink-dim hover:bg-white/5 hover:text-ink transition-colors shrink-0 cursor-pointer"
-              >
-                <ArrowUp className="w-3 h-3" />
-              </button>
-              <button
-                onClick={() => onMoveTrack(clip.id, 'down')}
-                title="Move clip to track below (Arrow Down)"
-                className="flex h-8 w-9 items-center justify-center text-ink-dim hover:bg-white/5 hover:text-ink transition-colors shrink-0 cursor-pointer"
-              >
-                <ArrowDown className="w-3 h-3" />
-              </button>
-            </div>
-
-            {/* Fade: one button; its menu holds fade in, fade out and the curve */}
+        {/* The clip's own settings: always there, available when a clip is selected */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            onClick={() => clip && onToggleMute(clip.id)}
+            disabled={!clip}
+            title={clip ? 'Mute / Unmute clip' : 'Select a clip to mute it'}
+            className={`${PILL} ${clip?.muted ? 'border-danger/40 bg-danger/10 text-danger' : idle}`}
+          >
+            {clip?.muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+            <span>{clip?.muted ? 'Muted' : 'Mute'}</span>
+          </button>
+          <Capsule label="Move to track" size="sm">
+            <CapsuleButton iconOnly title="Move clip to track above (Arrow Up)" disabled={!clip} onClick={() => clip && onMoveTrack(clip.id, 'up')} icon={<ArrowUp className="h-3 w-3" />} />
+            <CapsuleButton iconOnly title="Move clip to track below (Arrow Down)" disabled={!clip} onClick={() => clip && onMoveTrack(clip.id, 'down')} icon={<ArrowDown className="h-3 w-3" />} />
+          </Capsule>
+          {clip ? (
             <FadeMenu clip={clip} onUpdateClip={onUpdateClip} />
-          </>
-        ) : null}
+          ) : (
+            <button disabled title="Select a clip to set its fades" className={`${PILL} ${idle}`}>
+              <span>Fade</span>
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
-
 };
