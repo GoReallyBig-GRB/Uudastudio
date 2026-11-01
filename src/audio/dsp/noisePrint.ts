@@ -160,12 +160,22 @@ export interface NoisePrintSettings {
   reductionDb: number;
   /** How strictly the print is matched: 1 = exactly the measured noise, higher also removes louder noise like it (1 to 4) */
   sensitivity: number;
+  /** 0 to 1: how much the voice is shielded. Higher opens up faster on speech and eases off the cut in doubtful bands. Default 0.5 */
+  voiceProtection?: number;
+  /** Output only what is being removed (to check no voice is in it) */
+  listenRemoved?: boolean;
 }
 
 export class NoisePrintStage implements Stage {
   private readonly noise: Float64Array;
   private readonly floor: number;
   private readonly alpha: number;
+  /** Decision-directed smoothing: how much of the previous frame's clean-signal estimate carries into this one */
+  private readonly memory: number;
+  /** Exponent on the gain: below 1 eases the cut in bands that are only probably noise */
+  private readonly expo: number;
+  private readonly residual: boolean;
+  private readonly snrPrev = new Float64Array(BINS);
   private readonly re = new Float64Array(N);
   private readonly im = new Float64Array(N);
   private readonly ar = new Float64Array(BINS);
@@ -178,8 +188,8 @@ export class NoisePrintStage implements Stage {
   private readonly gb = new Float64Array(BINS);
   private readonly fa = new Float64Array(N);
   private readonly fb = new Float64Array(N);
-  private readonly prev = new Float64Array(BINS).fill(1);
   private readonly raw = new Float64Array(BINS);
+  private readonly gamma = new Float64Array(BINS);
   private readonly olap = new Float64Array(N);
   private buf = new Float64Array(0);
   private base = 0; // absolute index of buf[0]
@@ -191,21 +201,32 @@ export class NoisePrintStage implements Stage {
     this.noise = printFor(print, sampleRate);
     this.floor = Math.pow(10, -Math.max(0, settings.reductionDb) / 20);
     this.alpha = Math.max(1, Math.min(4, Number.isFinite(settings.sensitivity) ? settings.sensitivity : 1.5));
+    const protect = Math.max(0, Math.min(1, Number.isFinite(settings.voiceProtection) ? (settings.voiceProtection as number) : 0.5));
+    this.memory = 0.98 - 0.12 * protect;
+    // Wiener gain alone takes steady noise down about 29 dB; deeper settings steepen the curve so the dial means what it says
+    this.expo = Math.max(1 - 0.5 * protect, Math.max(0, settings.reductionDb) / 28.8);
+    this.residual = !!settings.listenRemoved;
   }
 
-  /** Smoothed gain for one frame's band powers (`power`), updating the carried gain state */
+  /**
+   * Gain for one frame from its band powers, the "decision-directed" Wiener way: the signal-to-noise ratio of each band is
+   * estimated from this frame AND from what the previous frame was judged to contain, so a band that was clearly voice a
+   * moment ago stays open and isolated noise blips do not flicker through ("musical noise"). Speech bands get a gain close to
+   * 1, noise bands the floor.
+   */
   private gainsFor(power: Float64Array, out: Float64Array): void {
+    const a = this.memory;
     for (let k = 0; k < BINS; k++) {
-      const g2 = 1 - (this.alpha * this.noise[k]) / (power[k] + 1e-18);
-      this.raw[k] = g2 > this.floor * this.floor ? Math.sqrt(g2) : this.floor;
+      const gamma = power[k] / (this.alpha * this.noise[k] + 1e-18); // how many times louder than the noise this band is
+      const xi = a * this.snrPrev[k] + (1 - a) * Math.max(gamma - 1, 0);
+      this.raw[k] = xi / (1 + xi);
+      this.gamma[k] = gamma;
     }
-    // Smooth across neighbouring bands, then over time (open quickly for speech, close gently on noise)
     for (let k = 0; k < BINS; k++) {
-      const f = 0.25 * this.raw[Math.max(0, k - 1)] + 0.5 * this.raw[k] + 0.25 * this.raw[Math.min(BINS - 1, k + 1)];
-      const p = this.prev[k];
-      const g = f > p ? p + 0.7 * (f - p) : p + 0.35 * (f - p);
-      this.prev[k] = g;
-      out[k] = g;
+      const smooth = 0.25 * this.raw[Math.max(0, k - 1)] + 0.5 * this.raw[k] + 0.25 * this.raw[Math.min(BINS - 1, k + 1)];
+      this.snrPrev[k] = smooth * smooth * this.gamma[k];
+      const g = Math.pow(smooth, this.expo);
+      out[k] = g > this.floor ? g : this.floor;
     }
   }
 
@@ -213,10 +234,17 @@ export class NoisePrintStage implements Stage {
   private addFrame(frameOut: Float64Array, j: number, pieces: Float32Array[]): void {
     for (let i = 0; i < N; i++) this.olap[i] += frameOut[i] * WIN[i] * 0.5;
     const emit = new Float32Array(HOP);
-    for (let i = 0; i < HOP; i++) emit[i] = this.olap[i];
+    const r0 = (j - 3) * HOP;
+    for (let i = 0; i < HOP; i++) {
+      if (this.residual) {
+        const r = r0 + i;
+        emit[i] = (r >= 0 && r < this.received ? this.buf[r - this.base] : 0) - this.olap[i];
+      } else {
+        emit[i] = this.olap[i];
+      }
+    }
     this.olap.copyWithin(0, HOP);
     this.olap.fill(0, N - HOP);
-    const r0 = (j - 3) * HOP;
     const from = Math.max(0, -r0);
     const to = Math.min(HOP, this.totalIn - r0);
     if (to > from) pieces.push(emit.subarray(from, to));

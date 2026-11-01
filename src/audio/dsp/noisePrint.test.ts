@@ -132,3 +132,55 @@ describe('denoise with a print', () => {
     expect(differs > 1e-4).toBe(true);
   });
 });
+
+describe('dialling it in', () => {
+  const print = learnNoisePrint([noise(SR * 2, 21)], SR, 'dial');
+  // Voice-like: gliding harmonic tone in syllables, with the noise under everything
+  const N2 = SR * 4;
+  const voice = Float32Array.from({ length: N2 }, (_, i) => {
+    const t = i / SR;
+    const syl = Math.max(0, Math.sin(2 * Math.PI * 2.5 * t)) ** 0.7;
+    let v = 0;
+    for (let h = 1; h <= 10; h++) v += Math.sin(2 * Math.PI * (130 + 30 * Math.sin(2 * Math.PI * 0.7 * t)) * h * t) / h;
+    return 0.18 * syl * v;
+  });
+  const bed = noise(N2, 77);
+  const mix = add(voice, bed);
+  const gaps: number[] = [];
+  const talk: number[] = [];
+  for (let i = SR / 2; i < N2 - SR / 2; i++) {
+    const syl = Math.sin(2 * Math.PI * 2.5 * (i / SR));
+    if (syl < -0.05) gaps.push(i);
+    else if (syl > 0.5) talk.push(i);
+  }
+  const level = (a: Float32Array, idx: number[]) => { let s = 0; for (const i of idx) s += a[i] * a[i]; return db(Math.sqrt(s / idx.length)); };
+
+  it('the Reduction dial sets how far the noise between words goes down', () => {
+    for (const red of [8, 18, 28]) {
+      const out = run(mix, print, red, 1.5);
+      const got = level(mix, gaps) - level(out, gaps);
+      expect(Math.abs(got - red) < 3).toBe(true);
+    }
+  });
+
+  it('leaves the voice cleaner than it found it, not damaged', () => {
+    const out = run(mix, print, 18, 1.5);
+    let before = 0, after = 0, sig = 0;
+    for (const i of talk) { before += (mix[i] - voice[i]) ** 2; after += (out[i] - voice[i]) ** 2; sig += voice[i] ** 2; }
+    expect(after < before * 0.5).toBe(true);
+    expect(10 * Math.log10(after / sig) < -15).toBe(true);
+  });
+
+  it('"hear removed" gives exactly what the cleaning took out', () => {
+    const cleaned = run(mix, print, 18, 1.5);
+    const st = new NoisePrintStage(mix.length, SR, print, { reductionDb: 18, sensitivity: 1.5, listenRemoved: true });
+    const a = st.push(mix);
+    const b = st.finish();
+    const removed = new Float32Array(a.length + b.length);
+    removed.set(a, 0);
+    removed.set(b, a.length);
+    let worst = 0;
+    for (let i = 0; i < mix.length; i++) worst = Math.max(worst, Math.abs(cleaned[i] + removed[i] - mix[i]));
+    expect(worst).toBeLessThan(1e-5);
+  });
+});

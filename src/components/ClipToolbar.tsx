@@ -229,9 +229,10 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   };
 
   return (
-    <div className="h-12 bg-surface-0 border-b border-line px-4 flex items-center justify-between text-xs text-ink-dim gap-3 shrink-0 select-none z-30">
-      {/* Left: project title, then the selected clip (or a hint) */}
-      <div className="flex items-center gap-3 min-w-0 shrink-0">
+    <div className="bg-surface-0 border-b border-line px-4 py-1.5 flex flex-col gap-1 text-xs text-ink-dim shrink-0 select-none z-30">
+      {/* Row 1: where you are and how you point and see: project, tool, view, then the edit actions */}
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 shrink-0">
         {isEditingName ? (
           <input
             type="text"
@@ -259,13 +260,9 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
           </span>
         )}
 
-      </div>
-
-      <div className="h-4 w-px bg-line shrink-0" />
-
-      {/* Center: Primary Editing + DSP Cluster (Side-by-Side as required) */}
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-0.5 scrollbar-none">
-        {/* Pointer tool: Select edits clips; Range highlights a span of one track so it can be deleted */}
+        </div>
+        <div className="h-4 w-px bg-line shrink-0" />
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none">
         <Capsule label="Timeline tool">
           <CapsuleButton title="Select tool: move and edit clips (Z)" active={tool === 'select'} onClick={() => onToolChange('select')}>
             Select
@@ -298,18 +295,6 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             <span>{focusSolo ? 'Solo' : 'Full mix'}</span>
           </button>
         )}
-        {rangeSeconds !== null && (
-          <button
-            onClick={onDeleteRange}
-            title="Delete the highlighted range from this track and close the gap (Delete)"
-            className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-danger/40 bg-danger/10 px-3.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/50"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span>Delete {rangeSeconds.toFixed(2)}s</span>
-          </button>
-        )}
-
-        {/* GROUP 1: Split, Cut, Copy, Paste */}
         <Capsule label="Clip edit">
           <CapsuleButton
             title={hasRange ? 'Split the highlighted range out at both edges (so it can be silenced, raised, lowered or processed)' : hasClip ? 'Split clip at playhead (S)' : 'Select a clip to split'}
@@ -351,20 +336,44 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
           >
             Silence
           </CapsuleButton>
-          {onCaptureNoise && (
-            <CapsuleButton
-              title={hasRange ? 'Use the highlighted range as the noise sample: Denoise then removes only that noise from the whole track' : 'Highlight a few seconds with no speech (Range tool, X) to use as the noise sample'}
-              disabled={!hasRange}
-              onClick={onCaptureNoise}
-              icon={<Fingerprint className="h-3.5 w-3.5" />}
-            >
-              {hasNoisePrint ? 'Noise sample ✓' : 'Noise sample'}
-            </CapsuleButton>
-          )}
         </Capsule>
 
-        {/* GROUP 2: DSP processing, then the effects rack */}
-        <Capsule label="Processing">
+        {rangeSeconds !== null && (
+          <button
+            onClick={onDeleteRange}
+            title="Delete the highlighted range from this track and close the gap (Delete)"
+            className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-danger/40 bg-danger/10 px-3.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete {rangeSeconds.toFixed(2)}s</span>
+          </button>
+        )}
+
+        </div>
+      </div>
+
+      {/* Row 2: what is done to the audio: noise removal, level and timing, then the clip's own settings */}
+      <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none">
+        {/* Noise removal: learn the noise, then remove it. One cluster, in the order it is used. */}
+        <Capsule label="Noise removal">
+          <CapsuleButton
+            title={hasRange ? 'Use the highlighted range as the noise sample: Denoise then removes only that noise from the whole track' : 'Highlight a few seconds with no speech (Range tool, X) to use as the noise sample'}
+            disabled={!hasRange}
+            onClick={onCaptureNoise}
+            icon={<Fingerprint className="h-3.5 w-3.5" />}
+            >
+            {hasNoisePrint ? 'Noise sample ✓' : 'Noise sample'}
+            </CapsuleButton>
+          <CapsuleButton
+            title={hasClip || hasRange ? (hasNoisePrint ? 'Remove the sampled noise from the selected clip or range' : 'Remove background noise. For best results take a Noise sample first (highlight a stretch with no speech)') : 'Select a clip or highlight a range to denoise'}
+            disabled={!hasClip && !hasRange}
+            onClick={() => (hasClip || hasRange) && onOpenDsp('denoise')}
+            icon={<Sparkles className="h-3.5 w-3.5" />}
+          >
+            Denoise
+          </CapsuleButton>
+        </Capsule>
+        <Capsule label="Level and timing">
           <CapsuleButton
             title={hasClip || hasRange ? 'Amplify gain in dB with clipping warning' : 'Select a clip or highlight a range to amplify'}
             disabled={!hasClip && !hasRange}
@@ -380,14 +389,6 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             icon={<Wand2 className="h-3.5 w-3.5" />}
           >
             Compress
-          </CapsuleButton>
-          <CapsuleButton
-            title={hasClip || hasRange ? 'Noise reduction with 24dB/oct rumble cut & spectral gating' : 'Select a clip or highlight a range to denoise'}
-            disabled={!hasClip && !hasRange}
-            onClick={() => (hasClip || hasRange) && onOpenDsp('denoise')}
-            icon={<Sparkles className="h-3.5 w-3.5" />}
-          >
-            Denoise
           </CapsuleButton>
           <CapsuleButton
             title={hasClip || hasRange ? 'Change pitch without changing duration (-12 to +12 semitones)' : 'Select a clip or highlight a range to change pitch'}
@@ -408,8 +409,6 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
         </Capsule>
 
         <div className="h-4 w-px bg-line mx-1 shrink-0" />
-
-        {/* GROUP 3: Clip Properties (Mute, Move Track, Volume, Fades) */}
         {hasClip ? (
           <>
             {/* Mute Clip */}
@@ -449,7 +448,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
           </>
         ) : null}
       </div>
-
     </div>
   );
+
 };

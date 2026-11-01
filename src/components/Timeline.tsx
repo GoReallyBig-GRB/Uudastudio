@@ -623,14 +623,9 @@ export const Timeline: React.FC<TimelineProps> = ({
               const maxAmp = (clipH / 2 - 6) * Math.min(2.0, clip.gain);
 
               // Softer, slightly see-through strokes so dense audio reads as a clean outline, not a solid block.
+              // Columns are filled rects, not stroked hairlines, and carry no blur: measured several times cheaper to draw
               ctx.globalAlpha = isSelected ? 1 : 0.85;
-              ctx.strokeStyle = clip.muted ? '#52525b' : shade.wave;
-              if (isSelected && !clip.muted) {
-                ctx.shadowColor = hi;
-                ctx.shadowBlur = 4;
-              }
-              ctx.lineWidth = 1;
-              ctx.beginPath();
+              ctx.fillStyle = clip.muted ? '#52525b' : shade.wave;
 
               const startPx = visiblePixels.startPx;
               const endPx = visiblePixels.endPx;
@@ -658,11 +653,10 @@ export const Timeline: React.FC<TimelineProps> = ({
                   const y1 = midY - maxVal * maxAmp;
                   const y2 = midY - minVal * maxAmp;
 
-                  ctx.moveTo(renderX + px + 0.5, Math.min(midY - 0.5, y1));
-                  ctx.lineTo(renderX + px + 0.5, Math.max(midY + 0.5, y2));
+                  const top = Math.min(midY - 0.5, y1);
+                  ctx.fillRect(renderX + px, top, 1, Math.max(midY + 0.5, y2) - top);
                 }
               }
-              ctx.stroke();
               ctx.globalAlpha = 1;
 
               // Draw Fade In curve overlay
@@ -739,10 +733,14 @@ export const Timeline: React.FC<TimelineProps> = ({
             const glow = hi;
             ctx.fillStyle = withAlpha(glow, 0.14);
             ctx.fill();
+            // Glow without a blur filter (which is very costly on a large clip): a wide faint stroke under a crisp one
+            ctx.strokeStyle = withAlpha(glow, 0.22);
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            traceOutline(ctx, renderX, clipY, renderW, clipH, 4, seamL, seamR);
+            ctx.stroke();
             ctx.strokeStyle = glow;
             ctx.lineWidth = 2;
-            ctx.shadowColor = glow;
-            ctx.shadowBlur = 10;
             ctx.beginPath();
             traceOutline(ctx, renderX, clipY, renderW, clipH, 4, seamL, seamR);
             ctx.stroke();

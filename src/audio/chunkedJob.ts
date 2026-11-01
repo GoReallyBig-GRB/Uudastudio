@@ -8,10 +8,8 @@
 import type { Asset, Clip, CompressorParams, DenoiseParams } from '../types';
 import { readStreamedFrames } from '../assets/streamedStore';
 import { createStreamedWriter, StreamedWriter } from '../assets/streamedWriter';
-import { CompressorStage } from './dsp/compressorStream';
-import { makeDenoiseStage } from './dsp/denoiseStream';
-import { ChunkedOptions, MultiStage, PieceSource, createVirtualSource, perChannel, runChunked, runStreamed } from './chunkedProcess';
-import { PitchShiftStage, WsolaStretcher } from './dsp/wsolaStream';
+import { WORKER_BLOCK_SECONDS, openStage } from './dsp/dspWorkerClient';
+import { ChunkedOptions, PieceSource, createVirtualSource, runChunked, runStreamed } from './chunkedProcess';
 
 export type ChunkTool =
   | { kind: 'amplify'; gainDb: number }
@@ -52,15 +50,6 @@ export const amplifyProcessor = (gainDb: number): ChunkedOptions['process'] => {
   return (block) => block.map((ch) => ch.map((v) => v * g));
 };
 
-/** Streaming stage for the tools that carry state from block to block (no seams). */
-export const streamingStage = (tool: Exclude<ChunkTool, { kind: 'amplify' }>, channels: number, totalFrames: number, sampleRate: number): MultiStage => {
-  if (tool.kind === 'compress') return new CompressorStage(sampleRate, tool.params);
-  if (tool.kind === 'denoise') return perChannel(Array.from({ length: channels }, () => makeDenoiseStage(totalFrames, sampleRate, tool.params)));
-  if (tool.kind === 'pitch') return perChannel(Array.from({ length: channels }, () => new PitchShiftStage(totalFrames, tool.semitones)));
-  const speed = Math.max(0.2, Math.min(5, Number.isFinite(tool.ratio) ? tool.ratio : 1));
-  return perChannel(Array.from({ length: channels }, () => new WsolaStretcher(totalFrames, speed)));
-};
-
 export interface ChunkedJobResult {
   storeId: string;
   frames: number;
@@ -95,14 +84,22 @@ export const processClipsChunked = async (opts: {
     if (tool.kind === 'amplify') {
       frames = await runChunked({ source, sampleRate, leadInSeconds: 0, process: amplifyProcessor(tool.gainDb), write: writer.write, onProgress: opts.onProgress, signal: opts.signal });
     } else {
-      frames = await runStreamed({
-        source,
-        sampleRate,
-        makeStage: (ch, total) => streamingStage(tool, ch, total, sampleRate),
-        write: writer.write,
-        onProgress: opts.onProgress,
-        signal: opts.signal,
-      });
+      // The heavy work runs in a Web Worker (or here, if one cannot start), so the interface stays smooth
+      const stage = await openStage({ tool, channels, totalFrames: source.totalFrames, sampleRate });
+      try {
+        frames = await runStreamed({
+          source,
+          sampleRate,
+          blockSeconds: WORKER_BLOCK_SECONDS,
+          makeStage: () => stage,
+          write: writer.write,
+          onProgress: opts.onProgress,
+          signal: opts.signal,
+        });
+      } catch (e) {
+        stage.close();
+        throw e;
+      }
     }
     const meta = await writer.finish();
     frames = meta.frames;

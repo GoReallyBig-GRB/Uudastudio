@@ -34,6 +34,7 @@ import {
 } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
 import { processBasicDenoise } from '../audio/dsp/denoiser';
+import { processCompression } from '../audio/dsp/compressor';
 import { NoisePrint, learnNoisePrint, quietestStretch } from '../audio/dsp/noisePrint';
 import { processPitchShift, processTimeStretch } from '../audio/dsp/wsola';
 
@@ -109,8 +110,11 @@ export const DspModals: React.FC<DspModalsProps> = ({
   });
 
   const [noiseSensitivity, setNoiseSensitivity] = useState<number>(1.5);
+  const [voiceProtection, setVoiceProtection] = useState<number>(0.5);
+  /** Audition only what is being removed, to check that no voice is in it */
+  const [hearRemoved, setHearRemoved] = useState<boolean>(false);
   /** What Denoise runs with: the noise print when there is one, else the basic gate */
-  const effectiveDenoise: DenoiseParams = noisePrint ? { ...denoiseParams, print: noisePrint, sensitivity: noiseSensitivity } : denoiseParams;
+  const effectiveDenoise: DenoiseParams = noisePrint ? { ...denoiseParams, print: noisePrint, sensitivity: noiseSensitivity, voiceProtection } : denoiseParams;
 
   // Pitch State
   const [pitchSemitones, setPitchSemitones] = useState<number>(3);
@@ -230,32 +234,14 @@ export const DspModals: React.FC<DspModalsProps> = ({
           }
           bufferToPlay = outBuf;
         } else if (activeModal === 'compress') {
-          const offlineCtx = new OfflineAudioContext(
-            sliceBuffer.numberOfChannels,
-            sliceBuffer.length,
-            sliceBuffer.sampleRate
-          );
-          const src = offlineCtx.createBufferSource();
-          src.buffer = sliceBuffer;
-          const comp = offlineCtx.createDynamicsCompressor();
-          comp.threshold.setValueAtTime(compParams.thresholdDb, 0);
-          comp.ratio.setValueAtTime(compParams.ratio, 0);
-          comp.attack.setValueAtTime(compParams.attackMs / 1000, 0);
-          comp.release.setValueAtTime(compParams.releaseMs / 1000, 0);
-          comp.knee.setValueAtTime(compParams.kneeDb, 0);
-          const makeup = offlineCtx.createGain();
-          makeup.gain.setValueAtTime(Math.pow(10, compParams.makeupGainDb / 20), 0);
-          src.connect(comp);
-          comp.connect(makeup);
-          makeup.connect(offlineCtx.destination);
-          src.start(0);
-          bufferToPlay = await offlineCtx.startRendering();
+          // The same compressor the Apply button uses, so what you hear is what you get
+          bufferToPlay = await processCompression(sliceBuffer, compParams);
         } else if (activeModal === 'pitch') {
           bufferToPlay = await processPitchShift(sliceBuffer, pitchSemitones);
         } else if (activeModal === 'speed') {
           bufferToPlay = await processTimeStretch(sliceBuffer, speedRatio);
         } else if (activeModal === 'denoise') {
-          bufferToPlay = await processBasicDenoise(sliceBuffer, effectiveDenoise);
+          bufferToPlay = await processBasicDenoise(sliceBuffer, noisePrint && hearRemoved ? { ...effectiveDenoise, listenRemoved: true } : effectiveDenoise);
         }
       }
 
@@ -286,7 +272,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
       handleTogglePreview('after', true);
     }, 300);
     return () => clearTimeout(timer);
-  }, [gainDb, compParams, pitchSemitones, speedRatio, denoiseParams, noisePrint, noiseSensitivity]);
+  }, [gainDb, compParams, pitchSemitones, speedRatio, denoiseParams, noisePrint, noiseSensitivity, voiceProtection, hearRemoved]);
 
   // Update looping dynamically on active source
   useEffect(() => {
@@ -307,7 +293,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
           {previewState !== 'none' && (
             <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-400 animate-pulse">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              Playing {previewState === 'after' ? 'Processed (B)' : 'Original (A)'}
+              Playing {previewState === 'after' ? (activeModal === 'denoise' && noisePrint && hearRemoved ? 'Removed noise only' : 'Processed (B)') : 'Original (A)'}
             </span>
           )}
           <button
@@ -849,6 +835,26 @@ export const DspModals: React.FC<DspModalsProps> = ({
                       />
                       <div className="text-[10px] text-zinc-500 mt-0.5">Higher also removes noise a little louder than the sample, but too high makes the voice thin</div>
                     </div>
+                    <div>
+                      <div className="flex justify-between text-zinc-300 mb-1">
+                        <span>Voice protection</span>
+                        <span className="mono-nums text-cyan-400 font-semibold">{Math.round(voiceProtection * 100)}%</span>
+                      </div>
+                      <input
+                        type="range" min="0" max="1" step="0.05"
+                        value={voiceProtection}
+                        onChange={(e) => setVoiceProtection(parseFloat(e.target.value))}
+                        className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                      />
+                      <div className="text-[10px] text-zinc-500 mt-0.5">Higher lets the voice through faster and eases the cut where it is unclear whether it is voice or noise</div>
+                    </div>
+                    <label className="flex items-start gap-2 text-[11px] text-zinc-300 cursor-pointer">
+                      <input type="checkbox" checked={hearRemoved} onChange={(e) => setHearRemoved(e.target.checked)} className="mt-0.5" />
+                      <span>
+                        Hear only what is being removed
+                        <span className="block text-[10px] text-zinc-500">If you can hear the voice in it, lower Reduction or Sensitivity, or raise Voice protection. Aim for hearing only noise.</span>
+                      </span>
+                    </label>
                   </>
                 ) : (
                   <>
