@@ -1325,7 +1325,7 @@ export class AudioEngine {
         if (clip.muted) continue;
         if (groupTarget && clip.groupId !== groupTarget) continue;
         const asset = this.assets.get(clip.assetId);
-        if (!asset || !asset.buffer) continue;
+        if (!asset || (!asset.buffer && !asset.source)) continue;
         start = Math.min(start, clip.startSeconds);
         end = Math.max(end, clip.startSeconds + clip.durationSeconds);
       }

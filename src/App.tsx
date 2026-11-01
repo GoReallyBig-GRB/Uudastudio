@@ -330,7 +330,7 @@ const MainStudio: React.FC = () => {
   const [chunkedTarget, setChunkedTarget] = useState<{ clipIds: string[]; excerptAsset: Asset; excerptClip: Clip } | null>(null);
   const [chunkedProgress, setChunkedProgress] = useState<{ fraction: number; label: string } | null>(null);
   const chunkedAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
-  const [pendingDsp, setPendingDsp] = useState<{ type: DspModalType; clipId: string } | null>(null);
+  const [pendingDsp, setPendingDsp] = useState<{ type: DspModalType; clipId: string; only?: boolean } | null>(null);
 
   // Helper to extract a clip's active audio segment into an isolated AudioBuffer safely
   const extractClipAudioBuffer = useCallback(async (asset: Asset, clip: Clip): Promise<AudioBuffer> => {
@@ -2633,14 +2633,15 @@ const MainStudio: React.FC = () => {
       return;
     }
     const anchor = rangeSelection.trackId;
-    const inner = editRange();
+    // Joined: the processed range stays part of the track's one clip (it is not split off as a separate clip)
+    const inner = editRange(undefined, true);
     if (!inner || inner.length === 0) return;
     const anchorClip = project.tracks.find((t) => t.id === anchor)?.clips.find((c) => inner.includes(c.id));
     const target = anchorClip?.id ?? inner[0];
     if (inner.length > 1) {
       addToast({ type: 'info', title: 'One track at a time', message: 'Processing opened for the first track in the range. Select the other pieces and repeat to process them too.' });
     }
-    setPendingDsp({ type, clipId: target });
+    setPendingDsp({ type, clipId: target, only: true });
   };
 
   // Audio held in memory and shorter than this is processed whole, as before; anything longer, or kept on disk, is processed block by block
@@ -2649,7 +2650,7 @@ const MainStudio: React.FC = () => {
   // Once the clip a tool was asked for exists in the project (a range may just have been split out), open the tool on it
   useEffect(() => {
     if (!pendingDsp) return;
-    const ids = chainIds(project.tracks, pendingDsp.clipId);
+    const ids = pendingDsp.only ? [pendingDsp.clipId] : chainIds(project.tracks, pendingDsp.clipId);
     const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => ids.includes(c.id)).sort((x, y) => x.startSeconds - y.startSeconds);
     if (pieces.length === 0 || !pieces.some((c) => c.id === pendingDsp.clipId)) return; // not in the project yet
     const { type } = pendingDsp;
@@ -2736,7 +2737,7 @@ const MainStudio: React.FC = () => {
             .filter((c) => !drop.has(c.id))
             .map((c) =>
               c.id === first.id
-                ? { ...c, assetId: newAsset.id, name: newAsset.name, offsetSeconds: 0, durationSeconds: res.durationSeconds, gain: 1, muted: false, spliceId: undefined, fadeOutSeconds: last.fadeOutSeconds }
+                ? { ...c, assetId: newAsset.id, name: newAsset.name, offsetSeconds: 0, durationSeconds: res.durationSeconds, gain: 1, muted: false, spliceId: pieces.length > 1 ? undefined : c.spliceId, fadeOutSeconds: last.fadeOutSeconds }
                 : c,
             ),
         })),
@@ -3469,7 +3470,13 @@ const MainStudio: React.FC = () => {
         onOpenDsp={(type) => openDspAny(type)}
         onOpenEffect={(type) => {
           setActiveEffectType(type);
-          setIsEffectsModalOpen(true);
+          // An edited track is ONE track in the rack: render its pieces into one clip first (one undo step)
+          const sc = selectedClip;
+          if (sc && chainIds(project.tracks, sc.id).length > 1) {
+            void consolidateClip(sc.id).finally(() => setIsEffectsModalOpen(true));
+          } else {
+            setIsEffectsModalOpen(true);
+          }
         }}
         onRenameProject={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
         isTimelineCollapsed={isTimelineViewCollapsed}
