@@ -36,7 +36,7 @@ describe('transfer curve', () => {
     expect(Math.abs(gainReductionDb(-12, -24, 0, 4) - (-9))).toBeLessThan(1e-9);
   });
   it('a soft knee eases in: no reduction at its lower edge, smooth through the threshold', () => {
-    expect(gainReductionDb(-30, -24, 12, 4)).toBe(0);
+    expect(Math.abs(gainReductionDb(-30, -24, 12, 4))).toBe(0);
     const atThreshold = gainReductionDb(-24, -24, 12, 4);
     expect(atThreshold).toBeLessThan(0);
     expect(Math.abs(atThreshold - (-1.125))).toBeLessThan(1e-9); // gentle at the threshold itself
