@@ -59,6 +59,8 @@ import { EffectsModal } from './components/EffectsModal';
 import { NewProjectModal } from './components/NewProjectModal';
 import { ResetSessionModal } from './components/ResetSessionModal';
 import { ToastProvider, useToast } from './components/Toast';
+import { PerfHud } from './perf/PerfHud';
+import { perfCount } from './perf/perfProbe';
 import { ChevronLeft, Eye, SlidersHorizontal, X, XCircle } from 'lucide-react';
 import { processCompression } from './audio/dsp/compressor';
 import { processBasicDenoise } from './audio/dsp/denoiser';
@@ -137,6 +139,7 @@ const DEFAULT_PROJECT: Project = {
 };
 
 const MainStudio: React.FC = () => {
+  perfCount('App render');
   const { addToast, removeToast } = useToast();
   const { user, isAdmin, unreadTicketsCount } = useAuth();
 
@@ -3715,6 +3718,7 @@ const MainStudio: React.FC = () => {
       )}
 
       {/* Bottom Status Bar */}
+      <PerfHud />
       <StatusBar
         sampleRate={project.sampleRate}
         trackCount={project.tracks.length}

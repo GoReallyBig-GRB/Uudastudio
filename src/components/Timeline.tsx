@@ -11,6 +11,8 @@
 
 import { colorFromHex, groupColor, summarizeGroups, withAlpha } from '../audio/groupInfo';
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
+import { CanvasWindow, canvasWindowFor, needsRecentre } from './canvasWindow';
+import { perfCount, perfEnd, perfStart, perfTime } from '../perf/perfProbe';
 import { calculateZoomScrollLeft } from './timelineZoom';
 import { getVisibleClipPixelRange } from './timelineViewport';
 import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
@@ -214,6 +216,9 @@ export const Timeline: React.FC<TimelineProps> = ({
   const laneScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidth, setTimelineWidth] = useState<number>(1200);
   const [scrollLeft, setScrollLeft] = useState<number>(0);
+  perfCount('Timeline render');
+  // Where the (wider than the view) lane canvases sit; changes only when the view nears their edge, not on every scroll event
+  const [canvasWin, setCanvasWin] = useState<CanvasWindow>(() => canvasWindowFor(0, 1200, 1));
   const [waveformVersion, setWaveformVersion] = useState<number>(0);
   useEffect(() => peakProvider.subscribe(() => setWaveformVersion((v) => v + 1)), []);
   const [scrollTop, setScrollTop] = useState<number>(0);
@@ -236,6 +241,10 @@ export const Timeline: React.FC<TimelineProps> = ({
     /** Opened on a highlighted range, so Quick Actions edits the range */
     range?: boolean;
   } | null>(null);
+  // Time from the request to Quick Actions being on screen
+  useEffect(() => {
+    if (actionStrip) requestAnimationFrame(() => perfEnd('quick actions'));
+  }, [actionStrip]);
   // A range strip lasts only as long as the range does
   useEffect(() => {
     if (actionStrip?.range && !rangeSelection) setActionStrip(null);
@@ -362,14 +371,23 @@ export const Timeline: React.FC<TimelineProps> = ({
     return () => observer.disconnect();
   }, [lanePixelWidth, onViewportWidthChange, currentHeaderWidth]);
 
+  // A new view size, zoom or lane length needs a new canvas window around wherever the view is now
+  useLayoutEffect(() => {
+    setCanvasWin(canvasWindowFor(lastScrollLeftRef.current, timelineWidth, getDpr(), lanePixelWidth));
+  }, [timelineWidth, pixelsPerSecond, lanePixelWidth]);
+
   // Synchronize horizontal & vertical scroll. Keep the auto-center lock until
   // the smooth-scroll destination is reached, not merely until the playhead
   // passes through the center band (which can happen before scrolling finishes).
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => perfTime('scroll handler', () => handleScrollInner(e));
+  const handleScrollInner = (e: React.UIEvent<HTMLDivElement>) => {
     const nextScrollLeft = e.currentTarget.scrollLeft;
     lastScrollLeftRef.current = nextScrollLeft;
     setScrollLeft(nextScrollLeft);
     setScrollTop(e.currentTarget.scrollTop);
+    if (needsRecentre(canvasWin, nextScrollLeft, timelineWidth)) {
+      setCanvasWin(canvasWindowFor(nextScrollLeft, timelineWidth, getDpr(), lanePixelWidth));
+    }
 
     const targetScrollLeft = autoCenterTargetRef.current;
     if (targetScrollLeft !== null && Math.abs(nextScrollLeft - targetScrollLeft) <= 2) {
@@ -466,6 +484,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           const rep = rangeRepClip();
           if (!rep) return;
           const at = lastPointerRef.current ?? { x: window.innerWidth / 2 - 160, y: 200 };
+          perfStart('quick actions');
           setActionStrip((open) => (open ? null : { clip: rep, range: true, position: { x: Math.min(window.innerWidth - 320, at.x + 8), y: at.y + 8 } }));
         } else if (selectedClipIds.size >= 1) {
           e.preventDefault();
@@ -473,6 +492,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           const target = project.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
           if (!target) return;
           const at = lastPointerRef.current ?? { x: window.innerWidth / 2 - 160, y: 200 };
+          perfStart('quick actions');
           setActionStrip((open) => (open ? null : { clip: target, position: { x: Math.min(window.innerWidth - 320, at.x + 8), y: at.y + 8 } }));
         }
       } else if (e.key === 'Escape') {
@@ -554,7 +574,7 @@ export const Timeline: React.FC<TimelineProps> = ({
             }
           }
 
-          const renderX = Math.round(renderStart * pixelsPerSecond) - scrollLeft;
+          const renderX = Math.round(renderStart * pixelsPerSecond) - canvasWin.origin;
           const renderW = Math.max(4, Math.round(renderDuration * pixelsPerSecond));
           const clipY = 4;
           const clipH = height - 8;
@@ -811,7 +831,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         ctx.restore();
       }
     },
-    [project.tracks, project.groupSettings, selectedClipIds, draggingClips, pixelsPerSecond, scrollLeft, timelineWidth, waveformVersion, tool]
+    [project.tracks, project.groupSettings, selectedClipIds, draggingClips, pixelsPerSecond, canvasWin.origin, timelineWidth, waveformVersion, tool]
   );
 
   // Mouse hover over clip edges to show col-resize cursor
@@ -1332,6 +1352,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   // Double click on lane: opens quick-action strip
   const handleLaneDoubleClick = (e: React.MouseEvent<HTMLDivElement>, track: Track) => {
     e.preventDefault();
+    perfStart('quick actions');
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const timeAtClick = clickX / pixelsPerSecond;
@@ -1541,8 +1562,8 @@ export const Timeline: React.FC<TimelineProps> = ({
                 totalTracks={project.tracks.length}
                 isSelected={track.id === selectedTrackId}
                 laneWidth={lanePixelWidth}
-                timelineWidth={timelineWidth}
-                scrollLeft={scrollLeft}
+                canvasOrigin={canvasWin.origin}
+                canvasWidth={canvasWin.width}
                 pixelsPerSecond={pixelsPerSecond}
                 isControlsCollapsed={isControlsCollapsed}
                 onSelectTrack={onSelectTrack}
@@ -1701,8 +1722,9 @@ interface TrackRowContainerProps {
   totalTracks: number;
   isSelected: boolean;
   laneWidth: number;
-  timelineWidth: number;
-  scrollLeft: number;
+  /** Timeline x (px) of the lane canvas's left edge, and its width */
+  canvasOrigin: number;
+  canvasWidth: number;
   pixelsPerSecond: number;
   isControlsCollapsed: boolean;
   onSelectTrack: (trackId: string) => void;
@@ -1728,8 +1750,8 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
   totalTracks,
   isSelected,
   laneWidth,
-  timelineWidth,
-  scrollLeft,
+  canvasOrigin,
+  canvasWidth,
   pixelsPerSecond,
   isControlsCollapsed,
   rangeTool,
@@ -1749,8 +1771,8 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
-    renderWaveforms(canvasRef.current, track, trackIndex);
-  }, [track, trackIndex, isSelected, laneWidth, timelineWidth, scrollLeft, renderWaveforms, rowHeight]);
+    perfTime('lane draw', () => renderWaveforms(canvasRef.current, track, trackIndex));
+  }, [track, trackIndex, isSelected, laneWidth, canvasOrigin, canvasWidth, renderWaveforms, rowHeight]);
 
   return (
     <div
@@ -1783,13 +1805,13 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
       >
         <canvas
           ref={canvasRef}
-          width={Math.round(Math.max(100, timelineWidth) * getDpr())}
+          width={Math.round(Math.max(100, canvasWidth) * getDpr())}
           height={Math.round(rowHeight * getDpr())}
           style={{
             position: 'absolute',
-            left: `${scrollLeft}px`,
+            left: `${canvasOrigin}px`,
             top: 0,
-            width: `${timelineWidth}px`,
+            width: `${canvasWidth}px`,
             height: `${rowHeight}px`,
             pointerEvents: 'none',
           }}

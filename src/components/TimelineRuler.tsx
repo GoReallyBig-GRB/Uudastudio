@@ -4,6 +4,7 @@
  */
 
 import React, { useRef, useEffect } from 'react';
+import { perfCount } from '../perf/perfProbe';
 import { Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatTimecode } from '../utils/formatters';
 import { getRulerTickConfig } from './timelineRulerScale';
@@ -41,6 +42,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    perfCount('ruler draw');
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -105,7 +107,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       }
     }
 
-  }, [pixelsPerSecond, totalDurationSeconds, playheadSeconds, scrollLeft, rulerViewportWidth, majorStepSec, minorTicks, isControlsCollapsed]);
+  }, [pixelsPerSecond, totalDurationSeconds, scrollLeft, rulerViewportWidth, majorStepSec, minorTicks, isControlsCollapsed]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
