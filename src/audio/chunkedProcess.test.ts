@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ChunkedCancelled, PieceSource, createVirtualSource, crossfadeInto, planBlocks, processedUndoLimit, runChunked, runStreamed, stretchedFrames,
+  ChunkedCancelled, PieceSource, createVirtualSource, crossfadeInto, perChannel, planBlocks, processedUndoLimit, runChunked, runStreamed, stretchedFrames,
 } from './chunkedProcess';
 
 /** A piece whose samples are base, base+1, base+2 ... so positions can be checked */
@@ -119,7 +119,7 @@ describe('runStreamed', () => {
       source,
       sampleRate: sr,
       blockSeconds: 1.7,
-      makeStage: (_c, t) => new WsolaStretcher(t, 1.4),
+      makeStage: (_ch, t) => perChannel([new WsolaStretcher(t, 1.4)]),
       write: async (c) => { out.push(new Float32Array(c[0])); },
     });
     const expected = wsolaTimeStretch(data, 1.4);

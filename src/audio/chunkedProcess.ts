@@ -156,25 +156,39 @@ export const crossfadeInto = (prevTail: Float32Array, nextHead: Float32Array): F
   return prevTail;
 };
 
+/** A processor with memory that takes all channels together, block after block, and may change the length (see runStreamed). */
+export interface MultiStage {
+  /** Feed more input (planar channels, same length each); returns the output that is now final, possibly empty */
+  push(chunk: Float32Array[]): Float32Array[];
+  /** After the last push: the rest of the output */
+  finish(): Float32Array[];
+}
+
+/** One independent single-channel stage per channel, as one MultiStage. */
+export const perChannel = (stages: { push(c: Float32Array): Float32Array; finish(): Float32Array }[]): MultiStage => ({
+  push: (chunk) => stages.map((st, c) => st.push(chunk[Math.min(c, chunk.length - 1)])),
+  finish: () => stages.map((st) => st.finish()),
+});
+
 /**
- * Run the clip through streaming stages (one per channel) that may change the length, such as Speed or Pitch. The stages hold
- * their own state, so there are no seams between blocks. Returns the number of frames written.
+ * Run the clip through a streaming stage that keeps its own state from block to block, so there are no seams. It may change
+ * the length (Speed) or keep it (Pitch, Compress, Denoise). Returns the number of frames written.
  */
 export const runStreamed = async (opts: {
   source: VirtualSource;
   sampleRate: number;
-  makeStage: (channelIndex: number, totalFrames: number) => { push(c: Float32Array): Float32Array; finish(): Float32Array };
+  makeStage: (channels: number, totalFrames: number) => MultiStage;
   write: (chunk: Float32Array[]) => Promise<void>;
   blockSeconds?: number;
   onProgress?: (fraction: number) => void;
   signal?: { aborted: boolean };
 }): Promise<number> => {
   const { source } = opts;
-  const stages = Array.from({ length: source.channels }, (_, c) => opts.makeStage(c, source.totalFrames));
+  const stage = opts.makeStage(source.channels, source.totalFrames);
   const blockFrames = Math.max(1, Math.round((opts.blockSeconds ?? DEFAULT_BLOCK_SECONDS) * opts.sampleRate));
   let written = 0;
   const emit = async (outs: Float32Array[]) => {
-    const n = Math.min(...outs.map((o) => o.length));
+    const n = outs.length ? Math.min(...outs.map((o) => o.length)) : 0;
     if (n > 0) {
       await opts.write(outs.map((o) => o.subarray(0, n)));
       written += n;
@@ -183,11 +197,10 @@ export const runStreamed = async (opts: {
   for (let start = 0; start < source.totalFrames; start += blockFrames) {
     if (opts.signal?.aborted) throw new ChunkedCancelled();
     const count = Math.min(blockFrames, source.totalFrames - start);
-    const input = await source.read(start, count);
-    await emit(stages.map((st, c) => st.push(input[Math.min(c, input.length - 1)])));
+    await emit(stage.push(await source.read(start, count)));
     opts.onProgress?.(Math.min(1, (start + count) / source.totalFrames));
   }
   if (opts.signal?.aborted) throw new ChunkedCancelled();
-  await emit(stages.map((st) => st.finish()));
+  await emit(stage.finish());
   return written;
 };
