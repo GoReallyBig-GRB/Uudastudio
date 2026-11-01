@@ -2625,6 +2625,17 @@ const MainStudio: React.FC = () => {
     return first.id;
   };
 
+  /** Open the effects rack; an edited track is ONE track there, so its pieces are rendered into one clip first (one undo step) */
+  const handleOpenEffect = (type: EffectType) => {
+    setActiveEffectType(type);
+    const sc = selectedClip;
+    if (sc && chainIds(project.tracks, sc.id).length > 1) {
+      void consolidateClip(sc.id).finally(() => setIsEffectsModalOpen(true));
+    } else {
+      setIsEffectsModalOpen(true);
+    }
+  };
+
   /** Processing tools on a range: the range is split out, then the tool opens on its piece. */
   const openDspAny = (type: DspModalType) => {
     if (!rangeSelection) {
@@ -3468,19 +3479,7 @@ const MainStudio: React.FC = () => {
         onToggleMuteClip={() => selectedClip && handleToggleMuteClip(selectedClip.id)}
         onMoveClip={(dir) => selectedClip && handleMoveClipTrack(selectedClip.id, dir)}
         onOpenDsp={(type) => openDspAny(type)}
-        onOpenEffect={(type) => {
-          setActiveEffectType(type);
-          // An edited track is ONE track in the rack: render its pieces into one clip first (one undo step)
-          const sc = selectedClip;
-          if (sc && chainIds(project.tracks, sc.id).length > 1) {
-            void consolidateClip(sc.id).finally(() => setIsEffectsModalOpen(true));
-          } else {
-            setIsEffectsModalOpen(true);
-          }
-        }}
-        onRenameProject={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
-        isTimelineCollapsed={isTimelineViewCollapsed}
-        onToggleTimelineCollapsed={() => setIsTimelineViewCollapsed(!isTimelineViewCollapsed)}
+        onOpenEffect={handleOpenEffect}
         onDeleteSelected={handleDeleteSelected}
         onSelectAll={handleSelectAll}
         onImportFiles={handleImportFiles}
@@ -3521,6 +3520,9 @@ const MainStudio: React.FC = () => {
         onMoveTrack={(id, dir) => handleMoveClipTrack(id, dir)}
         onUpdateClip={handleUpdateClip}
         onOpenDsp={(type) => openDspAny(type)}
+        onOpenEffect={handleOpenEffect}
+        isTimelineCollapsed={isTimelineViewCollapsed}
+        onToggleTimelineCollapsed={() => setIsTimelineViewCollapsed(!isTimelineViewCollapsed)}
         onDeselect={() => setSelectedClipIds(new Set())}
         projectName={project.name}
         onRenameProject={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
