@@ -6,7 +6,7 @@
  */
 
 import { DenoiseParams } from '../../types';
-import { denoiseChannels } from './denoiseStream';
+import { processChannelsOffThread } from './dspWorkerClient';
 
 export interface LearnedNoiseProfile {
   learnedFloorDb: number;
@@ -114,7 +114,8 @@ export async function processBasicDenoise(
   const sampleRate = inputBuffer.sampleRate || 48000;
   const numChannels = Math.max(1, Math.min(2, inputBuffer.numberOfChannels));
   const input = Array.from({ length: numChannels }, (_, c) => inputBuffer.getChannelData(c));
-  const out = denoiseChannels(input, sampleRate, params);
+  // Heavy work runs in a Web Worker so the interface stays smooth
+  const out = await processChannelsOffThread(input, sampleRate, { kind: 'denoise', params });
   const result = new AudioBuffer({ length: Math.max(1, out[0].length), numberOfChannels: numChannels, sampleRate });
   out.forEach((ch, c) => result.copyToChannel(ch as never, c));
   return result;

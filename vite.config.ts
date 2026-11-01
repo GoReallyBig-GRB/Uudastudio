@@ -6,6 +6,8 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    // The DSP worker (src/audio/dsp/dspWorker.ts) is an ES module worker
+    worker: { format: 'es' as const },
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, '.'),

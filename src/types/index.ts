@@ -56,6 +56,10 @@ export interface DenoiseParams {
   print?: NoisePrint;
   /** With a print: how strictly it is matched, 1 to 4 */
   sensitivity?: number;
+  /** With a print: 0 to 1, how much the voice is shielded (default 0.5) */
+  voiceProtection?: number;
+  /** With a print: output only what is being removed, to check that no voice is in it */
+  listenRemoved?: boolean;
 }
 
 export interface PitchParams {

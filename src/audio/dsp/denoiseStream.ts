@@ -162,7 +162,7 @@ export class DenoiseStage implements Stage {
 /** The stage for these settings: the noise print when one was learned, else the basic gate. */
 export const makeDenoiseStage = (totalIn: number, sampleRate: number, params: DenoiseParams): Stage =>
   params.print
-    ? new NoisePrintStage(totalIn, sampleRate, params.print, { reductionDb: num(params.reductionDb, 14), sensitivity: num(params.sensitivity, 1.5) })
+    ? new NoisePrintStage(totalIn, sampleRate, params.print, { reductionDb: num(params.reductionDb, 14), sensitivity: num(params.sensitivity, 1.5), voiceProtection: params.voiceProtection, listenRemoved: params.listenRemoved })
     : new DenoiseStage(totalIn, sampleRate, params);
 
 /** The whole clip at once (same code and result as streaming it). */

@@ -159,13 +159,16 @@ export const crossfadeInto = (prevTail: Float32Array, nextHead: Float32Array): F
 /** A processor with memory that takes all channels together, block after block, and may change the length (see runStreamed). */
 export interface MultiStage {
   /** Feed more input (planar channels, same length each); returns the output that is now final, possibly empty */
-  push(chunk: Float32Array[]): Float32Array[];
+  push(chunk: Float32Array[]): Float32Array[] | Promise<Float32Array[]>;
   /** After the last push: the rest of the output */
-  finish(): Float32Array[];
+  finish(): Float32Array[] | Promise<Float32Array[]>;
 }
 
 /** One independent single-channel stage per channel, as one MultiStage. */
-export const perChannel = (stages: { push(c: Float32Array): Float32Array; finish(): Float32Array }[]): MultiStage => ({
+export const perChannel = (stages: { push(c: Float32Array): Float32Array; finish(): Float32Array }[]): MultiStage & {
+  push(chunk: Float32Array[]): Float32Array[];
+  finish(): Float32Array[];
+} => ({
   push: (chunk) => stages.map((st, c) => st.push(chunk[Math.min(c, chunk.length - 1)])),
   finish: () => stages.map((st) => st.finish()),
 });
@@ -197,10 +200,10 @@ export const runStreamed = async (opts: {
   for (let start = 0; start < source.totalFrames; start += blockFrames) {
     if (opts.signal?.aborted) throw new ChunkedCancelled();
     const count = Math.min(blockFrames, source.totalFrames - start);
-    await emit(stage.push(await source.read(start, count)));
+    await emit(await stage.push(await source.read(start, count)));
     opts.onProgress?.(Math.min(1, (start + count) / source.totalFrames));
   }
   if (opts.signal?.aborted) throw new ChunkedCancelled();
-  await emit(stage.finish());
+  await emit(await stage.finish());
   return written;
 };
