@@ -64,6 +64,9 @@ import { processCompression } from './audio/dsp/compressor';
 import { processBasicDenoise } from './audio/dsp/denoiser';
 import { processPitchShift, processTimeStretch } from './audio/dsp/wsola';
 import { peakProvider } from './waveform/peakProvider';
+import { PEAK_BASE_SAMPLES_PER_PIXEL } from './waveform/peakMath';
+import { ChunkedCancelled, createVirtualSource } from './audio/chunkedProcess';
+import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJob';
 import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { formatVolumeDb } from './utils/formatters';
@@ -306,6 +309,12 @@ const MainStudio: React.FC = () => {
     if (!dspTargetClip) return null;
     return audioEngine.getAsset(dspTargetClip.assetId) || null;
   }, [dspTargetClip]);
+
+  // Processing long or streamed audio: the dialog previews a short excerpt, Apply runs the whole clip block by block
+  const [chunkedTarget, setChunkedTarget] = useState<{ clipIds: string[]; excerptAsset: Asset; excerptClip: Clip } | null>(null);
+  const [chunkedProgress, setChunkedProgress] = useState<{ fraction: number; label: string } | null>(null);
+  const chunkedAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
+  const [pendingDsp, setPendingDsp] = useState<{ type: DspModalType; clipId: string } | null>(null);
 
   // Helper to extract a clip's active audio segment into an isolated AudioBuffer safely
   const extractClipAudioBuffer = useCallback(async (asset: Asset, clip: Clip): Promise<AudioBuffer> => {
@@ -2140,6 +2149,11 @@ const MainStudio: React.FC = () => {
       return;
     }
 
+    if (chunkedTarget) {
+      await applyChunked({ kind: 'amplify', gainDb: params.gainDb }, `Amp ${params.gainDb}dB`);
+      return;
+    }
+
     // Destructive bake: render into new AudioBuffer asset
     const rawBuffer = await extractClipAudioBuffer(dspTargetAsset, dspTargetClip);
     const offlineCtx = new OfflineAudioContext(rawBuffer.numberOfChannels, rawBuffer.length, rawBuffer.sampleRate);
@@ -2185,6 +2199,10 @@ const MainStudio: React.FC = () => {
 
   const handleApplyCompressor = async (params: CompressorParams) => {
     if (!dspTargetClip || !dspTargetAsset) throw new Error('Target clip or audio asset not found.');
+    if (chunkedTarget) {
+      await applyChunked({ kind: 'compress', params }, 'Comp');
+      return;
+    }
     const rawBuffer = await extractClipAudioBuffer(dspTargetAsset, dspTargetClip);
     const compressed = await processCompression(rawBuffer, params);
 
@@ -2219,6 +2237,10 @@ const MainStudio: React.FC = () => {
 
   const handleApplyDenoise = async (params: DenoiseParams) => {
     if (!dspTargetClip || !dspTargetAsset) throw new Error('Target clip or audio asset not found.');
+    if (chunkedTarget) {
+      await applyChunked({ kind: 'denoise', params }, 'Denoised');
+      return;
+    }
     const rawBuffer = await extractClipAudioBuffer(dspTargetAsset, dspTargetClip);
     const denoised = await processBasicDenoise(rawBuffer, params);
 
@@ -2537,13 +2559,8 @@ const MainStudio: React.FC = () => {
   /** Processing tools on a range: the range is split out, then the tool opens on its piece. */
   const openDspAny = (type: DspModalType) => {
     if (!rangeSelection) {
-      // An edited clip (joined pieces) is first rendered into one piece of audio, then the tool opens on it
-      const target = selectedClip;
-      if (target && chainIds(project.tracks, target.id).length > 1) {
-        void consolidateClip(target.id).then((id) => { if (id) handleOpenDspModal(type, id); });
-        return;
-      }
-      handleOpenDspModal(type);
+      if (selectedClip) setPendingDsp({ type, clipId: selectedClip.id });
+      else handleOpenDspModal(type);
       return;
     }
     const anchor = rangeSelection.trackId;
@@ -2554,7 +2571,119 @@ const MainStudio: React.FC = () => {
     if (inner.length > 1) {
       addToast({ type: 'info', title: 'One track at a time', message: 'Processing opened for the first track in the range. Select the other pieces and repeat to process them too.' });
     }
-    handleOpenDspModal(type, target);
+    setPendingDsp({ type, clipId: target });
+  };
+
+  // Audio held in memory and shorter than this is processed whole, as before; anything longer, or kept on disk, is processed block by block
+  const WHOLE_BUFFER_MAX_SECONDS = 600;
+
+  // Once the clip a tool was asked for exists in the project (a range may just have been split out), open the tool on it
+  useEffect(() => {
+    if (!pendingDsp) return;
+    const ids = chainIds(project.tracks, pendingDsp.clipId);
+    const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => ids.includes(c.id)).sort((x, y) => x.startSeconds - y.startSeconds);
+    if (pieces.length === 0 || !pieces.some((c) => c.id === pendingDsp.clipId)) return; // not in the project yet
+    const { type } = pendingDsp;
+    setPendingDsp(null);
+    void (async () => {
+      const assets = pieces.map((c) => audioEngine.getAsset(c.assetId));
+      const total = pieces.reduce((n, c) => n + c.durationSeconds, 0);
+      const needsChunks = assets.some((x) => !x || !x.buffer) || total > WHOLE_BUFFER_MAX_SECONDS;
+      if (!needsChunks) {
+        // Short, in memory: an edited clip is first rendered into one piece, then the tool opens on it
+        if (pieces.length > 1) {
+          const id = await consolidateClip(pieces[0].id);
+          if (id) handleOpenDspModal(type, id);
+        } else {
+          handleOpenDspModal(type, pieces[0].id);
+        }
+        return;
+      }
+      if (type === 'pitch' || type === 'speed') {
+        addToast({ type: 'info', title: 'Not yet for audio this long', message: 'Pitch and Speed cannot run on a clip this long yet. Highlight the part with the Range tool (X) and apply it there.' });
+        return;
+      }
+      if (assets.some((x) => !x)) {
+        addToast({ type: 'warning', title: 'Audio not loaded', message: 'The audio for this clip is not loaded yet.' });
+        return;
+      }
+      // Preview excerpt: up to 20 s starting at the playhead (or the start of the clip)
+      const first = assets[0]!;
+      const sr = first.sampleRate || 48000;
+      const channels = Math.max(1, Math.min(2, Math.max(...assets.map((x) => x!.numberOfChannels || 1))));
+      const source = createVirtualSource(pieces.map((c, i) => pieceFromClip(assets[i]!, c, false)), channels);
+      const startSec = Math.min(Math.max(0, playheadSecondsRef.current - pieces[0].startSeconds), Math.max(0, total - 1));
+      const excerptSec = Math.min(20, total - startSec);
+      const data = await source.read(Math.round(startSec * sr), Math.max(1, Math.round(excerptSec * sr)));
+      const buffer = new AudioBuffer({ length: Math.max(1, data[0].length), numberOfChannels: channels, sampleRate: sr });
+      data.forEach((ch, c) => buffer.copyToChannel(ch as never, c));
+      const excerptAsset: Asset = {
+        id: `excerpt-${Date.now()}`, name: `${pieces[0].name} (preview)`, kind: 'recording', buffer,
+        sampleRate: sr, durationSeconds: buffer.duration, numberOfChannels: channels,
+      };
+      const excerptClip: Clip = { ...pieces[0], assetId: excerptAsset.id, offsetSeconds: 0, durationSeconds: buffer.duration, gain: 1, muted: false };
+      setChunkedTarget({ clipIds: pieces.map((c) => c.id), excerptAsset, excerptClip });
+      handleOpenDspModal(type, pieces[0].id);
+    })();
+  }, [pendingDsp, project.tracks]);
+
+  /**
+   * Run a tool over the whole target clip (its pieces, if it was edited) block by block and replace it with ONE clip that
+   * points at the new stored audio. Memory stays flat for any length. One undo step.
+   */
+  const applyChunked = async (tool: ChunkTool, label: string) => {
+    if (!chunkedTarget) throw new Error('No clip to process.');
+    const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => chunkedTarget.clipIds.includes(c.id)).sort((x, y) => x.startSeconds - y.startSeconds);
+    if (pieces.length === 0) throw new Error('The clip is no longer on the timeline.');
+    const first = pieces[0];
+    const last = pieces[pieces.length - 1];
+    const storeId = `asset-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    chunkedAbortRef.current = { aborted: false };
+    setChunkedProgress({ fraction: 0, label });
+    try {
+      const res = await processClipsChunked({
+        clips: pieces,
+        getAsset: (id) => audioEngine.getAsset(id),
+        tool,
+        storeId,
+        onProgress: (fraction) => setChunkedProgress({ fraction, label }),
+        signal: chunkedAbortRef.current,
+      });
+      const newAsset: Asset = {
+        id: storeId,
+        name: `${first.name} (${label})`,
+        kind: audioEngine.getAsset(first.assetId)?.kind ?? 'recording',
+        source: { storeId, frames: res.frames, peakBaseSamplesPerPixel: PEAK_BASE_SAMPLES_PER_PIXEL },
+        sampleRate: res.sampleRate,
+        durationSeconds: res.durationSeconds,
+        numberOfChannels: res.channels,
+      };
+      audioEngine.registerAsset(newAsset);
+      await saveAssetToDB(newAsset);
+      peakProvider.clearAsset(newAsset.id);
+      const drop = new Set(pieces.map((c) => c.id));
+      drop.delete(first.id);
+      setProjectWithHistory((prev) => ({
+        ...prev,
+        tracks: prev.tracks.map((t) => ({
+          ...t,
+          clips: t.clips
+            .filter((c) => !drop.has(c.id))
+            .map((c) =>
+              c.id === first.id
+                ? { ...c, assetId: newAsset.id, name: newAsset.name, offsetSeconds: 0, durationSeconds: res.durationSeconds, gain: 1, muted: false, spliceId: undefined, fadeOutSeconds: last.fadeOutSeconds }
+                : c,
+            ),
+        })),
+      }));
+      setSelectedClipIds(new Set([first.id]));
+      addToast({ type: 'success', title: `${label} applied`, message: `Processed ${(res.durationSeconds / 60).toFixed(1)} min of audio in blocks. Undo restores the original.` });
+    } catch (e) {
+      if (e instanceof ChunkedCancelled) throw new Error('Stopped. Nothing was changed.');
+      throw e;
+    } finally {
+      setChunkedProgress(null);
+    }
   };
 
   /** Copy the highlighted range (all tracks it covers) so Paste can lay the same stack of tracks back. */
@@ -3618,9 +3747,12 @@ const MainStudio: React.FC = () => {
       {/* DSP Processing Modals (Amplify, Compress, Denoise, Pitch, Speed) */}
       <DspModals
         activeModal={activeDspModal}
-        clip={dspTargetClip}
-        asset={dspTargetAsset}
-        onClose={() => setActiveDspModal(null)}
+        clip={chunkedTarget ? chunkedTarget.excerptClip : dspTargetClip}
+        asset={chunkedTarget ? chunkedTarget.excerptAsset : dspTargetAsset}
+        progress={chunkedProgress}
+        onStopProcessing={() => { chunkedAbortRef.current.aborted = true; }}
+        previewIsExcerpt={!!chunkedTarget}
+        onClose={() => { setActiveDspModal(null); setChunkedTarget(null); }}
         onApplyAmplify={handleApplyAmplify}
         onApplyCompressor={handleApplyCompressor}
         onApplyDenoise={handleApplyDenoise}

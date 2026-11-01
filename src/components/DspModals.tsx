@@ -48,6 +48,12 @@ interface DspModalsProps {
   onApplyDenoise: (params: DenoiseParams) => Promise<void>;
   onApplyPitch: (params: PitchParams) => Promise<void>;
   onApplySpeed: (params: SpeedParams) => Promise<void>;
+  /** Set while a long clip is processed block by block */
+  progress?: { fraction: number; label: string } | null;
+  /** Stop a running block-by-block job (nothing is changed) */
+  onStopProcessing?: () => void;
+  /** The dialog previews a short excerpt of a long clip, not the whole clip */
+  previewIsExcerpt?: boolean;
 }
 
 export const DspModals: React.FC<DspModalsProps> = ({
@@ -60,6 +66,9 @@ export const DspModals: React.FC<DspModalsProps> = ({
   onApplyDenoise,
   onApplyPitch,
   onApplySpeed,
+  progress = null,
+  onStopProcessing,
+  previewIsExcerpt = false,
 }) => {
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [processError, setProcessError] = useState<string | null>(null);
@@ -969,6 +978,28 @@ export const DspModals: React.FC<DspModalsProps> = ({
             </div>
           )}
         </div>
+
+        {previewIsExcerpt && !progress && (
+          <div className="px-5 py-2 border-t border-zinc-800 bg-[#12121a] text-[11px] text-zinc-400">
+            Long clip: the preview plays a short excerpt. Apply processes the whole clip in blocks.
+          </div>
+        )}
+        {isProcessing && progress && (
+          <div className="px-5 py-3 border-t border-zinc-800 bg-[#12121a] space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] text-zinc-300">
+              <span>Processing {progress.label}</span>
+              <span className="font-mono">{Math.round(progress.fraction * 100)}%</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+              <div className="h-full bg-cyan-400 transition-[width] duration-200" style={{ width: `${Math.round(progress.fraction * 100)}%` }} />
+            </div>
+            {onStopProcessing && (
+              <button onClick={onStopProcessing} className="text-[11px] text-zinc-400 hover:text-red-300 cursor-pointer">
+                Stop (nothing will be changed)
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Footer */}
         <div className="px-5 py-3.5 border-t border-zinc-800 bg-[#161622] flex items-center justify-between">
