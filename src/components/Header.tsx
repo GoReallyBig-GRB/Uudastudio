@@ -27,6 +27,9 @@ import {
   Music,
   Download,
   SkipBack,
+  SkipForward,
+  Rewind,
+  FastForward,
   FolderArchive,
   FolderOpen,
   FilePlus,
@@ -68,6 +71,24 @@ function readRecentProjects(): RecentProjectEntry[] {
   }
 }
 
+/** How far the back and forward buttons jump */
+const SKIP_STEPS: { seconds: number; label: string }[] = [
+  { seconds: 10, label: '10 sec' },
+  { seconds: 30, label: '30 sec' },
+  { seconds: 60, label: '1 min' },
+  { seconds: 120, label: '2 min' },
+  { seconds: 300, label: '5 min' },
+  { seconds: 600, label: '10 min' },
+];
+const readSkipStep = (): number => {
+  try {
+    const v = Number(localStorage.getItem('uuda_skip_step'));
+    return SKIP_STEPS.some((s) => s.seconds === v) ? v : 10;
+  } catch {
+    return 10;
+  }
+};
+
 // Header pill buttons (design tokens). Layout is shared; colours are idle (neutral) or on (cyan = switched on).
 const PILL_LAYOUT = 'inline-flex h-8 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold tracking-tight transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
 const PILL_IDLE = 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink';
@@ -85,6 +106,10 @@ interface HeaderProps {
   onPause: () => void;
   onStop: () => void;
   onReturnToStart?: () => void;
+  /** Jump the playhead by this many seconds (negative = backward) */
+  onSkip?: (deltaSeconds: number) => void;
+  /** Send the playhead to the end of the audio */
+  onGoToEnd?: () => void;
   onNewProject?: () => void;
   onSaveAndNewProject?: () => void;
   onOpenNewProjectInTab?: () => void;
@@ -144,6 +169,8 @@ export const Header: React.FC<HeaderProps> = ({
   onPause,
   onStop,
   onReturnToStart,
+  onSkip,
+  onGoToEnd,
   onNewProject,
   onSaveAndNewProject,
   onOpenNewProjectInTab,
@@ -190,6 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const projectFileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [skipStep, setSkipStep] = useState<number>(readSkipStep);
   const [isEditMenuOpen, setIsEditMenuOpen] = useState(false);
   const [isEffectsMenuOpen, setIsEffectsMenuOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
@@ -750,6 +778,14 @@ export const Header: React.FC<HeaderProps> = ({
             <SkipBack className="w-4 h-4 fill-current" />
           </button>
 
+          <button
+            onClick={() => onSkip?.(-skipStep)}
+            title={`Back ${SKIP_STEPS.find((s) => s.seconds === skipStep)?.label ?? ''} (change the jump beside the forward button)`}
+            className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
+          >
+            <Rewind className="w-4 h-4 fill-current" />
+          </button>
+
           {isPlaying ? (
             <button
               onClick={onPause}
@@ -769,6 +805,20 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           <button
+            onClick={() => onSkip?.(skipStep)}
+            title={`Forward ${SKIP_STEPS.find((s) => s.seconds === skipStep)?.label ?? ''} (change the jump beside this button)`}
+            className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
+          >
+            <FastForward className="w-4 h-4 fill-current" />
+          </button>
+          <button
+            onClick={onGoToEnd}
+            title="Go to the end of the track (End)"
+            className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
+          >
+            <SkipForward className="w-4 h-4 fill-current" />
+          </button>
+          <button
             onClick={onStop}
             title="Stop & Return to Start"
             className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
@@ -776,6 +826,23 @@ export const Header: React.FC<HeaderProps> = ({
             <Square className="w-3.5 h-3.5 fill-current" />
           </button>
         </div>
+
+        {/* How far Back and Forward jump */}
+        <select
+          value={skipStep}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setSkipStep(v);
+            try { localStorage.setItem('uuda_skip_step', String(v)); } catch { /* not saved */ }
+          }}
+          title="How far the Back and Forward buttons jump"
+          aria-label="Jump length"
+          className="h-8 shrink-0 cursor-pointer rounded-full border border-line bg-surface-1 px-2 text-xs font-semibold text-ink-dim hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        >
+          {SKIP_STEPS.map((s) => (
+            <option key={s.seconds} value={s.seconds}>{s.label}</option>
+          ))}
+        </select>
 
         {/* RECORD Button */}
         <button

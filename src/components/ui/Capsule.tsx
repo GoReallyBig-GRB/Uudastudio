@@ -9,17 +9,21 @@ import { cn } from './cn';
 export type CapsuleVariant = 'joined' | 'loose';
 
 const CapsuleContext = createContext<CapsuleVariant>('joined');
+const CapsuleSizeContext = createContext<'md' | 'sm'>('md');
 
 export interface CapsuleProps {
   /** Accessible name for the group, for example "Edit tools". */
   label: string;
   variant?: CapsuleVariant;
+  /** `sm` is a third smaller: for dense toolbars below the header */
+  size?: 'md' | 'sm';
   className?: string;
   children: React.ReactNode;
 }
 
-export const Capsule: React.FC<CapsuleProps> = ({ label, variant = 'joined', className, children }) => (
+export const Capsule: React.FC<CapsuleProps> = ({ label, variant = 'joined', size = 'md', className, children }) => (
   <CapsuleContext.Provider value={variant}>
+    <CapsuleSizeContext.Provider value={size}>
     <div
       role="group"
       aria-label={label}
@@ -33,6 +37,7 @@ export const Capsule: React.FC<CapsuleProps> = ({ label, variant = 'joined', cla
     >
       {children}
     </div>
+    </CapsuleSizeContext.Provider>
   </CapsuleContext.Provider>
 );
 
@@ -50,6 +55,7 @@ export const CapsuleButton: React.FC<CapsuleButtonProps> = ({
   title, icon, active = false, iconOnly = false, className, children, type = 'button', ...rest
 }) => {
   const variant = useContext(CapsuleContext);
+  const size = useContext(CapsuleSizeContext);
   return (
     <button
       type={type}
@@ -57,11 +63,12 @@ export const CapsuleButton: React.FC<CapsuleButtonProps> = ({
       aria-label={children ? undefined : title}
       aria-pressed={active || undefined}
       className={cn(
-        'inline-flex h-8 items-center justify-center gap-1.5 text-xs font-semibold tracking-tight',
+        'inline-flex items-center justify-center font-semibold tracking-tight',
+        size === 'sm' ? 'h-[22px] gap-1 text-[10px]' : 'h-8 gap-1.5 text-xs',
         'transition-colors duration-150 ease-premium',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
         'disabled:cursor-not-allowed disabled:opacity-40',
-        iconOnly ? 'w-9' : 'px-3.5',
+        iconOnly ? (size === 'sm' ? 'w-6' : 'w-9') : size === 'sm' ? 'px-2.5' : 'px-3.5',
         variant === 'joined'
           ? active ? 'bg-accent-soft text-accent' : 'text-ink-dim hover:bg-white/5 hover:text-ink'
           : cn(

@@ -4,6 +4,7 @@
  * Stereo Delay, 4-Band Parametric EQ, Multi-Voice Chorus, Jet Flanger, Sweeping Phaser, and Algorithmic Reverb.
  */
 
+import { chainsOnTrack } from './spliceChains';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Sparkles,
@@ -203,9 +204,20 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   const allClips = useMemo(() => {
     const list: { trackId: string; trackName: string; clip: Clip; asset: Asset | null }[] = [];
     for (const [trackIndex, track] of project.tracks.entries()) {
+      // An edited track (spliced pieces) is listed once, as one clip of its full length
+      const chainOf = new Map<string, Clip[]>();
+      for (const chain of chainsOnTrack(track.clips)) for (const c of chain) chainOf.set(c.id, chain);
       for (const c of track.clips) {
+        const chain = chainOf.get(c.id);
+        let whole = c;
+        if (chain) {
+          const sorted = [...chain].sort((x, y) => x.startSeconds - y.startSeconds);
+          if (sorted[0].id !== c.id) continue;
+          const tail = sorted[sorted.length - 1];
+          whole = { ...c, durationSeconds: tail.startSeconds + tail.durationSeconds - c.startSeconds };
+        }
         const ast = audioEngine.getAsset(c.assetId) || null;
-        list.push({ trackId: track.id, trackName: getTrackLabel(track, trackIndex), clip: c, asset: ast });
+        list.push({ trackId: track.id, trackName: getTrackLabel(track, trackIndex), clip: whole, asset: ast });
       }
     }
     return list;
