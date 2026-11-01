@@ -2274,6 +2274,11 @@ const MainStudio: React.FC = () => {
   };
 
   const handleApplyPitch = async (params: PitchParams) => {
+    if (chunkedTarget) {
+      if (!params.semitones) return;
+      await applyChunked({ kind: 'pitch', semitones: params.semitones }, `${params.semitones > 0 ? '+' : ''}${params.semitones}st`);
+      return;
+    }
     if (!dspTargetClip || !dspTargetAsset) throw new Error('Target clip or audio asset not found.');
     const rawBuffer = await extractClipAudioBuffer(dspTargetAsset, dspTargetClip);
     const shifted = await processPitchShift(rawBuffer, params.semitones);
@@ -2308,6 +2313,10 @@ const MainStudio: React.FC = () => {
   };
 
   const handleApplySpeed = async (params: SpeedParams) => {
+    if (chunkedTarget) {
+      await applyChunked({ kind: 'speed', ratio: params.speedRatio }, `${params.speedRatio}x`);
+      return;
+    }
     if (!dspTargetClip || !dspTargetAsset) throw new Error('Target clip or audio asset not found.');
     const rawBuffer = await extractClipAudioBuffer(dspTargetAsset, dspTargetClip);
     const stretched = await processTimeStretch(rawBuffer, params.speedRatio);
@@ -2597,10 +2606,6 @@ const MainStudio: React.FC = () => {
         } else {
           handleOpenDspModal(type, pieces[0].id);
         }
-        return;
-      }
-      if (type === 'pitch' || type === 'speed') {
-        addToast({ type: 'info', title: 'Not yet for audio this long', message: 'Pitch and Speed cannot run on a clip this long yet. Highlight the part with the Range tool (X) and apply it there.' });
         return;
       }
       if (assets.some((x) => !x)) {
