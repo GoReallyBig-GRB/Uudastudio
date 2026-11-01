@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ChunkedCancelled, PieceSource, createVirtualSource, crossfadeInto, planBlocks, processedUndoLimit, runChunked, stretchedFrames,
+  ChunkedCancelled, PieceSource, createVirtualSource, crossfadeInto, perChannel, planBlocks, processedUndoLimit, runChunked, runStreamed, stretchedFrames,
 } from './chunkedProcess';
 
 /** A piece whose samples are base, base+1, base+2 ... so positions can be checked */
@@ -103,5 +103,32 @@ describe('stretch and cross-fade helpers', () => {
     expect(a[63]).toBeCloseTo(1, 5);
     expect(Math.min(...a)).toBeGreaterThan(0.999);
     expect(Math.max(...a)).toBeLessThan(1.001);
+  });
+});
+
+describe('runStreamed', () => {
+  it('stretches block by block exactly like the whole-buffer stretch, with the right length', async () => {
+    const { WsolaStretcher } = await import('./dsp/wsolaStream');
+    const { wsolaTimeStretch } = await import('./dsp/wsola');
+    const sr = 1000;
+    const total = 7300;
+    const data = new Float32Array(total).map((_, i) => Math.sin(i * 0.05) * 0.5 + Math.sin(i * 0.31) * 0.2);
+    const source = createVirtualSource([{ frames: total, gain: 1, muted: false, read: async (s, n) => [data.subarray(s, s + n)] }], 1);
+    const out: Float32Array[] = [];
+    const frames = await runStreamed({
+      source,
+      sampleRate: sr,
+      blockSeconds: 1.7,
+      makeStage: (_ch, t) => perChannel([new WsolaStretcher(t, 1.4)]),
+      write: async (c) => { out.push(new Float32Array(c[0])); },
+    });
+    const expected = wsolaTimeStretch(data, 1.4);
+    expect(frames).toBe(expected.length);
+    const flat = new Float32Array(frames);
+    let o = 0;
+    for (const p of out) { flat.set(p, o); o += p.length; }
+    let worst = 0;
+    for (let i = 0; i < frames; i++) worst = Math.max(worst, Math.abs(flat[i] - expected[i]));
+    expect(worst).toBeLessThan(1e-6);
   });
 });

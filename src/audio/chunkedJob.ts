@@ -2,20 +2,25 @@
  * Process clips of any length: read the clip (or the pieces of an edited clip) as one stretch of audio, run a tool over it
  * block by block, and write a new stored asset. Memory stays flat. See `chunkedProcess.ts` for the block machinery.
  *
- * Tools that keep the length (Amplify, Compress, Denoise) are here. Pitch and Speed change timing at block joins and
- * are added separately.
+ * Every tool is seamless: Amplify has no memory, and Compress, Denoise, Pitch and Speed are streaming stages that carry
+ * their state across blocks and give the same samples as processing the whole clip at once.
  */
 import type { Asset, Clip, CompressorParams, DenoiseParams } from '../types';
 import { readStreamedFrames } from '../assets/streamedStore';
 import { createStreamedWriter, StreamedWriter } from '../assets/streamedWriter';
-import { processCompression } from './dsp/compressor';
-import { processBasicDenoise } from './dsp/denoiser';
-import { ChunkedOptions, PieceSource, createVirtualSource, runChunked } from './chunkedProcess';
+import { CompressorStage } from './dsp/compressorStream';
+import { makeDenoiseStage } from './dsp/denoiseStream';
+import { ChunkedOptions, MultiStage, PieceSource, createVirtualSource, perChannel, runChunked, runStreamed } from './chunkedProcess';
+import { PitchShiftStage, WsolaStretcher } from './dsp/wsolaStream';
 
 export type ChunkTool =
   | { kind: 'amplify'; gainDb: number }
   | { kind: 'compress'; params: CompressorParams }
-  | { kind: 'denoise'; params: DenoiseParams };
+  | { kind: 'denoise'; params: DenoiseParams }
+  /** Keeps the length */
+  | { kind: 'pitch'; semitones: number }
+  /** ratio 2 = twice as fast, half as long; changes the length */
+  | { kind: 'speed'; ratio: number };
 
 /** One clip as a source piece: its stretch of the stored audio, with the clip's gain and mute. Works for memory and disk audio. */
 export const pieceFromClip = (asset: Asset, clip: Clip, bakeGain = true): PieceSource => {
@@ -41,31 +46,19 @@ export const pieceFromClip = (asset: Asset, clip: Clip, bakeGain = true): PieceS
   };
 };
 
-const toBuffer = (channels: Float32Array[], sampleRate: number): AudioBuffer => {
-  const buf = new AudioBuffer({ length: Math.max(1, channels[0].length), numberOfChannels: channels.length, sampleRate });
-  channels.forEach((ch, c) => buf.copyToChannel(ch as never, c));
-  return buf;
+/** How the length-keeping, memoryless Amplify processes one block. */
+export const amplifyProcessor = (gainDb: number): ChunkedOptions['process'] => {
+  const g = Math.pow(10, gainDb / 20);
+  return (block) => block.map((ch) => ch.map((v) => v * g));
 };
 
-const fromBuffer = (buf: AudioBuffer): Float32Array[] =>
-  Array.from({ length: buf.numberOfChannels }, (_, c) => new Float32Array(buf.getChannelData(c)));
-
-/** How a tool processes one block, and how much earlier audio it needs to warm up. */
-export const toolProcessor = (tool: ChunkTool): { leadInSeconds: number; process: ChunkedOptions['process'] } => {
-  if (tool.kind === 'amplify') {
-    const g = Math.pow(10, tool.gainDb / 20);
-    return { leadInSeconds: 0, process: (block) => block.map((ch) => ch.map((v) => v * g)) };
-  }
-  if (tool.kind === 'compress') {
-    return {
-      leadInSeconds: 4,
-      process: async (block, info) => fromBuffer(await processCompression(toBuffer(block, info.sampleRate), tool.params)),
-    };
-  }
-  return {
-    leadInSeconds: 4,
-    process: async (block, info) => fromBuffer(await processBasicDenoise(toBuffer(block, info.sampleRate), tool.params)),
-  };
+/** Streaming stage for the tools that carry state from block to block (no seams). */
+export const streamingStage = (tool: Exclude<ChunkTool, { kind: 'amplify' }>, channels: number, totalFrames: number, sampleRate: number): MultiStage => {
+  if (tool.kind === 'compress') return new CompressorStage(sampleRate, tool.params);
+  if (tool.kind === 'denoise') return perChannel(Array.from({ length: channels }, () => makeDenoiseStage(totalFrames, sampleRate, tool.params)));
+  if (tool.kind === 'pitch') return perChannel(Array.from({ length: channels }, () => new PitchShiftStage(totalFrames, tool.semitones)));
+  const speed = Math.max(0.2, Math.min(5, Number.isFinite(tool.ratio) ? tool.ratio : 1));
+  return perChannel(Array.from({ length: channels }, () => new WsolaStretcher(totalFrames, speed)));
 };
 
 export interface ChunkedJobResult {
@@ -96,10 +89,23 @@ export const processClipsChunked = async (opts: {
   const bakeGain = true; // the clip's gain is baked in when its pieces become one asset
   const source = createVirtualSource(opts.clips.map((c, i) => pieceFromClip(assets[i]!, c, bakeGain)), channels);
   const writer: StreamedWriter = await createStreamedWriter(opts.storeId, sampleRate, channels);
-  const { leadInSeconds, process } = toolProcessor(opts.tool);
   try {
-    const frames = await runChunked({ source, sampleRate, leadInSeconds, process, write: writer.write, onProgress: opts.onProgress, signal: opts.signal });
+    const tool = opts.tool;
+    let frames: number;
+    if (tool.kind === 'amplify') {
+      frames = await runChunked({ source, sampleRate, leadInSeconds: 0, process: amplifyProcessor(tool.gainDb), write: writer.write, onProgress: opts.onProgress, signal: opts.signal });
+    } else {
+      frames = await runStreamed({
+        source,
+        sampleRate,
+        makeStage: (ch, total) => streamingStage(tool, ch, total, sampleRate),
+        write: writer.write,
+        onProgress: opts.onProgress,
+        signal: opts.signal,
+      });
+    }
     const meta = await writer.finish();
+    frames = meta.frames;
     return { storeId: meta.storeId, frames, sampleRate, channels, durationSeconds: frames / sampleRate };
   } catch (e) {
     await writer.abort();

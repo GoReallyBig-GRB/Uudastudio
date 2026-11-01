@@ -6,6 +6,7 @@
  */
 
 import { DenoiseParams } from '../../types';
+import { denoiseChannels } from './denoiseStream';
 
 export interface LearnedNoiseProfile {
   learnedFloorDb: number;
@@ -99,10 +100,9 @@ export function analyzeNoiseProfile(buffer: AudioBuffer): LearnedNoiseProfile {
 
 /**
  * High-precision speech enhancement / noise suppression processor.
- * Performs dual-stage artifact-free noise reduction:
- * 1. 24 dB/oct Butterworth rumble cut to strip low frequency HVAC, mic handling, and electrical hum.
- * 2. Multi-band downward spectral gating with Hann-windowed overlapping blocks and asymmetric
- *    attack/release envelopes to prevent chirping, musical noise, and speech clipping.
+ * Dual-stage noise reduction: a 24 dB/oct rumble cut, then a downward gate that follows Hann-windowed loudness with
+ * asymmetric attack/release smoothing. The processing lives in `denoiseStream.ts`, which also runs long audio block by
+ * block with exactly the same result.
  */
 export async function processBasicDenoise(
   inputBuffer: AudioBuffer,
@@ -111,120 +111,13 @@ export async function processBasicDenoise(
   if (!inputBuffer || inputBuffer.length === 0) {
     throw new Error('Input audio buffer is empty.');
   }
-
   const sampleRate = inputBuffer.sampleRate || 48000;
   const numChannels = Math.max(1, Math.min(2, inputBuffer.numberOfChannels));
-  const length = Math.max(128, inputBuffer.length);
-
-  const safeHpFreq = Math.max(20, Math.min(500, Number.isFinite(params.highPassFreq) ? params.highPassFreq : 80));
-
-  // Step 1: Steep 24dB/oct high-pass filter via OfflineAudioContext to strip rumble & hum
-  const offlineCtx = new OfflineAudioContext(numChannels, length, sampleRate);
-  const source = offlineCtx.createBufferSource();
-  source.buffer = inputBuffer;
-
-  const hp1 = offlineCtx.createBiquadFilter();
-  hp1.type = 'highpass';
-  hp1.frequency.setValueAtTime(safeHpFreq, 0);
-  hp1.Q.setValueAtTime(0.707, 0);
-
-  const hp2 = offlineCtx.createBiquadFilter();
-  hp2.type = 'highpass';
-  hp2.frequency.setValueAtTime(safeHpFreq, 0);
-  hp2.Q.setValueAtTime(0.707, 0);
-
-  source.connect(hp1);
-  hp1.connect(hp2);
-  hp2.connect(offlineCtx.destination);
-  source.start(0);
-
-  const highPassedBuffer = await offlineCtx.startRendering();
-
-  // If buffer is too short for downward gating, return filtered buffer directly
-  const blockSize = 512;
-  const hopSize = 128; // 75% overlap for artifact-free smoothing
-  if (length <= blockSize) {
-    return highPassedBuffer;
-  }
-
-  // Step 2: Multi-band downward expansion with artifact-free smoothing
-  const resultBuffer = offlineCtx.createBuffer(numChannels, length, sampleRate);
-  const numBlocks = Math.max(1, Math.floor((length - blockSize) / hopSize));
-
-  const thresholdLinear = Math.pow(10, params.noiseFloorThresholdDb / 20);
-  const maxAttenuation = Math.pow(10, -params.reductionDb / 20);
-  const attackMs = params.attackMs ?? 8; // fast attack to preserve speech consonants
-  const releaseMs = params.releaseMs ?? 90; // smooth release to avoid musical chirping
-
-  const attackCoeff = Math.exp(-1 / ((attackMs / 1000) * (sampleRate / hopSize)));
-  const releaseCoeff = Math.exp(-1 / ((releaseMs / 1000) * (sampleRate / hopSize)));
-
-  // Hann window for smooth block analysis
-  const window = new Float32Array(blockSize);
-  for (let i = 0; i < blockSize; i++) {
-    window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (blockSize - 1)));
-  }
-
-  for (let ch = 0; ch < numChannels; ch++) {
-    const inData = highPassedBuffer.getChannelData(ch);
-    const outData = resultBuffer.getChannelData(ch);
-    outData.set(inData);
-
-    // Calculate RMS energy per overlapping block
-    const blockGains = new Float32Array(numBlocks);
-    for (let b = 0; b < numBlocks; b++) {
-      const offset = b * hopSize;
-      let sumSq = 0;
-      let weightSum = 0;
-
-      for (let i = 0; i < blockSize; i++) {
-        const s = inData[offset + i];
-        const w = window[i];
-        sumSq += s * s * w;
-        weightSum += w;
-      }
-      const rms = Math.sqrt(sumSq / (weightSum || 1));
-
-      if (rms < thresholdLinear) {
-        // Soft-knee expansion below threshold (smooth curve prevents fluttering)
-        const ratio = Math.max(0.0001, rms / thresholdLinear);
-        // Exponent 1.8 gives smooth transition without abrupt mute
-        const targetGain = Math.max(maxAttenuation, Math.pow(ratio, 1.8));
-        blockGains[b] = targetGain;
-      } else {
-        blockGains[b] = 1.0;
-      }
-    }
-
-    // Temporal smoothing of gain envelope across blocks
-    let smoothedGain = 1.0;
-    const smoothGains = new Float32Array(numBlocks);
-    for (let b = 0; b < numBlocks; b++) {
-      const target = blockGains[b];
-      const coeff = target > smoothedGain ? attackCoeff : releaseCoeff;
-      smoothedGain = target + coeff * (smoothedGain - target);
-      smoothGains[b] = smoothedGain;
-    }
-
-    // Interpolate gains across individual sample frames
-    let currentFrameGain = smoothGains[0];
-    for (let b = 0; b < numBlocks; b++) {
-      const startGain = smoothGains[b];
-      const nextGain = b + 1 < numBlocks ? smoothGains[b + 1] : startGain;
-      const offset = b * hopSize;
-
-      for (let i = 0; i < hopSize; i++) {
-        const idx = offset + i;
-        if (idx < length) {
-          const t = i / hopSize;
-          currentFrameGain = startGain + (nextGain - startGain) * t;
-          outData[idx] = inData[idx] * currentFrameGain;
-        }
-      }
-    }
-  }
-
-  return resultBuffer;
+  const input = Array.from({ length: numChannels }, (_, c) => inputBuffer.getChannelData(c));
+  const out = denoiseChannels(input, sampleRate, params);
+  const result = new AudioBuffer({ length: Math.max(1, out[0].length), numberOfChannels: numChannels, sampleRate });
+  out.forEach((ch, c) => result.copyToChannel(ch as never, c));
+  return result;
 }
 
 export const processEnhancedDenoise = processBasicDenoise;

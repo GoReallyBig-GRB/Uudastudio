@@ -20,6 +20,7 @@ import {
   Gauge,
   Volume2,
   VolumeX,
+  Fingerprint,
   ArrowUp,
   ArrowDown,
   SlidersHorizontal,
@@ -43,6 +44,9 @@ interface ClipToolbarProps {
   onSplit: (clipId: string) => void;
   /** Silence the selected clips, or the highlighted range */
   onSilence: () => void;
+  /** Learn the noise print from the highlighted range */
+  onCaptureNoise?: () => void;
+  hasNoisePrint?: boolean;
   onCopy: (clipId: string) => void;
   onCut: (clipId: string) => void;
   onPaste: () => void;
@@ -176,6 +180,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   canPaste,
   onSplit,
   onSilence,
+  onCaptureNoise,
+  hasNoisePrint,
   onCopy,
   onCut,
   onPaste,
@@ -345,6 +351,16 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
           >
             Silence
           </CapsuleButton>
+          {onCaptureNoise && (
+            <CapsuleButton
+              title={hasRange ? 'Use the highlighted range as the noise sample: Denoise then removes only that noise from the whole track' : 'Highlight a few seconds with no speech (Range tool, X) to use as the noise sample'}
+              disabled={!hasRange}
+              onClick={onCaptureNoise}
+              icon={<Fingerprint className="h-3.5 w-3.5" />}
+            >
+              {hasNoisePrint ? 'Noise sample ✓' : 'Noise sample'}
+            </CapsuleButton>
+          )}
         </Capsule>
 
         {/* GROUP 2: DSP processing, then the effects rack */}

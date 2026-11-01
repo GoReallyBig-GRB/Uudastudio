@@ -11,7 +11,7 @@
 /**
  * Resample a channel Float32Array by an arbitrary ratio using cubic Hermite interpolation
  */
-function resampleChannel(input: Float32Array, ratio: number): Float32Array {
+export function resampleChannel(input: Float32Array, ratio: number): Float32Array {
   if (!input || input.length === 0 || !Number.isFinite(ratio) || ratio <= 0) {
     return new Float32Array(Math.max(1, input?.length || 1));
   }
@@ -45,7 +45,7 @@ function resampleChannel(input: Float32Array, ratio: number): Float32Array {
 /**
  * Perform WSOLA time stretching on a Float32Array channel
  */
-function wsolaTimeStretch(
+export function wsolaTimeStretch(
   input: Float32Array,
   speedRatio: number,
   frameSize: number = 1024,

@@ -33,7 +33,8 @@ import {
   SpeedParams,
 } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
-import { analyzeNoiseProfile, processBasicDenoise, LearnedNoiseProfile } from '../audio/dsp/denoiser';
+import { processBasicDenoise } from '../audio/dsp/denoiser';
+import { NoisePrint, learnNoisePrint, quietestStretch } from '../audio/dsp/noisePrint';
 import { processPitchShift, processTimeStretch } from '../audio/dsp/wsola';
 
 export type DspModalType = 'amplify' | 'compress' | 'denoise' | 'pitch' | 'speed' | null;
@@ -48,6 +49,15 @@ interface DspModalsProps {
   onApplyDenoise: (params: DenoiseParams) => Promise<void>;
   onApplyPitch: (params: PitchParams) => Promise<void>;
   onApplySpeed: (params: SpeedParams) => Promise<void>;
+  /** Set while a long clip is processed block by block */
+  progress?: { fraction: number; label: string } | null;
+  /** Stop a running block-by-block job (nothing is changed) */
+  onStopProcessing?: () => void;
+  /** The dialog previews a short excerpt of a long clip, not the whole clip */
+  previewIsExcerpt?: boolean;
+  /** Noise print learned from a highlighted range (the Noise sample button) */
+  noisePrint?: NoisePrint | null;
+  onSetNoisePrint?: (print: NoisePrint | null) => void;
 }
 
 export const DspModals: React.FC<DspModalsProps> = ({
@@ -60,6 +70,11 @@ export const DspModals: React.FC<DspModalsProps> = ({
   onApplyDenoise,
   onApplyPitch,
   onApplySpeed,
+  progress = null,
+  onStopProcessing,
+  previewIsExcerpt = false,
+  noisePrint = null,
+  onSetNoisePrint,
 }) => {
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [processError, setProcessError] = useState<string | null>(null);
@@ -93,8 +108,9 @@ export const DspModals: React.FC<DspModalsProps> = ({
     releaseMs: 90,
   });
 
-  const [learnedProfile, setLearnedProfile] = useState<LearnedNoiseProfile | null>(null);
-  const [isLearning, setIsLearning] = useState<boolean>(false);
+  const [noiseSensitivity, setNoiseSensitivity] = useState<number>(1.5);
+  /** What Denoise runs with: the noise print when there is one, else the basic gate */
+  const effectiveDenoise: DenoiseParams = noisePrint ? { ...denoiseParams, print: noisePrint, sensitivity: noiseSensitivity } : denoiseParams;
 
   // Pitch State
   const [pitchSemitones, setPitchSemitones] = useState<number>(3);
@@ -131,26 +147,24 @@ export const DspModals: React.FC<DspModalsProps> = ({
     };
   }, []);
 
-  const handleLearnNoiseProfile = () => {
-    if (!asset?.buffer) {
-      setProcessError('No audio buffer available to analyze.');
+  /** No highlighted sample: take the quietest second of this clip as the noise sample (in-memory audio only) */
+  const handleFindQuietPart = () => {
+    if (!asset?.buffer || !clip) {
+      setProcessError('Finding the quiet part works on audio that is loaded in memory. For a long track, highlight a stretch with no speech and press Noise sample.');
       return;
     }
-    setIsLearning(true);
     setProcessError(null);
     try {
-      const profile = analyzeNoiseProfile(asset.buffer);
-      setLearnedProfile(profile);
-      setDenoiseParams((prev) => ({
-        ...prev,
-        noiseFloorThresholdDb: profile.recommendedThresholdDb,
-        reductionDb: profile.recommendedReductionDb,
-        learnedFloorDb: profile.learnedFloorDb,
-      }));
+      const sr = asset.buffer.sampleRate;
+      const from = Math.max(0, Math.round((clip.offsetSeconds || 0) * sr));
+      const to = Math.min(asset.buffer.length, from + Math.round(clip.durationSeconds * sr));
+      const channels = Array.from({ length: Math.min(2, asset.buffer.numberOfChannels) }, (_, c) => asset.buffer!.getChannelData(c).subarray(from, to));
+      const spot = quietestStretch(channels, sr, 1);
+      if (!spot) throw new Error('This clip is too short to find a quiet part. Highlight a stretch with no speech and press Noise sample.');
+      const print = learnNoisePrint(channels.map((ch) => ch.subarray(spot.start, spot.end)), sr, `Quietest second of ${clip.name}`);
+      onSetNoisePrint?.(print);
     } catch (err: any) {
-      setProcessError('Failed to analyze noise profile: ' + (err?.message || 'unknown error'));
-    } finally {
-      setIsLearning(false);
+      setProcessError(err?.message || 'Could not find a quiet part.');
     }
   };
 
@@ -241,7 +255,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
         } else if (activeModal === 'speed') {
           bufferToPlay = await processTimeStretch(sliceBuffer, speedRatio);
         } else if (activeModal === 'denoise') {
-          bufferToPlay = await processBasicDenoise(sliceBuffer, denoiseParams);
+          bufferToPlay = await processBasicDenoise(sliceBuffer, effectiveDenoise);
         }
       }
 
@@ -272,7 +286,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
       handleTogglePreview('after', true);
     }, 300);
     return () => clearTimeout(timer);
-  }, [gainDb, compParams, pitchSemitones, speedRatio, denoiseParams]);
+  }, [gainDb, compParams, pitchSemitones, speedRatio, denoiseParams, noisePrint, noiseSensitivity]);
 
   // Update looping dynamically on active source
   useEffect(() => {
@@ -728,68 +742,116 @@ export const DspModals: React.FC<DspModalsProps> = ({
                   </span>
                 </div>
                 <span>
-                  High-precision dual-stage noise reduction: 24dB/oct Butterworth rumble filter + multi-band downward spectral gating with Hann-windowed smoothing to eliminate HVAC hum, mic hiss, and ambient noise without musical chirping or voice distortion.
+                  Remove steady background noise (hiss, hum, air conditioning) without touching the voice. Teach it the noise first, from a stretch with no speech, and it takes out only that noise from the whole track.
                 </span>
               </div>
 
-              {/* Noise Profile Learning Section */}
+              {/* Noise print */}
               <div className="p-3 rounded bg-zinc-900/90 border border-zinc-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-zinc-200 font-medium text-[11px]">
                     <Activity className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Noise Profile Learning</span>
+                    <span>Noise sample</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleLearnNoiseProfile}
-                    disabled={isLearning}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-black font-bold text-[10px] transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isLearning ? 'animate-spin' : ''}`} />
-                    <span>{isLearning ? 'Analyzing...' : 'Learn Noise Profile'}</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {noisePrint && (
+                      <button
+                        type="button"
+                        onClick={() => onSetNoisePrint?.(null)}
+                        className="px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-[10px] cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleFindQuietPart}
+                      disabled={!asset?.buffer}
+                      title={asset?.buffer ? 'Use the quietest second of this clip as the noise sample' : 'Only for audio held in memory. For a long track, highlight a quiet stretch and press Noise sample.'}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-black font-bold text-[10px] transition-colors cursor-pointer disabled:opacity-40"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>{noisePrint ? 'Use quietest second instead' : 'Find quiet part'}</span>
+                    </button>
+                  </div>
                 </div>
 
-                {learnedProfile ? (
+                {noisePrint ? (
                   <div className="space-y-1.5 pt-1">
                     <div className="flex justify-between text-[10px] text-zinc-400">
-                      <span>Detected Room Tone / Ambient Floor:</span>
-                      <span className="mono-nums text-emerald-400 font-bold font-mono">
-                        {learnedProfile.learnedFloorDb} dBFS (Confidence {Math.round(learnedProfile.ambientConfidence * 100)}%)
-                      </span>
+                      <span>Learned from</span>
+                      <span className="mono-nums text-emerald-400 font-mono">{noisePrint.label} ({noisePrint.seconds.toFixed(1)} s)</span>
                     </div>
-
-                    {/* 8-band spectral curve bar visualizer */}
-                    <div className="flex items-end gap-1 h-8 pt-1 px-2 bg-black/60 rounded border border-zinc-800">
-                      {learnedProfile.noiseProfileCurve.map((val, idx) => {
-                        const heightPct = Math.max(10, Math.min(100, ((val + 70) / 55) * 100));
-                        return (
-                          <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end group">
-                            <div
-                              style={{ height: `${heightPct}%` }}
-                              className="w-full bg-cyan-500/70 hover:bg-cyan-400 rounded-t-xs transition-all"
-                            />
+                    {/* What the noise looks like: average level in 24 bands from low to high */}
+                    <div className="flex items-end gap-px h-8 pt-1 px-1 bg-black/60 rounded border border-zinc-800">
+                      {(() => {
+                        const bands = 24;
+                        const edges = Array.from({ length: bands + 1 }, (_, i) => Math.round(Math.pow(noisePrint.power.length - 1, i / bands)));
+                        const levels = Array.from({ length: bands }, (_, b) => {
+                          const lo = edges[b], hi = Math.max(edges[b] + 1, edges[b + 1]);
+                          let sum = 0;
+                          for (let k = lo; k < hi && k < noisePrint.power.length; k++) sum += noisePrint.power[k];
+                          return 10 * Math.log10(sum / (hi - lo) + 1e-12);
+                        });
+                        const top = Math.max(...levels), bottom = top - 50;
+                        return levels.map((v, i) => (
+                          <div key={i} className="flex-1 h-full flex items-end">
+                            <div style={{ height: `${Math.max(6, Math.min(100, ((v - bottom) / 50) * 100))}%` }} className="w-full bg-cyan-500/70 rounded-t-xs" />
                           </div>
-                        );
-                      })}
+                        ));
+                      })()}
                     </div>
                     <div className="flex justify-between text-[9px] text-zinc-500 font-mono">
-                      <span>80 Hz</span>
-                      <span>400 Hz</span>
-                      <span>1 kHz</span>
-                      <span>2.5 kHz</span>
-                      <span>8 kHz</span>
+                      <span>low</span>
+                      <span>frequency</span>
+                      <span>high</span>
                     </div>
+                    {noisePrint.loudnessSpreadDb > 6 && (
+                      <div className="text-[10px] text-amber-300">
+                        This sample has loud moments in it. Speech or other sound in the sample is treated as noise; a stretch with only background noise works best.
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="text-[10px] text-zinc-400 italic">
-                    Click &ldquo;Learn Noise Profile&rdquo; to analyze background silence and automatically tune threshold and reduction.
+                  <div className="text-[10px] text-zinc-400 leading-relaxed">
+                    <span className="text-zinc-200">Best:</span> close this, highlight a few seconds with no speech (Range tool, X), press <span className="text-zinc-200">Noise sample</span> in Quick Actions or the toolbar, then open Denoise again. Or press &ldquo;Find quiet part&rdquo; to pick the quietest second of this clip. With no sample, a basic noise gate is used.
                   </div>
                 )}
               </div>
 
               {/* Sliders */}
               <div className="space-y-3 pt-1">
+                {noisePrint ? (
+                  <>
+                    <div>
+                      <div className="flex justify-between text-zinc-300 mb-1">
+                        <span>Reduction</span>
+                        <span className="mono-nums text-cyan-400 font-semibold">-{denoiseParams.reductionDb} dB</span>
+                      </div>
+                      <input
+                        type="range" min="3" max="30" step="1"
+                        value={denoiseParams.reductionDb}
+                        onChange={(e) => setDenoiseParams({ ...denoiseParams, reductionDb: parseInt(e.target.value) })}
+                        className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                      />
+                      <div className="text-[10px] text-zinc-500 mt-0.5">How far the noise is turned down</div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-zinc-300 mb-1">
+                        <span>Sensitivity</span>
+                        <span className="mono-nums text-cyan-400 font-semibold">{noiseSensitivity.toFixed(1)}</span>
+                      </div>
+                      <input
+                        type="range" min="1" max="4" step="0.1"
+                        value={noiseSensitivity}
+                        onChange={(e) => setNoiseSensitivity(parseFloat(e.target.value))}
+                        className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                      />
+                      <div className="text-[10px] text-zinc-500 mt-0.5">Higher also removes noise a little louder than the sample, but too high makes the voice thin</div>
+                    </div>
+                  </>
+                ) : (
+                  <>
                 <div>
                   <div className="flex justify-between text-zinc-300 mb-1">
                     <span>High-Pass Rumble Cut (24dB/oct)</span>
@@ -873,6 +935,8 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     />
                   </div>
                 </div>
+                  </>
+                )}
               </div>
 
               {/* Real-time Before / After Audio Preview Player */}
@@ -970,6 +1034,28 @@ export const DspModals: React.FC<DspModalsProps> = ({
           )}
         </div>
 
+        {previewIsExcerpt && !progress && (
+          <div className="px-5 py-2 border-t border-zinc-800 bg-[#12121a] text-[11px] text-zinc-400">
+            Long clip: the preview plays a short excerpt. Apply processes the whole clip in blocks.
+          </div>
+        )}
+        {isProcessing && progress && (
+          <div className="px-5 py-3 border-t border-zinc-800 bg-[#12121a] space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] text-zinc-300">
+              <span>Processing {progress.label}</span>
+              <span className="font-mono">{Math.round(progress.fraction * 100)}%</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+              <div className="h-full bg-cyan-400 transition-[width] duration-200" style={{ width: `${Math.round(progress.fraction * 100)}%` }} />
+            </div>
+            {onStopProcessing && (
+              <button onClick={onStopProcessing} className="text-[11px] text-zinc-400 hover:text-red-300 cursor-pointer">
+                Stop (nothing will be changed)
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="px-5 py-3.5 border-t border-zinc-800 bg-[#161622] flex items-center justify-between">
           <button
@@ -991,7 +1077,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
               } else if (activeModal === 'compress') {
                 handleAction(() => onApplyCompressor(compParams));
               } else if (activeModal === 'denoise') {
-                handleAction(() => onApplyDenoise(denoiseParams));
+                handleAction(() => onApplyDenoise(effectiveDenoise));
               } else if (activeModal === 'pitch') {
                 handleAction(() => onApplyPitch({ semitones: pitchSemitones }));
               } else if (activeModal === 'speed') {

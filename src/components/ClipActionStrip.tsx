@@ -17,6 +17,7 @@ import {
   ArrowDown,
   Volume2,
   VolumeX,
+  Fingerprint,
   Sliders,
   Wand2,
   Sparkles,
@@ -77,6 +78,9 @@ interface ClipActionStripProps {
   onUngroup?: () => void;
   /** Silence the selected clips, or the highlighted range */
   onSilence?: () => void;
+  /** Learn the noise print from the highlighted range */
+  onCaptureNoise?: () => void;
+  hasNoisePrint?: boolean;
   /** Set while a time range is highlighted: Quick Actions then acts on that range */
   range?: { seconds: number } | null;
   onRangeGain?: (db: number) => void;
@@ -152,6 +156,8 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
   onGroup,
   onUngroup,
   onSilence,
+  onCaptureNoise,
+  hasNoisePrint,
   range = null,
   onRangeGain,
   onDeleteRange,
@@ -274,6 +280,16 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
             >
               <VolumeX className="w-3.5 h-3.5" />
               <span>Silence</span>
+            </button>
+          )}
+          {inRange && onCaptureNoise && (
+            <button
+              onClick={() => { onCaptureNoise(); onClose(); }}
+              title="Use this range as the noise sample: Denoise then removes only that noise from the whole track"
+              className={BTN_COL}
+            >
+              <Fingerprint className="w-3.5 h-3.5" />
+              <span>{hasNoisePrint ? 'Noise ✓' : 'Noise'}</span>
             </button>
           )}
           <button

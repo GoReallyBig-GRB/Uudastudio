@@ -3,10 +3,8 @@ import type { Asset, Clip } from '../types';
 
 vi.mock('../assets/streamedStore', () => ({ readStreamedFrames: vi.fn() }));
 vi.mock('../assets/streamedWriter', () => ({ createStreamedWriter: vi.fn() }));
-vi.mock('./dsp/compressor', () => ({ processCompression: vi.fn() }));
-vi.mock('./dsp/denoiser', () => ({ processBasicDenoise: vi.fn() }));
 
-import { pieceFromClip, toolProcessor } from './chunkedJob';
+import { amplifyProcessor, pieceFromClip } from './chunkedJob';
 
 const fakeBuffer = (data: number[]) => ({ numberOfChannels: 1, getChannelData: () => Float32Array.from(data) }) as unknown as AudioBuffer;
 const asset = (data: number[]): Asset => ({ id: 'a', name: 'a', kind: 'recording', buffer: fakeBuffer(data), sampleRate: 10, durationSeconds: data.length / 10, numberOfChannels: 1 });
@@ -26,11 +24,9 @@ describe('pieceFromClip', () => {
   });
 });
 
-describe('toolProcessor amplify', () => {
-  it('multiplies every sample by the dB gain, with no lead-in needed', async () => {
-    const { leadInSeconds, process } = toolProcessor({ kind: 'amplify', gainDb: 6.0206 });
-    expect(leadInSeconds).toBe(0);
-    const out = await process([Float32Array.from([0.25, -0.5])], { leadIn: 0, sampleRate: 10, index: 0 });
+describe('amplifyProcessor', () => {
+  it('multiplies every sample by the dB gain', async () => {
+    const out = await amplifyProcessor(6.0206)([Float32Array.from([0.25, -0.5])], { leadIn: 0, sampleRate: 10, index: 0 });
     expect(out[0][0]).toBeCloseTo(0.5, 3);
     expect(out[0][1]).toBeCloseTo(-1, 3);
   });
