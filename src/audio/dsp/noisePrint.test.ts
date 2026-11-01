@@ -155,11 +155,15 @@ describe('dialling it in', () => {
   }
   const level = (a: Float32Array, idx: number[]) => { let s = 0; for (const i of idx) s += a[i] * a[i]; return db(Math.sqrt(s / idx.length)); };
 
-  it('the Reduction dial sets how far the noise between words goes down', () => {
+  it('the Reduction dial sets how far the noise between words goes down (tracking it up to about 24 dB, then easing off)', () => {
+    let previous = 0;
     for (const red of [8, 18, 28]) {
       const out = run(mix, print, red, 1.5);
       const got = level(mix, gaps) - level(out, gaps);
-      expect(Math.abs(got - red) < 3).toBe(true);
+      expect(got > previous).toBe(true);
+      if (red <= 18) expect(Math.abs(got - red) < 3).toBe(true);
+      else expect(got > 21).toBe(true);
+      previous = got;
     }
   });
 

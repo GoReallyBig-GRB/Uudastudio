@@ -203,8 +203,8 @@ export class NoisePrintStage implements Stage {
     this.alpha = Math.max(1, Math.min(4, Number.isFinite(settings.sensitivity) ? settings.sensitivity : 1.5));
     const protect = Math.max(0, Math.min(1, Number.isFinite(settings.voiceProtection) ? (settings.voiceProtection as number) : 0.5));
     this.memory = 0.98 - 0.12 * protect;
-    // Wiener gain alone takes steady noise down about 29 dB; deeper settings steepen the curve so the dial means what it says
-    this.expo = Math.max(1 - 0.5 * protect, Math.max(0, settings.reductionDb) / 28.8);
+    // Wiener gain alone takes steady noise down about 24 dB per unit of exponent; deeper settings steepen the curve so the dial means what it says
+    this.expo = Math.max(1 - 0.5 * protect, Math.max(0, settings.reductionDb) / 24);
     this.residual = !!settings.listenRemoved;
   }
 
