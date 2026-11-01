@@ -211,6 +211,10 @@ const MainStudio: React.FC = () => {
     return () => audioEngine.setFocusSolo(null);
   }, [focusTrackId, focusSolo]);
   const [rangeSelection, setRangeSelection] = useState<RangeSelection | null>(null);
+  const rangeSelectionRef = useRef<RangeSelection | null>(null);
+  rangeSelectionRef.current = rangeSelection;
+  /** Set while a highlighted range is being previewed: where the playhead returns to when it ends */
+  const rangePlayStartRef = useRef<number | null>(null);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('tracks');
   const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState<boolean>(false);
   const [isTimelineControlsCollapsed, setIsTimelineControlsCollapsed] = useState<boolean>(() => {
@@ -221,15 +225,21 @@ const MainStudio: React.FC = () => {
     }
   });
 
+  /** True while the single-track view is open; the panels it folds away are then not remembered as the user's normal layout */
+  const focusOpenRef = useRef(false);
   const handleToggleTimelineControls = useCallback(() => {
     setIsTimelineControlsCollapsed((prev) => {
       const next = !prev;
-      try {
-        localStorage.setItem('uuda_track_header_collapsed', String(next));
-      } catch {}
+      if (!focusOpenRef.current) {
+        try {
+          localStorage.setItem('uuda_track_header_collapsed', String(next));
+        } catch {}
+      }
       return next;
     });
   }, []);
+  /** What the panels looked like before the single-track view folded them away */
+  const beforeFocusRef = useRef<{ controls: boolean; sidebar: boolean } | null>(null);
 
   const [isTimelineViewCollapsed, setIsTimelineViewCollapsed] = useState<boolean>(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(false);
@@ -832,6 +842,14 @@ const MainStudio: React.FC = () => {
     });
     audioEngine.setOnPlaybackEnded(() => {
       setIsPlaying(false);
+      // After previewing a range the playhead goes back to its start, so Play previews it again
+      const back = rangePlayStartRef.current;
+      if (back !== null) {
+        rangePlayStartRef.current = null;
+        audioEngine.seek(back);
+        playheadSecondsRef.current = back;
+        setPlayheadSeconds(back);
+      }
     });
   }, []);
 
@@ -846,6 +864,22 @@ const MainStudio: React.FC = () => {
   // 4. Playback Handlers
   const handlePlay = async () => {
     try {
+      // A highlighted range is previewed: play jumps to its start, plays to its end and stops
+      const sel = rangeSelectionRef.current;
+      if (sel && sel.endSeconds - sel.startSeconds > 0.01) {
+        const contentEnd = project.tracks.reduce((m, t) => t.clips.reduce((mm, c) => Math.max(mm, c.startSeconds + c.durationSeconds), m), 0);
+        if (sel.startSeconds >= contentEnd - 0.01) {
+          addToast({ type: 'info', title: 'Nothing to play', message: 'There is no audio in the highlighted range.' });
+          return;
+        }
+        rangePlayStartRef.current = sel.startSeconds;
+        playheadSecondsRef.current = sel.startSeconds;
+        setPlayheadSeconds(sel.startSeconds);
+        await audioEngine.play(project, sel.startSeconds, sel.endSeconds);
+        setIsPlaying(true);
+        return;
+      }
+      rangePlayStartRef.current = null;
       await audioEngine.play(project, playheadSecondsRef.current);
       setIsPlaying(true);
     } catch (err) {
@@ -2822,6 +2856,26 @@ const MainStudio: React.FC = () => {
   const canPasteAny = clipboardKind === 'range' ? !!rangeClipboard : clipboardKind === 'set' ? !!clipSetClipboard : !!clipboardClip;
 
   /** Single-track view on or off. On: the selected clip's track, else the selected track, else the first one. */
+  // Single-track view opens with the track list and the track controls folded away: just the waveform. They can be opened
+  // again from their usual buttons, and leaving the view puts them back as they were.
+  useEffect(() => {
+    const open = !!focusTrackId;
+    if (open && !focusOpenRef.current) {
+      beforeFocusRef.current = { controls: isTimelineControlsCollapsed, sidebar: isLeftSidebarCollapsed };
+      setIsTimelineControlsCollapsed(true);
+      setIsLeftSidebarCollapsed(true);
+    } else if (!open && focusOpenRef.current) {
+      const before = beforeFocusRef.current;
+      beforeFocusRef.current = null;
+      if (before) {
+        setIsTimelineControlsCollapsed(before.controls);
+        setIsLeftSidebarCollapsed(before.sidebar);
+      }
+    }
+    focusOpenRef.current = open;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTrackId]);
+
   const toggleFocusTrack = () => {
     if (focusTrackId) {
       setFocusTrackId(null);

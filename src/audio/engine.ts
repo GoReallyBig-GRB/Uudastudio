@@ -151,6 +151,10 @@ export class AudioEngine {
   private projectEndSeconds: number = 0;
   private scheduledStopTimer: any = null;
   private onPlaybackEndedCallback: (() => void) | null = null;
+  /** End of the highlighted range being played, or null to play on to the end of the project */
+  private playWindowEnd: number | null = null;
+  /** Where playback stops by itself: the window end, else the end of the project */
+  private stopAtSeconds = 0;
 
   // Cache for assets (assetId -> Asset)
   private assets: Map<string, Asset> = new Map();
@@ -654,8 +658,11 @@ export class AudioEngine {
    * Start playback from given or current position.
    * Enforces projectEnd constraint: stopping at the end of content.
    */
-  public async play(project: Project, startPositionSeconds?: number): Promise<void> {
+  public async play(project: Project, startPositionSeconds?: number, stopAtSeconds?: number): Promise<void> {
     if (this.previewTargetId) this.endPreview();
+    // A play window (the highlighted range) stops playback at its end; a seek during playback keeps the window
+    if (typeof stopAtSeconds === 'number') this.playWindowEnd = stopAtSeconds;
+    else if (!this.isPlaying) this.playWindowEnd = null;
     await this.playInternal(project, startPositionSeconds);
   }
 
@@ -686,13 +693,14 @@ export class AudioEngine {
       }
     }
     this.projectEndSeconds = this.previewRange ? this.previewRange.end : maxEnd;
+    this.stopAtSeconds = !this.previewRange && this.playWindowEnd !== null ? Math.min(maxEnd, this.playWindowEnd) : this.projectEndSeconds;
 
     let fromTime = typeof startPositionSeconds === 'number' ? startPositionSeconds : this.playheadSeconds;
     // Pressing Play when playhead is at the end restarts from 0
     if (this.previewRange) {
       fromTime = this.previewRange.start;
-    } else if (this.projectEndSeconds > 0 && fromTime >= this.projectEndSeconds - 0.01) {
-      fromTime = 0;
+    } else if (this.stopAtSeconds > 0 && fromTime >= this.stopAtSeconds - 0.01) {
+      fromTime = this.playWindowEnd !== null ? fromTime : 0;
     }
 
     await this.preloadStreamedStarts(project, Math.max(0, fromTime));
@@ -729,16 +737,16 @@ export class AudioEngine {
     // Precise stop scheduled on the AudioContext clock
     this.clearScheduledStop();
     // Previews loop from the animation-frame loop instead of a one-shot stop timer
-    if (this.projectEndSeconds > 0 && !this.previewRange) {
-      const durationUntilEnd = Math.max(0, this.projectEndSeconds - this.playheadSeconds);
+    if (this.stopAtSeconds > 0 && !this.previewRange) {
+      const durationUntilEnd = Math.max(0, this.stopAtSeconds - this.playheadSeconds);
       this.scheduledStopTimer = setTimeout(() => {
         if (this.isPlaying) {
           this.stopSources();
           this.isPlaying = false;
-          this.playheadSeconds = this.projectEndSeconds;
+          this.playheadSeconds = this.stopAtSeconds;
           this.stopPlaybackLoop();
           if (this.onTimeUpdateCallback) {
-            this.onTimeUpdateCallback(this.projectEndSeconds);
+            this.onTimeUpdateCallback(this.stopAtSeconds);
           }
           if (this.onPlaybackEndedCallback) {
             this.onPlaybackEndedCallback();
@@ -932,6 +940,7 @@ export class AudioEngine {
     this.clearScheduledStop();
     this.stopSources();
     this.isPlaying = false;
+    this.playWindowEnd = null;
     this.playheadSeconds = 0;
     this.stopPlaybackLoop();
     if (this.onTimeUpdateCallback) {
@@ -1053,14 +1062,14 @@ export class AudioEngine {
           }
           return;
         }
-        if (this.projectEndSeconds > 0 && t >= this.projectEndSeconds) {
+        if (this.stopAtSeconds > 0 && t >= this.stopAtSeconds) {
           this.stopSources();
           this.isPlaying = false;
-          this.playheadSeconds = this.projectEndSeconds;
+          this.playheadSeconds = this.stopAtSeconds;
           this.stopPlaybackLoop();
           this.clearScheduledStop();
           if (this.onTimeUpdateCallback) {
-            this.onTimeUpdateCallback(this.projectEndSeconds);
+            this.onTimeUpdateCallback(this.stopAtSeconds);
           }
           if (this.onPlaybackEndedCallback) {
             this.onPlaybackEndedCallback();
