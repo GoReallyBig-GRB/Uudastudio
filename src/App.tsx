@@ -69,6 +69,7 @@ import { peakProvider } from './waveform/peakProvider';
 import { PEAK_BASE_SAMPLES_PER_PIXEL } from './waveform/peakMath';
 import { ChunkedCancelled, createVirtualSource } from './audio/chunkedProcess';
 import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJob';
+import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
 import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { formatVolumeDb } from './utils/formatters';
@@ -214,6 +215,8 @@ const MainStudio: React.FC = () => {
     return () => audioEngine.setFocusSolo(null);
   }, [focusTrackId, focusSolo]);
   const [rangeSelection, setRangeSelection] = useState<RangeSelection | null>(null);
+  /** Noise print learned from a highlighted range; Denoise uses it to remove only that noise */
+  const [noisePrint, setNoisePrint] = useState<NoisePrint | null>(null);
   const rangeSelectionRef = useRef<RangeSelection | null>(null);
   rangeSelectionRef.current = rangeSelection;
   /** Set while a highlighted range is being previewed: where the playhead returns to when it ends */
@@ -2728,6 +2731,49 @@ const MainStudio: React.FC = () => {
     }
   };
 
+  /** Learn the noise print from the highlighted range (its first track). Denoise then removes only that noise from whole clips. */
+  const handleCaptureNoise = async () => {
+    const sel = rangeSelection;
+    if (!sel) {
+      addToast({ type: 'info', title: 'Highlight a range first', message: 'Use the Range tool (X) on a few seconds with no speech, then choose Noise sample.' });
+      return;
+    }
+    const track = project.tracks.find((t) => t.id === sel.trackId) ?? project.tracks.find((t) => rangeTrackIds(sel).includes(t.id));
+    if (!track) return;
+    try {
+      const parts: Float32Array[][] = [];
+      let sampleRate = 0;
+      for (const clip of [...track.clips].sort((a, b) => a.startSeconds - b.startSeconds)) {
+        const from = Math.max(sel.startSeconds, clip.startSeconds);
+        const to = Math.min(sel.endSeconds, clip.startSeconds + clip.durationSeconds);
+        if (to - from <= 0) continue;
+        const asset = audioEngine.getAsset(clip.assetId);
+        if (!asset) continue;
+        sampleRate = asset.sampleRate || sampleRate;
+        const piece = pieceFromClip(asset, clip, false);
+        parts.push(await piece.read(Math.round((from - clip.startSeconds) * asset.sampleRate), Math.round((to - from) * asset.sampleRate)));
+      }
+      if (parts.length === 0) throw new Error('There is no audio in that range.');
+      const channels = Math.min(...parts.map((p) => p.length));
+      const joined = Array.from({ length: channels }, (_, c) => {
+        const out = new Float32Array(parts.reduce((n, p) => n + p[c].length, 0));
+        let o = 0;
+        for (const p of parts) { out.set(p[c], o); o += p[c].length; }
+        return out;
+      });
+      const mmss = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+      const print = learnNoisePrint(joined, sampleRate, `${track.name}, ${mmss(sel.startSeconds)} to ${mmss(sel.endSeconds)}`);
+      setNoisePrint(print);
+      addToast(
+        print.loudnessSpreadDb > 6
+          ? { type: 'warning', title: 'Noise sample taken, but it has loud moments', message: 'A stretch with only background noise works best. Speech in the sample will be treated as noise.' }
+          : { type: 'success', title: 'Noise sample taken', message: `${print.seconds.toFixed(1)} s learned. Select the clip and open Denoise: it will remove only this noise.` },
+      );
+    } catch (e) {
+      addToast({ type: 'error', title: 'Could not take the noise sample', message: e instanceof Error ? e.message : 'Unknown error.' });
+    }
+  };
+
   /** Copy the highlighted range (all tracks it covers) so Paste can lay the same stack of tracks back. */
   const handleCopyRange = (): boolean => {
     const sel = rangeSelection;
@@ -3430,6 +3476,8 @@ const MainStudio: React.FC = () => {
         canPaste={canPasteAny}
         onSplit={(id) => splitAny(id)}
         onSilence={handleSilence}
+        onCaptureNoise={() => void handleCaptureNoise()}
+        hasNoisePrint={!!noisePrint}
         onCopy={(id) => copyAny(id)}
         onCut={(id) => cutAny(id)}
         onPaste={() => pasteAny()}
@@ -3637,6 +3685,8 @@ const MainStudio: React.FC = () => {
               onSeek={handleSeek}
               onSplitClip={splitAny}
               onSilence={handleSilence}
+              onCaptureNoise={() => void handleCaptureNoise()}
+              hasNoisePrint={!!noisePrint}
               onRangeGain={handleRangeGain}
               onDeleteRange={handleDeleteRange}
               onDeleteClip={handleDeleteClip}
@@ -3815,6 +3865,8 @@ const MainStudio: React.FC = () => {
         progress={chunkedProgress}
         onStopProcessing={() => { chunkedAbortRef.current.aborted = true; }}
         previewIsExcerpt={!!chunkedTarget}
+        noisePrint={noisePrint}
+        onSetNoisePrint={setNoisePrint}
         onClose={() => { setActiveDspModal(null); setChunkedTarget(null); }}
         onApplyAmplify={handleApplyAmplify}
         onApplyCompressor={handleApplyCompressor}

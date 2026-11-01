@@ -52,6 +52,8 @@ interface TimelineProps {
   onToggleFocusSolo?: () => void;
   onSplitClip: (clipId: string) => void;
   onSilence?: () => void;
+  onCaptureNoise?: () => void;
+  hasNoisePrint?: boolean;
   onRangeGain?: (db: number) => void;
   onDeleteRange?: () => void;
   onDeleteClip: (clipId: string) => void;
@@ -183,6 +185,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   onToggleFocusSolo,
   onSplitClip,
   onSilence,
+  onCaptureNoise,
+  hasNoisePrint,
   onRangeGain,
   onDeleteRange,
   onDeleteClip,
@@ -1596,6 +1600,8 @@ export const Timeline: React.FC<TimelineProps> = ({
           focusSolo={focusSolo}
           onToggleFocusSolo={onToggleFocusSolo}
           onSilence={onSilence}
+          onCaptureNoise={onCaptureNoise}
+          hasNoisePrint={hasNoisePrint}
           onRangeGain={onRangeGain}
           onDeleteRange={onDeleteRange}
           selectedCount={selectionUnitCount(project.tracks, selectedClipIds)}

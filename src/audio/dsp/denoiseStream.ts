@@ -6,6 +6,7 @@
  */
 import type { DenoiseParams } from '../../types';
 import type { Stage } from './wsolaStream';
+import { NoisePrintStage } from './noisePrint';
 
 const BLOCK = 512;
 const HOP = 128;
@@ -158,10 +159,16 @@ export class DenoiseStage implements Stage {
   }
 }
 
+/** The stage for these settings: the noise print when one was learned, else the basic gate. */
+export const makeDenoiseStage = (totalIn: number, sampleRate: number, params: DenoiseParams): Stage =>
+  params.print
+    ? new NoisePrintStage(totalIn, sampleRate, params.print, { reductionDb: num(params.reductionDb, 14), sensitivity: num(params.sensitivity, 1.5) })
+    : new DenoiseStage(totalIn, sampleRate, params);
+
 /** The whole clip at once (same code and result as streaming it). */
 export const denoiseChannels = (channels: Float32Array[], sampleRate: number, params: DenoiseParams): Float32Array[] =>
   channels.map((ch) => {
-    const stage = new DenoiseStage(ch.length, sampleRate, params);
+    const stage = makeDenoiseStage(ch.length, sampleRate, params);
     const a = stage.push(ch);
     const b = stage.finish();
     const out = new Float32Array(a.length + b.length);

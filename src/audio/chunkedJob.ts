@@ -9,7 +9,7 @@ import type { Asset, Clip, CompressorParams, DenoiseParams } from '../types';
 import { readStreamedFrames } from '../assets/streamedStore';
 import { createStreamedWriter, StreamedWriter } from '../assets/streamedWriter';
 import { CompressorStage } from './dsp/compressorStream';
-import { DenoiseStage } from './dsp/denoiseStream';
+import { makeDenoiseStage } from './dsp/denoiseStream';
 import { ChunkedOptions, MultiStage, PieceSource, createVirtualSource, perChannel, runChunked, runStreamed } from './chunkedProcess';
 import { PitchShiftStage, WsolaStretcher } from './dsp/wsolaStream';
 
@@ -55,7 +55,7 @@ export const amplifyProcessor = (gainDb: number): ChunkedOptions['process'] => {
 /** Streaming stage for the tools that carry state from block to block (no seams). */
 export const streamingStage = (tool: Exclude<ChunkTool, { kind: 'amplify' }>, channels: number, totalFrames: number, sampleRate: number): MultiStage => {
   if (tool.kind === 'compress') return new CompressorStage(sampleRate, tool.params);
-  if (tool.kind === 'denoise') return perChannel(Array.from({ length: channels }, () => new DenoiseStage(totalFrames, sampleRate, tool.params)));
+  if (tool.kind === 'denoise') return perChannel(Array.from({ length: channels }, () => makeDenoiseStage(totalFrames, sampleRate, tool.params)));
   if (tool.kind === 'pitch') return perChannel(Array.from({ length: channels }, () => new PitchShiftStage(totalFrames, tool.semitones)));
   const speed = Math.max(0.2, Math.min(5, Number.isFinite(tool.ratio) ? tool.ratio : 1));
   return perChannel(Array.from({ length: channels }, () => new WsolaStretcher(totalFrames, speed)));

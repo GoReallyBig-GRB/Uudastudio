@@ -1,3 +1,4 @@
+import type { NoisePrint } from '../audio/dsp/noisePrint';
 /**
  * X-PRO AUDIO - Core Data Model
  * Strict TypeScript models for browser-based professional DAW
@@ -51,6 +52,10 @@ export interface DenoiseParams {
   releaseMs?: number; // 20 to 300 ms
   speechPreserveRatio?: number; // 0 to 1
   learnedFloorDb?: number;
+  /** Learned noise print: when set, only that noise is taken out (see noisePrint.ts) and the gate settings above are not used */
+  print?: NoisePrint;
+  /** With a print: how strictly it is matched, 1 to 4 */
+  sensitivity?: number;
 }
 
 export interface PitchParams {
