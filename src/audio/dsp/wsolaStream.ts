@@ -6,10 +6,7 @@
  * the streamed result equals the whole-buffer result: there are no seams where blocks meet (see wsolaStream.test.ts).
  * The total input length must be known up front (it is: the clip's length).
  */
-import { resampleChannel, wsolaTimeStretch } from './wsola';
-
-const FRAME_SIZE = 1024;
-const SYN_HOP = 256;
+import { StretchParams, chooseOffset, edgeGuardLength, edgeGuardWeight, pitchStretchParams, resampleChannel, speedStretchParams, wsolaTimeStretch } from './wsola';
 
 export interface Stage {
   /** Feed more input; returns the output that is now final (possibly empty) */
@@ -87,8 +84,10 @@ export class HermiteResampler implements Stage {
   }
 }
 
-/** WSOLA time stretch, same output as `wsolaTimeStretch(allInput, speedRatio)`. */
+/** WSOLA time stretch, same output as `wsolaTimeStretch(allInput, speedRatio, params)`. */
 export class WsolaStretcher implements Stage {
+  private readonly frame: number;
+  private readonly hop: number;
   private readonly anaHop: number;
   private readonly searchRange: number;
   private readonly outLength: number;
@@ -102,22 +101,29 @@ export class WsolaStretcher implements Stage {
   private outPos = 0;
   private inPos = 0;
   private emitted = 0;
+  /** First and last input samples, kept for the edge guard */
+  private readonly guard: number;
+  private head = new Float32Array(0);
+  private tail = new Float32Array(0);
   /** Inputs too short for the algorithm are collected and handled whole */
   private readonly whole: Float32Array[] | null;
 
-  constructor(private readonly totalIn: number, private readonly speed: number) {
-    this.anaHop = Math.max(1, Math.round(SYN_HOP * speed));
-    this.searchRange = Math.max(1, Math.round(SYN_HOP / 2));
+  constructor(private readonly totalIn: number, private readonly speed: number, private readonly params: StretchParams = speedStretchParams()) {
+    this.frame = params.frame;
+    this.hop = params.hop;
+    this.anaHop = Math.max(1, Math.round(params.hop * speed));
+    this.searchRange = params.search;
     this.outLength = Math.max(1, Math.round(totalIn / speed));
-    this.window = new Float32Array(FRAME_SIZE);
-    for (let i = 0; i < FRAME_SIZE; i++) this.window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (FRAME_SIZE - 1)));
-    this.whole = totalIn <= FRAME_SIZE ? [] : null;
+    this.window = new Float32Array(this.frame);
+    for (let i = 0; i < this.frame; i++) this.window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (this.frame - 1)));
+    this.guard = Math.min(edgeGuardLength(params), this.outLength >> 1);
+    this.whole = totalIn <= this.frame || this.outLength <= this.frame ? [] : null;
   }
 
   private ensureOut(absEnd: number): void {
     const need = absEnd - this.outBase;
     if (need <= this.out.length) return;
-    const size = Math.max(need, this.out.length * 2, FRAME_SIZE * 4);
+    const size = Math.max(need, this.out.length * 2, this.frame * 4);
     const o = new Float32Array(size);
     const w = new Float32Array(size);
     o.set(this.out);
@@ -131,8 +137,19 @@ export class WsolaStretcher implements Stage {
     const k = abs - this.outBase;
     if (k < 0 || k >= this.out.length) return 0;
     const w = this.weight[k];
-    const val = w > 0.001 ? this.out[k] / w : this.out[k];
-    return Number.isFinite(val) ? val : 0;
+    let val = w > 1e-6 ? this.out[k] / w : this.out[k];
+    if (!Number.isFinite(val)) val = 0;
+    // Edge guard: blend the first and last few samples back to the original edge samples
+    const g = this.guard;
+    if (abs < g && this.head.length > abs) {
+      const wt = edgeGuardWeight(abs, g);
+      val = val * (1 - wt) + this.head[abs] * wt;
+    } else if (abs >= this.outLength - g && this.tail.length === g) {
+      const j = this.outLength - 1 - abs; // 0 at the very last sample
+      const wt = edgeGuardWeight(j, g);
+      val = val * (1 - wt) + this.tail[g - 1 - j] * wt;
+    }
+    return val;
   }
 
   private emitUpTo(limit: number): Float32Array {
@@ -141,8 +158,8 @@ export class WsolaStretcher implements Stage {
     const res = new Float32Array(n);
     for (let i = 0; i < n; i++) res[i] = this.finalValue(this.emitted + i);
     this.emitted += n;
-    // Keep what the next similarity search still reads (from outPos - synHop)
-    const keep = Math.max(this.outBase, Math.min(this.emitted, this.outPos - SYN_HOP));
+    // Keep what the next similarity search still reads (from outPos - hop)
+    const keep = Math.max(this.outBase, Math.min(this.emitted, this.outPos - this.hop));
     if (keep > this.outBase) {
       const cut = keep - this.outBase;
       this.out = this.out.slice(cut);
@@ -154,44 +171,22 @@ export class WsolaStretcher implements Stage {
 
   private run(): void {
     const total = this.totalIn;
-    while (this.outPos < this.outLength && this.inPos + FRAME_SIZE < total) {
-      const need = Math.min(total, this.inPos + this.searchRange + FRAME_SIZE + 1);
+    while (this.outPos < this.outLength) {
+      const need = Math.min(total, this.inPos + this.searchRange + this.frame + 1);
       if (this.received < need) break; // wait for more input
-      const inAt = (abs: number) => this.inBuf[abs - this.inBase];
-      let bestOffset = 0;
-      if (this.outPos > 0) {
-        let maxCorr = -Infinity;
-        const targetPos = Math.max(0, this.outPos - SYN_HOP);
-        for (let delta = -this.searchRange; delta <= this.searchRange; delta += 2) {
-          const candidateIn = this.inPos + delta;
-          if (candidateIn < 0 || candidateIn + FRAME_SIZE >= total) continue;
-          let corr = 0;
-          for (let i = 0; i < FRAME_SIZE; i += 4) {
-            const s1 = inAt(candidateIn + i);
-            const k = targetPos + i - this.outBase;
-            const s2 = k >= 0 && k < this.out.length ? this.out[k] : 0;
-            if (Number.isFinite(s1) && Number.isFinite(s2)) corr += s1 * s2;
-          }
-          if (corr > maxCorr) {
-            maxCorr = corr;
-            bestOffset = delta;
-          }
-        }
+      this.ensureOut(this.outPos + this.frame);
+      const nominal = Math.max(0, Math.min(this.inPos, total - this.frame));
+      const offset = this.outPos > 0
+        ? chooseOffset(this.params, this.inBuf, this.inBase, this.out, this.outBase, nominal, this.outPos, total)
+        : 0;
+      const actualIn = Math.max(0, Math.min(total - this.frame, nominal + offset));
+      const base = actualIn - this.inBase;
+      for (let i = 0; i < this.frame; i++) {
+        const k = this.outPos + i - this.outBase;
+        this.out[k] += this.inBuf[base + i] * this.window[i];
+        this.weight[k] += this.window[i];
       }
-      const actualIn = Math.max(0, Math.min(total - FRAME_SIZE, this.inPos + bestOffset));
-      this.ensureOut(this.outPos + FRAME_SIZE);
-      for (let i = 0; i < FRAME_SIZE; i++) {
-        const idx = this.outPos + i;
-        if (idx < this.outLength + FRAME_SIZE) {
-          const sampleVal = inAt(actualIn + i) * this.window[i];
-          if (Number.isFinite(sampleVal)) {
-            const k = idx - this.outBase;
-            this.out[k] += sampleVal;
-            this.weight[k] += this.window[i];
-          }
-        }
-      }
-      this.outPos += SYN_HOP;
+      this.outPos += this.hop;
       this.inPos += this.anaHop;
     }
   }
@@ -205,15 +200,35 @@ export class WsolaStretcher implements Stage {
     }
   }
 
+  private keepEdges(chunk: Float32Array): void {
+    const g = this.guard;
+    if (this.head.length < g) {
+      const take = Math.min(g - this.head.length, chunk.length);
+      const h = new Float32Array(this.head.length + take);
+      h.set(this.head);
+      h.set(chunk.subarray(0, take), this.head.length);
+      this.head = h;
+    }
+    const t = new Float32Array(Math.min(g, this.tail.length + chunk.length));
+    const all = this.tail.length + chunk.length;
+    for (let i = 0; i < t.length; i++) {
+      const src = all - t.length + i; // index into tail ++ chunk
+      t[i] = src < this.tail.length ? this.tail[src] : chunk[src - this.tail.length];
+    }
+    this.tail = t;
+  }
+
   push(chunk: Float32Array): Float32Array {
     if (this.whole) { this.whole.push(chunk.slice()); return new Float32Array(0); }
+    this.keepEdges(chunk);
     const merged = new Float32Array(this.inBuf.length + chunk.length);
     merged.set(this.inBuf);
     merged.set(chunk, this.inBuf.length);
     this.inBuf = merged;
     this.received += chunk.length;
     this.run();
-    const res = this.emitUpTo(this.outPos - SYN_HOP);
+    // Hold back the last few samples until the end of the input is known (they are blended to the original edge)
+    const res = this.emitUpTo(Math.min(this.outPos - this.hop, this.outLength - this.guard));
     this.dropInput();
     return res;
   }
@@ -221,7 +236,7 @@ export class WsolaStretcher implements Stage {
   finish(): Float32Array {
     if (this.whole) {
       const all = concat(this.whole, this.whole.reduce((n, p) => n + p.length, 0));
-      return all.length === 0 ? new Float32Array(0) : wsolaTimeStretch(all, this.speed);
+      return all.length === 0 ? new Float32Array(0) : wsolaTimeStretch(all, this.speed, this.params);
     }
     this.run();
     return this.emitUpTo(this.outLength);
@@ -237,10 +252,10 @@ export class PitchShiftStage implements Stage {
   private readonly stretcher: WsolaStretcher;
   private produced = 0;
 
-  constructor(private readonly totalIn: number, semitones: number) {
+  constructor(private readonly totalIn: number, semitones: number, sampleRate = 48000) {
     const ratio = Math.pow(2, Math.max(-24, Math.min(24, semitones)) / 12);
     this.resampler = new HermiteResampler(totalIn, ratio);
-    this.stretcher = new WsolaStretcher(Math.max(1, Math.round(totalIn / ratio)), 1 / ratio);
+    this.stretcher = new WsolaStretcher(Math.max(1, Math.round(totalIn / ratio)), 1 / ratio, pitchStretchParams(ratio, sampleRate));
   }
 
   private clip(part: Float32Array): Float32Array {

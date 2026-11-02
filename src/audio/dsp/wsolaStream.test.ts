@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resampleChannel, wsolaTimeStretch } from './wsola';
+import { pitchStretchParams, resampleChannel, speedStretchParams, wsolaTimeStretch } from './wsola';
 import { HermiteResampler, PitchShiftStage, Stage, WsolaStretcher } from './wsolaStream';
 
 /** Deterministic pseudo-speech: a few sines with a slow amplitude wobble plus a little noise */
@@ -50,16 +50,16 @@ describe('streaming WSOLA', () => {
   for (const speed of [0.5, 0.9, 1.3, 2]) {
     it(`matches the whole-buffer stretch at speed ${speed}`, () => {
       const input = signal(40000);
-      same(run(new WsolaStretcher(input.length, speed), input, 3000), wsolaTimeStretch(input, speed));
+      same(run(new WsolaStretcher(input.length, speed, speedStretchParams(44100)), input, 3000), wsolaTimeStretch(input, speed, speedStretchParams(44100)));
     });
   }
   it('gives the same result whatever the chunk size', () => {
     const input = signal(25000);
-    same(run(new WsolaStretcher(input.length, 1.5), input, 700), run(new WsolaStretcher(input.length, 1.5), input, 9000));
+    same(run(new WsolaStretcher(input.length, 1.5, speedStretchParams(44100)), input, 700), run(new WsolaStretcher(input.length, 1.5, speedStretchParams(44100)), input, 9000));
   });
   it('very short input is handled whole', () => {
     const input = signal(800);
-    same(run(new WsolaStretcher(input.length, 1.5), input, 300), wsolaTimeStretch(input, 1.5));
+    same(run(new WsolaStretcher(input.length, 1.5, speedStretchParams(44100)), input, 300), wsolaTimeStretch(input, 1.5, speedStretchParams(44100)));
   });
 });
 
@@ -69,9 +69,9 @@ describe('streaming pitch shift', () => {
       const input = signal(40000);
       const ratio = Math.pow(2, semis / 12);
       const expected = new Float32Array(input.length);
-      const stretched = wsolaTimeStretch(resampleChannel(input, ratio), 1 / ratio);
+      const stretched = wsolaTimeStretch(resampleChannel(input, ratio), 1 / ratio, pitchStretchParams(ratio, 44100));
       expected.set(stretched.subarray(0, Math.min(stretched.length, input.length)));
-      same(run(new PitchShiftStage(input.length, semis), input, 5000), expected);
+      same(run(new PitchShiftStage(input.length, semis, 44100), input, 5000), expected);
     });
   }
 });
