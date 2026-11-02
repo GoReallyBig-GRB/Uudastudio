@@ -283,6 +283,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             <CapsuleButton
               title={!focusActive ? 'In Focus view you can hear only this track or the full mix' : focusSolo ? 'Hearing only this track. Click to hear the full mix.' : 'Hearing the full mix. Click to hear only this track.'}
               active={focusActive && focusSolo}
+              tone="gold"
               disabled={!focusActive}
               onClick={onToggleFocusSolo}
               icon={<Headphones className="h-3 w-3" />}
@@ -407,6 +408,25 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
 
         {/* The clip's own settings: always there, available when a clip is selected */}
         <div className="flex shrink-0 items-center gap-1.5">
+          <Capsule label="Racks" size="sm">
+            <CapsuleButton
+              title="Open the Audio Effects Rack (Delay, EQ, Chorus, Flanger, Phaser, Reverb)"
+              disabled={!onOpenEffect}
+              onClick={() => onOpenEffect?.('reverb')}
+              icon={<Sparkles className="h-3 w-3" />}
+            >
+              Effects Rack
+            </CapsuleButton>
+            <CapsuleButton
+              title={isTimelineCollapsed ? 'Show the timeline again' : 'Collapse the timeline to show only the Master Console'}
+              active={isTimelineCollapsed}
+              disabled={!onToggleTimelineCollapsed}
+              onClick={onToggleTimelineCollapsed}
+              icon={<SlidersHorizontal className="h-3 w-3" />}
+            >
+              {isTimelineCollapsed ? 'Show Timeline' : 'Master Console'}
+            </CapsuleButton>
+          </Capsule>
           <button
             onClick={() => clip && onToggleMute(clip.id)}
             disabled={!clip}

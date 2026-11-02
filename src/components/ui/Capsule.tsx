@@ -49,10 +49,12 @@ export interface CapsuleButtonProps extends Omit<React.ButtonHTMLAttributes<HTML
   active?: boolean;
   /** Icon only, a square-ish segment. */
   iconOnly?: boolean;
+  /** Colour when active: cyan by default, gold for switches that mean "this takes over" (Solo). */
+  tone?: 'accent' | 'gold';
 }
 
 export const CapsuleButton: React.FC<CapsuleButtonProps> = ({
-  title, icon, active = false, iconOnly = false, className, children, type = 'button', ...rest
+  title, icon, active = false, iconOnly = false, tone = 'accent', className, children, type = 'button', ...rest
 }) => {
   const variant = useContext(CapsuleContext);
   const size = useContext(CapsuleSizeContext);
@@ -70,10 +72,10 @@ export const CapsuleButton: React.FC<CapsuleButtonProps> = ({
         'disabled:cursor-not-allowed disabled:opacity-40',
         iconOnly ? (size === 'sm' ? 'w-6' : 'w-9') : size === 'sm' ? 'px-2.5' : 'px-3.5',
         variant === 'joined'
-          ? active ? 'bg-accent-soft text-accent' : 'text-ink-dim hover:bg-white/5 hover:text-ink'
+          ? active ? (tone === 'gold' ? 'bg-gold/20 text-gold' : 'bg-accent-soft text-accent') : 'text-ink-dim hover:bg-white/5 hover:text-ink'
           : cn(
               'rounded-full border',
-              active ? 'border-accent/40 bg-accent-soft text-accent' : 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink',
+              active ? (tone === 'gold' ? 'border-gold/50 bg-gold/20 text-gold' : 'border-accent/40 bg-accent-soft text-accent') : 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink',
             ),
         className,
       )}

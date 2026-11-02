@@ -41,6 +41,7 @@ import {
   renderBufferWithEffect,
 } from '../audio/effects/dspChain';
 import { audioEngine } from '../audio/engine';
+import { pieceFromClip } from '../audio/chunkedJob';
 import { formatTimecode } from '../utils/formatters';
 import { getTrackLabel } from '../utils/tracks';
 
@@ -57,6 +58,8 @@ interface EffectsModalProps {
     renderedBuffer: AudioBuffer,
     newDuration: number
   ) => Promise<void>;
+  /** Long audio kept on disk, or an edited clip: rendered block by block into one clip */
+  onApplyEffectChunked?: (targetClipId: string, effect: TrackEffect, onProgress?: (fraction: number) => void) => Promise<void>;
 }
 
 // Effect default presets
@@ -194,15 +197,17 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   onSelectClip,
   onClose,
   onApplyEffect,
+  onApplyEffectChunked,
 }) => {
   const [activeType, setActiveType] = useState<EffectType>(initialEffectType);
   const [isBypassed, setIsBypassed] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [progress, setProgress] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // List all available clips in project
   const allClips = useMemo(() => {
-    const list: { trackId: string; trackName: string; clip: Clip; asset: Asset | null }[] = [];
+    const list: { trackId: string; trackName: string; clip: Clip; asset: Asset | null; pieces: number }[] = [];
     for (const [trackIndex, track] of project.tracks.entries()) {
       // An edited track (spliced pieces) is listed once, as one clip of its full length
       const chainOf = new Map<string, Clip[]>();
@@ -210,14 +215,16 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
       for (const c of track.clips) {
         const chain = chainOf.get(c.id);
         let whole = c;
+        let pieces = 1;
         if (chain) {
+          pieces = chain.length;
           const sorted = [...chain].sort((x, y) => x.startSeconds - y.startSeconds);
           if (sorted[0].id !== c.id) continue;
           const tail = sorted[sorted.length - 1];
           whole = { ...c, durationSeconds: tail.startSeconds + tail.durationSeconds - c.startSeconds };
         }
         const ast = audioEngine.getAsset(c.assetId) || null;
-        list.push({ trackId: track.id, trackName: getTrackLabel(track, trackIndex), clip: whole, asset: ast });
+        list.push({ trackId: track.id, trackName: getTrackLabel(track, trackIndex), clip: whole, asset: ast, pieces });
       }
     }
     return list;
@@ -320,28 +327,27 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
       }
 
       const ctx = previewCtxRef.current;
-      let rawBuffer: AudioBuffer | null = currentAsset?.buffer || null;
-
-      // If no clip buffer exists, use synthesized reference audio
-      if (!rawBuffer) {
-        if (!referenceBufferRef.current) {
-          referenceBufferRef.current = createStudioReferenceBuffer(ctx);
-        }
-        rawBuffer = referenceBufferRef.current;
-      }
-
-      // Extract up to 8-second preview window
-      const previewSec = Math.min(8, rawBuffer.duration);
-      const frames = Math.floor(previewSec * rawBuffer.sampleRate);
-      const sliceBuf = ctx.createBuffer(rawBuffer.numberOfChannels, frames, rawBuffer.sampleRate);
-
-      const offsetFrames = Math.floor((currentClip?.offsetSeconds || 0) * rawBuffer.sampleRate);
-      for (let ch = 0; ch < rawBuffer.numberOfChannels; ch++) {
-        const full = rawBuffer.getChannelData(ch);
-        const slice = sliceBuf.getChannelData(ch);
-        for (let i = 0; i < frames; i++) {
-          slice[i] = full[offsetFrames + i] || 0;
-        }
+      // The clip's own audio (from memory or from disk). The studio chord is only for when there is no clip at all.
+      let sliceBuf: AudioBuffer;
+      if (currentAsset && currentClip && (currentAsset.buffer || currentAsset.source)) {
+        const sr = currentAsset.sampleRate || 48000;
+        const offset = Math.max(0, currentClip.offsetSeconds || 0);
+        const available = Math.max(0, (currentAsset.durationSeconds || 0) - offset);
+        const previewSec = Math.min(8, currentClip.durationSeconds, available);
+        const frames = Math.max(1, Math.floor(previewSec * sr));
+        const piece = pieceFromClip(currentAsset, { ...currentClip, durationSeconds: Math.min(currentClip.durationSeconds, available) }, false);
+        const data = await piece.read(0, frames);
+        const n = Math.max(1, data[0]?.length ?? 0);
+        sliceBuf = ctx.createBuffer(Math.max(1, data.length), n, sr);
+        data.forEach((chData, ch) => sliceBuf.copyToChannel(chData as Float32Array<ArrayBuffer>, ch));
+      } else if (allClips.length === 0) {
+        if (!referenceBufferRef.current) referenceBufferRef.current = createStudioReferenceBuffer(ctx);
+        const ref = referenceBufferRef.current;
+        sliceBuf = ref;
+      } else {
+        setErrorMessage('The audio for this clip is not loaded yet, so it cannot be auditioned.');
+        setPreviewState('none');
+        return;
       }
 
       const source = ctx.createBufferSource();
@@ -404,7 +410,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   };
 
   const handleApply = async () => {
-    if (!currentClip || !currentAsset?.buffer) {
+    if (!currentClip || !currentAsset || (!currentAsset.buffer && !currentAsset.source)) {
       setErrorMessage('Please add or record an audio clip to the timeline before applying this effect.');
       return;
     }
@@ -415,6 +421,14 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
 
     try {
       const eff = getCurrentEffect();
+      const edited = (currentItem?.pieces ?? 1) > 1;
+      if (!currentAsset.buffer || edited) {
+        if (!onApplyEffectChunked) throw new Error('This audio is too long to render whole.');
+        setProgress(0);
+        await onApplyEffectChunked(currentClip.id, eff, setProgress);
+        onClose();
+        return;
+      }
       const rendered = await renderBufferWithEffect(currentAsset.buffer, eff);
       const newDuration = rendered.duration;
 
@@ -424,6 +438,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
       setErrorMessage(`Failed to apply effect: ${err?.message || err}`);
     } finally {
       setIsProcessing(false);
+      setProgress(null);
     }
   };
 
@@ -1025,7 +1040,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xs shadow-[0_0_12px_rgba(0,240,255,0.3)] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isProcessing ? (
-              <span>Rendering effect tail...</span>
+              <span>{progress !== null ? `Rendering ${Math.round(progress * 100)}%` : 'Rendering effect tail...'}</span>
             ) : (
               <>
                 <Check className="w-3.5 h-3.5 stroke-[2.5]" />

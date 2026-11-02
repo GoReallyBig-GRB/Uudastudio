@@ -37,6 +37,7 @@ import { processBasicDenoise } from '../audio/dsp/denoiser';
 import { processCompression } from '../audio/dsp/compressor';
 import { NoisePrint, learnNoisePrint, quietestStretch } from '../audio/dsp/noisePrint';
 import { processPitchShift, processTimeStretch } from '../audio/dsp/wsola';
+import { PITCH_PRESETS, presetFor } from '../audio/dsp/pitchPresets';
 
 export type DspModalType = 'amplify' | 'compress' | 'denoise' | 'pitch' | 'speed' | null;
 
@@ -953,8 +954,24 @@ export const DspModals: React.FC<DspModalsProps> = ({
           {/* 4. CHANGE PITCH MODAL */}
           {activeModal === 'pitch' && (
             <div className="space-y-3.5">
+              <div className="flex flex-wrap gap-1.5">
+                {PITCH_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    title={`${p.hint} (${p.semitones > 0 ? '+' : ''}${p.semitones} semitones)`}
+                    onClick={() => setPitchSemitones(p.semitones)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${
+                      presetFor(pitchSemitones)?.id === p.id
+                        ? 'bg-cyan-500 border-cyan-400 text-black'
+                        : 'bg-zinc-900 border-zinc-700 hover:bg-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
               <div className="flex justify-between text-zinc-300 font-medium">
-                <span>Pitch Shift</span>
+                <span>{presetFor(pitchSemitones)?.label ?? 'Pitch Shift'}</span>
                 <span className={`mono-nums font-bold ${pitchSemitones > 0 ? 'text-cyan-400' : 'text-zinc-400'}`}>
                   {pitchSemitones > 0 ? `+${pitchSemitones}` : pitchSemitones} semitones
                 </span>
@@ -963,9 +980,9 @@ export const DspModals: React.FC<DspModalsProps> = ({
                 type="range"
                 min="-12"
                 max="12"
-                step="1"
+                step="0.5"
                 value={pitchSemitones}
-                onChange={(e) => setPitchSemitones(parseInt(e.target.value))}
+                onChange={(e) => setPitchSemitones(parseFloat(e.target.value))}
                 className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
               />
 
@@ -986,7 +1003,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
               </div>
 
               <div className="p-2.5 rounded bg-zinc-900/60 border border-zinc-800 text-[10px] text-zinc-400 leading-relaxed">
-                <strong>Algorithm:</strong> WSOLA (Waveform Similarity Overlap-Add) combined with cubic Hermite resampling. Shifts pitch while preserving exact original duration and timing.
+                <strong>Algorithm:</strong> WSOLA (Waveform Similarity Overlap-Add) combined with cubic Hermite resampling. The pitch lands on the target (checked to within a few cents), the duration and timing stay exact, and the edges of a range join the audio around it cleanly. Presets move the whole voice, character included.
               </div>
 
               {/* Real-Time Preview Audition Bar */}

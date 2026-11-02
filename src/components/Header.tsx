@@ -10,7 +10,6 @@ import {
   Square,
   Upload,
   Settings,
-  SlidersHorizontal,
   ZoomIn,
   ZoomOut,
   Maximize2,
@@ -142,9 +141,6 @@ interface HeaderProps {
   onOpenEffect?: (type: import('../types').EffectType) => void;
   /** Rename the project (the title sits at the top of the header; double-click it) */
   onRenameProject?: (name: string) => void;
-  /** Master Console: shows or hides the timeline so the console fills the view */
-  isTimelineCollapsed?: boolean;
-  onToggleTimelineCollapsed?: () => void;
   onDeleteSelected: () => void;
   onSelectAll: () => void;
   onImportFiles: (files: FileList) => void;
@@ -201,8 +197,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenDsp,
   onOpenEffect,
   onRenameProject,
-  isTimelineCollapsed = false,
-  onToggleTimelineCollapsed,
   onDeleteSelected,
   onSelectAll,
   onImportFiles,
@@ -915,30 +909,6 @@ export const Header: React.FC<HeaderProps> = ({
           <Sparkles className="w-3.5 h-3.5" />
           <span>Plugins</span>
         </button>
-
-        {/* Effects Rack */}
-        {onOpenEffect && (
-          <button
-            onClick={() => onOpenEffect('reverb')}
-            title="Open Audio Effects Rack (Delay, EQ, Chorus, Flanger, Phaser, Reverb)"
-            className={`${PILL_LAYOUT} ${PILL_IDLE}`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Effects Rack</span>
-          </button>
-        )}
-
-        {/* Master Console: collapses the timeline so the console has the whole view */}
-        {onToggleTimelineCollapsed && (
-          <button
-            onClick={onToggleTimelineCollapsed}
-            title={isTimelineCollapsed ? 'Show Timeline (Waveform view)' : 'Collapse Timeline to show only the Master Console'}
-            className={`${PILL_LAYOUT} ${isTimelineCollapsed ? PILL_ON : PILL_IDLE}`}
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            <span>{isTimelineCollapsed ? 'Show Timeline' : 'Master Console'}</span>
-          </button>
-        )}
 
         {/* Master & Export Production Button */}
         <button

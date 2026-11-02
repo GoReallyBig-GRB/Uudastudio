@@ -50,6 +50,8 @@ import { nextPartName } from './components/clipTitle';
 import { copyRange, pasteRange, type RangeClipboard } from './components/rangeClipboard';
 import { copyClipSet, pasteClipSet, type ClipSetClipboard } from './components/clipSetClipboard';
 import { isolateRangeInTracks } from './components/rangeIsolate';
+import { processEffectChunked } from './audio/effects/chunkedEffect';
+import { rippleInsert, joinTouching, shiftLaterClips } from './components/rippleInsert';
 import { breakChainAt, chainHead, chainIds, expandChains, remapSpliceIds, selectionUnitCount, spreadUpdate } from './components/spliceChains';
 import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
@@ -1959,10 +1961,15 @@ const MainStudio: React.FC = () => {
         startSeconds: pasteTime,
       };
 
+      // Paste inserts: the audio under the playhead opens up and everything after it moves later, so nothing plays twice
       setProjectWithHistory((prev) => ({
         ...prev,
-        tracks: prev.tracks.map((t) =>
-          t.id === targetTrack!.id ? { ...t, clips: [...t.clips, newClip] } : t
+        tracks: joinTouching(
+          rippleInsert(prev.tracks, new Set([targetTrack!.id]), pasteTime, newClip.durationSeconds, () => stampId('clip'), () => stampId('sp')).map((t) =>
+            t.id === targetTrack!.id ? { ...t, clips: [...t.clips, newClip] } : t
+          ),
+          new Set([newClipId]),
+          () => stampId('sp'),
         ),
       }));
 
@@ -2397,10 +2404,18 @@ const MainStudio: React.FC = () => {
     peakProvider.clearAsset(dspTargetClip.assetId);
     peakProvider.clearAsset(newAsset.id);
 
-    handleUpdateClip(dspTargetClip.id, {
-      assetId: newAsset.id,
-      offsetSeconds: 0,
-      durationSeconds: stretched.duration,
+    // A range inside a track changes length: what follows moves with it, so the track stays whole
+    const joinedPart = chainIds(project.tracks, dspTargetClip.id).length > 1;
+    const oldEnd = dspTargetClip.startSeconds + dspTargetClip.durationSeconds;
+    const delta = stretched.duration - dspTargetClip.durationSeconds;
+    const targetId = dspTargetClip.id;
+    setProjectWithHistory((prev) => {
+      const owner = prev.tracks.find((t) => t.clips.some((c) => c.id === targetId));
+      const updated = prev.tracks.map((t) => ({
+        ...t,
+        clips: t.clips.map((c) => (c.id === targetId ? { ...c, assetId: newAsset.id, offsetSeconds: 0, durationSeconds: stretched.duration } : c)),
+      }));
+      return { ...prev, tracks: joinedPart && owner ? shiftLaterClips(updated, owner.id, oldEnd, delta, new Set([targetId])) : updated };
     });
 
     addToast({
@@ -2625,6 +2640,20 @@ const MainStudio: React.FC = () => {
     return first.id;
   };
 
+  /** Open the effects rack; an edited track is ONE track there, so its pieces are rendered into one clip first (one undo step) */
+  const handleOpenEffect = (type: EffectType) => {
+    setActiveEffectType(type);
+    const sc = selectedClip;
+    const ids = sc ? chainIds(project.tracks, sc.id) : [];
+    const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => ids.includes(c.id));
+    const inMemory = pieces.every((c) => !!audioEngine.getAsset(c.assetId)?.buffer) && pieces.reduce((n, c) => n + c.durationSeconds, 0) <= WHOLE_BUFFER_MAX_SECONDS;
+    if (sc && ids.length > 1 && inMemory) {
+      void consolidateClip(sc.id).finally(() => setIsEffectsModalOpen(true));
+    } else {
+      setIsEffectsModalOpen(true);
+    }
+  };
+
   /** Processing tools on a range: the range is split out, then the tool opens on its piece. */
   const openDspAny = (type: DspModalType) => {
     if (!rangeSelection) {
@@ -2697,9 +2726,14 @@ const MainStudio: React.FC = () => {
    * Run a tool over the whole target clip (its pieces, if it was edited) block by block and replace it with ONE clip that
    * points at the new stored audio. Memory stays flat for any length. One undo step.
    */
-  const applyChunked = async (tool: ChunkTool, label: string) => {
-    if (!chunkedTarget) throw new Error('No clip to process.');
-    const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => chunkedTarget.clipIds.includes(c.id)).sort((x, y) => x.startSeconds - y.startSeconds);
+  const applyChunked = async (
+    tool: ChunkTool | { kind: 'effect'; effect: TrackEffect },
+    label: string,
+    opts?: { clipIds: string[]; onProgress?: (fraction: number) => void },
+  ) => {
+    const targetIds = opts?.clipIds ?? chunkedTarget?.clipIds;
+    if (!targetIds) throw new Error('No clip to process.');
+    const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => targetIds.includes(c.id)).sort((x, y) => x.startSeconds - y.startSeconds);
     if (pieces.length === 0) throw new Error('The clip is no longer on the timeline.');
     const first = pieces[0];
     const last = pieces[pieces.length - 1];
@@ -2707,14 +2741,13 @@ const MainStudio: React.FC = () => {
     chunkedAbortRef.current = { aborted: false };
     setChunkedProgress({ fraction: 0, label });
     try {
-      const res = await processClipsChunked({
-        clips: pieces,
-        getAsset: (id) => audioEngine.getAsset(id),
-        tool,
-        storeId,
-        onProgress: (fraction) => setChunkedProgress({ fraction, label }),
-        signal: chunkedAbortRef.current,
-      });
+      const onProgress = (fraction: number) => {
+        setChunkedProgress({ fraction, label });
+        opts?.onProgress?.(fraction);
+      };
+      const res = tool.kind === 'effect'
+        ? await processEffectChunked({ clips: pieces, getAsset: (id) => audioEngine.getAsset(id), effect: tool.effect, storeId, onProgress, signal: chunkedAbortRef.current })
+        : await processClipsChunked({ clips: pieces, getAsset: (id) => audioEngine.getAsset(id), tool, storeId, onProgress, signal: chunkedAbortRef.current });
       const newAsset: Asset = {
         id: storeId,
         name: `${first.name} (${label})`,
@@ -2729,7 +2762,14 @@ const MainStudio: React.FC = () => {
       peakProvider.clearAsset(newAsset.id);
       const drop = new Set(pieces.map((c) => c.id));
       drop.delete(first.id);
-      setProjectWithHistory((prev) => ({
+      // Speed on a range inside a track: what follows moves with it, so the track stays whole
+      const rangePiece = tool.kind === 'speed' && pieces.length === 1 && chainIds(project.tracks, first.id).length > 1;
+      const oldEnd = last.startSeconds + last.durationSeconds;
+      const delta = res.durationSeconds - (oldEnd - first.startSeconds);
+      const ownerId = project.tracks.find((t) => t.clips.some((c) => c.id === first.id))?.id;
+      setProjectWithHistory((prev0) => {
+        const prev = rangePiece && ownerId ? { ...prev0, tracks: shiftLaterClips(prev0.tracks, ownerId, oldEnd, delta, new Set([first.id])) } : prev0;
+        return {
         ...prev,
         tracks: prev.tracks.map((t) => ({
           ...t,
@@ -2741,7 +2781,8 @@ const MainStudio: React.FC = () => {
                 : c,
             ),
         })),
-      }));
+        };
+      });
       setSelectedClipIds(new Set([first.id]));
       addToast({ type: 'success', title: `${label} applied`, message: `Processed ${(res.durationSeconds / 60).toFixed(1)} min of audio in blocks. Undo restores the original.` });
     } catch (e) {
@@ -2750,6 +2791,12 @@ const MainStudio: React.FC = () => {
     } finally {
       setChunkedProgress(null);
     }
+  };
+
+  /** An effect on audio kept on disk, or on an edited clip: rendered block by block (with its decay tail) into ONE clip. */
+  const handleApplyEffectChunked = async (targetClipId: string, effect: TrackEffect, onProgress?: (fraction: number) => void) => {
+    const ids = chainIds(project.tracks, targetClipId);
+    await applyChunked({ kind: 'effect', effect }, effect.name, { clipIds: ids, onProgress });
   };
 
   /** Learn the noise print from the highlighted range (its first track). Denoise then removes only that noise from whole clips. */
@@ -2819,6 +2866,11 @@ const MainStudio: React.FC = () => {
     if (handleCopyRange()) handleDeleteRange();
   };
 
+  const stampId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+  /** Ids of the existing tracks a stack of `count` layers lands on, starting at `startIndex` */
+  const trackIdsFrom = (startIndex: number, count: number): Set<string> =>
+    new Set(project.tracks.slice(startIndex, startIndex + count).map((t) => t.id));
+
   /** Lay a copied range back at the playhead, as the same stack of tracks (starting on the selected track). */
   const handlePasteRange = () => {
     if (!rangeClipboard) return;
@@ -2826,15 +2878,16 @@ const MainStudio: React.FC = () => {
     const sourceIndex = project.tracks.findIndex((t) => t.id === rangeClipboard.layers[0]?.sourceTrackId);
     const startIndex = selectedIndex >= 0 ? selectedIndex : sourceIndex >= 0 ? sourceIndex : 0;
     const stamp = () => `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const opened = rippleInsert(project.tracks, trackIdsFrom(startIndex, rangeClipboard.layers.length), playheadSecondsRef.current, rangeClipboard.durationSeconds, () => `clip-${stamp()}`, () => `sp-${stamp()}`);
     const result = pasteRange(
-      project.tracks,
+      opened,
       rangeClipboard,
       playheadSecondsRef.current,
       startIndex,
       () => `clip-${stamp()}`,
       (index) => ({ id: `track-${stamp()}`, name: `Track ${index + 1}`, clips: [], volume: 1.0, pan: 0, muted: false, solo: false }),
     );
-    setProjectWithHistory((prev) => ({ ...prev, tracks: withFreshSplices(result.tracks, result.addedClipIds) }));
+    setProjectWithHistory((prev) => ({ ...prev, tracks: joinTouching(withFreshSplices(result.tracks, result.addedClipIds), new Set(result.addedClipIds), () => stampId('sp')) }));
     setSelectedClipIds(new Set(result.addedClipIds));
     addToast({
       type: 'success',
@@ -2886,8 +2939,9 @@ const MainStudio: React.FC = () => {
     const sourceIndex = project.tracks.findIndex((t) => t.id === clipSetClipboard.layers[0]?.sourceTrackId);
     const startIndex = selectedIndex >= 0 ? selectedIndex : sourceIndex >= 0 ? sourceIndex : 0;
     const stamp = () => `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const opened = rippleInsert(project.tracks, trackIdsFrom(startIndex, clipSetClipboard.layers.length), playheadSecondsRef.current, clipSetClipboard.durationSeconds, () => `clip-${stamp()}`, () => `sp-${stamp()}`);
     const result = pasteClipSet(
-      project.tracks,
+      opened,
       clipSetClipboard,
       playheadSecondsRef.current,
       startIndex,
@@ -2896,7 +2950,7 @@ const MainStudio: React.FC = () => {
       () => `group-${stamp()}`,
     );
     setProjectWithHistory((prev) => {
-      let next: Project = { ...prev, tracks: withFreshSplices(result.tracks, result.addedClipIds) };
+      let next: Project = { ...prev, tracks: joinTouching(withFreshSplices(result.tracks, result.addedClipIds), new Set(result.addedClipIds), () => stampId('sp')) };
       // Each pasted group starts with the level, pan and mute of the group it was copied from, under a fresh colour and name
       for (const [oldId, newId] of Object.entries(result.groupMap)) {
         const src = prev.groupSettings?.[oldId];
@@ -3468,19 +3522,7 @@ const MainStudio: React.FC = () => {
         onToggleMuteClip={() => selectedClip && handleToggleMuteClip(selectedClip.id)}
         onMoveClip={(dir) => selectedClip && handleMoveClipTrack(selectedClip.id, dir)}
         onOpenDsp={(type) => openDspAny(type)}
-        onOpenEffect={(type) => {
-          setActiveEffectType(type);
-          // An edited track is ONE track in the rack: render its pieces into one clip first (one undo step)
-          const sc = selectedClip;
-          if (sc && chainIds(project.tracks, sc.id).length > 1) {
-            void consolidateClip(sc.id).finally(() => setIsEffectsModalOpen(true));
-          } else {
-            setIsEffectsModalOpen(true);
-          }
-        }}
-        onRenameProject={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
-        isTimelineCollapsed={isTimelineViewCollapsed}
-        onToggleTimelineCollapsed={() => setIsTimelineViewCollapsed(!isTimelineViewCollapsed)}
+        onOpenEffect={handleOpenEffect}
         onDeleteSelected={handleDeleteSelected}
         onSelectAll={handleSelectAll}
         onImportFiles={handleImportFiles}
@@ -3521,6 +3563,9 @@ const MainStudio: React.FC = () => {
         onMoveTrack={(id, dir) => handleMoveClipTrack(id, dir)}
         onUpdateClip={handleUpdateClip}
         onOpenDsp={(type) => openDspAny(type)}
+        onOpenEffect={handleOpenEffect}
+        isTimelineCollapsed={isTimelineViewCollapsed}
+        onToggleTimelineCollapsed={() => setIsTimelineViewCollapsed(!isTimelineViewCollapsed)}
         onDeselect={() => setSelectedClipIds(new Set())}
         projectName={project.name}
         onRenameProject={(name) => setProjectWithHistory((p) => ({ ...p, name }))}
@@ -3890,6 +3935,7 @@ const MainStudio: React.FC = () => {
         }}
         onClose={() => setIsEffectsModalOpen(false)}
         onApplyEffect={handleApplyEffect}
+        onApplyEffectChunked={handleApplyEffectChunked}
       />
 
       {/* DSP Processing Modals (Amplify, Compress, Denoise, Pitch, Speed) */}

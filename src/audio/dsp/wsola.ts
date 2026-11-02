@@ -42,91 +42,150 @@ export function resampleChannel(input: Float32Array, ratio: number): Float32Arra
   return output;
 }
 
+/** Frame length, step between frames (the output hop) and how far each frame may slide to find its best match, in samples */
+export interface StretchParams {
+  frame: number;
+  hop: number;
+  search: number;
+}
+
+const at48k = (samples: number, sampleRate: number) => Math.max(1, Math.round((samples * sampleRate) / 48000));
+
+/** Speed changes: about 43 ms frames, which keep speech crisp, with room to slide by about 10 ms to find the matching waveform. */
+export const speedStretchParams = (sampleRate = 48000): StretchParams => {
+  const frame = Math.round(at48k(2048, sampleRate) / 4) * 4;
+  return { frame, hop: frame / 4, search: at48k(480, sampleRate) };
+};
+
 /**
- * Perform WSOLA time stretching on a Float32Array channel
+ * Pitch changes: the stretch runs on audio whose pitch has already moved by `ratio`, so the frame must hold whole periods of
+ * the LOWEST pitch it can meet (a 70 Hz voice, scaled by the ratio): three periods per frame and a slide of one period, never shorter than the
+ * speed-change frame. A frame that holds less than a period or two cannot tell the waveform apart and the result turns rough.
+ */
+export const pitchStretchParams = (ratio: number, sampleRate = 48000): StretchParams => {
+  const period = sampleRate / (70 * Math.max(0.25, Math.min(4, ratio)));
+  const frame = Math.round(Math.max(at48k(2048, sampleRate), 3 * period) / 4) * 4;
+  return { frame, hop: frame / 4, search: Math.max(at48k(480, sampleRate), Math.round(period)) };
+};
+
+/**
+ * Finds how far (in samples, within the search range) the next frame should slide so that its waveform continues the audio
+ * already in the output at `targetPos`. Uses normalised correlation (loud and quiet candidates compete fairly): a coarse pass over the
+ * whole range, then a fine pass around the winner. Reads the source (`inArr`, whose first element is source index `inBase`)
+ * and the output built so far (`outArr`, first element is output index `outBase`) directly, for speed.
+ * Only candidates made entirely of real audio (0 .. total) are considered.
+ */
+export const chooseOffset = (
+  p: StretchParams,
+  inArr: Float32Array,
+  inBase: number,
+  outArr: Float32Array,
+  outBase: number,
+  inPos: number,
+  targetPos: number,
+  total: number,
+): number => {
+  const { frame, hop, search } = p;
+  // The new frame will be laid over the output from `targetPos` on. The part of the output that already holds the tails of
+  // earlier frames is the first (frame - hop) samples, and that is what the new frame has to continue.
+  const span = frame - hop;
+  // Longer frames are compared on fewer points, so the cost per frame stays about the same
+  const sub = Math.max(4, Math.round(frame / 600));
+  const coarse = Math.max(4, Math.round(search / 150));
+  const tBase = targetPos - outBase;
+  let e2 = 0;
+  for (let i = 0; i < span; i += sub) { const b = outArr[tBase + i]; e2 += b * b; }
+  const score = (d: number): number => {
+    const c = inPos + d;
+    if (c < 0 || c + frame > total) return -Infinity;
+    const cBase = c - inBase;
+    let cr = 0;
+    let e1 = 0;
+    for (let i = 0; i < span; i += sub) {
+      const a = inArr[cBase + i];
+      cr += a * outArr[tBase + i];
+      e1 += a * a;
+    }
+    return cr / Math.sqrt(e1 * e2 + 1e-9);
+  };
+  let best = 0;
+  let bestScore = -Infinity;
+  for (let d = -search; d <= search; d += coarse) {
+    const v = score(d);
+    if (v > bestScore) { bestScore = v; best = d; }
+  }
+  const centre = best;
+  for (let d = centre - coarse + 1; d < centre + coarse; d++) {
+    if (d === centre) continue;
+    const v = score(d);
+    if (v > bestScore) { bestScore = v; best = d; }
+  }
+  return bestScore === -Infinity ? 0 : best;
+};
+
+/** How many samples at each end of a stretched piece are blended back to the exact original edge samples. */
+export const edgeGuardLength = (p: StretchParams): number => Math.max(32, p.frame >> 4);
+
+/** Weight of the original edge sample at step i of k (1 at the very edge, falling to 0 at the inside end of the guard). */
+export const edgeGuardWeight = (i: number, k: number): number => {
+  const t = 1 - i / k;
+  return 0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, Math.min(1, t)));
+};
+
+/**
+ * WSOLA time stretch of one channel (speedRatio 2 = twice as fast, half as long). Every frame is made of real audio (nothing
+ * is padded), the output is exactly the right length, and the first and last few milliseconds are blended back to the
+ * original edge samples, so a stretched piece joins the audio on either side without a dip, a gap or a click.
  */
 export function wsolaTimeStretch(
   input: Float32Array,
   speedRatio: number,
-  frameSize: number = 1024,
-  synHop: number = 256
+  params: StretchParams = speedStretchParams(),
 ): Float32Array {
-  if (!input || input.length <= frameSize || !Number.isFinite(speedRatio) || speedRatio <= 0) {
+  const { frame, hop } = params;
+  const outLength = input ? Math.max(1, Math.round(input.length / speedRatio)) : 0;
+  if (!input || input.length <= frame || outLength <= frame || !Number.isFinite(speedRatio) || speedRatio <= 0) {
     return resampleChannel(input || new Float32Array(1024), Math.max(0.1, speedRatio || 1));
   }
-
-  // Safe bounds
-  const anaHop = Math.max(1, Math.round(synHop * speedRatio));
-  const searchRange = Math.max(1, Math.round(synHop / 2));
-  const outLength = Math.max(1, Math.round(input.length / speedRatio));
-  const output = new Float32Array(outLength + frameSize);
-  const weight = new Float32Array(outLength + frameSize);
-
-  // Precompute Hanning window
-  const window = new Float32Array(frameSize);
-  for (let i = 0; i < frameSize; i++) {
-    window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (frameSize - 1)));
-  }
+  const total = input.length;
+  const anaHop = Math.max(1, Math.round(hop * speedRatio));
+  const output = new Float32Array(outLength + frame);
+  const weight = new Float32Array(outLength + frame);
+  const window = new Float32Array(frame);
+  for (let i = 0; i < frame; i++) window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (frame - 1)));
 
   let outPos = 0;
   let inPos = 0;
-
-  while (outPos < outLength && inPos + frameSize < input.length) {
-    let bestOffset = 0;
-
-    // Search for best correlation around nominal inPos
-    if (outPos > 0) {
-      let maxCorr = -Infinity;
-      const targetPos = Math.max(0, outPos - synHop);
-
-      for (let delta = -searchRange; delta <= searchRange; delta += 2) {
-        const candidateIn = inPos + delta;
-        if (candidateIn < 0 || candidateIn + frameSize >= input.length) continue;
-
-        let corr = 0;
-        // Sub-sampled correlation for high performance
-        for (let i = 0; i < frameSize; i += 4) {
-          const s1 = input[candidateIn + i];
-          const s2 = output[targetPos + i];
-          if (Number.isFinite(s1) && Number.isFinite(s2)) {
-            corr += s1 * s2;
-          }
-        }
-
-        if (corr > maxCorr) {
-          maxCorr = corr;
-          bestOffset = delta;
-        }
-      }
+  while (outPos < outLength) {
+    // Near the end the nominal position is held at the last full frame, and the search still runs around it, so the final
+    // frames stay lined up with the output instead of landing out of phase
+    const nominal = Math.max(0, Math.min(inPos, total - frame));
+    const offset = outPos > 0 ? chooseOffset(params, input, 0, output, 0, nominal, outPos, total) : 0;
+    const actualIn = Math.max(0, Math.min(total - frame, nominal + offset));
+    for (let i = 0; i < frame; i++) {
+      output[outPos + i] += input[actualIn + i] * window[i];
+      weight[outPos + i] += window[i];
     }
-
-    const actualIn = Math.max(0, Math.min(input.length - frameSize, inPos + bestOffset));
-
-    // Overlap-add windowed frame
-    for (let i = 0; i < frameSize; i++) {
-      const idx = outPos + i;
-      if (idx < output.length) {
-        const sampleVal = input[actualIn + i] * window[i];
-        if (Number.isFinite(sampleVal)) {
-          output[idx] += sampleVal;
-          weight[idx] += window[i];
-        }
-      }
-    }
-
-    outPos += synHop;
+    outPos += hop;
     inPos += anaHop;
   }
 
-  // Normalize by accumulated window weights to prevent amplitude ripple
-  const finalResult = new Float32Array(outLength);
+  // Divide by the accumulated window weights so the level stays even
+  const result = new Float32Array(outLength);
   for (let i = 0; i < outLength; i++) {
     const w = weight[i];
-    const val = w > 0.001 ? output[i] / w : output[i];
-    finalResult[i] = Number.isFinite(val) ? val : 0;
+    const v = w > 1e-6 ? output[i] / w : input[Math.min(total - 1, Math.round(i * speedRatio))];
+    result[i] = Number.isFinite(v) ? v : 0;
   }
-
-  return finalResult;
+  // Edge guard: the very first and last samples are the original ones
+  const k = Math.min(edgeGuardLength(params), outLength >> 1);
+  for (let i = 0; i < k; i++) {
+    const wHead = edgeGuardWeight(i, k);
+    result[i] = result[i] * (1 - wHead) + input[i] * wHead;
+    const wTail = edgeGuardWeight(i, k);
+    result[outLength - 1 - i] = result[outLength - 1 - i] * (1 - wTail) + input[total - 1 - i] * wTail;
+  }
+  return result;
 }
 
 /**
@@ -147,7 +206,7 @@ export async function processTimeStretch(
   const stretchedChannels: Float32Array[] = [];
   for (let ch = 0; ch < numChannels; ch++) {
     const channelData = inputBuffer.getChannelData(ch);
-    stretchedChannels.push(wsolaTimeStretch(channelData, safeRatio));
+    stretchedChannels.push(wsolaTimeStretch(channelData, safeRatio, speedStretchParams(sampleRate)));
   }
 
   const outLength = Math.max(128, stretchedChannels[0].length);
@@ -192,7 +251,7 @@ export async function processPitchShift(
 
     // 2. Time stretch to restore exact target length
     const timeStretchSpeed = 1 / pitchRatio;
-    const stretched = wsolaTimeStretch(resampled, timeStretchSpeed);
+    const stretched = wsolaTimeStretch(resampled, timeStretchSpeed, pitchStretchParams(pitchRatio, sampleRate));
 
     // Trim or pad to exact original sample count
     const finalChannel = new Float32Array(targetLength);

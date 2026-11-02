@@ -7,6 +7,7 @@ import { perChannel } from '../chunkedProcess';
 import { CompressorStage } from './compressorStream';
 import { makeDenoiseStage } from './denoiseStream';
 import { PitchShiftStage, WsolaStretcher } from './wsolaStream';
+import { speedStretchParams } from './wsola';
 
 export type StageTool =
   | { kind: 'compress'; params: CompressorParams }
@@ -31,7 +32,7 @@ export const buildStage = ({ tool, channels, totalFrames, sampleRate }: StageSpe
   const each = <T>(make: () => T): T[] => Array.from({ length: channels }, make);
   if (tool.kind === 'compress') return new CompressorStage(sampleRate, tool.params);
   if (tool.kind === 'denoise') return perChannel(each(() => makeDenoiseStage(totalFrames, sampleRate, tool.params)));
-  if (tool.kind === 'pitch') return perChannel(each(() => new PitchShiftStage(totalFrames, tool.semitones)));
+  if (tool.kind === 'pitch') return perChannel(each(() => new PitchShiftStage(totalFrames, tool.semitones, sampleRate)));
   const speed = Math.max(0.2, Math.min(5, Number.isFinite(tool.ratio) ? tool.ratio : 1));
-  return perChannel(each(() => new WsolaStretcher(totalFrames, speed)));
+  return perChannel(each(() => new WsolaStretcher(totalFrames, speed, speedStretchParams(sampleRate))));
 };
