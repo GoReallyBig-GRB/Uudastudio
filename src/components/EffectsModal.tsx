@@ -58,6 +58,8 @@ interface EffectsModalProps {
     renderedBuffer: AudioBuffer,
     newDuration: number
   ) => Promise<void>;
+  /** Long audio kept on disk, or an edited clip: rendered block by block into one clip */
+  onApplyEffectChunked?: (targetClipId: string, effect: TrackEffect, onProgress?: (fraction: number) => void) => Promise<void>;
 }
 
 // Effect default presets
@@ -195,15 +197,17 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   onSelectClip,
   onClose,
   onApplyEffect,
+  onApplyEffectChunked,
 }) => {
   const [activeType, setActiveType] = useState<EffectType>(initialEffectType);
   const [isBypassed, setIsBypassed] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [progress, setProgress] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // List all available clips in project
   const allClips = useMemo(() => {
-    const list: { trackId: string; trackName: string; clip: Clip; asset: Asset | null }[] = [];
+    const list: { trackId: string; trackName: string; clip: Clip; asset: Asset | null; pieces: number }[] = [];
     for (const [trackIndex, track] of project.tracks.entries()) {
       // An edited track (spliced pieces) is listed once, as one clip of its full length
       const chainOf = new Map<string, Clip[]>();
@@ -211,14 +215,16 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
       for (const c of track.clips) {
         const chain = chainOf.get(c.id);
         let whole = c;
+        let pieces = 1;
         if (chain) {
+          pieces = chain.length;
           const sorted = [...chain].sort((x, y) => x.startSeconds - y.startSeconds);
           if (sorted[0].id !== c.id) continue;
           const tail = sorted[sorted.length - 1];
           whole = { ...c, durationSeconds: tail.startSeconds + tail.durationSeconds - c.startSeconds };
         }
         const ast = audioEngine.getAsset(c.assetId) || null;
-        list.push({ trackId: track.id, trackName: getTrackLabel(track, trackIndex), clip: whole, asset: ast });
+        list.push({ trackId: track.id, trackName: getTrackLabel(track, trackIndex), clip: whole, asset: ast, pieces });
       }
     }
     return list;
@@ -404,7 +410,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   };
 
   const handleApply = async () => {
-    if (!currentClip || !currentAsset?.buffer) {
+    if (!currentClip || !currentAsset || (!currentAsset.buffer && !currentAsset.source)) {
       setErrorMessage('Please add or record an audio clip to the timeline before applying this effect.');
       return;
     }
@@ -415,6 +421,14 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
 
     try {
       const eff = getCurrentEffect();
+      const edited = (currentItem?.pieces ?? 1) > 1;
+      if (!currentAsset.buffer || edited) {
+        if (!onApplyEffectChunked) throw new Error('This audio is too long to render whole.');
+        setProgress(0);
+        await onApplyEffectChunked(currentClip.id, eff, setProgress);
+        onClose();
+        return;
+      }
       const rendered = await renderBufferWithEffect(currentAsset.buffer, eff);
       const newDuration = rendered.duration;
 
@@ -424,6 +438,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
       setErrorMessage(`Failed to apply effect: ${err?.message || err}`);
     } finally {
       setIsProcessing(false);
+      setProgress(null);
     }
   };
 
@@ -1025,7 +1040,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xs shadow-[0_0_12px_rgba(0,240,255,0.3)] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isProcessing ? (
-              <span>Rendering effect tail...</span>
+              <span>{progress !== null ? `Rendering ${Math.round(progress * 100)}%` : 'Rendering effect tail...'}</span>
             ) : (
               <>
                 <Check className="w-3.5 h-3.5 stroke-[2.5]" />

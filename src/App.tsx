@@ -50,6 +50,7 @@ import { nextPartName } from './components/clipTitle';
 import { copyRange, pasteRange, type RangeClipboard } from './components/rangeClipboard';
 import { copyClipSet, pasteClipSet, type ClipSetClipboard } from './components/clipSetClipboard';
 import { isolateRangeInTracks } from './components/rangeIsolate';
+import { processEffectChunked } from './audio/effects/chunkedEffect';
 import { rippleInsert, joinTouching } from './components/rippleInsert';
 import { breakChainAt, chainHead, chainIds, expandChains, remapSpliceIds, selectionUnitCount, spreadUpdate } from './components/spliceChains';
 import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
@@ -2635,7 +2636,10 @@ const MainStudio: React.FC = () => {
   const handleOpenEffect = (type: EffectType) => {
     setActiveEffectType(type);
     const sc = selectedClip;
-    if (sc && chainIds(project.tracks, sc.id).length > 1) {
+    const ids = sc ? chainIds(project.tracks, sc.id) : [];
+    const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => ids.includes(c.id));
+    const inMemory = pieces.every((c) => !!audioEngine.getAsset(c.assetId)?.buffer) && pieces.reduce((n, c) => n + c.durationSeconds, 0) <= WHOLE_BUFFER_MAX_SECONDS;
+    if (sc && ids.length > 1 && inMemory) {
       void consolidateClip(sc.id).finally(() => setIsEffectsModalOpen(true));
     } else {
       setIsEffectsModalOpen(true);
@@ -2714,9 +2718,14 @@ const MainStudio: React.FC = () => {
    * Run a tool over the whole target clip (its pieces, if it was edited) block by block and replace it with ONE clip that
    * points at the new stored audio. Memory stays flat for any length. One undo step.
    */
-  const applyChunked = async (tool: ChunkTool, label: string) => {
-    if (!chunkedTarget) throw new Error('No clip to process.');
-    const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => chunkedTarget.clipIds.includes(c.id)).sort((x, y) => x.startSeconds - y.startSeconds);
+  const applyChunked = async (
+    tool: ChunkTool | { kind: 'effect'; effect: TrackEffect },
+    label: string,
+    opts?: { clipIds: string[]; onProgress?: (fraction: number) => void },
+  ) => {
+    const targetIds = opts?.clipIds ?? chunkedTarget?.clipIds;
+    if (!targetIds) throw new Error('No clip to process.');
+    const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => targetIds.includes(c.id)).sort((x, y) => x.startSeconds - y.startSeconds);
     if (pieces.length === 0) throw new Error('The clip is no longer on the timeline.');
     const first = pieces[0];
     const last = pieces[pieces.length - 1];
@@ -2724,14 +2733,13 @@ const MainStudio: React.FC = () => {
     chunkedAbortRef.current = { aborted: false };
     setChunkedProgress({ fraction: 0, label });
     try {
-      const res = await processClipsChunked({
-        clips: pieces,
-        getAsset: (id) => audioEngine.getAsset(id),
-        tool,
-        storeId,
-        onProgress: (fraction) => setChunkedProgress({ fraction, label }),
-        signal: chunkedAbortRef.current,
-      });
+      const onProgress = (fraction: number) => {
+        setChunkedProgress({ fraction, label });
+        opts?.onProgress?.(fraction);
+      };
+      const res = tool.kind === 'effect'
+        ? await processEffectChunked({ clips: pieces, getAsset: (id) => audioEngine.getAsset(id), effect: tool.effect, storeId, onProgress, signal: chunkedAbortRef.current })
+        : await processClipsChunked({ clips: pieces, getAsset: (id) => audioEngine.getAsset(id), tool, storeId, onProgress, signal: chunkedAbortRef.current });
       const newAsset: Asset = {
         id: storeId,
         name: `${first.name} (${label})`,
@@ -2767,6 +2775,12 @@ const MainStudio: React.FC = () => {
     } finally {
       setChunkedProgress(null);
     }
+  };
+
+  /** An effect on audio kept on disk, or on an edited clip: rendered block by block (with its decay tail) into ONE clip. */
+  const handleApplyEffectChunked = async (targetClipId: string, effect: TrackEffect, onProgress?: (fraction: number) => void) => {
+    const ids = chainIds(project.tracks, targetClipId);
+    await applyChunked({ kind: 'effect', effect }, effect.name, { clipIds: ids, onProgress });
   };
 
   /** Learn the noise print from the highlighted range (its first track). Denoise then removes only that noise from whole clips. */
@@ -3905,6 +3919,7 @@ const MainStudio: React.FC = () => {
         }}
         onClose={() => setIsEffectsModalOpen(false)}
         onApplyEffect={handleApplyEffect}
+        onApplyEffectChunked={handleApplyEffectChunked}
       />
 
       {/* DSP Processing Modals (Amplify, Compress, Denoise, Pitch, Speed) */}
