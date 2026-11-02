@@ -3,6 +3,7 @@
  * Top time ruler header (340px) + time marker lane with interactive playhead scrubbing.
  */
 
+import { usePlayhead } from '../playback/playheadStore';
 import React, { useRef, useEffect } from 'react';
 import { perfCount } from '../perf/perfProbe';
 import { Clock, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -12,7 +13,6 @@ import { getRulerTickConfig } from './timelineRulerScale';
 interface TimelineRulerProps {
   pixelsPerSecond: number;
   totalDurationSeconds: number;
-  playheadSeconds: number;
   scrollLeft: number;
   onSeek: (seconds: number) => void;
   timelineWidth: number;
@@ -20,10 +20,11 @@ interface TimelineRulerProps {
   onToggleCollapseControls?: () => void;
 }
 
+const PlayheadTime: React.FC = () => <>{formatTimecode(usePlayhead())}</>;
+
 export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   pixelsPerSecond,
   totalDurationSeconds,
-  playheadSeconds,
   scrollLeft,
   onSeek,
   timelineWidth,
@@ -158,7 +159,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-num text-accent font-bold bg-surface-1 px-2 py-0.5 rounded-full border border-line">
-              {formatTimecode(playheadSeconds)}
+              <PlayheadTime />
             </span>
             <button
               type="button"

@@ -96,7 +96,6 @@ const PILL_ON = 'border-accent/40 bg-accent-soft text-accent';
 interface HeaderProps {
   project: Project;
   isPlaying: boolean;
-  playheadSeconds?: number;
   pixelsPerSecond?: number;
   canUndo: boolean;
   canRedo: boolean;
@@ -156,7 +155,6 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   project,
   isPlaying,
-  playheadSeconds,
   pixelsPerSecond,
   canUndo,
   canRedo,

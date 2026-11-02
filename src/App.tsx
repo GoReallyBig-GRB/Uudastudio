@@ -68,6 +68,7 @@ import { processCompression } from './audio/dsp/compressor';
 import { processBasicDenoise } from './audio/dsp/denoiser';
 import { processPitchShift, processTimeStretch } from './audio/dsp/wsola';
 import { peakProvider } from './waveform/peakProvider';
+import { setPlayhead } from './playback/playheadStore';
 import { PEAK_BASE_SAMPLES_PER_PIXEL } from './waveform/peakMath';
 import { ChunkedCancelled, createVirtualSource, processedUndoLimit } from './audio/chunkedProcess';
 import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJob';
@@ -177,7 +178,6 @@ const MainStudio: React.FC = () => {
   const trackImportProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const importCancelledRef = useRef<boolean>(false);
   const streamImportCancelRef = useRef<(() => void) | null>(null);
-  const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
   // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
   // cadence; committing every tick rerenders the entire studio tree and its expensive timeline.
   const playheadSecondsRef = useRef<number>(0);
@@ -878,11 +878,11 @@ const MainStudio: React.FC = () => {
       playheadSecondsRef.current = time;
       const now = performance.now();
       const playbackIsActive = audioEngine.getIsPlaying();
-      // While playing, refresh React-owned labels at most 10 times per second. Seek, stop,
+      // While playing, refresh the playhead (which only the playhead line, the time readouts and the follow-scroll listen to) at most 30 times per second. Seek, stop,
       // and playback-end notifications still update immediately for exact user-visible state.
-      if (!playbackIsActive || now - lastPlayheadRenderAtRef.current >= 100) {
+      if (!playbackIsActive || now - lastPlayheadRenderAtRef.current >= 33) {
         lastPlayheadRenderAtRef.current = now;
-        setPlayheadSeconds(time);
+        setPlayhead(time);
       }
     });
     audioEngine.setOnPlaybackEnded(() => {
@@ -893,7 +893,7 @@ const MainStudio: React.FC = () => {
         rangePlayStartRef.current = null;
         audioEngine.seek(back);
         playheadSecondsRef.current = back;
-        setPlayheadSeconds(back);
+        setPlayhead(back);
       }
     });
   }, []);
@@ -919,7 +919,7 @@ const MainStudio: React.FC = () => {
         }
         rangePlayStartRef.current = sel.startSeconds;
         playheadSecondsRef.current = sel.startSeconds;
-        setPlayheadSeconds(sel.startSeconds);
+        setPlayhead(sel.startSeconds);
         await audioEngine.play(project, sel.startSeconds, sel.endSeconds);
         setIsPlaying(true);
         return;
@@ -940,7 +940,7 @@ const MainStudio: React.FC = () => {
     audioEngine.pause();
     const stoppedAt = audioEngine.getCurrentTime();
     playheadSecondsRef.current = stoppedAt;
-    setPlayheadSeconds(stoppedAt);
+    setPlayhead(stoppedAt);
     setIsPlaying(false);
   };
 
@@ -948,7 +948,7 @@ const MainStudio: React.FC = () => {
     audioEngine.stop();
     setIsPlaying(false);
     playheadSecondsRef.current = 0;
-    setPlayheadSeconds(0);
+    setPlayhead(0);
   };
 
   /** End of the last clip on any track */
@@ -968,7 +968,7 @@ const MainStudio: React.FC = () => {
     }
     audioEngine.seek(end);
     playheadSecondsRef.current = end;
-    setPlayheadSeconds(end);
+    setPlayhead(end);
   };
 
   const handleReturnToStart = useCallback(() => {
@@ -978,7 +978,7 @@ const MainStudio: React.FC = () => {
     }
     audioEngine.seek(0);
     playheadSecondsRef.current = 0;
-    setPlayheadSeconds(0);
+    setPlayhead(0);
     addToast({
       type: 'info',
       title: 'Rewound to Head',
@@ -994,7 +994,7 @@ const MainStudio: React.FC = () => {
     }
     audioEngine.seek(0);
     playheadSecondsRef.current = 0;
-    setPlayheadSeconds(0);
+    setPlayhead(0);
     pluginManager.clearAll();
     const blankProject: Project = {
       id: `project-${Date.now()}`,
@@ -1122,7 +1122,7 @@ const MainStudio: React.FC = () => {
         setIsPlaying(false);
       }
       audioEngine.seek(0);
-      setPlayheadSeconds(0);
+      setPlayhead(0);
       const next = projectFromTemplate(template);
       pluginManager.clearAll();
       setProjectWithHistory(next);
@@ -1251,7 +1251,7 @@ const MainStudio: React.FC = () => {
       }
       audioEngine.seek(0);
       playheadSecondsRef.current = 0;
-      setPlayheadSeconds(0);
+      setPlayhead(0);
 
       const loadedProject: Project = {
         ...parsed,
@@ -1406,7 +1406,7 @@ const MainStudio: React.FC = () => {
       }
     }
     const clamped = projectEnd > 0 ? Math.min(Math.max(0, seconds), projectEnd) : Math.max(0, seconds);
-    setPlayheadSeconds(clamped);
+    setPlayhead(clamped);
     audioEngine.seek(clamped, isPlaying ? project : undefined);
   };
 
@@ -3215,7 +3215,7 @@ const MainStudio: React.FC = () => {
     }
     audioEngine.seek(0);
     playheadSecondsRef.current = 0;
-    setPlayheadSeconds(0);
+    setPlayhead(0);
     await clearCurrentProjectData().catch(() => {});
     pluginManager.clearAll();
     const freshProject: Project = {
@@ -3447,7 +3447,6 @@ const MainStudio: React.FC = () => {
     isPlaying,
     selectedClipIds,
     project,
-    playheadSeconds,
     canUndo,
     canRedo,
     clipboardClip,
@@ -3780,7 +3779,6 @@ const MainStudio: React.FC = () => {
           ) : (
             <Timeline
               project={project}
-              playheadSeconds={playheadSeconds}
               pixelsPerSecond={pixelsPerSecond}
               onViewportWidthChange={setTimelineViewportWidth}
               selectedTrackId={selectedTrackId}
@@ -3897,7 +3895,6 @@ const MainStudio: React.FC = () => {
         trackCount={project.tracks.length}
         clipCount={totalClips}
         selectedClipCount={selectedUnitCount}
-        playheadSeconds={playheadSeconds}
         totalDurationSeconds={totalDurationSeconds}
         isPlaying={isPlaying}
         pixelsPerSecond={pixelsPerSecond}

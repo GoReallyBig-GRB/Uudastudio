@@ -9,6 +9,7 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
+import { getPlayhead, subscribePlayhead, usePlayhead } from '../playback/playheadStore';
 import { colorFromHex, groupColor, summarizeGroups, withAlpha } from '../audio/groupInfo';
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { CanvasWindow, canvasWindowFor, needsRecentre } from './canvasWindow';
@@ -32,7 +33,6 @@ import { chainIds, seamFlags, selectionUnitCount } from './spliceChains';
 
 interface TimelineProps {
   project: Project;
-  playheadSeconds: number;
   pixelsPerSecond: number;
   onViewportWidthChange?: (width: number) => void;
   selectedTrackId: string | null;
@@ -165,9 +165,54 @@ const CLIP_SHADES = [
 const FULL_HEADER_WIDTH = 272;
 const COLLAPSED_HEADER_WIDTH = 32;
 
+/** The playhead (head on the ruler and the line down through the tracks). The only part of the timeline that re-renders while playing. */
+const PlayheadOverlay: React.FC<{
+  headerWidth: number;
+  pixelsPerSecond: number;
+  scrollLeft: number;
+  timelineWidth: number;
+  onPointerDown: (e: React.PointerEvent) => void;
+}> = ({ headerWidth, pixelsPerSecond, scrollLeft, timelineWidth, onPointerDown }) => {
+  const playheadSeconds = usePlayhead();
+  const playheadX = headerWidth + playheadSeconds * pixelsPerSecond - scrollLeft;
+  if (playheadX < headerWidth - 8 || playheadX > headerWidth + timelineWidth + 8) return null;
+  return (
+      <div
+        aria-label={`Playhead: ${formatTimecode(playheadSeconds)}`}
+        style={{
+          left: `${playheadX}px`,
+        }}
+        className="absolute top-0 bottom-0 z-30 pointer-events-none select-none"
+      >
+        {/* Playhead Head directly on the Time Ruler (28px height) */}
+        <div
+          className="absolute top-0 -translate-x-1/2 pointer-events-auto cursor-ew-resize flex flex-col items-center group"
+          onPointerDown={onPointerDown}
+          title={`Playhead: ${formatTimecode(playheadSeconds)} (Drag to scrub)`}
+        >
+          <svg
+            width="16"
+            height="22"
+            viewBox="0 0 16 22"
+            fill="none"
+            className="filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] drop-shadow-[0_0_6px_rgba(0,240,255,0.7)] text-cyan-400 group-hover:text-cyan-300 transition-colors"
+          >
+            <path
+              d="M1 0H15C15.5523 0 16 0.447715 16 1V13.5C16 13.8441 15.8236 14.1634 15.5348 14.3503L8.53484 18.8796C8.20935 19.09 7.79065 19.09 7.46516 18.8796L0.465164 14.3503C0.176412 14.1634 0 13.8441 0 13.5V1C0 0.447715 0.447715 0 1 0Z"
+              fill="#00F0FF"
+            />
+            <line x1="8" y1="3" x2="8" y2="12" stroke="#0A0A0E" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </div>
+
+        {/* Playhead Body Line seamlessly connecting from the tip of the head down through all track rows */}
+        <div className="absolute top-[18px] bottom-0 -translate-x-[0.75px] w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF]" />
+      </div>
+  );
+};
+
 export const Timeline: React.FC<TimelineProps> = ({
   project,
-  playheadSeconds,
   pixelsPerSecond,
   onViewportWidthChange,
   selectedTrackId,
@@ -347,7 +392,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       previousZoom,
       nextZoom: pixelsPerSecond,
       maxScrollLeft: viewport.scrollWidth - viewport.clientWidth,
-      playheadSeconds,
+      playheadSeconds: getPlayhead(),
     });
     // A smooth auto-center scroll that was under way belongs to the old zoom; drop it
     autoCenterPendingRef.current = false;
@@ -355,7 +400,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     lastScrollLeftRef.current = nextScrollLeft;
     viewport.scrollLeft = nextScrollLeft;
     setScrollLeft(nextScrollLeft);
-  }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth, playheadSeconds]);
+  }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth]);
 
   // ResizeObserver for canvas width
   useEffect(() => {
@@ -420,6 +465,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   // The audio playhead keeps advancing; only the viewport scrolls around it.
   const autoCenterZoomRef = useRef<number>(pixelsPerSecond);
   useEffect(() => {
+    // Runs on every playhead change without re-rendering the timeline: the playhead lives outside React state
+    const step = () => {
     const viewport = laneScrollContainerRef.current;
     if (!viewport) return;
     const zoomJustChanged = autoCenterZoomRef.current !== pixelsPerSecond;
@@ -430,7 +477,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       return;
     }
 
-    const playheadX = currentHeaderWidth + playheadSeconds * pixelsPerSecond;
+    const playheadX = currentHeaderWidth + getPlayhead() * pixelsPerSecond;
     const playheadViewportX = playheadX - viewport.scrollLeft;
     const edgeMargin = 72;
 
@@ -457,7 +504,10 @@ export const Timeline: React.FC<TimelineProps> = ({
         viewport.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
       }
     }
-  }, [playheadSeconds, pixelsPerSecond, currentHeaderWidth, scrollLeft]);
+    };
+    step();
+    return subscribePlayhead(step);
+  }, [pixelsPerSecond, currentHeaderWidth, scrollLeft]);
 
   // Keyboard navigation & Shortcuts (S=split, Ctrl+C=copy, etc.)
   useEffect(() => {
@@ -1422,7 +1472,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     e.preventDefault();
     e.stopPropagation();
     const startClientX = e.clientX;
-    const startPlayhead = playheadSeconds;
+    const startPlayhead = getPlayhead();
 
     const onPointerMove = (moveEv: PointerEvent) => {
       const deltaPx = moveEv.clientX - startClientX;
@@ -1463,7 +1513,6 @@ export const Timeline: React.FC<TimelineProps> = ({
       <TimelineRuler
         pixelsPerSecond={pixelsPerSecond}
         totalDurationSeconds={totalDurationSeconds}
-        playheadSeconds={playheadSeconds}
         scrollLeft={scrollLeft}
         onSeek={onSeek}
         timelineWidth={timelineWidth}
@@ -1472,45 +1521,13 @@ export const Timeline: React.FC<TimelineProps> = ({
       />
 
       {/* Unified Playhead: Head on the time ruler + Body Line across all tracks (always perfectly synchronized) */}
-      {(() => {
-        const playheadX = currentHeaderWidth + playheadSeconds * pixelsPerSecond - scrollLeft;
-        if (playheadX < currentHeaderWidth - 8 || playheadX > currentHeaderWidth + timelineWidth + 8) {
-          return null;
-        }
-        return (
-          <div
-            aria-label={`Playhead: ${formatTimecode(playheadSeconds)}`}
-            style={{
-              left: `${playheadX}px`,
-            }}
-            className="absolute top-0 bottom-0 z-30 pointer-events-none select-none"
-          >
-            {/* Playhead Head directly on the Time Ruler (28px height) */}
-            <div
-              className="absolute top-0 -translate-x-1/2 pointer-events-auto cursor-ew-resize flex flex-col items-center group"
-              onPointerDown={handlePlayheadPointerDown}
-              title={`Playhead: ${formatTimecode(playheadSeconds)} (Drag to scrub)`}
-            >
-              <svg
-                width="16"
-                height="22"
-                viewBox="0 0 16 22"
-                fill="none"
-                className="filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] drop-shadow-[0_0_6px_rgba(0,240,255,0.7)] text-cyan-400 group-hover:text-cyan-300 transition-colors"
-              >
-                <path
-                  d="M1 0H15C15.5523 0 16 0.447715 16 1V13.5C16 13.8441 15.8236 14.1634 15.5348 14.3503L8.53484 18.8796C8.20935 19.09 7.79065 19.09 7.46516 18.8796L0.465164 14.3503C0.176412 14.1634 0 13.8441 0 13.5V1C0 0.447715 0.447715 0 1 0Z"
-                  fill="#00F0FF"
-                />
-                <line x1="8" y1="3" x2="8" y2="12" stroke="#0A0A0E" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </div>
-
-            {/* Playhead Body Line seamlessly connecting from the tip of the head down through all track rows */}
-            <div className="absolute top-[18px] bottom-0 -translate-x-[0.75px] w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF]" />
-          </div>
-        );
-      })()}
+      <PlayheadOverlay
+        headerWidth={currentHeaderWidth}
+        pixelsPerSecond={pixelsPerSecond}
+        scrollLeft={scrollLeft}
+        timelineWidth={timelineWidth}
+        onPointerDown={handlePlayheadPointerDown}
+      />
 
       {/* Main Track Rows Scroll Container */}
       <div
