@@ -25,6 +25,11 @@ export class HistoryManager {
   private maxDepth: number = 60;
 
   private policy: HistoryAssetPolicy | null = null;
+  /**
+   * When the history is shortened, the state it began with (the original audio) is kept apart, so the last Undo can always
+   * return to it. It never refers to a processed copy, so keeping it costs no disk.
+   */
+  private anchor: Project | null = null;
   /** Processed copies seen so far that have not been reported as unreferenced */
   private tracked = new Set<string>();
 
@@ -50,11 +55,16 @@ export class HistoryManager {
     const limit = longest > 0 ? policy.limitFor(longest) : null;
     const drop = pastStatesToDrop(this.past, this.present, limit, isProcessed);
     if (drop > 0) {
+      const oldest = this.past[0];
+      if (!this.anchor && oldest) {
+        const usable = ![...assetIdsOf(oldest)].some(isProcessed);
+        if (usable) this.anchor = oldest;
+      }
       this.past = this.past.slice(drop);
       if (limit !== null) policy.onLimited?.(limit);
     }
     const alive = new Set<string>();
-    for (const p of [...this.past, this.present, ...this.future]) for (const id of assetIdsOf(p)) alive.add(id);
+    for (const p of [...this.past, this.present, ...this.future, ...(this.anchor ? [this.anchor] : [])]) for (const id of assetIdsOf(p)) alive.add(id);
     const gone = [...this.tracked].filter((id) => !alive.has(id));
     if (gone.length > 0) {
       for (const id of gone) this.tracked.delete(id);
@@ -74,6 +84,7 @@ export class HistoryManager {
     this.past = [];
     this.present = JSON.parse(JSON.stringify(project));
     this.future = [];
+    this.anchor = null;
     // A new or loaded project: copies of the previous one are not ours to delete (they belong to its saved state)
     this.tracked.clear();
     this.enforce(false);
@@ -95,7 +106,15 @@ export class HistoryManager {
   }
 
   public undo(): Project | null {
-    if (this.past.length === 0) return null;
+    if (this.past.length === 0) {
+      // Out of steps: the last Undo returns to the state the history began with, if one was kept
+      if (this.anchor && this.present !== this.anchor) {
+        this.future.unshift(this.present);
+        this.present = this.anchor;
+        return this.present;
+      }
+      return null;
+    }
     const previous = this.past.pop()!;
     this.future.unshift(this.present);
     this.present = previous;
@@ -111,7 +130,17 @@ export class HistoryManager {
   }
 
   public canUndo(): boolean {
-    return this.past.length > 0;
+    return this.past.length > 0 || (!!this.anchor && this.present !== this.anchor);
+  }
+
+  /** True when the project now shown is the original the history began with, reached because the steps ran out */
+  public isAtOriginalAnchor(): boolean {
+    return !!this.anchor && this.present === this.anchor;
+  }
+
+  /** True when the next Undo skips the shortened steps and returns to the original */
+  public nextUndoIsOriginal(): boolean {
+    return this.past.length === 0 && !!this.anchor && this.present !== this.anchor;
   }
 
   public canRedo(): boolean {

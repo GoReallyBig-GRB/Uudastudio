@@ -3152,6 +3152,7 @@ const MainStudio: React.FC = () => {
   // 8. Undo / Redo
   const handleUndo = async () => {
     await flushPluginEdits();
+    const toOriginal = historyManagerRef.current.nextUndoIsOriginal();
     const previous = historyManagerRef.current.undo();
     if (previous) {
       const restored = { ...previous, mastering: projectRef.current.mastering };
@@ -3159,7 +3160,11 @@ const MainStudio: React.FC = () => {
       projectRef.current = restored;
       void syncPluginsToSnapshot(previous);
       updateHistoryFlags();
-      addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
+      if (toOriginal) {
+        addToast({ type: 'warning', title: 'Back to the original', message: 'Undo ran out of steps for this long audio, so this went back to the project as it was when history began, with the original audio. Edits since then are undone with it. Redo brings them back.' });
+      } else {
+        addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
+      }
     }
   };
 
