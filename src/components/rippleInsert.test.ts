@@ -13,7 +13,7 @@ describe('rippleInsert', () => {
   it('splits the clip under the playhead and moves the right half and later clips', () => {
     const t = [track('t1', [clip('a', 0, 10, { offsetSeconds: 2 }), clip('b', 12, 3)])];
     let n = 0;
-    const out = rippleInsert(t, new Set(['t1']), 4, 5, () => `new${n++}`)[0].clips;
+    const out = rippleInsert(t, new Set(['t1']), 4, 5, () => `new${n++}`, () => 'tag')[0].clips;
     expect(out).toHaveLength(3);
     expect(out[0]).toMatchObject({ id: 'a', startSeconds: 0, durationSeconds: 4, fadeOutSeconds: 0 });
     expect(out[1]).toMatchObject({ id: 'new0', startSeconds: 9, offsetSeconds: 6, durationSeconds: 6, fadeInSeconds: 0 });
