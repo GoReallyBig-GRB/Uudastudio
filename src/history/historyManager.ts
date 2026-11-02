@@ -4,6 +4,19 @@
  */
 
 import { Project } from '../types';
+import { assetIdsOf, pastStatesToDrop } from './historyLimits';
+
+/** Lets the history know which assets are processed copies of long audio, so it can limit and clean them up. */
+export interface HistoryAssetPolicy {
+  /** Length in minutes when the asset is a processed copy kept on disk, otherwise undefined */
+  processedMinutes(assetId: string): number | undefined;
+  /** Undo limit for that length (null = none) */
+  limitFor(minutes: number): number | null;
+  /** Processed copies no state refers to any more: the owner may delete them from disk */
+  onUnreferenced?(assetIds: string[]): void;
+  /** The history was shortened to this many processed copies */
+  onLimited?(limit: number): void;
+}
 
 export class HistoryManager {
   private past: Project[] = [];
@@ -11,8 +24,42 @@ export class HistoryManager {
   private future: Project[] = [];
   private maxDepth: number = 60;
 
+  private policy: HistoryAssetPolicy | null = null;
+  /** Processed copies seen so far that have not been reported as unreferenced */
+  private tracked = new Set<string>();
+
   constructor(initialProject: Project) {
     this.present = JSON.parse(JSON.stringify(initialProject));
+  }
+
+  public setPolicy(policy: HistoryAssetPolicy | null): void {
+    this.policy = policy;
+  }
+
+  /** Drops the oldest states when processed copies of long audio exceed the limit, then reports copies nothing refers to */
+  private enforce(report = true): void {
+    const policy = this.policy;
+    if (!policy) return;
+    const isProcessed = (id: string) => policy.processedMinutes(id) !== undefined;
+    const all = [...this.past, this.present, ...this.future];
+    let longest = 0;
+    for (const p of all) for (const id of assetIdsOf(p)) {
+      const m = policy.processedMinutes(id);
+      if (m !== undefined) { this.tracked.add(id); longest = Math.max(longest, m); }
+    }
+    const limit = longest > 0 ? policy.limitFor(longest) : null;
+    const drop = pastStatesToDrop(this.past, this.present, limit, isProcessed);
+    if (drop > 0) {
+      this.past = this.past.slice(drop);
+      if (limit !== null) policy.onLimited?.(limit);
+    }
+    const alive = new Set<string>();
+    for (const p of [...this.past, this.present, ...this.future]) for (const id of assetIdsOf(p)) alive.add(id);
+    const gone = [...this.tracked].filter((id) => !alive.has(id));
+    if (gone.length > 0) {
+      for (const id of gone) this.tracked.delete(id);
+      if (report) policy.onUnreferenced?.(gone);
+    }
   }
 
   public getPresent(): Project {
@@ -27,6 +74,9 @@ export class HistoryManager {
     this.past = [];
     this.present = JSON.parse(JSON.stringify(project));
     this.future = [];
+    // A new or loaded project: copies of the previous one are not ours to delete (they belong to its saved state)
+    this.tracked.clear();
+    this.enforce(false);
   }
 
   public pushState(nextProject: Project): void {
@@ -41,6 +91,7 @@ export class HistoryManager {
     }
     this.present = JSON.parse(nextSerialized);
     this.future = [];
+    this.enforce();
   }
 
   public undo(): Project | null {

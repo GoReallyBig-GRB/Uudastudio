@@ -69,7 +69,7 @@ import { processBasicDenoise } from './audio/dsp/denoiser';
 import { processPitchShift, processTimeStretch } from './audio/dsp/wsola';
 import { peakProvider } from './waveform/peakProvider';
 import { PEAK_BASE_SAMPLES_PER_PIXEL } from './waveform/peakMath';
-import { ChunkedCancelled, createVirtualSource } from './audio/chunkedProcess';
+import { ChunkedCancelled, createVirtualSource, processedUndoLimit } from './audio/chunkedProcess';
 import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJob';
 import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
 import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
@@ -356,8 +356,45 @@ const MainStudio: React.FC = () => {
 
   // Undo/Redo History Manager
   const historyManagerRef = useRef<HistoryManager>(new HistoryManager(DEFAULT_PROJECT));
+  // Asset ids the clipboards still point at: a processed copy is never deleted from disk while a paste could use it
+  const clipboardAssetIdsRef = useRef<Set<string>>(new Set());
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
+
+  // Which assets the clipboards still point at (kept so a pasted clip never loses its audio)
+  useEffect(() => {
+    const ids = new Set<string>();
+    if (clipboardClip) ids.add(clipboardClip.assetId);
+    for (const cb of [rangeClipboard, clipSetClipboard]) for (const l of cb?.layers ?? []) for (const c of l.clips) ids.add(c.assetId);
+    clipboardAssetIdsRef.current = ids;
+  }, [clipboardClip, rangeClipboard, clipSetClipboard]);
+
+  // Undo and long processed audio: every Compress / Denoise / Pitch / Speed / effect result on long audio is a full-length
+  // copy on disk, so the history keeps a limited number of them (shorter audio: no limit) and removes copies nothing needs.
+  const trimNoticeShownRef = useRef(false);
+  useEffect(() => {
+    historyManagerRef.current.setPolicy({
+      processedMinutes: (id) => {
+        const a = audioEngine.getAsset(id);
+        return a?.processed && a.source ? a.durationSeconds / 60 : undefined;
+      },
+      limitFor: processedUndoLimit,
+      onLimited: (limit) => {
+        if (trimNoticeShownRef.current) return;
+        trimNoticeShownRef.current = true;
+        addToast({ type: 'info', title: 'Undo history shortened', message: `This audio is long, so Undo keeps the last ${limit} processed ${limit === 1 ? 'copy' : 'copies'} (each is a full-length copy on disk). Cuts, deletes, silence and level changes are not limited.` });
+      },
+      onUnreferenced: (ids) => {
+        for (const id of ids) {
+          if (clipboardAssetIdsRef.current.has(id)) continue;
+          const a = audioEngine.getAsset(id);
+          if (!a?.processed || !a.source) continue;
+          peakProvider.clearAsset(id);
+          void deleteStreamedAssetWithRetry(a.source.storeId);
+        }
+      },
+    });
+  }, [addToast]);
 
   // Sync undo/redo button states
   const updateHistoryFlags = useCallback(() => {
@@ -2753,6 +2790,7 @@ const MainStudio: React.FC = () => {
         name: `${first.name} (${label})`,
         kind: audioEngine.getAsset(first.assetId)?.kind ?? 'recording',
         source: { storeId, frames: res.frames, peakBaseSamplesPerPixel: PEAK_BASE_SAMPLES_PER_PIXEL },
+        processed: true,
         sampleRate: res.sampleRate,
         durationSeconds: res.durationSeconds,
         numberOfChannels: res.channels,

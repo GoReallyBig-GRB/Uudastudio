@@ -236,6 +236,8 @@ export interface Asset {
   durationSeconds: number;
   numberOfChannels: number;
   voiceMetadata?: VoiceMetadata;
+  /** A full-length copy made by processing (Compress, Denoise, Pitch, Speed, an effect); undo keeps only a limited number of these for long audio */
+  processed?: boolean;
 }
 
 /** Pointer to audio stored in browser file storage (OPFS) as planar float32 files plus a peak file. */
