@@ -41,6 +41,7 @@ import {
   renderBufferWithEffect,
 } from '../audio/effects/dspChain';
 import { audioEngine } from '../audio/engine';
+import { pieceFromClip } from '../audio/chunkedJob';
 import { formatTimecode } from '../utils/formatters';
 import { getTrackLabel } from '../utils/tracks';
 
@@ -320,28 +321,27 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
       }
 
       const ctx = previewCtxRef.current;
-      let rawBuffer: AudioBuffer | null = currentAsset?.buffer || null;
-
-      // If no clip buffer exists, use synthesized reference audio
-      if (!rawBuffer) {
-        if (!referenceBufferRef.current) {
-          referenceBufferRef.current = createStudioReferenceBuffer(ctx);
-        }
-        rawBuffer = referenceBufferRef.current;
-      }
-
-      // Extract up to 8-second preview window
-      const previewSec = Math.min(8, rawBuffer.duration);
-      const frames = Math.floor(previewSec * rawBuffer.sampleRate);
-      const sliceBuf = ctx.createBuffer(rawBuffer.numberOfChannels, frames, rawBuffer.sampleRate);
-
-      const offsetFrames = Math.floor((currentClip?.offsetSeconds || 0) * rawBuffer.sampleRate);
-      for (let ch = 0; ch < rawBuffer.numberOfChannels; ch++) {
-        const full = rawBuffer.getChannelData(ch);
-        const slice = sliceBuf.getChannelData(ch);
-        for (let i = 0; i < frames; i++) {
-          slice[i] = full[offsetFrames + i] || 0;
-        }
+      // The clip's own audio (from memory or from disk). The studio chord is only for when there is no clip at all.
+      let sliceBuf: AudioBuffer;
+      if (currentAsset && currentClip && (currentAsset.buffer || currentAsset.source)) {
+        const sr = currentAsset.sampleRate || 48000;
+        const offset = Math.max(0, currentClip.offsetSeconds || 0);
+        const available = Math.max(0, (currentAsset.durationSeconds || 0) - offset);
+        const previewSec = Math.min(8, currentClip.durationSeconds, available);
+        const frames = Math.max(1, Math.floor(previewSec * sr));
+        const piece = pieceFromClip(currentAsset, { ...currentClip, durationSeconds: Math.min(currentClip.durationSeconds, available) }, false);
+        const data = await piece.read(0, frames);
+        const n = Math.max(1, data[0]?.length ?? 0);
+        sliceBuf = ctx.createBuffer(Math.max(1, data.length), n, sr);
+        data.forEach((chData, ch) => sliceBuf.copyToChannel(chData as Float32Array<ArrayBuffer>, ch));
+      } else if (allClips.length === 0) {
+        if (!referenceBufferRef.current) referenceBufferRef.current = createStudioReferenceBuffer(ctx);
+        const ref = referenceBufferRef.current;
+        sliceBuf = ref;
+      } else {
+        setErrorMessage('The audio for this clip is not loaded yet, so it cannot be auditioned.');
+        setPreviewState('none');
+        return;
       }
 
       const source = ctx.createBufferSource();

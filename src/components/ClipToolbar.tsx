@@ -283,6 +283,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             <CapsuleButton
               title={!focusActive ? 'In Focus view you can hear only this track or the full mix' : focusSolo ? 'Hearing only this track. Click to hear the full mix.' : 'Hearing the full mix. Click to hear only this track.'}
               active={focusActive && focusSolo}
+              tone="gold"
               disabled={!focusActive}
               onClick={onToggleFocusSolo}
               icon={<Headphones className="h-3 w-3" />}

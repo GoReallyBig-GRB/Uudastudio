@@ -50,6 +50,7 @@ import { nextPartName } from './components/clipTitle';
 import { copyRange, pasteRange, type RangeClipboard } from './components/rangeClipboard';
 import { copyClipSet, pasteClipSet, type ClipSetClipboard } from './components/clipSetClipboard';
 import { isolateRangeInTracks } from './components/rangeIsolate';
+import { rippleInsert } from './components/rippleInsert';
 import { breakChainAt, chainHead, chainIds, expandChains, remapSpliceIds, selectionUnitCount, spreadUpdate } from './components/spliceChains';
 import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
@@ -1959,9 +1960,10 @@ const MainStudio: React.FC = () => {
         startSeconds: pasteTime,
       };
 
+      // Paste inserts: the audio under the playhead opens up and everything after it moves later, so nothing plays twice
       setProjectWithHistory((prev) => ({
         ...prev,
-        tracks: prev.tracks.map((t) =>
+        tracks: rippleInsert(prev.tracks, new Set([targetTrack!.id]), pasteTime, newClip.durationSeconds, () => stampId('clip')).map((t) =>
           t.id === targetTrack!.id ? { ...t, clips: [...t.clips, newClip] } : t
         ),
       }));
@@ -2830,6 +2832,11 @@ const MainStudio: React.FC = () => {
     if (handleCopyRange()) handleDeleteRange();
   };
 
+  const stampId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+  /** Ids of the existing tracks a stack of `count` layers lands on, starting at `startIndex` */
+  const trackIdsFrom = (startIndex: number, count: number): Set<string> =>
+    new Set(project.tracks.slice(startIndex, startIndex + count).map((t) => t.id));
+
   /** Lay a copied range back at the playhead, as the same stack of tracks (starting on the selected track). */
   const handlePasteRange = () => {
     if (!rangeClipboard) return;
@@ -2837,8 +2844,9 @@ const MainStudio: React.FC = () => {
     const sourceIndex = project.tracks.findIndex((t) => t.id === rangeClipboard.layers[0]?.sourceTrackId);
     const startIndex = selectedIndex >= 0 ? selectedIndex : sourceIndex >= 0 ? sourceIndex : 0;
     const stamp = () => `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const opened = rippleInsert(project.tracks, trackIdsFrom(startIndex, rangeClipboard.layers.length), playheadSecondsRef.current, rangeClipboard.durationSeconds, () => `clip-${stamp()}`);
     const result = pasteRange(
-      project.tracks,
+      opened,
       rangeClipboard,
       playheadSecondsRef.current,
       startIndex,
@@ -2897,8 +2905,9 @@ const MainStudio: React.FC = () => {
     const sourceIndex = project.tracks.findIndex((t) => t.id === clipSetClipboard.layers[0]?.sourceTrackId);
     const startIndex = selectedIndex >= 0 ? selectedIndex : sourceIndex >= 0 ? sourceIndex : 0;
     const stamp = () => `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const opened = rippleInsert(project.tracks, trackIdsFrom(startIndex, clipSetClipboard.layers.length), playheadSecondsRef.current, clipSetClipboard.durationSeconds, () => `clip-${stamp()}`);
     const result = pasteClipSet(
-      project.tracks,
+      opened,
       clipSetClipboard,
       playheadSecondsRef.current,
       startIndex,
