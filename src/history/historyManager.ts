@@ -26,7 +26,7 @@ export class HistoryManager {
 
   private policy: HistoryAssetPolicy | null = null;
   /**
-   * When the history is shortened, the state it began with (the original audio) is kept apart, so the last Undo can always
+   * When the history is shortened, the state just before the first processing step is kept apart, so the last Undo can
    * return to it. It never refers to a processed copy, so keeping it costs no disk.
    */
   private anchor: Project | null = null;
@@ -55,10 +55,12 @@ export class HistoryManager {
     const limit = longest > 0 ? policy.limitFor(longest) : null;
     const drop = pastStatesToDrop(this.past, this.present, limit, isProcessed);
     if (drop > 0) {
-      const oldest = this.past[0];
-      if (!this.anchor && oldest) {
-        const usable = ![...assetIdsOf(oldest)].some(isProcessed);
-        if (usable) this.anchor = oldest;
+      // The state to fall back on is the one just BEFORE the first processed copy appeared: every edit made up to then
+      // (cuts, deletes, silence) is kept, and only the processing and what followed it is given up. It is kept apart only
+      // when it is itself about to be dropped; otherwise Undo reaches it in the normal way.
+      if (!this.anchor) {
+        const first = this.past.findIndex((p) => [...assetIdsOf(p)].some(isProcessed));
+        if (first > 0 && first - 1 < drop) this.anchor = this.past[first - 1];
       }
       this.past = this.past.slice(drop);
       if (limit !== null) policy.onLimited?.(limit);

@@ -63,4 +63,27 @@ describe('history with processed copies of long audio', () => {
     h.pushState(proj('orig', 5));
     expect(h.undo()?.tracks[0].clips[0].assetId).toBe('orig');
   });
+
+  it('falls back to the state just before the FIRST processing, keeping the edits made before it', () => {
+    const h = new HistoryManager(proj('orig', 0));
+    h.setPolicy({ processedMinutes: (id) => (id.startsWith('P') ? 150 : undefined), limitFor: () => 1 });
+    h.pushState(proj('orig', 1)); // a cut
+    h.pushState(proj('orig', 2)); // another cut: the state before the first effect
+    for (const [a, t] of [['P1', 3], ['P2', 4], ['P3', 5], ['P4', 6], ['P5', 7]] as const) h.pushState(proj(a, t));
+    expect(h.nextUndoIsOriginal()).toBe(true);
+    const back = h.undo();
+    expect(back?.name).toBe('p2'); // not p0, the very first state
+    expect(back?.tracks[0].clips[0].assetId).toBe('orig');
+    expect(h.isAtOriginalAnchor()).toBe(true);
+  });
+  it('needs no fallback when the state before the first effect is still in the steps', () => {
+    const h = new HistoryManager(proj('orig', 0));
+    h.setPolicy({ processedMinutes: (id) => (id.startsWith('P') ? 150 : undefined), limitFor: () => 2 });
+    h.pushState(proj('P1', 1));
+    h.pushState(proj('P2', 2));
+    let steps = 0;
+    while (h.undo()) steps++;
+    expect(steps).toBe(2);
+    expect(h.isAtOriginalAnchor()).toBe(false);
+  });
 });

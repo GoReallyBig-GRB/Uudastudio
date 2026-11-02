@@ -3161,7 +3161,7 @@ const MainStudio: React.FC = () => {
       void syncPluginsToSnapshot(previous);
       updateHistoryFlags();
       if (toOriginal) {
-        addToast({ type: 'warning', title: 'Back to the original', message: 'Undo ran out of steps for this long audio, so this went back to the project as it was when history began, with the original audio. Edits since then are undone with it. Redo brings them back.' });
+        addToast({ type: 'warning', title: 'Back to the original', message: 'Undo ran out of steps for this long audio, so this went back to the project as it was just before the first processing step (effect, Compress, Denoise, Pitch or Speed), with the unprocessed audio. Everything you did before that is kept; the processing and edits after it are undone. Redo brings them back.' });
       } else {
         addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
       }
