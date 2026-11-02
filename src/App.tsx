@@ -51,7 +51,7 @@ import { copyRange, pasteRange, type RangeClipboard } from './components/rangeCl
 import { copyClipSet, pasteClipSet, type ClipSetClipboard } from './components/clipSetClipboard';
 import { isolateRangeInTracks } from './components/rangeIsolate';
 import { processEffectChunked } from './audio/effects/chunkedEffect';
-import { rippleInsert, joinTouching } from './components/rippleInsert';
+import { rippleInsert, joinTouching, shiftLaterClips } from './components/rippleInsert';
 import { breakChainAt, chainHead, chainIds, expandChains, remapSpliceIds, selectionUnitCount, spreadUpdate } from './components/spliceChains';
 import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
@@ -2404,10 +2404,18 @@ const MainStudio: React.FC = () => {
     peakProvider.clearAsset(dspTargetClip.assetId);
     peakProvider.clearAsset(newAsset.id);
 
-    handleUpdateClip(dspTargetClip.id, {
-      assetId: newAsset.id,
-      offsetSeconds: 0,
-      durationSeconds: stretched.duration,
+    // A range inside a track changes length: what follows moves with it, so the track stays whole
+    const joinedPart = chainIds(project.tracks, dspTargetClip.id).length > 1;
+    const oldEnd = dspTargetClip.startSeconds + dspTargetClip.durationSeconds;
+    const delta = stretched.duration - dspTargetClip.durationSeconds;
+    const targetId = dspTargetClip.id;
+    setProjectWithHistory((prev) => {
+      const owner = prev.tracks.find((t) => t.clips.some((c) => c.id === targetId));
+      const updated = prev.tracks.map((t) => ({
+        ...t,
+        clips: t.clips.map((c) => (c.id === targetId ? { ...c, assetId: newAsset.id, offsetSeconds: 0, durationSeconds: stretched.duration } : c)),
+      }));
+      return { ...prev, tracks: joinedPart && owner ? shiftLaterClips(updated, owner.id, oldEnd, delta, new Set([targetId])) : updated };
     });
 
     addToast({
@@ -2754,7 +2762,14 @@ const MainStudio: React.FC = () => {
       peakProvider.clearAsset(newAsset.id);
       const drop = new Set(pieces.map((c) => c.id));
       drop.delete(first.id);
-      setProjectWithHistory((prev) => ({
+      // Speed on a range inside a track: what follows moves with it, so the track stays whole
+      const rangePiece = tool.kind === 'speed' && pieces.length === 1 && chainIds(project.tracks, first.id).length > 1;
+      const oldEnd = last.startSeconds + last.durationSeconds;
+      const delta = res.durationSeconds - (oldEnd - first.startSeconds);
+      const ownerId = project.tracks.find((t) => t.clips.some((c) => c.id === first.id))?.id;
+      setProjectWithHistory((prev0) => {
+        const prev = rangePiece && ownerId ? { ...prev0, tracks: shiftLaterClips(prev0.tracks, ownerId, oldEnd, delta, new Set([first.id])) } : prev0;
+        return {
         ...prev,
         tracks: prev.tracks.map((t) => ({
           ...t,
@@ -2766,7 +2781,8 @@ const MainStudio: React.FC = () => {
                 : c,
             ),
         })),
-      }));
+        };
+      });
       setSelectedClipIds(new Set([first.id]));
       addToast({ type: 'success', title: `${label} applied`, message: `Processed ${(res.durationSeconds / 60).toFixed(1)} min of audio in blocks. Undo restores the original.` });
     } catch (e) {

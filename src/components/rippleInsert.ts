@@ -71,3 +71,20 @@ export const joinTouching = (tracks: readonly Track[], placedIds: ReadonlySet<st
     }
     return clips === track.clips ? track : { ...track, clips };
   });
+
+/**
+ * After a piece of a track changes length (Speed on a range), moves everything on that track that starts at or after
+ * `afterSeconds` by `delta`, so the track stays whole: no gap and no overlap. `exclude` are the changed piece(s) themselves.
+ */
+export const shiftLaterClips = (
+  tracks: readonly Track[],
+  trackId: string,
+  afterSeconds: number,
+  delta: number,
+  exclude: ReadonlySet<string>,
+): Track[] =>
+  tracks.map((t) =>
+    t.id !== trackId || delta === 0
+      ? t
+      : { ...t, clips: t.clips.map((c) => (!exclude.has(c.id) && c.startSeconds >= afterSeconds - EDGE_EPS ? { ...c, startSeconds: Math.max(0, c.startSeconds + delta) } : c)) },
+  );

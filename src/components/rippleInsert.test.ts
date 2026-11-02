@@ -43,3 +43,13 @@ describe('rippleInsert', () => {
     expect(chainsOnTrack(joinTouching(withPaste, new Set(['p']), () => 'j')[0].clips)).toHaveLength(1);
   });
 });
+
+describe('shiftLaterClips', () => {
+  it('moves only later clips on the named track', async () => {
+    const { shiftLaterClips } = await import('./rippleInsert');
+    const t = [track('t1', [clip('a', 0, 4), clip('r', 4, 2), clip('b', 6, 3)]), track('t2', [clip('c', 6, 1)])];
+    const out = shiftLaterClips(t, 't1', 6, -1, new Set(['r']));
+    expect(out[0].clips.map((c) => [c.id, c.startSeconds])).toEqual([['a', 0], ['r', 4], ['b', 5]]);
+    expect(out[1].clips[0].startSeconds).toBe(6);
+  });
+});
