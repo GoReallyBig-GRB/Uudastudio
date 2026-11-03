@@ -4,6 +4,7 @@
  * Zoom Controls, Autosave Badge, and Shortcut Hints.
  */
 
+import { usePlayhead } from '../playback/playheadStore';
 import React, { useRef, useState, useEffect } from 'react';
 import { Database, HelpCircle, Activity, Radio, ZoomIn, ZoomOut, Maximize2, Clock } from 'lucide-react';
 import { formatTimecode, formatVolumeDb } from '../utils/formatters';
@@ -14,7 +15,6 @@ interface StatusBarProps {
   trackCount: number;
   clipCount: number;
   selectedClipCount: number;
-  playheadSeconds: number;
   totalDurationSeconds: number;
   isPlaying: boolean;
   pixelsPerSecond: number;
@@ -28,12 +28,14 @@ interface StatusBarProps {
   onNudgeClipGain?: (deltaDb: number) => void;
 }
 
+/** The only part of the status bar that changes while playing */
+const PlayheadTime: React.FC = () => <>{formatTimecode(usePlayhead())}</>;
+
 export const StatusBar: React.FC<StatusBarProps> = ({
   sampleRate,
   trackCount,
   clipCount,
   selectedClipCount,
-  playheadSeconds,
   totalDurationSeconds,
   isPlaying,
   pixelsPerSecond,
@@ -160,7 +162,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           <div className="flex items-center gap-1.5 font-num">
             <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">POS</span>
             <span className="text-accent font-bold tracking-wider text-xs">
-              {formatTimecode(playheadSeconds)}
+              <PlayheadTime />
             </span>
             <span className="text-zinc-600 font-normal">/</span>
             <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">TOTAL</span>

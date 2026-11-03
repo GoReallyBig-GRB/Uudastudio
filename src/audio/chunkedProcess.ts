@@ -129,7 +129,7 @@ export const runChunked = async (opts: ChunkedOptions): Promise<number> => {
  * Stereo 44.1 kHz float32 is about 21 MB per minute.
  */
 export const processedUndoLimit = (clipMinutes: number): number | null => {
-  if (!Number.isFinite(clipMinutes) || clipMinutes < 20) return null;
+  if (!Number.isFinite(clipMinutes) || clipMinutes < 30) return null;
   if (clipMinutes < 60) return 3;
   if (clipMinutes < 120) return 2;
   return 1;

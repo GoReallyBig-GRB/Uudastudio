@@ -9,6 +9,8 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
+import { isClipLocked } from './clipLock';
+import { getPlayhead, subscribePlayhead, usePlayhead } from '../playback/playheadStore';
 import { colorFromHex, groupColor, summarizeGroups, withAlpha } from '../audio/groupInfo';
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { CanvasWindow, canvasWindowFor, needsRecentre } from './canvasWindow';
@@ -32,7 +34,6 @@ import { chainIds, seamFlags, selectionUnitCount } from './spliceChains';
 
 interface TimelineProps {
   project: Project;
-  playheadSeconds: number;
   pixelsPerSecond: number;
   onViewportWidthChange?: (width: number) => void;
   selectedTrackId: string | null;
@@ -73,6 +74,9 @@ interface TimelineProps {
   soloGroupId?: string | null;
   onToggleSolo?: (groupId: string) => void;
   onUngroupSelected?: () => void;
+  onToggleLock?: () => void;
+  /** Called when the user tries to trim or fade a locked clip */
+  onLockedHit?: () => void;
   onMoveClipTrack: (clipId: string, direction: 'up' | 'down') => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
   onRecordTrack: (trackId: string) => void;
@@ -165,9 +169,54 @@ const CLIP_SHADES = [
 const FULL_HEADER_WIDTH = 272;
 const COLLAPSED_HEADER_WIDTH = 32;
 
+/** The playhead (head on the ruler and the line down through the tracks). The only part of the timeline that re-renders while playing. */
+const PlayheadOverlay: React.FC<{
+  headerWidth: number;
+  pixelsPerSecond: number;
+  scrollLeft: number;
+  timelineWidth: number;
+  onPointerDown: (e: React.PointerEvent) => void;
+}> = ({ headerWidth, pixelsPerSecond, scrollLeft, timelineWidth, onPointerDown }) => {
+  const playheadSeconds = usePlayhead();
+  const playheadX = headerWidth + playheadSeconds * pixelsPerSecond - scrollLeft;
+  if (playheadX < headerWidth - 8 || playheadX > headerWidth + timelineWidth + 8) return null;
+  return (
+      <div
+        aria-label={`Playhead: ${formatTimecode(playheadSeconds)}`}
+        style={{
+          left: `${playheadX}px`,
+        }}
+        className="absolute top-0 bottom-0 z-30 pointer-events-none select-none"
+      >
+        {/* Playhead Head directly on the Time Ruler (28px height) */}
+        <div
+          className="absolute top-0 -translate-x-1/2 pointer-events-auto cursor-ew-resize flex flex-col items-center group"
+          onPointerDown={onPointerDown}
+          title={`Playhead: ${formatTimecode(playheadSeconds)} (Drag to scrub)`}
+        >
+          <svg
+            width="16"
+            height="22"
+            viewBox="0 0 16 22"
+            fill="none"
+            className="filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] drop-shadow-[0_0_6px_rgba(0,240,255,0.7)] text-cyan-400 group-hover:text-cyan-300 transition-colors"
+          >
+            <path
+              d="M1 0H15C15.5523 0 16 0.447715 16 1V13.5C16 13.8441 15.8236 14.1634 15.5348 14.3503L8.53484 18.8796C8.20935 19.09 7.79065 19.09 7.46516 18.8796L0.465164 14.3503C0.176412 14.1634 0 13.8441 0 13.5V1C0 0.447715 0.447715 0 1 0Z"
+              fill="#00F0FF"
+            />
+            <line x1="8" y1="3" x2="8" y2="12" stroke="#0A0A0E" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </div>
+
+        {/* Playhead Body Line seamlessly connecting from the tip of the head down through all track rows */}
+        <div className="absolute top-[18px] bottom-0 -translate-x-[0.75px] w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF]" />
+      </div>
+  );
+};
+
 export const Timeline: React.FC<TimelineProps> = ({
   project,
-  playheadSeconds,
   pixelsPerSecond,
   onViewportWidthChange,
   selectedTrackId,
@@ -205,6 +254,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   soloGroupId = null,
   onToggleSolo,
   onUngroupSelected,
+  onToggleLock,
+  onLockedHit,
   onMoveClipTrack,
   onMoveTrack,
   onRecordTrack,
@@ -347,7 +398,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       previousZoom,
       nextZoom: pixelsPerSecond,
       maxScrollLeft: viewport.scrollWidth - viewport.clientWidth,
-      playheadSeconds,
+      playheadSeconds: getPlayhead(),
     });
     // A smooth auto-center scroll that was under way belongs to the old zoom; drop it
     autoCenterPendingRef.current = false;
@@ -355,7 +406,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     lastScrollLeftRef.current = nextScrollLeft;
     viewport.scrollLeft = nextScrollLeft;
     setScrollLeft(nextScrollLeft);
-  }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth, playheadSeconds]);
+  }, [pixelsPerSecond, currentHeaderWidth, lanePixelWidth]);
 
   // ResizeObserver for canvas width
   useEffect(() => {
@@ -420,6 +471,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   // The audio playhead keeps advancing; only the viewport scrolls around it.
   const autoCenterZoomRef = useRef<number>(pixelsPerSecond);
   useEffect(() => {
+    // Runs on every playhead change without re-rendering the timeline: the playhead lives outside React state
+    const step = () => {
     const viewport = laneScrollContainerRef.current;
     if (!viewport) return;
     const zoomJustChanged = autoCenterZoomRef.current !== pixelsPerSecond;
@@ -430,7 +483,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       return;
     }
 
-    const playheadX = currentHeaderWidth + playheadSeconds * pixelsPerSecond;
+    const playheadX = currentHeaderWidth + getPlayhead() * pixelsPerSecond;
     const playheadViewportX = playheadX - viewport.scrollLeft;
     const edgeMargin = 72;
 
@@ -457,7 +510,10 @@ export const Timeline: React.FC<TimelineProps> = ({
         viewport.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
       }
     }
-  }, [playheadSeconds, pixelsPerSecond, currentHeaderWidth, scrollLeft]);
+    };
+    step();
+    return subscribePlayhead(step);
+  }, [pixelsPerSecond, currentHeaderWidth, scrollLeft]);
 
   // Keyboard navigation & Shortcuts (S=split, Ctrl+C=copy, etc.)
   useEffect(() => {
@@ -552,7 +608,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           if (!seams.get(c.id)?.left) shadeStep += 1;
           orderIndex.set(c.id, Math.max(0, shadeStep));
         });
-        const drawn: Array<{ x: number; w: number; seamR: boolean; name: string; selected: boolean }> = [];
+        const drawn: Array<{ x: number; w: number; seamR: boolean; name: string; selected: boolean; locked: boolean }> = [];
         for (const clip of track.clips) {
           const sm = seams.get(clip.id);
           const seamL = !!sm?.left;
@@ -786,7 +842,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           }
 
           // Titles are drawn once per clip, after every piece, across the whole clip
-          drawn.push({ x: renderX, w: renderW, seamR, name: clip.name, selected: isSelected });
+          drawn.push({ x: renderX, w: renderW, seamR, name: clip.name, selected: isSelected, locked: isClipLocked(project, clip) });
 
           // Draw Trimming Edge Grippers (left and right edge handles for inward waveform deletion), at the ends of the whole clip
           if (isSelected) {
@@ -822,8 +878,23 @@ export const Timeline: React.FC<TimelineProps> = ({
           ctx.save();
           ctx.font = '10px "Plus Jakarta Sans", sans-serif';
           ctx.fillStyle = head.selected ? '#f1f5f9' : '#cbd5e1';
-          const titleText = fitTitle(displayTitle(head.name), totalW - TITLE_PAD_X * 2, (str) => ctx.measureText(str).width);
+          let locked = head.locked;
+          for (let k = i + 1; k <= last; k++) locked = locked || drawn[k].locked;
+          const lockRoom = locked ? 14 : 0;
+          const titleText = fitTitle(displayTitle(head.name), totalW - TITLE_PAD_X * 2 - lockRoom, (str) => ctx.measureText(str).width);
           if (titleText) ctx.fillText(titleText, head.x + TITLE_PAD_X, 16); // 4px lane padding + 12px baseline
+          if (locked && totalW > 28) {
+            // Small gold padlock at the clip's top-right corner
+            const lx = head.x + totalW - 12;
+            const ly = 8;
+            ctx.strokeStyle = '#d4af37';
+            ctx.fillStyle = '#d4af37';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(lx + 4, ly + 2, 2.5, Math.PI, 0);
+            ctx.stroke();
+            ctx.fillRect(lx, ly + 2, 8, 6);
+          }
           ctx.restore();
           i = last;
         }
@@ -987,8 +1058,18 @@ export const Timeline: React.FC<TimelineProps> = ({
       }
     }
 
+    // GR-4: a locked clip (or one in a locked group) can be selected but not trimmed, faded, level-dragged or moved
+    const hitLocked = !!clickedClip && isClipLocked(project, clickedClip);
+    if (hitLocked && (clickedEdge || clickedFadeType)) {
+      onSelectClips(new Set([clickedClip!.id]));
+      onSelectTrack(track.id);
+      e.stopPropagation();
+      onLockedHit?.();
+      return;
+    }
+
     // The on-clip volume line: grab it on a selected single clip and pull up or down (Ctrl+click resets to 0 dB).
-    if (clickedClip && !clickedEdge && !clickedFadeType && !clickedClip.groupId && !seams.has(clickedClip.id) && selectedClipIds.has(clickedClip.id)) {
+    if (clickedClip && !hitLocked && !clickedEdge && !clickedFadeType && !clickedClip.groupId && !seams.has(clickedClip.id) && selectedClipIds.has(clickedClip.id)) {
       const laneH = rect.height - 8;
       const lineY = gainToY(clickedClip.gain, 4, laneH);
       if (laneH > 24 && clickY > 16 && Math.abs(clickY - lineY) <= 5) {
@@ -1054,6 +1135,9 @@ export const Timeline: React.FC<TimelineProps> = ({
       }
       onSelectClips(newSelected);
       onSelectTrack(track.id);
+
+      // A locked clip or group never starts a drag
+      if (project.tracks.some((t) => t.clips.some((c) => newSelected.has(c.id) && isClipLocked(project, c)))) return;
 
       // Start sub-pixel floating drag
       const initialMap = new Map<string, { startSeconds: number; trackIndex: number; clip: Clip }>();
@@ -1422,7 +1506,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     e.preventDefault();
     e.stopPropagation();
     const startClientX = e.clientX;
-    const startPlayhead = playheadSeconds;
+    const startPlayhead = getPlayhead();
 
     const onPointerMove = (moveEv: PointerEvent) => {
       const deltaPx = moveEv.clientX - startClientX;
@@ -1463,7 +1547,6 @@ export const Timeline: React.FC<TimelineProps> = ({
       <TimelineRuler
         pixelsPerSecond={pixelsPerSecond}
         totalDurationSeconds={totalDurationSeconds}
-        playheadSeconds={playheadSeconds}
         scrollLeft={scrollLeft}
         onSeek={onSeek}
         timelineWidth={timelineWidth}
@@ -1472,45 +1555,13 @@ export const Timeline: React.FC<TimelineProps> = ({
       />
 
       {/* Unified Playhead: Head on the time ruler + Body Line across all tracks (always perfectly synchronized) */}
-      {(() => {
-        const playheadX = currentHeaderWidth + playheadSeconds * pixelsPerSecond - scrollLeft;
-        if (playheadX < currentHeaderWidth - 8 || playheadX > currentHeaderWidth + timelineWidth + 8) {
-          return null;
-        }
-        return (
-          <div
-            aria-label={`Playhead: ${formatTimecode(playheadSeconds)}`}
-            style={{
-              left: `${playheadX}px`,
-            }}
-            className="absolute top-0 bottom-0 z-30 pointer-events-none select-none"
-          >
-            {/* Playhead Head directly on the Time Ruler (28px height) */}
-            <div
-              className="absolute top-0 -translate-x-1/2 pointer-events-auto cursor-ew-resize flex flex-col items-center group"
-              onPointerDown={handlePlayheadPointerDown}
-              title={`Playhead: ${formatTimecode(playheadSeconds)} (Drag to scrub)`}
-            >
-              <svg
-                width="16"
-                height="22"
-                viewBox="0 0 16 22"
-                fill="none"
-                className="filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] drop-shadow-[0_0_6px_rgba(0,240,255,0.7)] text-cyan-400 group-hover:text-cyan-300 transition-colors"
-              >
-                <path
-                  d="M1 0H15C15.5523 0 16 0.447715 16 1V13.5C16 13.8441 15.8236 14.1634 15.5348 14.3503L8.53484 18.8796C8.20935 19.09 7.79065 19.09 7.46516 18.8796L0.465164 14.3503C0.176412 14.1634 0 13.8441 0 13.5V1C0 0.447715 0.447715 0 1 0Z"
-                  fill="#00F0FF"
-                />
-                <line x1="8" y1="3" x2="8" y2="12" stroke="#0A0A0E" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </div>
-
-            {/* Playhead Body Line seamlessly connecting from the tip of the head down through all track rows */}
-            <div className="absolute top-[18px] bottom-0 -translate-x-[0.75px] w-[1.5px] bg-[#00F0FF] shadow-[0_0_8px_#00F0FF]" />
-          </div>
-        );
-      })()}
+      <PlayheadOverlay
+        headerWidth={currentHeaderWidth}
+        pixelsPerSecond={pixelsPerSecond}
+        scrollLeft={scrollLeft}
+        timelineWidth={timelineWidth}
+        onPointerDown={handlePlayheadPointerDown}
+      />
 
       {/* Main Track Rows Scroll Container */}
       <div
@@ -1642,6 +1693,8 @@ export const Timeline: React.FC<TimelineProps> = ({
           }}
           onGroup={onGroupSelected}
           onUngroup={onUngroupSelected}
+          locked={project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && isClipLocked(project, c)))}
+          onToggleLock={onToggleLock}
         />
       )}
 

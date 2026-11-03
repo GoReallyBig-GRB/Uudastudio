@@ -78,9 +78,10 @@ describe('runChunked', () => {
 });
 
 describe('undo limit for processed long audio', () => {
-  it('has no limit under 20 minutes, then tightens with length', () => {
+  it('has no limit under 30 minutes, then tightens with length', () => {
     expect(processedUndoLimit(10)).toBeNull();
-    expect(processedUndoLimit(20)).toBe(3);
+    expect(processedUndoLimit(29)).toBeNull();
+    expect(processedUndoLimit(30)).toBe(3);
     expect(processedUndoLimit(59)).toBe(3);
     expect(processedUndoLimit(60)).toBe(2);
     expect(processedUndoLimit(119)).toBe(2);

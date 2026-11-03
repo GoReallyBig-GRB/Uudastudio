@@ -68,8 +68,9 @@ import { processCompression } from './audio/dsp/compressor';
 import { processBasicDenoise } from './audio/dsp/denoiser';
 import { processPitchShift, processTimeStretch } from './audio/dsp/wsola';
 import { peakProvider } from './waveform/peakProvider';
+import { setPlayhead } from './playback/playheadStore';
 import { PEAK_BASE_SAMPLES_PER_PIXEL } from './waveform/peakMath';
-import { ChunkedCancelled, createVirtualSource } from './audio/chunkedProcess';
+import { ChunkedCancelled, createVirtualSource, processedUndoLimit } from './audio/chunkedProcess';
 import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJob';
 import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
 import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
@@ -88,6 +89,7 @@ import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
 import { pluginManager } from './plugins/pluginManager';
 import { groupChainId } from './plugins/groupChain';
+import { lockViolation, isClipLocked } from './components/clipLock';
 import { dropGroupSettings, patchGroupSettings } from './audio/groupSettings';
 import { nextGroupColorIndex, nextGroupName, nextGroupNumber, summarizeGroups } from './audio/groupInfo';
 import { GroupListPanel } from './components/GroupListPanel';
@@ -177,7 +179,6 @@ const MainStudio: React.FC = () => {
   const trackImportProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const importCancelledRef = useRef<boolean>(false);
   const streamImportCancelRef = useRef<(() => void) | null>(null);
-  const [playheadSeconds, setPlayheadSeconds] = useState<number>(0);
   // Keep the authoritative clock outside React state. The audio engine ticks at display-frame
   // cadence; committing every tick rerenders the entire studio tree and its expensive timeline.
   const playheadSecondsRef = useRef<number>(0);
@@ -356,8 +357,45 @@ const MainStudio: React.FC = () => {
 
   // Undo/Redo History Manager
   const historyManagerRef = useRef<HistoryManager>(new HistoryManager(DEFAULT_PROJECT));
+  // Asset ids the clipboards still point at: a processed copy is never deleted from disk while a paste could use it
+  const clipboardAssetIdsRef = useRef<Set<string>>(new Set());
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
+
+  // Which assets the clipboards still point at (kept so a pasted clip never loses its audio)
+  useEffect(() => {
+    const ids = new Set<string>();
+    if (clipboardClip) ids.add(clipboardClip.assetId);
+    for (const cb of [rangeClipboard, clipSetClipboard]) for (const l of cb?.layers ?? []) for (const c of l.clips) ids.add(c.assetId);
+    clipboardAssetIdsRef.current = ids;
+  }, [clipboardClip, rangeClipboard, clipSetClipboard]);
+
+  // Undo and long processed audio: every Compress / Denoise / Pitch / Speed / effect result on long audio is a full-length
+  // copy on disk, so the history keeps a limited number of them (shorter audio: no limit) and removes copies nothing needs.
+  const trimNoticeShownRef = useRef(false);
+  useEffect(() => {
+    historyManagerRef.current.setPolicy({
+      processedMinutes: (id) => {
+        const a = audioEngine.getAsset(id);
+        return a?.processed && a.source ? a.durationSeconds / 60 : undefined;
+      },
+      limitFor: processedUndoLimit,
+      onLimited: (limit) => {
+        if (trimNoticeShownRef.current) return;
+        trimNoticeShownRef.current = true;
+        addToast({ type: 'info', title: 'Undo history shortened', message: `This audio is long, so Undo keeps the last ${limit} processed ${limit === 1 ? 'copy' : 'copies'} (each is a full-length copy on disk). Cuts, deletes, silence and level changes are not limited.` });
+      },
+      onUnreferenced: (ids) => {
+        for (const id of ids) {
+          if (clipboardAssetIdsRef.current.has(id)) continue;
+          const a = audioEngine.getAsset(id);
+          if (!a?.processed || !a.source) continue;
+          peakProvider.clearAsset(id);
+          void deleteStreamedAssetWithRetry(a.source.storeId);
+        }
+      },
+    });
+  }, [addToast]);
 
   // Sync undo/redo button states
   const updateHistoryFlags = useCallback(() => {
@@ -395,10 +433,23 @@ const MainStudio: React.FC = () => {
 
 
 
+  const lockToastAtRef = useRef(0);
+  const addToastRef = useRef(addToast);
+  addToastRef.current = addToast;
+
   const setProjectWithHistory = useCallback(
     (newProjectOrFn: Project | ((prev: Project) => Project), skipHistory = false) => {
       setProject((prev) => {
         const next = typeof newProjectOrFn === 'function' ? newProjectOrFn(prev) : newProjectOrFn;
+        // GR-4: a locked clip or group is never moved, edited or deleted. The change is refused as a whole.
+        if (!skipHistory && lockViolation(prev, next) > 0) {
+          const now = Date.now();
+          if (now - lockToastAtRef.current > 800) {
+            lockToastAtRef.current = now;
+            queueMicrotask(() => addToastRef.current({ type: 'info', title: 'Locked', message: 'That clip or group is locked, so nothing was changed. Unlock it to edit.' }));
+          }
+          return prev;
+        }
         if (!skipHistory) {
           historyManagerRef.current.pushState(next);
         }
@@ -841,11 +892,11 @@ const MainStudio: React.FC = () => {
       playheadSecondsRef.current = time;
       const now = performance.now();
       const playbackIsActive = audioEngine.getIsPlaying();
-      // While playing, refresh React-owned labels at most 10 times per second. Seek, stop,
+      // While playing, refresh the playhead (which only the playhead line, the time readouts and the follow-scroll listen to) at most 30 times per second. Seek, stop,
       // and playback-end notifications still update immediately for exact user-visible state.
-      if (!playbackIsActive || now - lastPlayheadRenderAtRef.current >= 100) {
+      if (!playbackIsActive || now - lastPlayheadRenderAtRef.current >= 33) {
         lastPlayheadRenderAtRef.current = now;
-        setPlayheadSeconds(time);
+        setPlayhead(time);
       }
     });
     audioEngine.setOnPlaybackEnded(() => {
@@ -856,7 +907,7 @@ const MainStudio: React.FC = () => {
         rangePlayStartRef.current = null;
         audioEngine.seek(back);
         playheadSecondsRef.current = back;
-        setPlayheadSeconds(back);
+        setPlayhead(back);
       }
     });
   }, []);
@@ -882,7 +933,7 @@ const MainStudio: React.FC = () => {
         }
         rangePlayStartRef.current = sel.startSeconds;
         playheadSecondsRef.current = sel.startSeconds;
-        setPlayheadSeconds(sel.startSeconds);
+        setPlayhead(sel.startSeconds);
         await audioEngine.play(project, sel.startSeconds, sel.endSeconds);
         setIsPlaying(true);
         return;
@@ -903,7 +954,7 @@ const MainStudio: React.FC = () => {
     audioEngine.pause();
     const stoppedAt = audioEngine.getCurrentTime();
     playheadSecondsRef.current = stoppedAt;
-    setPlayheadSeconds(stoppedAt);
+    setPlayhead(stoppedAt);
     setIsPlaying(false);
   };
 
@@ -911,7 +962,7 @@ const MainStudio: React.FC = () => {
     audioEngine.stop();
     setIsPlaying(false);
     playheadSecondsRef.current = 0;
-    setPlayheadSeconds(0);
+    setPlayhead(0);
   };
 
   /** End of the last clip on any track */
@@ -931,7 +982,7 @@ const MainStudio: React.FC = () => {
     }
     audioEngine.seek(end);
     playheadSecondsRef.current = end;
-    setPlayheadSeconds(end);
+    setPlayhead(end);
   };
 
   const handleReturnToStart = useCallback(() => {
@@ -941,7 +992,7 @@ const MainStudio: React.FC = () => {
     }
     audioEngine.seek(0);
     playheadSecondsRef.current = 0;
-    setPlayheadSeconds(0);
+    setPlayhead(0);
     addToast({
       type: 'info',
       title: 'Rewound to Head',
@@ -957,7 +1008,7 @@ const MainStudio: React.FC = () => {
     }
     audioEngine.seek(0);
     playheadSecondsRef.current = 0;
-    setPlayheadSeconds(0);
+    setPlayhead(0);
     pluginManager.clearAll();
     const blankProject: Project = {
       id: `project-${Date.now()}`,
@@ -1085,7 +1136,7 @@ const MainStudio: React.FC = () => {
         setIsPlaying(false);
       }
       audioEngine.seek(0);
-      setPlayheadSeconds(0);
+      setPlayhead(0);
       const next = projectFromTemplate(template);
       pluginManager.clearAll();
       setProjectWithHistory(next);
@@ -1214,7 +1265,7 @@ const MainStudio: React.FC = () => {
       }
       audioEngine.seek(0);
       playheadSecondsRef.current = 0;
-      setPlayheadSeconds(0);
+      setPlayhead(0);
 
       const loadedProject: Project = {
         ...parsed,
@@ -1369,7 +1420,7 @@ const MainStudio: React.FC = () => {
       }
     }
     const clamped = projectEnd > 0 ? Math.min(Math.max(0, seconds), projectEnd) : Math.max(0, seconds);
-    setPlayheadSeconds(clamped);
+    setPlayhead(clamped);
     audioEngine.seek(clamped, isPlaying ? project : undefined);
   };
 
@@ -2640,8 +2691,53 @@ const MainStudio: React.FC = () => {
     return first.id;
   };
 
+  /** True (with a toast) when the selection holds a locked clip, so tools do not open on something they could not change. */
+  const selectionLocked = (): boolean => {
+    const ids = new Set<string>(selectedClipIds);
+    if (selectedClip) ids.add(selectedClip.id);
+    const hit = project.tracks.some((t) => t.clips.some((c) => ids.has(c.id) && isClipLocked(project, c)));
+    if (hit) addToast({ type: 'info', title: 'Locked', message: 'This clip or group is locked. Unlock it to edit or process it.' });
+    return hit;
+  };
+
+  /** Lock or unlock the selection. Grouped clips lock through their group; solo clips (and every piece of an edited track) individually. */
+  const toggleLockRef = useRef<() => void>(() => {});
+  const handleToggleLock = () => {
+    const ids = new Set<string>(selectedClipIds);
+    if (selectedClip) ids.add(selectedClip.id);
+    if (ids.size === 0) {
+      addToast({ type: 'info', title: 'Select a clip', message: 'Select a clip or a group, then lock it.' });
+      return;
+    }
+    const all = project.tracks.flatMap((t) => t.clips);
+    const picked = all.filter((c) => ids.has(c.id));
+    const lock = !picked.every((c) => isClipLocked(project, c));
+    const groupIds = new Set<string>();
+    const soloIds = new Set<string>();
+    for (const c of picked) {
+      if (c.groupId) groupIds.add(c.groupId);
+      else for (const id of chainIds(project.tracks, c.id)) soloIds.add(id);
+    }
+    setProjectWithHistory((prev) => {
+      let next: Project = {
+        ...prev,
+        tracks: prev.tracks.map((t) => ({
+          ...t,
+          clips: t.clips.map((c) => (soloIds.has(c.id) ? { ...c, locked: lock || undefined } : c)),
+        })),
+      };
+      for (const g of groupIds) next = patchGroupSettings(next, g, { locked: lock || undefined });
+      return next;
+    });
+    const parts = [soloIds.size > 0 ? 'clip' : '', groupIds.size > 0 ? (groupIds.size === 1 ? 'group' : 'groups') : ''].filter(Boolean).join(' and ');
+    addToast({ type: 'success', title: lock ? 'Locked' : 'Unlocked', message: lock ? `The ${parts} cannot be moved or edited until unlocked.` : `The ${parts} can be edited again.` });
+  };
+
+  toggleLockRef.current = handleToggleLock;
+
   /** Open the effects rack; an edited track is ONE track there, so its pieces are rendered into one clip first (one undo step) */
   const handleOpenEffect = (type: EffectType) => {
+    if (selectionLocked()) return;
     setActiveEffectType(type);
     const sc = selectedClip;
     const ids = sc ? chainIds(project.tracks, sc.id) : [];
@@ -2656,6 +2752,7 @@ const MainStudio: React.FC = () => {
 
   /** Processing tools on a range: the range is split out, then the tool opens on its piece. */
   const openDspAny = (type: DspModalType) => {
+    if (selectionLocked()) return;
     if (!rangeSelection) {
       if (selectedClip) setPendingDsp({ type, clipId: selectedClip.id });
       else handleOpenDspModal(type);
@@ -2753,6 +2850,7 @@ const MainStudio: React.FC = () => {
         name: `${first.name} (${label})`,
         kind: audioEngine.getAsset(first.assetId)?.kind ?? 'recording',
         source: { storeId, frames: res.frames, peakBaseSamplesPerPixel: PEAK_BASE_SAMPLES_PER_PIXEL },
+        processed: true,
         sampleRate: res.sampleRate,
         durationSeconds: res.durationSeconds,
         numberOfChannels: res.channels,
@@ -3114,6 +3212,7 @@ const MainStudio: React.FC = () => {
   // 8. Undo / Redo
   const handleUndo = async () => {
     await flushPluginEdits();
+    const toOriginal = historyManagerRef.current.nextUndoIsOriginal();
     const previous = historyManagerRef.current.undo();
     if (previous) {
       const restored = { ...previous, mastering: projectRef.current.mastering };
@@ -3121,7 +3220,11 @@ const MainStudio: React.FC = () => {
       projectRef.current = restored;
       void syncPluginsToSnapshot(previous);
       updateHistoryFlags();
-      addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
+      if (toOriginal) {
+        addToast({ type: 'warning', title: 'Back to the original', message: 'Undo ran out of steps for this long audio, so this went back to the project as it was just before the first processing step (effect, Compress, Denoise, Pitch or Speed), with the unprocessed audio. Everything you did before that is kept; the processing and edits after it are undone. Redo brings them back.' });
+      } else {
+        addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
+      }
     }
   };
 
@@ -3172,7 +3275,7 @@ const MainStudio: React.FC = () => {
     }
     audioEngine.seek(0);
     playheadSecondsRef.current = 0;
-    setPlayheadSeconds(0);
+    setPlayhead(0);
     await clearCurrentProjectData().catch(() => {});
     pluginManager.clearAll();
     const freshProject: Project = {
@@ -3273,6 +3376,12 @@ const MainStudio: React.FC = () => {
       if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         toggleFocusTrack();
+      }
+
+      // L: lock / unlock the selected clip or group
+      if ((e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        toggleLockRef.current();
       }
 
       // R: Open Recording Studio
@@ -3404,7 +3513,6 @@ const MainStudio: React.FC = () => {
     isPlaying,
     selectedClipIds,
     project,
-    playheadSeconds,
     canUndo,
     canRedo,
     clipboardClip,
@@ -3552,6 +3660,8 @@ const MainStudio: React.FC = () => {
         selectedCount={selectedUnitCount}
         canPaste={canPasteAny}
         onSplit={(id) => splitAny(id)}
+        locked={!!selectedClip && isClipLocked(project, selectedClip)}
+        onToggleLock={handleToggleLock}
         onSilence={handleSilence}
         onCaptureNoise={() => void handleCaptureNoise()}
         hasNoisePrint={!!noisePrint}
@@ -3737,7 +3847,6 @@ const MainStudio: React.FC = () => {
           ) : (
             <Timeline
               project={project}
-              playheadSeconds={playheadSeconds}
               pixelsPerSecond={pixelsPerSecond}
               onViewportWidthChange={setTimelineViewportWidth}
               selectedTrackId={selectedTrackId}
@@ -3788,6 +3897,8 @@ const MainStudio: React.FC = () => {
               soloGroupId={soloGroupId}
               onToggleSolo={handleToggleSoloGroup}
               onUngroupSelected={handleUngroupSelected}
+              onToggleLock={handleToggleLock}
+              onLockedHit={() => addToast({ type: 'info', title: 'Locked', message: 'Unlock this clip or group (L) to trim or fade it.' })}
               onMoveClipTrack={handleMoveClipTrack}
               onUpdateClip={handleUpdateClip}
               onFileDrop={handleImportFiles}
@@ -3854,7 +3965,6 @@ const MainStudio: React.FC = () => {
         trackCount={project.tracks.length}
         clipCount={totalClips}
         selectedClipCount={selectedUnitCount}
-        playheadSeconds={playheadSeconds}
         totalDurationSeconds={totalDurationSeconds}
         isPlaying={isPlaying}
         pixelsPerSecond={pixelsPerSecond}

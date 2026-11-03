@@ -96,7 +96,6 @@ const PILL_ON = 'border-accent/40 bg-accent-soft text-accent';
 interface HeaderProps {
   project: Project;
   isPlaying: boolean;
-  playheadSeconds?: number;
   pixelsPerSecond?: number;
   canUndo: boolean;
   canRedo: boolean;
@@ -156,7 +155,6 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   project,
   isPlaying,
-  playheadSeconds,
   pixelsPerSecond,
   canUndo,
   canRedo,
@@ -273,7 +271,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-14 bg-surface-0 border-b border-line px-4 flex items-center justify-between gap-4 select-none shrink-0 z-40">
+    <header className="h-14 bg-surface-0 border-b border-line px-4 max-[1100px]:px-2.5 flex items-center justify-between gap-4 max-[1100px]:gap-2 select-none shrink-0 z-40">
       {/* Hidden File Input for Import Audio */}
       <input
         ref={fileInputRef}
@@ -299,7 +297,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="w-8 h-8 rounded-control bg-gold-soft text-gold flex items-center justify-center">
             <AudioWaveform className="w-4 h-4 stroke-[2.5]" />
           </div>
-          <span className="font-bold tracking-tight text-sm text-ink flex items-center gap-1.5">
+          <span className="font-bold tracking-tight text-sm text-ink flex items-center gap-1.5 max-[1100px]:hidden">
             UUDA <span className="text-gold font-semibold text-xs tracking-[0.18em]">STUDIO</span>
           </span>
         </div>
@@ -842,10 +840,10 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onOpenRecord}
           title="Open Recording Studio with 4-Band Input EQ (R)"
-          className={`${PILL_LAYOUT} ${PILL_IDLE} hover:border-danger/50`}
+          className={`${PILL_LAYOUT} ${PILL_IDLE} hover:border-danger/50 max-[1350px]:px-2.5`}
         >
           <span aria-hidden="true" className="h-2 w-2 rounded-full bg-danger" />
-          <span>Record</span>
+          <span className="max-[1350px]:hidden">Record</span>
         </button>
       </div>
 
@@ -874,10 +872,10 @@ export const Header: React.FC<HeaderProps> = ({
             }
           }}
           title="Open Expanded Voiceover Studio Workspace (Gemini TTS)"
-          className={`${PILL_LAYOUT} ${PILL_IDLE}`}
+          className={`${PILL_LAYOUT} ${PILL_IDLE} max-[1650px]:px-2.5`}
         >
           <Mic className="w-3.5 h-3.5" />
-          <span>Voiceover</span>
+          <span className="max-[1650px]:hidden">Voiceover</span>
         </button>
 
         {/* Sound Library Button: opens the Freesound search and preview window directly */}
@@ -887,10 +885,10 @@ export const Header: React.FC<HeaderProps> = ({
             window.dispatchEvent(new CustomEvent('uuda:open-library-modal'));
           }}
           title="Search and preview sounds from Freesound (CC0)"
-          className={`${PILL_LAYOUT} ${PILL_IDLE}`}
+          className={`${PILL_LAYOUT} ${PILL_IDLE} max-[1650px]:px-2.5`}
         >
           <Music className="w-3.5 h-3.5" />
-          <span>Sound Library</span>
+          <span className="max-[1650px]:hidden">Sound Library</span>
         </button>
 
         {/* Modular Audio Plugins Button */}
@@ -904,10 +902,10 @@ export const Header: React.FC<HeaderProps> = ({
             }
           }}
           title="Open Modular Audio Plugins & Effects Rack (WAM 2.0 & Native Stems)"
-          className={`${PILL_LAYOUT} ${PILL_IDLE}`}
+          className={`${PILL_LAYOUT} ${PILL_IDLE} max-[1650px]:px-2.5`}
         >
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Plugins</span>
+          <span className="max-[1650px]:hidden">Plugins</span>
         </button>
 
         {/* Master & Export Production Button */}
