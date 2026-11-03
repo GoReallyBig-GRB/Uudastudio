@@ -72,6 +72,19 @@ interface MasterConsolePanelProps {
   onSelectTrack?: (trackId: string) => void;
 }
 
+/** Meters are drawn on canvases, which cannot use CSS classes, so read the design tokens once per mount. */
+function readMeterColors() {
+  const css = getComputedStyle(document.documentElement);
+  const t = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+  return {
+    bg: t('--color-surface-0', '#0a0a0b'),
+    ok: t('--color-ok', '#5fbf94'),
+    warn: t('--color-warn', '#d9a441'),
+    danger: t('--color-danger', '#e0707a'),
+    peak: t('--color-ink', '#f2f2f0'),
+  };
+}
+
 export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
   project,
   onClose,
@@ -195,6 +208,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
   // Live Metering Loop
   useEffect(() => {
     let animId: number;
+    const mc = readMeterColors();
     let peakHoldL = 0;
     let peakHoldR = 0;
 
@@ -209,22 +223,22 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
           const w = meterLRef.current.width;
           const h = meterLRef.current.height;
           ctx.clearRect(0, 0, w, h);
-          ctx.fillStyle = '#08080c';
+          ctx.fillStyle = mc.bg;
           ctx.fillRect(0, 0, w, h);
 
           const rmsH = Math.min(h, metering.rmsL * h * 1.5);
           peakHoldL = Math.max(metering.peakL, peakHoldL * 0.95);
 
           const grad = ctx.createLinearGradient(0, h, 0, 0);
-          grad.addColorStop(0, '#10b981'); // emerald
-          grad.addColorStop(0.7, '#f59e0b'); // amber
-          grad.addColorStop(0.9, '#ef4444'); // red
+          grad.addColorStop(0, mc.ok);
+          grad.addColorStop(0.7, mc.warn);
+          grad.addColorStop(0.9, mc.danger);
           ctx.fillStyle = grad;
           ctx.fillRect(0, h - rmsH, w, rmsH);
 
           // Peak bar
           const peakY = Math.max(2, h - peakHoldL * h);
-          ctx.fillStyle = peakHoldL >= 0.99 ? '#ef4444' : '#ffffff';
+          ctx.fillStyle = peakHoldL >= 0.99 ? mc.danger : mc.peak;
           ctx.fillRect(0, peakY, w, 2);
         }
       }
@@ -236,21 +250,21 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
           const w = meterRRef.current.width;
           const h = meterRRef.current.height;
           ctx.clearRect(0, 0, w, h);
-          ctx.fillStyle = '#08080c';
+          ctx.fillStyle = mc.bg;
           ctx.fillRect(0, 0, w, h);
 
           const rmsH = Math.min(h, metering.rmsR * h * 1.5);
           peakHoldR = Math.max(metering.peakR, peakHoldR * 0.95);
 
           const grad = ctx.createLinearGradient(0, h, 0, 0);
-          grad.addColorStop(0, '#10b981');
-          grad.addColorStop(0.7, '#f59e0b');
-          grad.addColorStop(0.9, '#ef4444');
+          grad.addColorStop(0, mc.ok);
+          grad.addColorStop(0.7, mc.warn);
+          grad.addColorStop(0.9, mc.danger);
           ctx.fillStyle = grad;
           ctx.fillRect(0, h - rmsH, w, rmsH);
 
           const peakY = Math.max(2, h - peakHoldR * h);
-          ctx.fillStyle = peakHoldR >= 0.99 ? '#ef4444' : '#ffffff';
+          ctx.fillStyle = peakHoldR >= 0.99 ? mc.danger : mc.peak;
           ctx.fillRect(0, peakY, w, 2);
         }
       }
@@ -262,13 +276,13 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
           const w = grMeterRef.current.width;
           const h = grMeterRef.current.height;
           ctx.clearRect(0, 0, w, h);
-          ctx.fillStyle = '#0a0a0f';
+          ctx.fillStyle = mc.bg;
           ctx.fillRect(0, 0, w, h);
 
           // Gain reduction is 0 to -12 dB
           const grDb = Math.abs(metering.gainReductionDb);
           const grW = Math.min(w, (grDb / 12) * w);
-          ctx.fillStyle = '#f59e0b';
+          ctx.fillStyle = mc.warn;
           ctx.fillRect(w - grW, 0, grW, h);
         }
       }
@@ -297,10 +311,10 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
   return (
     <div
       style={isSidebarMode ? { width: `${panelWidth}px` } : undefined}
-      className={`flex flex-col h-full bg-[#111116] border-l border-zinc-700 text-zinc-200 select-none relative ${
+      className={`flex flex-col h-full bg-surface-1 border-l border-line-strong text-ink select-none relative ${
         isSidebarMode
           ? 'shrink-0 max-w-[95vw]'
-          : 'w-full max-w-5xl mx-auto rounded-xl border border-zinc-700 shadow-2xl'
+          : 'w-full max-w-5xl mx-auto rounded-xl border border-line-strong shadow-2xl'
       } ${isResizing ? 'select-none transition-none' : 'transition-[width] duration-75'}`}
     >
       {/* Drawer Resize Handle on Inner Edge (Left edge of right panel) */}
@@ -319,25 +333,25 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
           onKeyDown={handleKeyDownResize}
           className="absolute left-0 top-0 bottom-0 w-3 -translate-x-1.5 cursor-ew-resize z-40 group flex items-center justify-center focus:outline-none"
         >
-          <div className="w-1.5 h-16 rounded-full bg-zinc-600/80 group-hover:bg-cyan-400 group-focus:bg-cyan-400 group-hover:shadow-[0_0_8px_#00f0ff] transition-all shadow-md flex flex-col items-center justify-center gap-1">
-            <span className="w-0.5 h-0.5 rounded-full bg-zinc-300" />
-            <span className="w-0.5 h-0.5 rounded-full bg-zinc-300" />
-            <span className="w-0.5 h-0.5 rounded-full bg-zinc-300" />
+          <div className="w-1.5 h-16 rounded-full bg-ink-faint/60 group-hover:bg-accent group-focus:bg-accent transition-all shadow-md flex flex-col items-center justify-center gap-1">
+            <span className="w-0.5 h-0.5 rounded-full bg-ink-dim" />
+            <span className="w-0.5 h-0.5 rounded-full bg-ink-dim" />
+            <span className="w-0.5 h-0.5 rounded-full bg-ink-dim" />
           </div>
         </div>
       )}
 
       {/* Header and tabs */}
-      <div className="shrink-0 border-b border-zinc-800 bg-[#101015]">
+      <div className="shrink-0 border-b border-line bg-surface-1">
         <div className="flex items-center justify-between px-5 pb-1 pt-4">
-          <h2 className="text-base font-semibold tracking-tight text-zinc-100">Master</h2>
+          <h2 className="text-base font-semibold tracking-tight text-ink">Master</h2>
           <div className="flex items-center gap-1">
             {isSidebarMode && (
               <button
                 onClick={handleToggleExpand}
                 title={isFullyExpanded ? 'Narrow the panel' : 'Widen the panel'}
                 aria-label={isFullyExpanded ? 'Narrow the panel' : 'Widen the panel'}
-                className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
+                className="rounded-full p-2 text-ink-faint transition-colors hover:bg-surface-3 hover:text-ink cursor-pointer"
               >
                 {isFullyExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
               </button>
@@ -347,7 +361,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                 onClick={onClose}
                 aria-label="Close panel"
                 title="Close"
-                className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
+                className="rounded-full p-2 text-ink-faint transition-colors hover:bg-surface-3 hover:text-ink cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -358,8 +372,8 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
           {([['console', 'Mixer'], ['meters', 'Meters'], ['mastering', 'Mastering']] as const).map(([id, label]) => (
             <button
               key={id} role="tab" aria-selected={activeTab === id} onClick={() => setActiveTab(id)}
-              className={`-mb-px border-b-2 pb-2.5 pt-2 text-sm font-medium transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 ${
-                activeTab === id ? 'border-cyan-300 text-zinc-50' : 'border-transparent text-zinc-500 hover:text-zinc-200'
+              className={`-mb-px border-b-2 pb-2.5 pt-2 text-sm font-medium transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
+                activeTab === id ? 'border-accent text-ink' : 'border-transparent text-ink-faint hover:text-ink'
               }`}
             >
               {label}
@@ -377,13 +391,13 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
         {activeTab === 'console' && (
           <div className="space-y-4">
             {/* Console Toolbar */}
-            <div className="flex items-center justify-between bg-[#0a0a0f] p-3 rounded-xl border border-zinc-800">
+            <div className="flex items-center justify-between bg-surface-0 p-3 rounded-xl border border-line">
               <div className="flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-bold text-zinc-100 uppercase tracking-wider">
+                <Sliders className="w-4 h-4 text-ok" />
+                <span className="text-xs font-bold text-ink uppercase tracking-wider">
                   Pro Multi-Track Mixing Desk
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-mono">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface-3 text-ink-dim font-mono">
                   {project.tracks.length} / {Math.max(10, project.tracks.length)} Active Channels
                 </span>
               </div>
@@ -392,7 +406,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                 {onAddTrack && (
                   <button
                     onClick={onAddTrack}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-cyan-300 text-[11px] font-semibold border border-zinc-700 transition-colors cursor-pointer"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-3 hover:bg-line-strong text-accent text-[11px] font-semibold border border-line-strong transition-colors cursor-pointer"
                   >
                     <span>+ Add Track</span>
                   </button>
@@ -401,7 +415,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
             </div>
 
             {/* The Console Chassis: 10+ Channel Strips + Master Out */}
-            <div className="bg-[#0b0b10] border border-zinc-800 rounded-2xl p-4 shadow-2xl overflow-x-auto">
+            <div className="bg-surface-0 border border-line rounded-2xl p-4 shadow-2xl overflow-x-auto">
               <div className="flex gap-2.5 min-w-max items-stretch">
                 {/* 10+ Channel Strips mapped directly to timeline tracks */}
                 {Array.from({ length: Math.max(10, project.tracks.length) }).map((_, chIdx) => {
@@ -416,37 +430,37 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                       className={`w-[68px] shrink-0 rounded-xl p-2.5 flex flex-col justify-between items-center text-center transition-all relative ${
                         isActive
                           ? isSelected
-                            ? 'bg-[#161622] border-2 border-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.25)]'
-                            : 'bg-[#121218] border border-zinc-800 hover:border-zinc-700 hover:bg-[#14141e]'
-                          : 'bg-[#0d0d12]/60 border border-dashed border-zinc-800/80 opacity-40 select-none'
+                            ? 'bg-surface-2 border-2 border-accent'
+                            : 'bg-surface-1 border border-line hover:border-line-strong hover:bg-surface-2'
+                          : 'bg-surface-0/60 border border-dashed border-line opacity-40 select-none'
                       }`}
                     >
                       {/* Channel Header */}
                       <div className="w-full space-y-1">
                         <div className="flex items-center justify-between text-[9px] font-mono">
-                          <span className={`font-bold ${isActive ? 'text-cyan-400' : 'text-zinc-600'}`}>
+                          <span className={`font-bold ${isActive ? 'text-accent' : 'text-ink-faint'}`}>
                             CH {String(chIdx + 1).padStart(2, '0')}
                           </span>
                           {isActive ? (
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#10b981]" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-ok" />
                           ) : (
-                            <span className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-line-strong" />
                           )}
                         </div>
 
                         <div
                           title={isActive ? getTrackLabel(track, chIdx) : 'Empty Channel'}
-                          className="text-[10px] font-semibold truncate w-full text-zinc-200"
+                          className="text-[10px] font-semibold truncate w-full text-ink"
                         >
                           {isActive ? getTrackLabel(track, chIdx) : 'Empty'}
                         </div>
                       </div>
 
                       {/* Pan Mini Slider */}
-                      <div className="w-full py-1.5 border-y border-zinc-800/60 my-1">
-                        <div className="flex justify-between text-[8px] font-mono text-zinc-500 mb-0.5">
+                      <div className="w-full py-1.5 border-y border-line my-1">
+                        <div className="flex justify-between text-[8px] font-mono text-ink-faint mb-0.5">
                           <span>PAN</span>
-                          <span className="text-amber-400 font-bold">
+                          <span className="text-ink-dim font-bold">
                             {isActive ? formatPan(track.pan) : 'C'}
                           </span>
                         </div>
@@ -459,7 +473,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                           value={isActive ? track.pan : 0}
                           onDoubleClick={() => isActive && onUpdateTrack?.(track.id, { pan: 0 })}
                           onChange={(e) => isActive && onUpdateTrack?.(track.id, { pan: parseFloat(e.target.value) })}
-                          className="w-full h-1 bg-zinc-800 accent-amber-400 rounded-none cursor-pointer disabled:opacity-20"
+                          className="w-full h-1 bg-surface-3 accent-ink-dim rounded-none cursor-pointer disabled:opacity-20"
                         />
                       </div>
 
@@ -475,8 +489,8 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                           title={isActive && track.muted ? 'Unmute Track' : 'Mute Track'}
                           className={`flex-1 py-1 rounded text-[9px] font-extrabold transition-all cursor-pointer ${
                             isActive && track.muted
-                              ? 'bg-rose-500 text-white shadow-[0_0_8px_rgba(244,63,94,0.6)]'
-                              : 'bg-zinc-800/80 text-zinc-400 hover:text-white disabled:opacity-20'
+                              ? 'bg-danger text-surface-0'
+                              : 'bg-surface-3 text-ink-dim hover:text-ink disabled:opacity-20'
                           }`}
                         >
                           M
@@ -491,8 +505,8 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                           title={isActive && track.solo ? 'Unsolo Track' : 'Solo Track'}
                           className={`flex-1 py-1 rounded text-[9px] font-extrabold transition-all cursor-pointer ${
                             isActive && track.solo
-                              ? 'bg-amber-400 text-black shadow-[0_0_8px_rgba(251,191,36,0.6)]'
-                              : 'bg-zinc-800/80 text-zinc-400 hover:text-white disabled:opacity-20'
+                              ? 'bg-gold text-gold-ink'
+                              : 'bg-surface-3 text-ink-dim hover:text-ink disabled:opacity-20'
                           }`}
                         >
                           S
@@ -502,7 +516,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                       {/* Fader Well + LED Meter Section */}
                       <div className="flex items-center justify-center gap-1.5 py-1 flex-1 h-[160px] relative w-full">
                         {/* dB scale */}
-                        <div className="flex flex-col justify-between text-[7px] font-mono text-zinc-600 h-full py-1 text-right select-none pr-0.5">
+                        <div className="flex flex-col justify-between text-[7px] font-mono text-ink-faint h-full py-1 text-right select-none pr-0.5">
                           <span>+6</span>
                           <span>0</span>
                           <span>-6</span>
@@ -521,12 +535,12 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                             disabled={!isActive}
                             value={isActive ? (track.muted ? 0 : track.volume) : 0}
                             onChange={(e) => isActive && onUpdateTrack?.(track.id, { volume: parseFloat(e.target.value) })}
-                            className="w-[140px] h-2 bg-zinc-900 border border-zinc-700 rounded-xs accent-cyan-400 cursor-pointer -rotate-90 origin-center disabled:opacity-20"
+                            className="w-[140px] h-2 bg-surface-2 border border-line-strong rounded-xs accent-accent cursor-pointer -rotate-90 origin-center disabled:opacity-20"
                           />
                         </div>
 
                         {/* Responsive LED Peak Meter */}
-                        <div className="w-2 h-[140px] bg-black/90 rounded-xs border border-zinc-800 p-0.5 flex flex-col-reverse gap-0.5">
+                        <div className="w-2 h-[140px] bg-black/90 rounded-xs border border-line p-0.5 flex flex-col-reverse gap-0.5">
                           {Array.from({ length: 14 }).map((_, ledIdx) => {
                             const threshold = (ledIdx + 1) / 14;
                             const isLit = isActive && audioEngine.getIsPlaying() && !track.muted && (track.volume * 0.8 >= threshold);
@@ -539,11 +553,11 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                                 className={`w-full h-1.5 rounded-2xs transition-colors duration-75 ${
                                   isLit
                                     ? isRed
-                                      ? 'bg-rose-500 shadow-[0_0_4px_#f43f5e]'
+                                      ? 'bg-danger'
                                       : isYellow
-                                      ? 'bg-amber-400 shadow-[0_0_4px_#fbbf24]'
-                                      : 'bg-emerald-400 shadow-[0_0_4px_#10b981]'
-                                    : 'bg-zinc-900'
+                                      ? 'bg-warn'
+                                      : 'bg-ok'
+                                    : 'bg-surface-2'
                                 }`}
                               />
                             );
@@ -552,13 +566,13 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                       </div>
 
                       {/* Numerical dB Readout Box */}
-                      <div className="w-full mt-2 pt-1 border-t border-zinc-800/80">
+                      <div className="w-full mt-2 pt-1 border-t border-line">
                         {isActive ? (
                           <button
                             type="button"
                             onDoubleClick={() => onUpdateTrack?.(track.id, { volume: 1.0 })}
                             title="Double click to reset to 0 dB"
-                            className="w-full px-1 py-0.5 rounded bg-black/80 font-mono text-[9px] font-bold text-cyan-300 border border-zinc-800 hover:border-cyan-500/50"
+                            className="w-full px-1 py-0.5 rounded bg-black/80 font-mono text-[9px] font-bold text-accent border border-line hover:border-accent/50"
                           >
                             {track.muted ? '-inf' : formatVolumeDb(track.volume)}
                           </button>
@@ -567,7 +581,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                             type="button"
                             onClick={onAddTrack}
                             title="Click to add a track for this channel"
-                            className="w-full px-1 py-0.5 rounded bg-zinc-900 font-mono text-[8px] text-zinc-500 hover:text-cyan-400 border border-zinc-800"
+                            className="w-full px-1 py-0.5 rounded bg-surface-2 font-mono text-[8px] text-ink-faint hover:text-accent border border-line"
                           >
                             + Add
                           </button>
@@ -578,7 +592,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                 })}
 
                 {/* Group channels: one strip per clip group, until it is ungrouped */}
-                {groups.length > 0 && <div className="w-px bg-zinc-700/80 my-2 mx-1" />}
+                {groups.length > 0 && <div className="w-px bg-line-strong my-2 mx-1" />}
                 {groups.map((g) => (
                   <GroupConsoleStrip
                     key={g.id}
@@ -592,17 +606,17 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                 ))}
 
                 {/* Master Channel Divider */}
-                <div className="w-px bg-zinc-700/80 my-2 mx-1" />
+                <div className="w-px bg-line-strong my-2 mx-1" />
 
                 {/* Real Master Out Channel (Dominant Pro Strip) */}
-                <div className="w-[88px] shrink-0 rounded-2xl p-3 bg-gradient-to-b from-[#181a24] to-[#12131b] border-2 border-emerald-500/60 shadow-[0_0_24px_rgba(16,185,129,0.25)] flex flex-col justify-between items-center text-center relative">
+                <div className="w-[88px] shrink-0 rounded-2xl p-3 bg-gradient-to-b from-surface-2 to-surface-1 border-2 border-ok/60 flex flex-col justify-between items-center text-center relative">
                   {/* Master Out Header */}
                   <div className="w-full space-y-1">
                     <div className="flex items-center justify-between text-[10px] font-mono">
-                      <span className="font-extrabold text-emerald-400 tracking-wider">MASTER</span>
-                      <span className={`w-2 h-2 rounded-full ${audioEngine.getIsPlaying() ? 'bg-emerald-400 animate-pulse shadow-[0_0_8px_#10b981]' : 'bg-zinc-600'}`} />
+                      <span className="font-extrabold text-ok tracking-wider">MASTER</span>
+                      <span className={`w-2 h-2 rounded-full ${audioEngine.getIsPlaying() ? 'bg-ok animate-pulse' : 'bg-ink-faint'}`} />
                     </div>
-                    <div className="text-[9px] font-mono text-zinc-400 font-semibold uppercase">
+                    <div className="text-[9px] font-mono text-ink-dim font-semibold uppercase">
                       Main Mix Bus
                     </div>
                   </div>
@@ -615,8 +629,8 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                       title={isMasterMuted ? 'Unmute Master Output' : 'Mute Master Output'}
                       className={`w-full py-1.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${
                         isMasterMuted
-                          ? 'bg-rose-500 text-white shadow-[0_0_12px_rgba(244,63,94,0.7)]'
-                          : 'bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700'
+                          ? 'bg-danger text-surface-0'
+                          : 'bg-surface-3 text-ink-dim hover:text-ink border border-line-strong'
                       }`}
                     >
                       {isMasterMuted ? 'MUTED' : 'MUTE'}
@@ -626,8 +640,8 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                   {/* Master Fader Well + Dual Stereo Meters */}
                   <div className="flex items-center justify-center gap-1.5 py-1 flex-1 h-[160px] relative w-full">
                     {/* dB scale */}
-                    <div className="flex flex-col justify-between text-[7px] font-mono text-zinc-500 h-full py-1 text-right select-none pr-0.5">
-                      <span className="text-emerald-400 font-bold">+3.5</span>
+                    <div className="flex flex-col justify-between text-[7px] font-mono text-ink-faint h-full py-1 text-right select-none pr-0.5">
+                      <span className="text-ok font-bold">+3.5</span>
                       <span>0</span>
                       <span>-6</span>
                       <span>-12</span>
@@ -644,12 +658,12 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                         step="0.01"
                         value={isMasterMuted ? 0 : masterVolume}
                         onChange={(e) => handleMasterVolumeChange(parseFloat(e.target.value))}
-                        className="w-[140px] h-2.5 bg-zinc-950 border border-emerald-500/40 rounded-xs accent-emerald-400 cursor-pointer -rotate-90 origin-center"
+                        className="w-[140px] h-2.5 bg-surface-0 border border-ok/40 rounded-xs accent-ok cursor-pointer -rotate-90 origin-center"
                       />
                     </div>
 
                     {/* Dual Stereo Meters (L and R) */}
-                    <div className="flex gap-0.5 h-[140px] bg-black/95 rounded-xs border border-zinc-800 p-0.5">
+                    <div className="flex gap-0.5 h-[140px] bg-black/95 rounded-xs border border-line p-0.5">
                       {/* Left Channel */}
                       <div className="w-1.5 h-full flex flex-col-reverse gap-0.5">
                         {Array.from({ length: 14 }).map((_, idx) => {
@@ -661,11 +675,11 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                               className={`w-full h-1.5 rounded-2xs ${
                                 isLit
                                   ? idx >= 12
-                                    ? 'bg-rose-500 shadow-[0_0_4px_#f43f5e]'
+                                    ? 'bg-danger'
                                     : idx >= 9
-                                    ? 'bg-amber-400 shadow-[0_0_4px_#fbbf24]'
-                                    : 'bg-emerald-400 shadow-[0_0_4px_#10b981]'
-                                  : 'bg-zinc-900'
+                                    ? 'bg-warn'
+                                    : 'bg-ok'
+                                  : 'bg-surface-2'
                               }`}
                             />
                           );
@@ -683,11 +697,11 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                               className={`w-full h-1.5 rounded-2xs ${
                                 isLit
                                   ? idx >= 12
-                                    ? 'bg-rose-500 shadow-[0_0_4px_#f43f5e]'
+                                    ? 'bg-danger'
                                     : idx >= 9
-                                    ? 'bg-amber-400 shadow-[0_0_4px_#fbbf24]'
-                                    : 'bg-emerald-400 shadow-[0_0_4px_#10b981]'
-                                  : 'bg-zinc-900'
+                                    ? 'bg-warn'
+                                    : 'bg-ok'
+                                  : 'bg-surface-2'
                               }`}
                             />
                           );
@@ -697,16 +711,16 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                   </div>
 
                   {/* Master dB Digital Readout + 0 dB Reset */}
-                  <div className="w-full mt-2 pt-1 border-t border-zinc-800/80 space-y-1">
+                  <div className="w-full mt-2 pt-1 border-t border-line space-y-1">
                     <button
                       type="button"
                       onClick={() => handleMasterVolumeChange(1.0)}
                       title="Reset Master to 0 dB"
-                      className="w-full px-1.5 py-0.5 rounded bg-black/90 font-mono text-[9px] font-bold text-emerald-400 border border-emerald-500/40 hover:bg-emerald-950/40"
+                      className="w-full px-1.5 py-0.5 rounded bg-black/90 font-mono text-[9px] font-bold text-ok border border-ok/40 hover:bg-ok/10"
                     >
                       {isMasterMuted ? '-inf dB' : formatVolumeDb(masterVolume)}
                     </button>
-                    <div className="text-[8px] font-mono text-zinc-500 text-center">
+                    <div className="text-[8px] font-mono text-ink-faint text-center">
                       Click for 0dB
                     </div>
                   </div>
@@ -722,49 +736,49 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
         {activeTab === 'meters' && (
           <div className="space-y-4">
             {/* Live Loudness Radar Cards */}
-            <div className="bg-[#0A0A0E] border border-zinc-800 rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-zinc-800/80">
-                <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-emerald-400" />
+            <div className="bg-surface-0 border border-line rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-line">
+                <span className="text-[10px] uppercase font-bold text-ink-dim tracking-wider flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-ok" />
                   <span>BS.1770 / EBU R128 Live Loudness</span>
                 </span>
-                <span className="text-[9px] font-mono text-zinc-500">
+                <span className="text-[9px] font-mono text-ink-faint">
                   {audioEngine.getIsPlaying() ? 'LIVE STREAMING' : 'IDLE'}
                 </span>
               </div>
 
               <div className="grid grid-cols-4 gap-2 text-center">
-                <div className="bg-[#14141c] p-2 rounded border border-zinc-800">
-                  <div className="text-[9px] font-mono uppercase text-zinc-400">Momentary (M)</div>
-                  <div className="text-sm font-bold text-cyan-400 font-mono mt-0.5">
+                <div className="bg-surface-2 p-2 rounded border border-line">
+                  <div className="text-[9px] font-mono uppercase text-ink-dim">Momentary (M)</div>
+                  <div className="text-sm font-bold text-accent font-mono mt-0.5">
                     {liveMetering.momentaryLUFS > -69 ? `${liveMetering.momentaryLUFS.toFixed(1)}` : '--'}
-                    <span className="text-[9px] text-zinc-500 ml-0.5">LUFS</span>
+                    <span className="text-[9px] text-ink-faint ml-0.5">LUFS</span>
                   </div>
                 </div>
 
-                <div className="bg-[#14141c] p-2 rounded border border-zinc-800">
-                  <div className="text-[9px] font-mono uppercase text-zinc-400">Short-Term (S)</div>
-                  <div className="text-sm font-bold text-emerald-400 font-mono mt-0.5">
+                <div className="bg-surface-2 p-2 rounded border border-line">
+                  <div className="text-[9px] font-mono uppercase text-ink-dim">Short-Term (S)</div>
+                  <div className="text-sm font-bold text-ok font-mono mt-0.5">
                     {liveMetering.shortTermLUFS > -69 ? `${liveMetering.shortTermLUFS.toFixed(1)}` : '--'}
-                    <span className="text-[9px] text-zinc-500 ml-0.5">LUFS</span>
+                    <span className="text-[9px] text-ink-faint ml-0.5">LUFS</span>
                   </div>
                 </div>
 
-                <div className="bg-[#14141c] p-2 rounded border border-zinc-800">
-                  <div className="text-[9px] font-mono uppercase text-zinc-400">Integrated (I)</div>
-                  <div className="text-sm font-bold text-indigo-400 font-mono mt-0.5">
+                <div className="bg-surface-2 p-2 rounded border border-line">
+                  <div className="text-[9px] font-mono uppercase text-ink-dim">Integrated (I)</div>
+                  <div className="text-sm font-bold text-ink font-mono mt-0.5">
                     {liveMetering.integratedLUFS > -69 ? `${liveMetering.integratedLUFS.toFixed(1)}` : '--'}
-                    <span className="text-[9px] text-zinc-500 ml-0.5">LUFS</span>
+                    <span className="text-[9px] text-ink-faint ml-0.5">LUFS</span>
                   </div>
                 </div>
 
-                <div className="bg-[#14141c] p-2 rounded border border-zinc-800">
-                  <div className="text-[9px] font-mono uppercase text-zinc-400">True Peak</div>
+                <div className="bg-surface-2 p-2 rounded border border-line">
+                  <div className="text-[9px] font-mono uppercase text-ink-dim">True Peak</div>
                   <div className={`text-sm font-bold font-mono mt-0.5 ${
-                    liveMetering.truePeakDbTP > -1.0 ? 'text-rose-400' : 'text-amber-400'
+                    liveMetering.truePeakDbTP > -1.0 ? 'text-danger' : 'text-warn'
                   }`}>
                     {liveMetering.truePeakDbTP > -69 ? `${liveMetering.truePeakDbTP.toFixed(1)}` : '--'}
-                    <span className="text-[9px] text-zinc-500 ml-0.5">dBTP</span>
+                    <span className="text-[9px] text-ink-faint ml-0.5">dBTP</span>
                   </div>
                 </div>
               </div>
@@ -772,10 +786,10 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
             </div>
 
             {/* Master Fader & Stereo Output Mixing Deck */}
-            <div className="bg-[#15151c] border border-zinc-800 rounded-lg p-3.5 space-y-3">
+            <div className="bg-surface-2 border border-line rounded-lg p-3.5 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
-                  <Volume2 className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold text-ink uppercase tracking-wider flex items-center gap-1.5">
+                  <Volume2 className="w-4 h-4 text-ok" />
                   <span>Master Output Channel</span>
                 </span>
 
@@ -786,8 +800,8 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                     title={isMasterMuted ? 'Unmute Master Output' : 'Mute Master Output'}
                     className={`px-2.5 py-1 rounded text-[10px] font-extrabold transition-all cursor-pointer ${
                       isMasterMuted
-                        ? 'bg-rose-500 text-white shadow-[0_0_8px_rgba(244,63,94,0.6)]'
-                        : 'bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700'
+                        ? 'bg-danger text-surface-0'
+                        : 'bg-surface-3 text-ink-dim hover:text-ink border border-line-strong'
                     }`}
                   >
                     MUTE
@@ -797,7 +811,7 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                     type="button"
                     onClick={() => handleMasterVolumeChange(1.0)}
                     title="Reset Master Fader to 0.0 dB"
-                    className="px-2 py-1 rounded bg-zinc-800 text-zinc-400 hover:text-cyan-300 text-[10px] font-mono border border-zinc-700 transition-colors"
+                    className="px-2 py-1 rounded bg-surface-3 text-ink-dim hover:text-accent text-[10px] font-mono border border-line-strong transition-colors"
                   >
                     0 dB
                   </button>
@@ -809,8 +823,8 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                 {/* Master Volume Fader */}
                 <div className="flex-1 space-y-1">
                   <div className="flex justify-between items-center text-xs">
-                    <span className="text-zinc-400">Master Fader Gain:</span>
-                    <span className="mono-nums text-emerald-400 font-bold font-mono">
+                    <span className="text-ink-dim">Master Fader Gain:</span>
+                    <span className="mono-nums text-ok font-bold font-mono">
                       {isMasterMuted ? '-inf dB' : formatVolumeDb(masterVolume)}
                     </span>
                   </div>
@@ -821,38 +835,38 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
                     step="0.01"
                     value={isMasterMuted ? 0 : masterVolume}
                     onChange={(e) => handleMasterVolumeChange(parseFloat(e.target.value))}
-                    className="w-full h-2 bg-zinc-800 accent-emerald-400 rounded cursor-pointer"
+                    className="w-full h-2 bg-surface-3 accent-ok rounded cursor-pointer"
                   />
-                  <div className="flex justify-between text-[9px] font-mono text-zinc-500 pt-0.5">
+                  <div className="flex justify-between text-[9px] font-mono text-ink-faint pt-0.5">
                     <span>-inf</span>
                     <span>-12dB</span>
-                    <span className="text-zinc-300 font-bold">0dB</span>
+                    <span className="text-ink-dim font-bold">0dB</span>
                     <span>+3.5dB</span>
                   </div>
                 </div>
 
                 {/* Dual Vertical Stereo Meters: Left and Right */}
-                <div className="flex items-center gap-1.5 shrink-0 bg-black/80 p-2 rounded border border-zinc-800">
+                <div className="flex items-center gap-1.5 shrink-0 bg-black/80 p-2 rounded border border-line">
                   <div className="flex flex-col items-center">
-                    <span className="text-[8px] font-mono text-zinc-400 mb-0.5">L</span>
+                    <span className="text-[8px] font-mono text-ink-dim mb-0.5">L</span>
                     <canvas ref={meterLRef} width={8} height={54} className="rounded-xs" />
                   </div>
                   <div className="flex flex-col items-center">
-                    <span className="text-[8px] font-mono text-zinc-400 mb-0.5">R</span>
+                    <span className="text-[8px] font-mono text-ink-dim mb-0.5">R</span>
                     <canvas ref={meterRRef} width={8} height={54} className="rounded-xs" />
                   </div>
                 </div>
               </div>
 
               {/* Compressor Gain Reduction Bar */}
-              <div className="pt-2 border-t border-zinc-800 space-y-1">
-                <div className="flex justify-between items-center text-[10px] text-zinc-400">
+              <div className="pt-2 border-t border-line space-y-1">
+                <div className="flex justify-between items-center text-[10px] text-ink-dim">
                   <span>Compressor Gain Reduction (GR):</span>
-                  <span className="font-mono text-amber-400 font-bold">
+                  <span className="font-mono text-warn font-bold">
                     {liveMetering.gainReductionDb.toFixed(1)} dB
                   </span>
                 </div>
-                <div className="h-2 w-full bg-black rounded overflow-hidden border border-zinc-800">
+                <div className="h-2 w-full bg-black rounded overflow-hidden border border-line">
                   <canvas ref={grMeterRef} width={360} height={8} className="w-full h-full block" />
                 </div>
               </div>
@@ -863,15 +877,15 @@ export const MasterConsolePanel: React.FC<MasterConsolePanelProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('mastering')}
-                className="h-11 rounded-full border border-zinc-700 text-zinc-100 font-semibold text-sm flex items-center justify-center gap-2 transition-colors hover:bg-zinc-800 cursor-pointer"
+                className="h-11 rounded-full border border-line-strong text-ink font-semibold text-sm flex items-center justify-center gap-2 transition-colors hover:bg-surface-3 cursor-pointer"
               >
-                <Sparkles className="w-4 h-4 text-cyan-300" />
+                <Sparkles className="w-4 h-4 text-accent" />
                 <span>Master the mix</span>
               </button>
               <button
                 type="button"
                 onClick={onOpenExport}
-                className="h-11 rounded-full bg-zinc-50 text-zinc-950 font-semibold text-sm flex items-center justify-center gap-2 transition-colors hover:bg-white cursor-pointer"
+                className="h-11 rounded-full bg-gold text-gold-ink font-semibold text-sm flex items-center justify-center gap-2 transition-colors hover:brightness-110 cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>Export</span>

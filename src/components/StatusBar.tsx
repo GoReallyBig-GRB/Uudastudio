@@ -31,6 +31,20 @@ interface StatusBarProps {
 /** The only part of the status bar that changes while playing */
 const PlayheadTime: React.FC = () => <>{formatTimecode(usePlayhead())}</>;
 
+/** The master meter is drawn on a canvas, which cannot use CSS classes, so read the design tokens once per mount. */
+function readMeterColors() {
+  const css = getComputedStyle(document.documentElement);
+  const t = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+  return {
+    bg: t('--color-surface-0', '#0a0a0b'),
+    ok: t('--color-ok', '#5fbf94'),
+    warn: t('--color-warn', '#d9a441'),
+    danger: t('--color-danger', '#e0707a'),
+    peak: t('--color-ink', '#f2f2f0'),
+    idle: t('--color-line-strong', 'rgb(255 255 255 / 0.13)'),
+  };
+}
+
 export const StatusBar: React.FC<StatusBarProps> = ({
   sampleRate,
   trackCount,
@@ -53,6 +67,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   // Master Meter animation loop
   useEffect(() => {
     let animId: number;
+    const mc = readMeterColors();
     let peakHold = 0;
 
     const renderMasterMeter = () => {
@@ -64,7 +79,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           const h = canvas.height;
           ctx.clearRect(0, 0, w, h);
 
-          ctx.fillStyle = '#0a0a0f';
+          ctx.fillStyle = mc.bg;
           ctx.fillRect(0, 0, w, h);
 
           if (isPlaying) {
@@ -80,19 +95,19 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
             const rmsWidth = rms * w;
             const grad = ctx.createLinearGradient(0, 0, w, 0);
-            grad.addColorStop(0, '#00e5a3');
-            grad.addColorStop(0.7, '#ffd000');
-            grad.addColorStop(0.9, '#ff3b30');
+            grad.addColorStop(0, mc.ok);
+            grad.addColorStop(0.7, mc.warn);
+            grad.addColorStop(0.9, mc.danger);
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, rmsWidth, h);
 
             const peakX = Math.min(w - 2, peakHold * w);
-            ctx.fillStyle = peakHold >= 0.99 ? '#ff2a2a' : '#ffffff';
+            ctx.fillStyle = peakHold >= 0.99 ? mc.danger : mc.peak;
             ctx.fillRect(peakX, 0, 2, h);
           } else {
             peakHold = 0;
             // Draw faint idle baseline
-            ctx.fillStyle = '#1c1c24';
+            ctx.fillStyle = mc.idle;
             ctx.fillRect(0, h - 2, w, 1);
           }
         }
@@ -115,24 +130,24 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
         <div className="h-3 w-px bg-line hidden sm:block" />
 
-        <div className="hidden sm:flex items-center gap-1 font-num text-[10px] text-zinc-500">
+        <div className="hidden sm:flex items-center gap-1 font-num text-[10px] text-ink-faint">
           <Activity className="w-3 h-3 text-ink-faint" />
           <span>{(sampleRate / 1000).toFixed(1)} kHz</span>
-          <span className="text-zinc-700">/</span>
+          <span className="text-ink-faint">/</span>
           <span>32-bit</span>
         </div>
 
         <div className="h-3 w-px bg-line" />
 
-        <div className="text-[11px] text-zinc-400">
+        <div className="text-[11px] text-ink-dim">
           <span>Tracks: </span>
-          <strong className="text-zinc-200 font-num">{trackCount}</strong>
-          <span className="mx-1 text-zinc-700">·</span>
+          <strong className="text-ink font-num">{trackCount}</strong>
+          <span className="mx-1 text-ink-faint">·</span>
           <span>Clips: </span>
-          <strong className="text-zinc-200 font-num">{clipCount}</strong>
+          <strong className="text-ink font-num">{clipCount}</strong>
           {selectedClipCount > 0 && (
             <>
-              <span className="mx-1 text-zinc-700">·</span>
+              <span className="mx-1 text-ink-faint">·</span>
               <span className="text-accent font-semibold">
                 {selectedClipCount} selected
               </span>
@@ -142,10 +157,10 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
         {/* Gain of the selected clip, nudged in 1 dB steps */}
         {selectedClipGain !== null && onNudgeClipGain && (
-          <div className="flex items-center gap-1 text-[11px] text-zinc-400" title="Gain of the selected clip">
+          <div className="flex items-center gap-1 text-[11px] text-ink-dim" title="Gain of the selected clip">
             <span>Clip gain</span>
             <button type="button" onClick={() => onNudgeClipGain(-1)} title="Volume -1 dB" className="rounded-full bg-surface-3 px-1.5 py-0.5 font-num text-[10px] hover:bg-white/10 cursor-pointer">-1</button>
-            <strong className="min-w-[3.5rem] text-center font-num text-zinc-200">{formatVolumeDb(selectedClipGain)}</strong>
+            <strong className="min-w-[3.5rem] text-center font-num text-ink">{formatVolumeDb(selectedClipGain)}</strong>
             <button type="button" onClick={() => onNudgeClipGain(1)} title="Volume +1 dB" className="rounded-full bg-surface-3 px-1.5 py-0.5 font-num text-[10px] hover:bg-white/10 cursor-pointer">+1</button>
           </div>
         )}
@@ -160,13 +175,13 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         >
           <Clock className="w-3 h-3 text-ink-faint" />
           <div className="flex items-center gap-1.5 font-num">
-            <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">POS</span>
+            <span className="text-[9px] text-ink-faint font-bold uppercase tracking-wider">POS</span>
             <span className="text-accent font-bold tracking-wider text-xs">
               <PlayheadTime />
             </span>
-            <span className="text-zinc-600 font-normal">/</span>
-            <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">TOTAL</span>
-            <span className="text-zinc-300 font-semibold tracking-wider text-xs">
+            <span className="text-ink-faint font-normal">/</span>
+            <span className="text-[9px] text-ink-faint font-bold uppercase tracking-wider">TOTAL</span>
+            <span className="text-ink-dim font-semibold tracking-wider text-xs">
               {formatTimecode(totalDurationSeconds)}
             </span>
           </div>
@@ -178,7 +193,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           className="flex items-center gap-2 bg-surface-1 border border-line rounded-full px-3 py-1"
         >
           <div className="flex flex-col text-[9px] font-num leading-none">
-            <span className="text-zinc-400 font-bold tracking-wider">MASTER</span>
+            <span className="text-ink-dim font-bold tracking-wider">MASTER</span>
             <span className={`text-[8px] font-semibold ${isPlaying ? 'text-ok' : 'text-ink-faint'}`}>
               {isPlaying ? 'LIVE' : 'IDLE'}
             </span>
@@ -203,7 +218,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           >
             <ZoomOut className="w-3 h-3" />
           </button>
-          <span className="text-[10px] font-num text-zinc-400 px-1 min-w-[42px] text-center select-none">
+          <span className="text-[10px] font-num text-ink-dim px-1 min-w-[42px] text-center select-none">
             {pixelsPerSecond >= 10 ? Math.round(pixelsPerSecond) : pixelsPerSecond.toFixed(1)}px/s
           </span>
           <button
@@ -225,16 +240,16 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <div className="h-3 w-px bg-line hidden md:block" />
 
         {/* Autosave badge */}
-        <div className="hidden md:flex items-center gap-1.5 text-zinc-400">
+        <div className="hidden md:flex items-center gap-1.5 text-ink-dim">
           <Database className="w-3 h-3 text-ink-faint" />
           {isAutosaving ? (
             <span className="text-warn animate-pulse text-[10px] font-medium">Saving...</span>
           ) : lastSavedAt ? (
-            <span className="text-zinc-400 font-num text-[10px]">
+            <span className="text-ink-dim font-num text-[10px]">
               Saved {lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
           ) : (
-            <span className="text-zinc-500 font-num text-[10px]">Autosave ready</span>
+            <span className="text-ink-faint font-num text-[10px]">Autosave ready</span>
           )}
         </div>
 
@@ -246,63 +261,63 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             onClick={() => setShowShortcuts(!showShortcuts)}
             className="flex items-center gap-1 text-ink-dim hover:text-ink hover:bg-white/5 px-2.5 py-1 rounded-full transition-colors cursor-pointer"
           >
-            <HelpCircle className="w-3 h-3 text-zinc-400" />
+            <HelpCircle className="w-3 h-3 text-ink-dim" />
             <span>Shortcuts</span>
           </button>
 
           {showShortcuts && (
             <div
               onClick={() => setShowShortcuts(false)}
-              className="absolute right-0 bottom-full mb-2 w-64 bg-surface-2 border border-line-strong rounded-card shadow-float p-3 z-50 text-[11px] text-zinc-300"
+              className="absolute right-0 bottom-full mb-2 w-64 bg-surface-2 border border-line-strong rounded-card shadow-float p-3 z-50 text-[11px] text-ink-dim"
             >
-              <div className="font-semibold text-zinc-100 pb-1.5 mb-2 border-b border-zinc-800 flex justify-between items-center">
+              <div className="font-semibold text-ink pb-1.5 mb-2 border-b border-line flex justify-between items-center">
                 <span>Keyboard Shortcuts</span>
-                <span className="text-[10px] text-zinc-500">DAW Controls</span>
+                <span className="text-[10px] text-ink-faint">DAW Controls</span>
               </div>
               <div className="space-y-1.5">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Play / Pause</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Space</span>
+                  <span className="text-ink-dim">Play / Pause</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">Space</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Record Studio (Input EQ)</span>
+                  <span className="text-ink-dim">Record Studio (Input EQ)</span>
                   <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">R</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Select tool / Range tool</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Z / X</span>
+                  <span className="text-ink-dim">Select tool / Range tool</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">Z / X</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Single-track view (focus)</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">F</span>
+                  <span className="text-ink-dim">Single-track view (focus)</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">F</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Split Clip at Playhead</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">S</span>
+                  <span className="text-ink-dim">Split Clip at Playhead</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">S</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Delete Selected</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Del / Backspace</span>
+                  <span className="text-ink-dim">Delete Selected</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">Del / Backspace</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Undo / Redo</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Ctrl+Z / Ctrl+Y</span>
+                  <span className="text-ink-dim">Undo / Redo</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">Ctrl+Z / Ctrl+Y</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Select All</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Ctrl+A</span>
+                  <span className="text-ink-dim">Select All</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">Ctrl+A</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Move Clip Track</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Arrow Up / Down</span>
+                  <span className="text-ink-dim">Move Clip Track</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">Arrow Up / Down</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Zoom In / Out</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Ctrl + Wheel</span>
+                  <span className="text-ink-dim">Zoom In / Out</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">Ctrl + Wheel</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Quick Actions</span>
-                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-zinc-200">Q / Double Click Clip</span>
+                  <span className="text-ink-dim">Quick Actions</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">Q / Double Click Clip</span>
                 </div>
               </div>
             </div>
