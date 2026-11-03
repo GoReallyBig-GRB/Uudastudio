@@ -1831,6 +1831,13 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
     perfTime('lane draw', () => renderWaveforms(canvasRef.current, track, trackIndex));
   }, [track, trackIndex, isSelected, laneWidth, canvasOrigin, canvasWidth, renderWaveforms, rowHeight]);
 
+  // Quiet alternating lanes so rows are easy to tell apart; the selected track gets a faint cyan wash
+  const laneTone = isSelected
+    ? 'bg-accent/[0.04] hover:bg-accent/[0.07]'
+    : trackIndex % 2 === 0
+      ? 'bg-surface-0 hover:bg-surface-1'
+      : 'bg-surface-1 hover:bg-surface-2';
+
   return (
     <div
       style={{ height: `${rowHeight}px` }}
@@ -1858,7 +1865,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
         onPointerLeave={onLanePointerLeave}
         onDoubleClick={(e) => onLaneDoubleClick(e, track)}
         onContextMenu={(e) => onLaneContextMenu(e, track)}
-        className={`h-full relative overflow-hidden bg-surface-0 hover:bg-surface-1 transition-colors border-b border-line ${rangeTool ? 'cursor-crosshair' : ''}`}
+        className={`h-full relative overflow-hidden transition-colors border-b border-line ${laneTone} ${rangeTool ? 'cursor-crosshair' : ''}`}
       >
         <canvas
           ref={canvasRef}
