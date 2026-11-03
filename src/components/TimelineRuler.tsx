@@ -22,6 +22,24 @@ interface TimelineRulerProps {
 
 const PlayheadTime: React.FC = () => <>{formatTimecode(usePlayhead())}</>;
 
+// The ruler is drawn on a canvas, which cannot use CSS classes, so read the design tokens once.
+// Fallbacks match the token values so a missing stylesheet still draws a sensible ruler.
+let rulerColorCache: { bg: string; border: string; tickMajor: string; tickMinor: string; label: string; labelStrong: string } | null = null;
+function getRulerColors() {
+  if (rulerColorCache) return rulerColorCache;
+  const css = getComputedStyle(document.documentElement);
+  const tok = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+  rulerColorCache = {
+    bg: tok('--color-surface-0', '#0a0a0b'),
+    border: tok('--color-line', 'rgb(255 255 255 / 0.07)'),
+    tickMajor: tok('--color-ink-faint', '#6b6b72'),
+    tickMinor: tok('--color-line-strong', 'rgb(255 255 255 / 0.13)'),
+    label: tok('--color-ink-dim', '#a3a3a8'),
+    labelStrong: tok('--color-ink', '#f2f2f0'),
+  };
+  return rulerColorCache;
+}
+
 export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   pixelsPerSecond,
   totalDurationSeconds,
@@ -52,12 +70,14 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
 
     ctx.clearRect(0, 0, width, height);
 
+    const colors = getRulerColors();
+
     // Background
-    ctx.fillStyle = '#0a0a0b';
+    ctx.fillStyle = colors.bg;
     ctx.fillRect(0, 0, width, height);
 
     // Bottom border
-    ctx.strokeStyle = '#1c1c20';
+    ctx.strokeStyle = colors.border;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, height - 0.5);
@@ -80,16 +100,16 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       const x = Math.round(t * pixelsPerSecond - scrollLeft);
 
       // Major tick mark (distinguishable, clean 1px line)
-      ctx.strokeStyle = '#52525b';
+      ctx.strokeStyle = colors.tickMajor;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x + 0.5, height - 12);
       ctx.lineTo(x + 0.5, height);
       ctx.stroke();
 
-      // Timestamp label (crisp text with subtle cyan tint for whole 10s intervals)
+      // Timestamp label (brighter for whole 10s intervals; cyan is kept for interactive things)
       const isTenSec = Math.round(t) % 10 === 0 && t > 0;
-      ctx.fillStyle = isTenSec ? '#38bdf8' : '#a1a1aa';
+      ctx.fillStyle = isTenSec ? colors.labelStrong : colors.label;
       const label = formatTimecode(t); // Include minutes so long tracks remain unambiguous
       ctx.fillText(label, x + 4, 3);
 
@@ -99,7 +119,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
         const minorTime = t + m * minorStep;
         const mx = Math.round(minorTime * pixelsPerSecond - scrollLeft);
         if (mx >= 0 && mx <= width) {
-          ctx.strokeStyle = '#3f3f46';
+          ctx.strokeStyle = colors.tickMinor;
           ctx.beginPath();
           ctx.moveTo(mx + 0.5, height - 6);
           ctx.lineTo(mx + 0.5, height);
