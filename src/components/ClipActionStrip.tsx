@@ -282,16 +282,6 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
               <span>Silence</span>
             </button>
           )}
-          {inRange && onCaptureNoise && (
-            <button
-              onClick={() => { onCaptureNoise(); onClose(); }}
-              title="Use this range as the noise sample: Denoise then removes only that noise from the whole track"
-              className={BTN_COL}
-            >
-              <Fingerprint className="w-3.5 h-3.5" />
-              <span>{hasNoisePrint ? 'Noise ✓' : 'Noise'}</span>
-            </button>
-          )}
           <button
             onClick={() => { if (inRange && onDeleteRange) onDeleteRange(); else onDelete(clip.id); onClose(); }}
             title={inRange ? 'Delete the highlighted range and close the gap (Delete)' : multi ? `Delete the ${selectedCount} selected clips (Delete)` : 'Delete clip (Delete)'}
@@ -463,28 +453,46 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
         )}
       </Section>}
 
-      {/* Processing tools work on one clip's audio */}
+      {/* Processing tools work on one clip's audio, grouped like the toolbar: noise removal (sample, then remove), then level and timing */}
       <Section id="dsp" title="Processing" collapsed={!!collapsed.dsp} onToggle={toggle}>
-        <div className="grid grid-cols-5 gap-1">
-          {([
-            ['amplify', 'Amplify', Sliders, 'Amplify gain in dB with clipping warning'],
-            ['compress', 'Compress', Wand2, 'Dynamics compressor with threshold and ratio'],
-            ['denoise', 'Denoise', Sparkles, 'Basic noise reduction (high-pass and spectral gate)'],
-            ['pitch', 'Pitch', Music, 'Change pitch without changing duration'],
-            ['speed', 'Speed', Gauge, 'Change speed without changing pitch'],
-          ] as const).map(([type, label, Icon, tip]) => (
+        {(() => {
+          const dspButton = (type: DspModalType, label: string, Icon: React.ComponentType<{ className?: string }>, tip: string) => (
             <button
-              key={type}
+              key={String(type)}
               disabled={!single}
-              onClick={() => { onOpenDsp(type as DspModalType); onClose(); }}
+              onClick={() => { onOpenDsp(type); onClose(); }}
               title={inRange ? `${tip} (applies to the highlighted range)` : single ? tip : only}
               className={`${BTN_COL} !text-[9px] !p-1`}
             >
               <Icon className="w-3 h-3 text-accent" />
               <span>{label}</span>
             </button>
-          ))}
-        </div>
+          );
+          return (
+            <>
+              <div className="text-[9px] uppercase tracking-wider text-ink-faint px-0.5">Noise removal</div>
+              <div className="grid grid-cols-2 gap-1">
+                <button
+                  disabled={!inRange || !onCaptureNoise}
+                  onClick={() => { onCaptureNoise?.(); onClose(); }}
+                  title={inRange ? 'Use this range as the noise sample: Denoise then removes only that noise from the whole track' : 'Highlight a few seconds with no speech (Range tool) to use as the noise sample'}
+                  className={`${BTN_COL} !text-[9px] !p-1`}
+                >
+                  <Fingerprint className="w-3 h-3 text-accent" />
+                  <span>{hasNoisePrint ? 'Noise sample ✓' : 'Noise sample'}</span>
+                </button>
+                {dspButton('denoise', 'Denoise', Sparkles, hasNoisePrint ? 'Remove the sampled noise' : 'Remove background noise (take a Noise sample first for best results)')}
+              </div>
+              <div className="text-[9px] uppercase tracking-wider text-ink-faint px-0.5 pt-1">Level and timing</div>
+              <div className="grid grid-cols-4 gap-1">
+                {dspButton('amplify', 'Amplify', Sliders, 'Amplify gain in dB with clipping warning')}
+                {dspButton('compress', 'Compress', Wand2, 'Dynamics compressor with threshold and ratio')}
+                {dspButton('pitch', 'Pitch', Music, 'Change pitch without changing duration')}
+                {dspButton('speed', 'Speed', Gauge, 'Change speed without changing pitch')}
+              </div>
+            </>
+          );
+        })()}
       </Section>
 
       {/* View: single-track view, and whether to hear that track alone */}
