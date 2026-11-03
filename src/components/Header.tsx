@@ -271,7 +271,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-14 bg-surface-0 border-b border-line px-4 flex items-center justify-between gap-4 select-none shrink-0 z-40">
+    <header className="h-14 bg-surface-0 border-b border-line px-4 max-[1100px]:px-2.5 flex items-center justify-between gap-4 max-[1100px]:gap-2 select-none shrink-0 z-40">
       {/* Hidden File Input for Import Audio */}
       <input
         ref={fileInputRef}

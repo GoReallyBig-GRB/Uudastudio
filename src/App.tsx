@@ -89,6 +89,7 @@ import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
 import { pluginManager } from './plugins/pluginManager';
 import { groupChainId } from './plugins/groupChain';
+import { lockViolation, isClipLocked } from './components/clipLock';
 import { dropGroupSettings, patchGroupSettings } from './audio/groupSettings';
 import { nextGroupColorIndex, nextGroupName, nextGroupNumber, summarizeGroups } from './audio/groupInfo';
 import { GroupListPanel } from './components/GroupListPanel';
@@ -432,10 +433,23 @@ const MainStudio: React.FC = () => {
 
 
 
+  const lockToastAtRef = useRef(0);
+  const addToastRef = useRef(addToast);
+  addToastRef.current = addToast;
+
   const setProjectWithHistory = useCallback(
     (newProjectOrFn: Project | ((prev: Project) => Project), skipHistory = false) => {
       setProject((prev) => {
         const next = typeof newProjectOrFn === 'function' ? newProjectOrFn(prev) : newProjectOrFn;
+        // GR-4: a locked clip or group is never moved, edited or deleted. The change is refused as a whole.
+        if (!skipHistory && lockViolation(prev, next) > 0) {
+          const now = Date.now();
+          if (now - lockToastAtRef.current > 800) {
+            lockToastAtRef.current = now;
+            queueMicrotask(() => addToastRef.current({ type: 'info', title: 'Locked', message: 'That clip or group is locked, so nothing was changed. Unlock it to edit.' }));
+          }
+          return prev;
+        }
         if (!skipHistory) {
           historyManagerRef.current.pushState(next);
         }
@@ -2677,8 +2691,53 @@ const MainStudio: React.FC = () => {
     return first.id;
   };
 
+  /** True (with a toast) when the selection holds a locked clip, so tools do not open on something they could not change. */
+  const selectionLocked = (): boolean => {
+    const ids = new Set<string>(selectedClipIds);
+    if (selectedClip) ids.add(selectedClip.id);
+    const hit = project.tracks.some((t) => t.clips.some((c) => ids.has(c.id) && isClipLocked(project, c)));
+    if (hit) addToast({ type: 'info', title: 'Locked', message: 'This clip or group is locked. Unlock it to edit or process it.' });
+    return hit;
+  };
+
+  /** Lock or unlock the selection. Grouped clips lock through their group; solo clips (and every piece of an edited track) individually. */
+  const toggleLockRef = useRef<() => void>(() => {});
+  const handleToggleLock = () => {
+    const ids = new Set<string>(selectedClipIds);
+    if (selectedClip) ids.add(selectedClip.id);
+    if (ids.size === 0) {
+      addToast({ type: 'info', title: 'Select a clip', message: 'Select a clip or a group, then lock it.' });
+      return;
+    }
+    const all = project.tracks.flatMap((t) => t.clips);
+    const picked = all.filter((c) => ids.has(c.id));
+    const lock = !picked.every((c) => isClipLocked(project, c));
+    const groupIds = new Set<string>();
+    const soloIds = new Set<string>();
+    for (const c of picked) {
+      if (c.groupId) groupIds.add(c.groupId);
+      else for (const id of chainIds(project.tracks, c.id)) soloIds.add(id);
+    }
+    setProjectWithHistory((prev) => {
+      let next: Project = {
+        ...prev,
+        tracks: prev.tracks.map((t) => ({
+          ...t,
+          clips: t.clips.map((c) => (soloIds.has(c.id) ? { ...c, locked: lock || undefined } : c)),
+        })),
+      };
+      for (const g of groupIds) next = patchGroupSettings(next, g, { locked: lock || undefined });
+      return next;
+    });
+    const parts = [soloIds.size > 0 ? 'clip' : '', groupIds.size > 0 ? (groupIds.size === 1 ? 'group' : 'groups') : ''].filter(Boolean).join(' and ');
+    addToast({ type: 'success', title: lock ? 'Locked' : 'Unlocked', message: lock ? `The ${parts} cannot be moved or edited until unlocked.` : `The ${parts} can be edited again.` });
+  };
+
+  toggleLockRef.current = handleToggleLock;
+
   /** Open the effects rack; an edited track is ONE track there, so its pieces are rendered into one clip first (one undo step) */
   const handleOpenEffect = (type: EffectType) => {
+    if (selectionLocked()) return;
     setActiveEffectType(type);
     const sc = selectedClip;
     const ids = sc ? chainIds(project.tracks, sc.id) : [];
@@ -2693,6 +2752,7 @@ const MainStudio: React.FC = () => {
 
   /** Processing tools on a range: the range is split out, then the tool opens on its piece. */
   const openDspAny = (type: DspModalType) => {
+    if (selectionLocked()) return;
     if (!rangeSelection) {
       if (selectedClip) setPendingDsp({ type, clipId: selectedClip.id });
       else handleOpenDspModal(type);
@@ -3318,6 +3378,12 @@ const MainStudio: React.FC = () => {
         toggleFocusTrack();
       }
 
+      // L: lock / unlock the selected clip or group
+      if ((e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        toggleLockRef.current();
+      }
+
       // R: Open Recording Studio
       if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
@@ -3594,6 +3660,8 @@ const MainStudio: React.FC = () => {
         selectedCount={selectedUnitCount}
         canPaste={canPasteAny}
         onSplit={(id) => splitAny(id)}
+        locked={!!selectedClip && isClipLocked(project, selectedClip)}
+        onToggleLock={handleToggleLock}
         onSilence={handleSilence}
         onCaptureNoise={() => void handleCaptureNoise()}
         hasNoisePrint={!!noisePrint}
@@ -3829,6 +3897,8 @@ const MainStudio: React.FC = () => {
               soloGroupId={soloGroupId}
               onToggleSolo={handleToggleSoloGroup}
               onUngroupSelected={handleUngroupSelected}
+              onToggleLock={handleToggleLock}
+              onLockedHit={() => addToast({ type: 'info', title: 'Locked', message: 'Unlock this clip or group (L) to trim or fade it.' })}
               onMoveClipTrack={handleMoveClipTrack}
               onUpdateClip={handleUpdateClip}
               onFileDrop={handleImportFiles}

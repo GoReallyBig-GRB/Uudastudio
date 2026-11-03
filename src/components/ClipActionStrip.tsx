@@ -27,6 +27,8 @@ import {
   Plug,
   Group,
   Ungroup,
+  Lock,
+  Unlock,
   GripHorizontal,
   Headphones,
   Maximize2,
@@ -76,6 +78,8 @@ interface ClipActionStripProps {
   onToggleSolo?: (groupId: string) => void;
   onGroup?: () => void;
   onUngroup?: () => void;
+  locked?: boolean;
+  onToggleLock?: () => void;
   /** Silence the selected clips, or the highlighted range */
   onSilence?: () => void;
   /** Learn the noise print from the highlighted range */
@@ -155,6 +159,8 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
   onToggleSolo,
   onGroup,
   onUngroup,
+  locked,
+  onToggleLock,
   onSilence,
   onCaptureNoise,
   hasNoisePrint,
@@ -349,6 +355,12 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
               <Ungroup className="w-3 h-3" />
               <span>Ungroup</span>
             </button>
+            {onToggleLock && (
+              <button onClick={() => onToggleLock()} aria-pressed={!!locked} title={locked ? 'Unlock so it can be moved and edited again' : 'Lock so it cannot be moved or edited by accident'} className={`${BTN} col-span-2 ${locked ? 'text-gold' : ''}`}>
+                {locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                <span>{locked ? 'Unlock' : 'Lock'}</span>
+              </button>
+            )}
           </div>
           {group && onUpdateGroup && (
             <div className="space-y-1.5 rounded-control bg-surface-1 border border-line p-2">

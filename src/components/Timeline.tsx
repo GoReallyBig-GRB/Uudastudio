@@ -9,6 +9,7 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
+import { isClipLocked } from './clipLock';
 import { getPlayhead, subscribePlayhead, usePlayhead } from '../playback/playheadStore';
 import { colorFromHex, groupColor, summarizeGroups, withAlpha } from '../audio/groupInfo';
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
@@ -73,6 +74,9 @@ interface TimelineProps {
   soloGroupId?: string | null;
   onToggleSolo?: (groupId: string) => void;
   onUngroupSelected?: () => void;
+  onToggleLock?: () => void;
+  /** Called when the user tries to trim or fade a locked clip */
+  onLockedHit?: () => void;
   onMoveClipTrack: (clipId: string, direction: 'up' | 'down') => void;
   onMoveTrack: (trackId: string, direction: 'up' | 'down') => void;
   onRecordTrack: (trackId: string) => void;
@@ -250,6 +254,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   soloGroupId = null,
   onToggleSolo,
   onUngroupSelected,
+  onToggleLock,
+  onLockedHit,
   onMoveClipTrack,
   onMoveTrack,
   onRecordTrack,
@@ -602,7 +608,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           if (!seams.get(c.id)?.left) shadeStep += 1;
           orderIndex.set(c.id, Math.max(0, shadeStep));
         });
-        const drawn: Array<{ x: number; w: number; seamR: boolean; name: string; selected: boolean }> = [];
+        const drawn: Array<{ x: number; w: number; seamR: boolean; name: string; selected: boolean; locked: boolean }> = [];
         for (const clip of track.clips) {
           const sm = seams.get(clip.id);
           const seamL = !!sm?.left;
@@ -836,7 +842,7 @@ export const Timeline: React.FC<TimelineProps> = ({
           }
 
           // Titles are drawn once per clip, after every piece, across the whole clip
-          drawn.push({ x: renderX, w: renderW, seamR, name: clip.name, selected: isSelected });
+          drawn.push({ x: renderX, w: renderW, seamR, name: clip.name, selected: isSelected, locked: isClipLocked(project, clip) });
 
           // Draw Trimming Edge Grippers (left and right edge handles for inward waveform deletion), at the ends of the whole clip
           if (isSelected) {
@@ -872,8 +878,23 @@ export const Timeline: React.FC<TimelineProps> = ({
           ctx.save();
           ctx.font = '10px "Plus Jakarta Sans", sans-serif';
           ctx.fillStyle = head.selected ? '#f1f5f9' : '#cbd5e1';
-          const titleText = fitTitle(displayTitle(head.name), totalW - TITLE_PAD_X * 2, (str) => ctx.measureText(str).width);
+          let locked = head.locked;
+          for (let k = i + 1; k <= last; k++) locked = locked || drawn[k].locked;
+          const lockRoom = locked ? 14 : 0;
+          const titleText = fitTitle(displayTitle(head.name), totalW - TITLE_PAD_X * 2 - lockRoom, (str) => ctx.measureText(str).width);
           if (titleText) ctx.fillText(titleText, head.x + TITLE_PAD_X, 16); // 4px lane padding + 12px baseline
+          if (locked && totalW > 28) {
+            // Small gold padlock at the clip's top-right corner
+            const lx = head.x + totalW - 12;
+            const ly = 8;
+            ctx.strokeStyle = '#d4af37';
+            ctx.fillStyle = '#d4af37';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(lx + 4, ly + 2, 2.5, Math.PI, 0);
+            ctx.stroke();
+            ctx.fillRect(lx, ly + 2, 8, 6);
+          }
           ctx.restore();
           i = last;
         }
@@ -1037,8 +1058,18 @@ export const Timeline: React.FC<TimelineProps> = ({
       }
     }
 
+    // GR-4: a locked clip (or one in a locked group) can be selected but not trimmed, faded, level-dragged or moved
+    const hitLocked = !!clickedClip && isClipLocked(project, clickedClip);
+    if (hitLocked && (clickedEdge || clickedFadeType)) {
+      onSelectClips(new Set([clickedClip!.id]));
+      onSelectTrack(track.id);
+      e.stopPropagation();
+      onLockedHit?.();
+      return;
+    }
+
     // The on-clip volume line: grab it on a selected single clip and pull up or down (Ctrl+click resets to 0 dB).
-    if (clickedClip && !clickedEdge && !clickedFadeType && !clickedClip.groupId && !seams.has(clickedClip.id) && selectedClipIds.has(clickedClip.id)) {
+    if (clickedClip && !hitLocked && !clickedEdge && !clickedFadeType && !clickedClip.groupId && !seams.has(clickedClip.id) && selectedClipIds.has(clickedClip.id)) {
       const laneH = rect.height - 8;
       const lineY = gainToY(clickedClip.gain, 4, laneH);
       if (laneH > 24 && clickY > 16 && Math.abs(clickY - lineY) <= 5) {
@@ -1104,6 +1135,9 @@ export const Timeline: React.FC<TimelineProps> = ({
       }
       onSelectClips(newSelected);
       onSelectTrack(track.id);
+
+      // A locked clip or group never starts a drag
+      if (project.tracks.some((t) => t.clips.some((c) => newSelected.has(c.id) && isClipLocked(project, c)))) return;
 
       // Start sub-pixel floating drag
       const initialMap = new Map<string, { startSeconds: number; trackIndex: number; clip: Clip }>();
@@ -1659,6 +1693,8 @@ export const Timeline: React.FC<TimelineProps> = ({
           }}
           onGroup={onGroupSelected}
           onUngroup={onUngroupSelected}
+          locked={project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && isClipLocked(project, c)))}
+          onToggleLock={onToggleLock}
         />
       )}
 

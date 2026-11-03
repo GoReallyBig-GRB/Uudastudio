@@ -29,6 +29,8 @@ export interface Clip {
   spliceId?: string;
   /** Clips sharing a groupId are selected, moved and deleted together until ungrouped. */
   groupId?: string;
+  /** A locked solo clip cannot be moved, trimmed, faded, processed, split or deleted until unlocked (GR-4). Grouped clips follow their group's lock. */
+  locked?: boolean;
 }
 
 export interface AmplifyParams {
@@ -195,6 +197,8 @@ export interface GroupSettings {
   name?: string;
   /** Creation number, so the list keeps its order when groups are renamed */
   order?: number;
+  /** A locked group's clips cannot be moved, trimmed, faded, processed, split or deleted until the group is unlocked (GR-4). */
+  locked?: boolean;
 }
 
 export interface ProjectSettings {

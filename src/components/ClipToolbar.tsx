@@ -8,6 +8,8 @@
 
 import React, { useEffect, useState } from 'react';
 import {
+  Lock,
+  Unlock,
   Scissors,
   ScissorsLineDashed,
   Copy,
@@ -55,6 +57,9 @@ interface ClipToolbarProps {
   onMoveTrack: (clipId: string, dir: 'up' | 'down') => void;
   onUpdateClip: (clipId: string, updates: Partial<Clip>) => void;
   onOpenDsp: (type: DspModalType) => void;
+  /** True when the selected clip or its group is locked (GR-4) */
+  locked?: boolean;
+  onToggleLock?: () => void;
   onOpenEffect?: (type: import('../types').EffectType) => void;
   onDeselect: () => void;
   /** Project title, shown at the left of this row; double-click it (or use File > Rename Project) to rename. */
@@ -191,6 +196,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onUpdateClip,
   onOpenDsp,
   onOpenEffect,
+  locked,
+  onToggleLock,
   tool,
   onToolChange,
   focusActive,
@@ -435,6 +442,16 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
           >
             {clip?.muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
             <span>{clip?.muted ? 'Muted' : 'Mute'}</span>
+          </button>
+          <button
+            onClick={() => onToggleLock?.()}
+            disabled={!clip || !onToggleLock}
+            title={clip ? (locked ? 'Unlock: allow moving and editing again (L)' : 'Lock: protect this clip or group from moving and editing (L)') : 'Select a clip or group to lock it'}
+            aria-pressed={!!locked}
+            className={`${PILL} ${locked ? 'border-gold/50 bg-gold/10 text-gold' : idle}`}
+          >
+            {locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+            <span className="max-[1100px]:hidden">{locked ? 'Locked' : 'Lock'}</span>
           </button>
           <Capsule label="Move to track" size="sm">
             <CapsuleButton iconOnly title="Move clip to track above (Arrow Up)" disabled={!clip} onClick={() => clip && onMoveTrack(clip.id, 'up')} icon={<ArrowUp className="h-3 w-3" />} />
