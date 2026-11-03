@@ -11,6 +11,11 @@ export interface ModalShellProps {
   /** Footer actions, right-aligned. */
   footer?: React.ReactNode;
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * dialog (default): padded body that scrolls as a whole.
+   * workspace: large, fixed-height frame whose body is not padded or scrolled, so the content lays out its own panes and scrolls them separately.
+   */
+  variant?: 'dialog' | 'workspace';
   /** Set false for dialogs that must not close by backdrop click or Escape (for example unsaved-changes prompts). */
   dismissible?: boolean;
   children: React.ReactNode;
@@ -23,7 +28,8 @@ const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:n
  * Shared dialog frame: title, close button, scrollable body, footer.
  * Escape closes (when dismissible), Tab stays inside, focus moves in on open and returns to the opener on close.
  */
-export const ModalShell: React.FC<ModalShellProps> = ({ open, onClose, title, description, footer, size = 'md', dismissible = true, children }) => {
+export const ModalShell: React.FC<ModalShellProps> = ({ open, onClose, title, description, footer, size = 'md', variant = 'dialog', dismissible = true, children }) => {
+  const isWorkspace = variant === 'workspace';
   const titleId = useId();
   const descId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -69,8 +75,8 @@ export const ModalShell: React.FC<ModalShellProps> = ({ open, onClose, title, de
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
         className={cn(
-          'uuda-pop-in flex max-h-[90vh] w-full flex-col overflow-hidden rounded-modal border border-line-strong bg-surface-1 shadow-float outline-none',
-          WIDTHS[size],
+          'uuda-pop-in flex w-full flex-col overflow-hidden rounded-modal border border-line-strong bg-surface-1 shadow-float outline-none',
+          isWorkspace ? 'h-[calc(100dvh-2rem)] max-w-6xl md:h-[92dvh]' : cn('max-h-[90vh]', WIDTHS[size]),
         )}
       >
         <header className="flex items-start justify-between gap-4 border-b border-line px-6 py-4">
@@ -89,8 +95,8 @@ export const ModalShell: React.FC<ModalShellProps> = ({ open, onClose, title, de
             </button>
           )}
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
-        {footer && <footer className="flex items-center justify-end gap-2 border-t border-line px-6 py-4">{footer}</footer>}
+        <div className={isWorkspace ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'min-h-0 flex-1 overflow-y-auto px-6 py-5'}>{children}</div>
+        {footer && <footer className={cn('flex items-center justify-end gap-2 border-t border-line px-6', isWorkspace ? 'py-3' : 'py-4')}>{footer}</footer>}
       </div>
     </div>
   );

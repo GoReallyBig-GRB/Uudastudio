@@ -1,8 +1,8 @@
 /**
- * Uuda Studio - Expanded Voiceover Workspace Modal
- * Spacious, multi-pane broadcast voice synthesis studio.
- * Left Pane: Expansive text editor, formatting tools, script analytics, delivery instructions, and 4 custom precepts.
- * Right Pane: Enlarged voice talent browser with audition player, gender/style filtering, and synthesis tier selector.
+ * Uuda Studio - Voiceover Workspace Modal
+ * Built on the shared ModalShell (workspace variant) and design tokens.
+ * Left pane: script, delivery direction, four saved directions. Right pane: voice list (takes the height that is left),
+ * quality tier and the rendered preview. Below 1024 px the panes stack and the whole body scrolls.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -19,14 +19,9 @@ import {
   Loader2,
   Check,
   Search,
-  Filter,
   Wand2,
   Trash2,
-  RotateCcw,
   Layers,
-  ArrowRight,
-  ShieldCheck,
-  Mic,
   Lock,
 } from 'lucide-react';
 import { Asset, VoiceMetadata } from '../types';
@@ -35,6 +30,7 @@ import { saveAssetToDB } from '../storage/db';
 import { authService } from '../services/authService';
 import { useVoiceSession, CustomPrecept } from '../voice/voiceSession';
 import { useVoiceJob, voiceJob, parseScriptAndInstructionClient } from '../voice/voiceJob';
+import { Button, ModalShell, SegmentedControl } from './ui';
 
 interface VoiceItem {
   name: string;
@@ -218,401 +214,375 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
   const wordCount = script.trim() ? script.trim().split(/\s+/).length : 0;
   const estimatedSeconds = (wordCount / 2.5).toFixed(1);
 
+  const selectedPicked = EXTENDED_GEMINI_VOICES.find((v) => v.name === selectedVoice);
+  const selectedAuditioning = auditioningVoice === selectedVoice;
+  const preceptCount = customPrecepts.filter(Boolean).length;
+
+  const sectionLabel = (icon: React.ReactNode, text: string, aside?: React.ReactNode) => (
+    <div className="mb-2 flex items-center justify-between gap-3">
+      <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">
+        <span className="text-accent" aria-hidden="true">{icon}</span>
+        {text}
+      </span>
+      {aside}
+    </div>
+  );
+
+  const auditionButtonClass = (active: boolean) =>
+    `flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+      active
+        ? 'bg-accent text-accent-ink'
+        : 'border border-line-strong bg-surface-3 text-ink hover:bg-surface-2'
+    }`;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md select-none animate-in fade-in duration-200">
-      <div className="w-full max-w-6xl h-[calc(100dvh-1.5rem)] md:h-[92dvh] bg-[#0E0E14] border border-zinc-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100">
-        {/* Workspace Top Header */}
-        <div className="h-14 px-3 sm:px-6 border-b border-zinc-800 flex items-center justify-between bg-[#12121A] shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-indigo-600 flex items-center justify-center text-white shadow-[0_0_15px_rgba(0,240,255,0.35)]">
-              <Mic className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm font-black uppercase tracking-wider text-white">
-                  Voiceover Studio Workspace
-                </h1>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-300 font-mono font-semibold border border-cyan-800/80">
-                  Gemini Speech Engine
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-400">
-                Multi-talent voice generation with director guidance and sample auditioning
-              </p>
-            </div>
+    <ModalShell
+      open={isOpen}
+      onClose={onClose}
+      title="Voiceover Studio"
+      description="Write the script, direct the delivery, pick a voice and audition it, then generate."
+      size="lg"
+      variant="workspace"
+      footer={
+        <>
+          <div className="mr-auto flex min-w-0 items-center gap-3 text-xs text-ink-dim">
+            <span className="truncate">
+              Voice: <strong className="font-semibold text-ink">{selectedVoice}</strong>
+            </span>
+            {progressMsg && (
+              <span className="flex items-center gap-2 font-medium text-accent" role="status">
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                <span className="truncate">{progressMsg}</span>
+              </span>
+            )}
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onClose}
-              className="text-zinc-400 hover:text-white p-1.5 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
-              title="Close Workspace"
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          {generatedAsset ? (
+            <Button variant="primary" onClick={handleCommitToTimeline} leftIcon={<Layers className="h-4 w-4" aria-hidden="true" />}>
+              Place on new track
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              onClick={handleGenerate}
+              loading={isBusy}
+              disabled={!script.trim()}
+              leftIcon={<Wand2 className="h-4 w-4" aria-hidden="true" />}
             >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+              {isBusy ? 'Synthesizing...' : 'Generate voiceover'}
+            </Button>
+          )}
+        </>
+      }
+    >
+      {errorMessage && (
+        <div role="alert" className="flex shrink-0 items-center justify-between gap-3 border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">
+          <span className="font-medium">{errorMessage}</span>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            aria-label="Dismiss message"
+            className="cursor-pointer rounded-full p-1 text-danger hover:bg-danger/20"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
+      )}
 
-        {/* Error Notification Bar */}
-        {errorMessage && (
-          <div className="px-6 py-2.5 bg-rose-950/70 border-b border-rose-800 text-xs text-rose-200 flex items-center justify-between shrink-0">
-            <span className="font-medium">{errorMessage}</span>
-            <button
-              onClick={() => setErrorMessage(null)}
-              className="text-rose-300 hover:text-white"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Multi-Pane Body */}
-        <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden divide-y lg:divide-y-0 lg:divide-x divide-zinc-800">
-          {/* Left Pane: Script Editor & Director Directives */}
-          <div className="flex-1 flex flex-col min-w-0 p-5 overflow-y-auto space-y-4">
-            {/* Script Text Input Section */}
-            <div className="flex-1 flex flex-col min-h-[220px]">
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-cyan-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-                    ### [Script] — Spoken Audio Content
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 text-xs">
-                  <span className="text-zinc-400 font-mono">
-                    <strong className="text-cyan-400">{wordCount}</strong> words • ~
-                    <strong className="text-cyan-400">{estimatedSeconds}s</strong> duration
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleCleanSpacing}
-                      title="Clean extra spaces and punctuation"
-                      className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-medium transition-colors cursor-pointer"
-                    >
-                      Clean Spacing
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAddPause}
-                      title="Add breathing pause (3 dots)"
-                      className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-medium transition-colors cursor-pointer"
-                    >
-                      + Pause
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <textarea
-                value={script}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (
-                    /(?:^|\n)\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:/i.test(val) ||
-                    /(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:/i.test(val)
-                  ) {
-                    const parsed = parseScriptAndInstructionClient(val, deliveryInstruction);
-                    setScript(parsed.cleanScript);
-                    if (parsed.directorNotes) {
-                      setDeliveryInstruction(parsed.directorNotes);
-                    }
-                  } else {
-                    setScript(val);
+      {/* Small screens: the whole body scrolls. From 1024 px up: two panes that scroll on their own. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+        {/* Left pane: script, direction, precepts */}
+        <section className="flex min-w-0 flex-1 flex-col gap-5 p-5 lg:min-h-0 lg:overflow-y-auto">
+          <div className="flex min-h-[220px] flex-1 flex-col">
+            {sectionLabel(
+              <FileText className="h-4 w-4" />,
+              'Script',
+              <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+                <span className="font-num text-ink-dim">
+                  <strong className="font-semibold text-ink">{wordCount}</strong> words · ~
+                  <strong className="font-semibold text-ink">{estimatedSeconds}s</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCleanSpacing}
+                  title="Clean extra spaces and punctuation"
+                  className="cursor-pointer rounded-full border border-line-strong bg-surface-3 px-2.5 py-1 text-[11px] font-medium text-ink-dim transition-colors hover:text-ink"
+                >
+                  Clean spacing
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddPause}
+                  title="Add a breathing pause (three dots)"
+                  className="cursor-pointer rounded-full border border-line-strong bg-surface-3 px-2.5 py-1 text-[11px] font-medium text-ink-dim transition-colors hover:text-ink"
+                >
+                  + Pause
+                </button>
+              </div>,
+            )}
+            <textarea
+              aria-label="Script: the text to be spoken"
+              value={script}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (
+                  /(?:^|\n)\s*(?:###\s*)?\[?\s*Script\s*\]?\s*:/i.test(val) ||
+                  /(?:^|\n)\s*(?:###\s*)?\[?\s*Instruction(?:s)?\s*\]?\s*:/i.test(val)
+                ) {
+                  const parsed = parseScriptAndInstructionClient(val, deliveryInstruction);
+                  setScript(parsed.cleanScript);
+                  if (parsed.directorNotes) {
+                    setDeliveryInstruction(parsed.directorNotes);
                   }
-                }}
-                placeholder="The actual text you must speak (e.g. paste your script or format as ### [Script]: &quot;...&quot; and ### [Instruction]: &quot;...&quot;)"
-                className="flex-1 w-full min-h-[160px] bg-[#0A0A0E] border border-zinc-700/80 rounded-xl p-4 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-cyan-500 leading-relaxed font-sans resize-none transition-colors"
-              />
-            </div>
+                } else {
+                  setScript(val);
+                }
+              }}
+              placeholder="The text to be spoken. You can also paste ### [Script]: and ### [Instruction]: blocks and they will be split for you."
+              className="min-h-[160px] w-full flex-1 resize-none rounded-control border border-line-strong bg-surface-0 p-4 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            />
+          </div>
 
-            {/* Director Instruction Input */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-                    ### [Instruction] — Director's Voice Engine Directives
-                  </span>
-                </div>
-                {deliveryInstruction && (
+          <div>
+            {sectionLabel(
+              <Sparkles className="h-4 w-4" />,
+              'Delivery direction',
+              deliveryInstruction ? (
+                <button type="button" onClick={() => setDeliveryInstruction('')} className="cursor-pointer text-[11px] text-ink-faint hover:text-ink">
+                  Clear
+                </button>
+              ) : undefined,
+            )}
+            <textarea
+              aria-label="Delivery direction: how the script should be spoken"
+              value={deliveryInstruction}
+              onChange={(e) => setDeliveryInstruction(e.target.value)}
+              rows={2}
+              placeholder="How to say it: tone, emotion, pace, accent, warmth. Used as direction only, never read aloud."
+              className="w-full resize-none rounded-control border border-line-strong bg-surface-0 p-3 text-xs leading-relaxed text-ink placeholder:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            />
+          </div>
+
+          <div>
+            {sectionLabel(
+              <Bookmark className="h-4 w-4" />,
+              'Saved directions',
+              <span className="font-num text-[11px] text-ink-faint">{preceptCount}/4 saved</span>,
+            )}
+
+            {slotNotice && (
+              <div role="status" className="mb-2 rounded-control border border-accent/30 bg-accent-soft p-2 text-xs text-accent">
+                {slotNotice}
+              </div>
+            )}
+
+            {savingSlotIndex !== null && (
+              <form
+                onSubmit={handleConfirmSavePrecept}
+                className="mb-3 space-y-2 rounded-control border border-accent/50 bg-surface-2 p-3"
+              >
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-ink">Save as slot {savingSlotIndex + 1}</span>
                   <button
                     type="button"
-                    onClick={() => setDeliveryInstruction('')}
-                    className="text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
+                    onClick={() => setSavingSlotIndex(null)}
+                    aria-label="Cancel saving"
+                    className="cursor-pointer rounded-full p-1 text-ink-dim hover:text-ink"
                   >
-                    Clear
+                    <X className="h-4 w-4" aria-hidden="true" />
                   </button>
-                )}
-              </div>
-              <p className="text-[11px] text-zinc-500 mb-1.5 leading-relaxed">
-                Directives on HOW to speak it (tone, emotion, pace, accent, pitch, texture). Applied strictly as voice profile boundaries — never read aloud.
-              </p>
-              <textarea
-                value={deliveryInstruction}
-                onChange={(e) => setDeliveryInstruction(e.target.value)}
-                rows={2}
-                placeholder="Directives on HOW to speak it (e.g., tone, emotion, pace, accent, warmth, texture)"
-                className="w-full bg-[#0A0A0E] border border-zinc-700/80 rounded-xl p-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-400 leading-relaxed font-sans resize-none transition-colors"
-              />
-            </div>
-
-            {/* 4 Custom Precept Slots */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Bookmark className="w-4 h-4 text-cyan-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-                    Custom Instruction Precepts
-                  </span>
                 </div>
-                <span className="text-[10px] text-zinc-500 font-mono">
-                  {customPrecepts.filter(Boolean).length}/4 Saved
-                </span>
-              </div>
-
-              {slotNotice && (
-                <div className="mb-2 p-2 rounded-lg bg-cyan-950/60 border border-cyan-800 text-xs text-cyan-300">
-                  {slotNotice}
+                <input
+                  type="text"
+                  autoFocus
+                  aria-label="Name for this saved direction"
+                  value={newPreceptTitle}
+                  onChange={(e) => setNewPreceptTitle(e.target.value)}
+                  placeholder="Name it (e.g. Radio promo, Warm intro)"
+                  className="w-full rounded-control border border-line-strong bg-surface-0 px-3 py-2 text-xs text-ink placeholder:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setSavingSlotIndex(null)}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" variant="primary" type="submit">
+                    Save
+                  </Button>
                 </div>
-              )}
+              </form>
+            )}
 
-              {/* Title input when saving */}
-              {savingSlotIndex !== null && (
-                <form
-                  onSubmit={handleConfirmSavePrecept}
-                  className="mb-3 p-3 rounded-xl bg-[#181824] border border-cyan-500/80 shadow-lg space-y-2 animate-in fade-in"
-                >
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-cyan-300">
-                      Save as Precept Slot {savingSlotIndex + 1}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSavingSlotIndex(null)}
-                      className="text-zinc-400 hover:text-white"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={newPreceptTitle}
-                    onChange={(e) => setNewPreceptTitle(e.target.value)}
-                    placeholder="Enter precept title (e.g. Radio Promo, Warm Intro)"
-                    className="w-full bg-[#0A0A0E] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-cyan-400 font-medium"
-                  />
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSavingSlotIndex(null)}
-                      className="px-3 py-1 rounded text-xs text-zinc-400 hover:bg-zinc-800 cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-4 py-1 rounded bg-cyan-500 text-black font-bold text-xs hover:bg-cyan-400 cursor-pointer"
-                    >
-                      Save Precept
-                    </button>
-                  </div>
-                </form>
-              )}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {customPrecepts.map((precept, idx) => {
+                const isAssigned = !!precept;
+                const isActive = isAssigned && deliveryInstruction.trim() === precept.instruction.trim();
 
-              {/* 4 Slots Grid */}
-              <div className="grid grid-cols-2 gap-2">
-                {customPrecepts.map((precept, idx) => {
-                  const isAssigned = !!precept;
-                  const isActive =
-                    isAssigned && deliveryInstruction.trim() === precept.instruction.trim();
-
-                  if (!isAssigned) {
-                    return (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleSlotClick(idx)}
-                        title="Click to save current instruction into this slot"
-                        className="p-3 rounded-xl border border-dashed border-zinc-800 hover:border-cyan-500/60 bg-[#121218] hover:bg-zinc-900 text-zinc-500 hover:text-cyan-300 text-left transition-all flex items-center justify-between group cursor-pointer"
-                      >
-                        <span className="text-xs font-medium flex items-center gap-1.5 truncate">
-                          <Plus className="w-3.5 h-3.5 text-zinc-600 group-hover:text-cyan-400 shrink-0" />
-                          <span className="truncate">Precept Slot {idx + 1}</span>
-                        </span>
-                        <span className="text-[10px] text-zinc-600 group-hover:text-cyan-400 shrink-0">
-                          + Save
-                        </span>
-                      </button>
-                    );
-                  }
-
+                if (!isAssigned) {
                   return (
-                    <div
+                    <button
                       key={idx}
+                      type="button"
                       onClick={() => handleSlotClick(idx)}
-                      className={`p-3 rounded-xl border text-left transition-all relative flex items-center justify-between cursor-pointer group ${
-                        isActive
-                          ? 'bg-cyan-950/50 border-cyan-400 text-cyan-200 shadow-[0_0_12px_rgba(0,240,255,0.25)]'
-                          : 'bg-[#14141E] border-zinc-700/80 hover:border-zinc-500 text-zinc-200 hover:bg-[#1a1a26]'
-                      }`}
+                      title="Save the current direction into this slot"
+                      className="flex cursor-pointer items-center gap-1.5 rounded-control border border-dashed border-line-strong p-2.5 text-left text-xs text-ink-faint transition-colors hover:border-accent/50 hover:text-accent"
                     >
-                      <div className="flex-1 min-w-0 pr-2">
-                        <div className="flex items-center gap-1.5">
-                          {isActive && (
-                            <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0 stroke-[2.5]" />
-                          )}
-                          <span className="text-xs font-bold truncate block">{precept.title}</span>
-                        </div>
-                        <span className="text-[10px] text-zinc-500 truncate block mt-0.5">
-                          {precept.instruction}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => handleClearPreceptSlot(idx, e)}
-                        title="Clear precept slot"
-                        className="opacity-0 group-hover:opacity-100 p-1 text-zinc-500 hover:text-rose-400 hover:bg-zinc-800/80 rounded transition-all cursor-pointer shrink-0"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Right Pane: Enlarged Voice Talent Selection & Auditioning */}
-          <div className="w-full lg:w-[480px] flex flex-col p-5 bg-[#0F0F16] space-y-4 shrink-0 overflow-y-auto">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
-                  <Volume2 className="w-4 h-4 text-cyan-400" />
-                  <span>Select Voice Talent</span>
-                </span>
-                <span className="text-[11px] text-zinc-400 font-mono">
-                  {filteredVoices.length} Voices Available
-                </span>
-              </div>
-
-              {/* Filters & Search */}
-              <div className="flex items-center gap-2 mb-3">
-                <div className="relative flex-1">
-                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by voice name, tone or tag..."
-                    className="w-full bg-[#09090D] border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-                <div className="flex items-center p-0.5 bg-[#09090D] border border-zinc-800 rounded-lg shrink-0 text-xs">
-                  {(['All', 'Female', 'Male'] as const).map((g) => (
-                    <button
-                      key={g}
-                      type="button"
-                      onClick={() => setGenderFilter(g)}
-                      className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
-                        genderFilter === g
-                          ? 'bg-cyan-500 text-black shadow-xs'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      {g}
+                      <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span className="truncate">Slot {idx + 1}</span>
                     </button>
-                  ))}
-                </div>
-              </div>
+                  );
+                }
 
-              {/* Pinned selected voice: stays visible while browsing the list */}
-              {(() => {
-                const picked = EXTENDED_GEMINI_VOICES.find((v) => v.name === selectedVoice);
-                const pickedAuditioning = auditioningVoice === selectedVoice;
                 return (
-                  <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-cyan-950/50 border border-cyan-400">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-cyan-300 font-bold">
-                        <Lock className="w-3 h-3" />
-                        <span>Selected voice{isBusy ? ' (locked while generating)' : ''}</span>
+                  <div
+                    key={idx}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleSlotClick(idx)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSlotClick(idx);
+                      }
+                    }}
+                    className={`group relative flex cursor-pointer items-center justify-between rounded-control border p-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+                      isActive ? 'border-accent bg-accent-soft text-ink' : 'border-line-strong bg-surface-2 text-ink hover:border-white/20'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1 pr-1">
+                      <div className="flex items-center gap-1.5">
+                        {isActive && <Check className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />}
+                        <span className="block truncate text-xs font-semibold">{precept.title}</span>
                       </div>
-                      <div className="text-sm font-bold text-white truncate">
-                        {selectedVoice}
-                        {picked && <span className="ml-2 text-[11px] font-medium text-zinc-400">{picked.gender} - {picked.descriptor}</span>}
-                      </div>
+                      <span className="mt-0.5 block truncate text-[10px] text-ink-faint">{precept.instruction}</span>
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleAuditionVoice(selectedVoice)}
-                      disabled={isAuditionLoading && !pickedAuditioning}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-100 cursor-pointer disabled:opacity-50 shrink-0"
+                      onClick={(e) => handleClearPreceptSlot(idx, e)}
+                      title="Clear this slot"
+                      aria-label={`Clear slot ${idx + 1}`}
+                      className="shrink-0 cursor-pointer rounded p-1 text-ink-faint opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
                     >
-                      {isAuditionLoading && pickedAuditioning ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : pickedAuditioning ? (
-                        <Pause className="w-3.5 h-3.5" />
-                      ) : (
-                        <Play className="w-3.5 h-3.5" />
-                      )}
-                      <span>{pickedAuditioning ? 'Stop' : 'Audition'}</span>
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
                   </div>
                 );
-              })()}
+              })}
+            </div>
+          </div>
+        </section>
 
-              {/* Scrollable Voice Grid */}
-              <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto pr-1">
-                {filteredVoices.map((v) => {
-                  const isSelected = selectedVoice === v.name;
-                  const isAuditioning = auditioningVoice === v.name;
+        {/* Right pane: voice and quality. The voice list takes all the height that is left. */}
+        <aside className="flex shrink-0 flex-col gap-4 border-t border-line bg-surface-0/40 p-5 lg:min-h-0 lg:w-[400px] lg:border-l lg:border-t-0">
+          <div className="flex min-h-0 flex-1 flex-col">
+            {sectionLabel(
+              <Volume2 className="h-4 w-4" />,
+              'Voice',
+              <span className="font-num text-[11px] text-ink-faint">{filteredVoices.length} voices</span>,
+            )}
 
-                  return (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[140px] flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint" aria-hidden="true" />
+                <input
+                  type="text"
+                  aria-label="Search voices by name, tone or tag"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search name, tone or tag"
+                  className="h-9 w-full rounded-full border border-line-strong bg-surface-3 pl-8 pr-3 text-xs text-ink placeholder:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                />
+              </div>
+              <SegmentedControl
+                size="sm"
+                label="Filter voices by gender"
+                value={genderFilter}
+                onChange={setGenderFilter}
+                options={[
+                  { value: 'All', label: 'All' },
+                  { value: 'Female', label: 'Female' },
+                  { value: 'Male', label: 'Male' },
+                ]}
+              />
+            </div>
+
+            {/* Selected voice stays in view while the list scrolls */}
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-control border border-accent/50 bg-accent-soft p-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
+                  <Lock className="h-3 w-3" aria-hidden="true" />
+                  <span>Selected{isBusy ? ' (locked while generating)' : ''}</span>
+                </div>
+                <div className="truncate text-sm font-semibold text-ink">
+                  {selectedVoice}
+                  {selectedPicked && (
+                    <span className="ml-2 text-[11px] font-normal text-ink-dim">
+                      {selectedPicked.gender} · {selectedPicked.descriptor}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleAuditionVoice(selectedVoice)}
+                disabled={isAuditionLoading && !selectedAuditioning}
+                className={auditionButtonClass(selectedAuditioning)}
+              >
+                {isAuditionLoading && selectedAuditioning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                ) : selectedAuditioning ? (
+                  <Pause className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                <span>{selectedAuditioning ? 'Stop' : 'Audition'}</span>
+              </button>
+            </div>
+
+            <ul className="-mr-1 max-h-72 space-y-1.5 overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1" aria-label="Voices">
+              {filteredVoices.length === 0 && (
+                <li className="rounded-control border border-dashed border-line-strong p-4 text-center text-xs text-ink-faint">
+                  No voice matches that search.
+                </li>
+              )}
+              {filteredVoices.map((v) => {
+                const isSelected = selectedVoice === v.name;
+                const isAuditioning = auditioningVoice === v.name;
+
+                return (
+                  <li key={v.name}>
                     <div
-                      key={v.name}
+                      role="button"
+                      tabIndex={isBusy ? -1 : 0}
+                      aria-pressed={isSelected}
+                      aria-disabled={isBusy || undefined}
                       onClick={() => {
                         if (!isBusy) setSelectedVoice(v.name);
                       }}
-                      className={`p-3 rounded-xl border transition-all flex items-center justify-between cursor-pointer ${
-                        isSelected
-                          ? 'bg-cyan-950/40 border-cyan-400 shadow-[0_0_12px_rgba(0,240,255,0.2)]'
-                          : 'bg-[#13131B] border-zinc-800 hover:border-zinc-700 hover:bg-[#181822]'
-                      }`}
+                      onKeyDown={(e) => {
+                        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+                          e.preventDefault();
+                          if (!isBusy) setSelectedVoice(v.name);
+                        }
+                      }}
+                      className={`flex items-center justify-between gap-2 rounded-control border p-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+                        isBusy ? 'cursor-not-allowed' : 'cursor-pointer'
+                      } ${isSelected ? 'border-accent bg-accent-soft' : 'border-line bg-surface-2 hover:border-line-strong hover:bg-surface-3'}`}
                     >
-                      <div className="flex items-center gap-3 min-w-0 pr-2">
-                        <div
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
-                            v.gender === 'Female'
-                              ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
-                              : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                          }`}
-                        >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface-3 text-xs font-semibold text-ink-dim" aria-hidden="true">
                           {v.name.slice(0, 2)}
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-zinc-100">{v.name}</span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">
-                              {v.gender}
-                            </span>
+                            <span className="text-xs font-semibold text-ink">{v.name}</span>
+                            <span className="text-[10px] text-ink-faint">{v.gender}</span>
                           </div>
-                          <p className="text-[11px] text-zinc-400 truncate">{v.descriptor}</p>
-                          <div className="flex gap-1 mt-1 flex-wrap">
-                            {v.tags.map((t) => (
-                              <span
-                                key={t}
-                                className="text-[9px] px-1.5 py-0.2 rounded bg-[#0A0A0E] text-zinc-500 border border-zinc-800"
-                              >
-                                {t}
-                              </span>
-                            ))}
-                          </div>
+                          <p className="truncate text-[11px] text-ink-dim">{v.descriptor}</p>
+                          <p className="truncate text-[10px] text-ink-faint">{v.tags.slice(0, 3).join(' · ')}</p>
                         </div>
                       </div>
-
-                      {/* Audition Button */}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -620,151 +590,71 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                           handleAuditionVoice(v.name);
                         }}
                         disabled={isAuditionLoading && !isAuditioning}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border shrink-0 cursor-pointer ${
-                          isAuditioning
-                            ? 'bg-amber-500 text-black border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
-                            : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border-zinc-700 hover:text-cyan-300'
-                        }`}
+                        aria-label={`${isAuditioning ? 'Stop' : 'Audition'} ${v.name}`}
+                        className={auditionButtonClass(isAuditioning)}
                       >
                         {isAuditionLoading && isAuditioning ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                         ) : isAuditioning ? (
-                          <Pause className="w-3.5 h-3.5 fill-current" />
+                          <Pause className="h-3.5 w-3.5" aria-hidden="true" />
                         ) : (
-                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <Play className="h-3.5 w-3.5" aria-hidden="true" />
                         )}
                         <span>{isAuditioning ? 'Stop' : 'Audition'}</span>
                       </button>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
 
-            {/* Model Synthesis Tier */}
-            <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2 mb-2">
-                <Sliders className="w-4 h-4 text-cyan-400" />
-                <span>Synthesis Quality Tier</span>
-              </span>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  {
-                    id: 'gemini-3.8-flash-tts',
-                    name: 'Flagship Quality',
-                    desc: 'Expressive prosody & natural nuances',
-                  },
-                  {
-                    id: 'gemini-3.8-flash-lite-tts',
-                    name: 'Low Latency',
-                    desc: 'Fast turnaround draft rendering',
-                  },
-                ].map((tier) => {
-                  const isSelected = selectedModel === tier.id;
-                  return (
-                    <button
-                      key={tier.id}
-                      type="button"
-                      onClick={() => setSelectedModel(tier.id)}
-                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-cyan-950/40 border-cyan-400 text-cyan-200'
-                          : 'bg-[#13131B] border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-xs font-bold">
-                        <span>{tier.name}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-cyan-400" />}
-                      </div>
-                      <p className="text-[10px] text-zinc-500 mt-0.5">{tier.desc}</p>
-                    </button>
-                  );
-                })}
-              </div>
+          <div>
+            {sectionLabel(<Sliders className="h-4 w-4" />, 'Quality')}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'gemini-3.8-flash-tts', name: 'Flagship quality', desc: 'Expressive, natural nuance' },
+                { id: 'gemini-3.8-flash-lite-tts', name: 'Low latency', desc: 'Fast draft rendering' },
+              ].map((tier) => {
+                const isSelected = selectedModel === tier.id;
+                return (
+                  <button
+                    key={tier.id}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => setSelectedModel(tier.id)}
+                    className={`cursor-pointer rounded-control border p-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+                      isSelected ? 'border-accent bg-accent-soft text-ink' : 'border-line bg-surface-2 text-ink-dim hover:border-line-strong hover:text-ink'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <span>{tier.name}</span>
+                      {isSelected && <Check className="h-3.5 w-3.5 text-accent" aria-hidden="true" />}
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-ink-faint">{tier.desc}</p>
+                  </button>
+                );
+              })}
             </div>
+          </div>
 
-            {/* Ready Preview Card (if audio was generated) */}
-            {generatedAsset && (
-              <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-500/60 flex items-center justify-between animate-in fade-in">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-xs font-bold text-emerald-300">
-                      Voiceover Rendered ({generatedAsset.durationSeconds.toFixed(1)}s)
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-zinc-400 mt-0.5">
-                    Ready to place onto timeline at top index 0
-                  </p>
+          {generatedAsset && (
+            <div className="flex items-center justify-between gap-3 rounded-control border border-ok/40 bg-ok/10 p-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-ok" aria-hidden="true" />
+                  <span className="text-xs font-semibold text-ok">Voiceover ready ({generatedAsset.durationSeconds.toFixed(1)}s)</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleTogglePlayGenerated}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs transition-colors cursor-pointer"
-                >
-                  {isPlayingGenerated ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                  <span>{isPlayingGenerated ? 'Pause' : 'Listen'}</span>
-                </button>
+                <p className="mt-0.5 text-[10px] text-ink-dim">It will be placed on a new track at the top.</p>
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Workspace Footer Action Bar */}
-        <div className="h-16 px-6 border-t border-zinc-800 bg-[#12121A] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-zinc-400">
-              Selected: <strong className="text-cyan-400">{selectedVoice}</strong> ({genderFilter === 'All' ? 'Gemini Voice' : genderFilter})
-            </span>
-            {progressMsg && (
-              <div className="flex items-center gap-2 text-xs text-cyan-300 font-medium">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-                <span>{progressMsg}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-
-            {generatedAsset ? (
-              <button
-                type="button"
-                onClick={handleCommitToTimeline}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-black font-bold text-xs hover:from-emerald-400 hover:to-cyan-400 shadow-[0_0_15px_rgba(16,185,129,0.35)] transition-all cursor-pointer"
-              >
-                <Layers className="w-4 h-4" />
-                <span>Place on New Timeline Track</span>
+              <button type="button" onClick={handleTogglePlayGenerated} className={auditionButtonClass(isPlayingGenerated)}>
+                {isPlayingGenerated ? <Pause className="h-3.5 w-3.5" aria-hidden="true" /> : <Play className="h-3.5 w-3.5" aria-hidden="true" />}
+                <span>{isPlayingGenerated ? 'Pause' : 'Listen'}</span>
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleGenerate}
-                disabled={isBusy || !script.trim()}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold text-xs hover:from-cyan-400 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_15px_rgba(0,240,255,0.35)] transition-all cursor-pointer"
-              >
-                {isBusy ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Synthesizing...</span>
-                  </>
-                ) : (
-                  <>
-                    <Wand2 className="w-4 h-4" />
-                    <span>Generate Voiceover Track</span>
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
+        </aside>
       </div>
-    </div>
+    </ModalShell>
   );
 };
