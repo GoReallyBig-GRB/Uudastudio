@@ -57,29 +57,29 @@ export const GroupConsoleStrip: React.FC<GroupConsoleStripProps> = ({ group, set
   return (
     <div
       style={{ borderColor: group.color.border }}
-      className={`w-[68px] shrink-0 rounded-xl p-2.5 flex flex-col justify-between items-center text-center border bg-[#121218] transition-opacity ${dimmed ? 'opacity-50' : ''}`}
+      className={`w-[68px] shrink-0 rounded-xl p-2.5 flex flex-col justify-between items-center text-center border bg-surface-1 transition-opacity ${dimmed ? 'opacity-50' : ''}`}
     >
       <div className="w-full space-y-1">
         <div className="flex items-center justify-between text-[9px] font-mono">
           <span className="font-bold" style={{ color: group.color.border }}>GRP</span>
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: group.color.border }} />
         </div>
-        <div title={`${group.name}: ${group.clipCount} clips`} className="text-[10px] font-semibold truncate w-full text-zinc-200">
+        <div title={`${group.name}: ${group.clipCount} clips`} className="text-[10px] font-semibold truncate w-full text-ink">
           {group.name}
         </div>
       </div>
 
-      <div className="w-full py-1.5 border-y border-zinc-800/60 my-1">
-        <div className="flex justify-between text-[8px] font-mono text-zinc-500 mb-0.5">
+      <div className="w-full py-1.5 border-y border-line my-1">
+        <div className="flex justify-between text-[8px] font-mono text-ink-faint mb-0.5">
           <span>PAN</span>
-          <span className="text-amber-400 font-bold">{formatPan(s.pan)}</span>
+          <span className="text-ink-dim font-bold">{formatPan(s.pan)}</span>
         </div>
         <input
           type="range" min="-1" max="1" step="0.05" value={s.pan}
           aria-label={`${group.name} pan`}
           onDoubleClick={() => onUpdate({ pan: 0 })}
           onChange={(e) => onUpdate({ pan: parseFloat(e.target.value) })}
-          className="w-full h-1 bg-zinc-800 accent-amber-400 rounded-none cursor-pointer"
+          className="w-full h-1 bg-surface-3 accent-ink-dim rounded-none cursor-pointer"
         />
       </div>
 
@@ -90,7 +90,7 @@ export const GroupConsoleStrip: React.FC<GroupConsoleStripProps> = ({ group, set
           onClick={() => onUpdate({ muted: !s.muted })}
           title={s.muted ? 'Unmute group' : 'Mute group'}
           className={`flex-1 py-1 rounded text-[9px] font-extrabold transition-all cursor-pointer ${
-            s.muted ? 'bg-rose-500 text-white shadow-[0_0_8px_rgba(244,63,94,0.6)]' : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
+            s.muted ? 'bg-danger text-surface-0' : 'bg-surface-3 text-ink-dim hover:text-ink'
           }`}
         >
           M
@@ -101,7 +101,7 @@ export const GroupConsoleStrip: React.FC<GroupConsoleStripProps> = ({ group, set
           onClick={() => onToggleSolo?.()}
           title={solo ? 'Stop auditioning this group' : 'Hear only this group'}
           className={`flex-1 py-1 rounded text-[9px] font-extrabold transition-all cursor-pointer ${
-            solo ? 'bg-amber-400 text-black shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
+            solo ? 'bg-gold text-gold-ink' : 'bg-surface-3 text-ink-dim hover:text-ink'
           }`}
         >
           S
@@ -115,10 +115,10 @@ export const GroupConsoleStrip: React.FC<GroupConsoleStripProps> = ({ group, set
             aria-label={`${group.name} volume`}
             onDoubleClick={() => onUpdate({ volume: 1 })}
             onChange={(e) => onUpdate({ volume: parseFloat(e.target.value), muted: false })}
-            className="w-[140px] h-2 bg-zinc-900 border border-zinc-700 rounded-xs accent-cyan-400 cursor-pointer -rotate-90 origin-center"
+            className="w-[140px] h-2 bg-surface-2 border border-line-strong rounded-xs accent-accent cursor-pointer -rotate-90 origin-center"
           />
         </div>
-        <div className="w-2 h-[140px] bg-black/90 rounded-xs border border-zinc-800 p-0.5 flex flex-col-reverse gap-0.5" aria-hidden>
+        <div className="w-2 h-[140px] bg-black/90 rounded-xs border border-line p-0.5 flex flex-col-reverse gap-0.5" aria-hidden>
           {Array.from({ length: LEDS }).map((_, i) => {
             const on = i < lit;
             const red = i >= 12;
@@ -126,14 +126,14 @@ export const GroupConsoleStrip: React.FC<GroupConsoleStripProps> = ({ group, set
             return (
               <div
                 key={i}
-                className={`w-full h-1.5 rounded-2xs ${on ? (red ? 'bg-rose-500' : yellow ? 'bg-amber-400' : 'bg-emerald-400') : 'bg-zinc-800/70'}`}
+                className={`w-full h-1.5 rounded-2xs ${on ? (red ? 'bg-danger' : yellow ? 'bg-warn' : 'bg-ok') : 'bg-surface-3'}`}
               />
             );
           })}
         </div>
       </div>
 
-      <div className="text-[9px] font-mono text-zinc-400 mt-1">{s.muted ? 'MUTED' : formatVolumeDb(s.volume)}</div>
+      <div className="text-[9px] font-mono text-ink-dim mt-1">{s.muted ? 'MUTED' : formatVolumeDb(s.volume)}</div>
     </div>
   );
 };
