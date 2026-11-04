@@ -6,30 +6,14 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import {
-  Search,
-  Music,
-  Play,
-  Pause,
-  ExternalLink,
-  ShieldCheck,
-  Download,
-  AlertTriangle,
-  X,
-  Radio,
-  SlidersHorizontal,
-  Clock,
-  Filter,
-  ChevronLeft,
-  ChevronRight,
-  Layers,
-  Sparkles,
-  Key,
-  CheckCircle,
-  Loader2,
-} from 'lucide-react';
+import { Search, Play, Pause, ExternalLink, Download, Radio, ChevronLeft, ChevronRight, Key, Loader2 } from 'lucide-react';
 import { Asset, FreesoundItem } from '../types';
 import { useFreesound, SoundSource } from '../hooks/useFreesound';
+import { Button } from './ui/Button';
+import { Input } from './ui/Input';
+import { ModalShell } from './ui/ModalShell';
+import { SegmentedControl } from './ui/SegmentedControl';
+import { FIELD, pill, notice } from './sidebarParts';
 
 interface SoundLibraryModalProps {
   isOpen: boolean;
@@ -113,22 +97,6 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
     setLocalQuery(query);
   }, [query]);
 
-  // Close on Escape key
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (isConnectModalOpen) {
-          setIsConnectModalOpen(false);
-        } else {
-          onClose();
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, isConnectModalOpen, onClose, setIsConnectModalOpen]);
-
   // Automatically select first result if none selected
   useEffect(() => {
     if (results.length > 0 && !selectedItem) {
@@ -138,8 +106,6 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
       if (match) setSelectedItem(match);
     }
   }, [results]);
-
-  if (!isOpen) return null;
 
   const handleSearchSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -159,268 +125,179 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
 
   const totalPages = totalCount ? Math.ceil(totalCount / pageSize) : 1;
 
+  const closeLibrary = () => {
+    stopPreview();
+    onClose();
+  };
+
+  const sourceOptions = AVAILABLE_SOURCES.map((src) => ({
+    value: src.id,
+    label: src.enabled ? 'Freesound' : 'Broadcast · soon',
+    disabled: !src.enabled,
+  }));
+
+  const label = 'mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-ink-dim';
+
   return (
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          stopPreview();
-          onClose();
-        }
-      }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md select-none animate-in fade-in duration-200"
-    >
-      <div className="w-full max-w-6xl h-[calc(100dvh-1.5rem)] md:h-[92dvh] bg-[#0E0E14] border border-zinc-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100">
-        {/* Modal Header */}
-        <div className="h-14 px-3 sm:px-6 border-b border-zinc-800 flex items-center justify-between bg-[#12121A] shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white shadow-[0_0_15px_rgba(16,185,129,0.35)]">
-              <Music className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm font-black uppercase tracking-wider text-white">
-                  Sound Library Workspace
-                </h1>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 font-mono font-semibold border border-emerald-800/80">
-                  CC0 Public Domain
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-400">
-                Browse, preview, and import royalty-free broadcast SFX & music loops
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* OAuth Connection Status Indicator */}
-            {userToken ? (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-950/60 border border-emerald-800 text-[11px] text-emerald-300">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Freesound Connected</span>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  fetchAuthUrl();
-                  setIsConnectModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-xs font-semibold transition-colors cursor-pointer"
-              >
-                <Key className="w-3.5 h-3.5 text-amber-400" />
-                <span>Connect Account</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => {
-                stopPreview();
-                onClose();
-              }}
-              className="text-zinc-400 hover:text-white p-1.5 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
-              title="Close Library (Esc)"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Status / Alert Bar */}
+    <>
+      <ModalShell
+        open={isOpen}
+        onClose={closeLibrary}
+        title="Sound Library"
+        description="Browse, preview and add free CC0 sound effects and music loops from Freesound"
+        variant="workspace"
+        dismissible={!isConnectModalOpen}
+      >
         {searchError && (
-          <div className="px-6 py-2 bg-rose-950/70 border-b border-rose-800 text-xs text-rose-200 flex items-center justify-between shrink-0">
-            <span className="font-medium">{searchError}</span>
-            <button onClick={() => search()} className="text-rose-300 hover:text-white text-xs underline cursor-pointer">
-              Retry
-            </button>
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-danger/30 bg-danger/10 px-6 py-2 text-xs text-danger" role="alert">
+            <span>{searchError}</span>
+            <button type="button" onClick={() => search()} className={pill()}>Retry</button>
           </div>
         )}
 
-        {/* 3-Column Body Layout */}
-        <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden divide-y md:divide-y-0 md:divide-x divide-zinc-800">
-          {/* Left Column: Search & Filters */}
-          <div className="w-full md:w-72 p-4 bg-[#101017] flex flex-col gap-4 overflow-y-auto shrink-0">
-            {/* Sound Source Selector */}
+        <div className="flex min-h-0 flex-1 flex-col divide-y divide-line overflow-y-auto md:flex-row md:divide-x md:divide-y-0 md:overflow-hidden">
+          {/* Left: source, account, search and filters */}
+          <div className="flex w-full shrink-0 flex-col gap-4 bg-surface-1 p-4 md:w-72 md:overflow-y-auto">
             <div>
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
-                Sound Source
-              </label>
-              <div className="space-y-1.5">
-                {AVAILABLE_SOURCES.map((src) => (
-                  <button
-                    key={src.id}
-                    disabled={!src.enabled}
-                    onClick={() => setSelectedSourceId(src.id)}
-                    className={`w-full text-left px-2.5 py-2 rounded-lg text-xs font-medium flex items-center justify-between border transition-all ${
-                      selectedSourceId === src.id
-                        ? 'bg-emerald-950/50 border-emerald-500/80 text-emerald-200'
-                        : src.enabled
-                        ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800'
-                        : 'bg-zinc-900/40 border-zinc-900 text-zinc-600 cursor-not-allowed'
-                    }`}
-                  >
-                    <span>{src.label}</span>
-                    {src.enabled ? (
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#10b981]" />
-                    ) : (
-                      <span className="text-[9px] text-zinc-600 font-mono">Soon</span>
-                    )}
-                  </button>
-                ))}
-              </div>
+              <span className={label}>Source</span>
+              <SegmentedControl
+                label="Sound source"
+                size="sm"
+                value={selectedSourceId}
+                onChange={setSelectedSourceId}
+                options={sourceOptions}
+                className="w-full [&>button]:flex-1"
+              />
             </div>
 
-            {/* Search Input Box */}
-            <form onSubmit={handleSearchSubmit} className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                Search Audio
-              </label>
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${userToken ? 'bg-ok' : 'bg-warn'}`} aria-hidden="true" />
+                <span className="truncate text-ink-dim">{userToken ? 'Account connected' : 'Not connected'}</span>
+              </span>
+              {!userToken && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    fetchAuthUrl();
+                    setIsConnectModalOpen(true);
+                  }}
+                  className={pill(true)}
+                >
+                  <Key className="h-3 w-3" aria-hidden="true" />
+                  <span>Connect</span>
+                </button>
+              )}
+            </div>
+
+            <form onSubmit={handleSearchSubmit} className="space-y-2 border-t border-line pt-4">
+              <label htmlFor="library-search" className={label}>Search</label>
               <div className="relative">
-                <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint" aria-hidden="true" />
                 <input
+                  id="library-search"
                   type="text"
                   value={localQuery}
                   onChange={(e) => setLocalQuery(e.target.value)}
-                  placeholder="e.g. rain, laser, riser, drone..."
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-9 pr-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="rain, laser, riser, drone"
+                  className={`${FIELD} h-9 pl-8`}
                 />
               </div>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs shadow-[0_0_12px_rgba(16,185,129,0.3)] transition-all cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                <span>Search</span>
-              </button>
+              <Button type="submit" variant="primary" size="sm" className="w-full" disabled={isLoading} loading={isLoading} leftIcon={<Search className="h-3.5 w-3.5" />}>
+                Search
+              </Button>
             </form>
 
-            {/* Tag Suggestions */}
-            <div>
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
-                Tag Suggestions
-              </label>
+            <div className="border-t border-line pt-4">
+              <span className={label}>Tags</span>
               <div className="flex flex-wrap gap-1.5">
-                {TAG_SUGGESTIONS.map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => handleTagClick(tag)}
-                    className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer ${
-                      selectedTag.toLowerCase() === tag.toLowerCase()
-                        ? 'bg-emerald-500 text-black font-bold'
-                        : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800'
-                    }`}
-                  >
-                    #{tag}
-                  </button>
-                ))}
+                {TAG_SUGGESTIONS.map((tag) => {
+                  const on = selectedTag.toLowerCase() === tag.toLowerCase();
+                  return (
+                    <button key={tag} type="button" aria-pressed={on} onClick={() => handleTagClick(tag)} className={pill(on)}>
+                      #{tag}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Duration Presets */}
-            <div>
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
-                Duration Filter
-              </label>
-              <div className="grid grid-cols-2 gap-1.5 text-xs">
+            <div className="border-t border-line pt-4">
+              <span className={label}>Length</span>
+              <div className="grid grid-cols-2 gap-1.5">
                 {(['any', 'short', 'medium', 'long'] as const).map((d) => (
                   <button
                     key={d}
+                    type="button"
+                    aria-pressed={durationFilter === d}
                     onClick={() => {
                       setDurationFilter(d);
                       search({ duration: d, page: 1 });
                     }}
-                    className={`py-1.5 px-2 rounded-lg text-[11px] font-medium border text-center transition-all cursor-pointer ${
-                      durationFilter === d
-                        ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800'
-                    }`}
+                    className={pill(durationFilter === d, 'w-full')}
                   >
-                    {d === 'any' && 'Any Length'}
-                    {d === 'short' && '< 5s (SFX)'}
-                    {d === 'medium' && '5s - 20s'}
-                    {d === 'long' && '20s+ (Beds)'}
+                    {d === 'any' && 'Any length'}
+                    {d === 'short' && 'Under 5 s'}
+                    {d === 'medium' && '5 to 20 s'}
+                    {d === 'long' && '20 s and up'}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Sort Order */}
-            <div>
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
-                Sort By
-              </label>
+            <div className="border-t border-line pt-4">
+              <label htmlFor="library-sort" className={label}>Sort by</label>
               <select
+                id="library-sort"
                 value={sortOrder}
                 onChange={(e) => {
-                  const s = e.target.value as any;
-                  setSortOrder(s);
-                  search({ sort: s, page: 1 });
+                  const next = e.target.value as any;
+                  setSortOrder(next);
+                  search({ sort: next, page: 1 });
                 }}
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500"
+                className={`${FIELD} h-8 cursor-pointer`}
               >
-                <option value="score">Relevance (Score)</option>
-                <option value="downloads_desc">Most Downloaded</option>
-                <option value="rating_desc">Highest Rated</option>
-                <option value="created_desc">Newest First</option>
+                <option value="score">Relevance</option>
+                <option value="downloads_desc">Most downloaded</option>
+                <option value="rating_desc">Highest rated</option>
+                <option value="created_desc">Newest first</option>
               </select>
             </div>
           </div>
 
-          {/* Center Column: Paginated Sound Results List */}
-          <div className="flex-1 flex flex-col min-w-0 bg-[#0C0C12] overflow-hidden">
-            {/* Results Toolbar */}
-            <div className="px-5 py-2.5 border-b border-zinc-800/80 bg-[#121218] flex items-center justify-between text-xs text-zinc-400 shrink-0">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-zinc-200">
-                  {totalCount !== null ? `${totalCount.toLocaleString()} results found` : 'Searching...'}
+          {/* Centre: results */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface-0">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-surface-1 px-5 py-2.5 text-xs text-ink-dim">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate font-semibold text-ink">
+                  {totalCount !== null ? `${totalCount.toLocaleString()} results` : 'Searching...'}
                 </span>
-                {selectedTag !== 'All' && (
-                  <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/60 font-mono text-[10px]">
-                    #{selectedTag}
-                  </span>
-                )}
+                {selectedTag !== 'All' && <span className={pill(true, 'h-6 cursor-default')}>#{selectedTag}</span>}
               </div>
-
-              {/* Pagination controls */}
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[11px] text-zinc-400">
-                  Page {page} of {Math.max(1, totalPages)}
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    disabled={page <= 1 || isLoading}
-                    onClick={() => handlePageChange(page - 1)}
-                    className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-zinc-200 cursor-pointer"
-                    title="Previous page"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    disabled={page >= totalPages || isLoading}
-                    onClick={() => handlePageChange(page + 1)}
-                    className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-zinc-200 cursor-pointer"
-                    title="Next page"
-                  >
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="font-num text-[11px] text-ink-faint">Page {page} of {Math.max(1, totalPages)}</span>
+                <button type="button" disabled={page <= 1 || isLoading} onClick={() => handlePageChange(page - 1)} title="Previous page" aria-label="Previous page" className={pill(false, 'w-7 px-0')}>
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" disabled={page >= totalPages || isLoading} onClick={() => handlePageChange(page + 1)} title="Next page" aria-label="Next page" className={pill(false, 'w-7 px-0')}>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
               </div>
             </div>
 
-            {/* Results List */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            <div className="flex-1 space-y-2 overflow-y-auto p-4">
               {isLoading && (
-                <div className="h-64 flex flex-col items-center justify-center gap-3 text-zinc-400">
-                  <Loader2 className="w-6 h-6 animate-spin text-emerald-400" />
-                  <span className="text-xs">Searching CC0 audio library...</span>
+                <div className="flex h-64 flex-col items-center justify-center gap-3 text-ink-dim">
+                  <Loader2 className="h-6 w-6 animate-spin text-accent motion-reduce:animate-none" />
+                  <span className="text-xs">Searching the CC0 library...</span>
                 </div>
               )}
 
               {!isLoading && results.length === 0 && (
-                <div className="h-64 flex flex-col items-center justify-center gap-3 text-zinc-500">
-                  <Radio className="w-8 h-8 text-zinc-600 stroke-[1.5]" />
-                  <span className="text-sm">No audio clips found matching your filters.</span>
-                  <span className="text-xs text-zinc-600">Try a different keyword or broaden the duration filter.</span>
+                <div className="flex h-64 flex-col items-center justify-center gap-2 text-ink-faint">
+                  <Radio className="h-8 w-8 stroke-[1.5]" aria-hidden="true" />
+                  <span className="text-sm text-ink-dim">No sounds match your filters.</span>
+                  <span className="text-xs">Try another keyword or a wider length.</span>
                 </div>
               )}
 
@@ -429,69 +306,44 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
                   const isPlaying = currentPlayingId === item.id;
                   const isSelected = selectedItem?.id === item.id;
                   const isDownloading = downloadingId === item.id;
-
                   return (
                     <div
                       key={item.id}
                       onClick={() => setSelectedItem(item)}
-                      className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                        isSelected
-                          ? 'bg-zinc-800/80 border-emerald-500/80 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
-                          : 'bg-zinc-900/60 border-zinc-800/80 hover:bg-zinc-800/50 hover:border-zinc-700'
+                      className={`flex cursor-pointer items-center gap-3 rounded-control border p-3 transition-colors ${
+                        isSelected ? 'border-accent/40 bg-surface-2' : 'border-line bg-surface-1 hover:bg-surface-2'
                       }`}
                     >
-                      {/* Play Preview Button */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           togglePreview(item);
                         }}
-                        className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-transform hover:scale-105 cursor-pointer ${
-                          isPlaying
-                            ? 'bg-emerald-500 text-black shadow-[0_0_12px_rgba(16,185,129,0.6)]'
-                            : 'bg-zinc-800 text-zinc-200 hover:bg-emerald-600 hover:text-white'
-                        }`}
+                        title={isPlaying ? 'Pause preview' : 'Play preview'}
+                        aria-label={isPlaying ? `Pause ${item.name}` : `Play ${item.name}`}
+                        className={pill(isPlaying, 'h-9 w-9 px-0')}
                       >
-                        {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                        {isPlaying ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="ml-0.5 h-3.5 w-3.5 fill-current" />}
                       </button>
 
-                      {/* Sound Info & Waveform */}
-                      <div className="flex-1 min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <h4 className="text-xs font-bold text-zinc-100 truncate hover:text-emerald-300">
-                            {item.name}
-                          </h4>
-                          <span className="text-[11px] font-mono text-emerald-400 font-semibold shrink-0">
-                            {item.duration.toFixed(1)}s
-                          </span>
+                          <h4 className="truncate text-xs font-semibold text-ink">{item.name}</h4>
+                          <span className="font-num shrink-0 text-[11px] text-ink-dim">{item.duration.toFixed(1)}s</span>
                         </div>
-
-                        <div className="flex items-center gap-3 text-[10px] text-zinc-400 mt-1">
-                          <span>By <strong className="text-zinc-300">{item.username}</strong></span>
-                          <span>•</span>
-                          <span className="uppercase font-mono">{item.type || 'WAV'}</span>
-                          <span>•</span>
-                          <span className="text-emerald-400/90 font-mono">CC0 Public Domain</span>
+                        <div className="mt-0.5 flex items-center gap-2 text-[10px] text-ink-faint">
+                          <span className="truncate">by {item.username}</span>
+                          <span aria-hidden="true">·</span>
+                          <span className="font-num uppercase">{item.type || 'WAV'}</span>
                         </div>
-
-                        {/* Waveform preview image if available */}
-                        {item.images?.waveform_m ? (
-                          <div className="mt-2 h-7 w-full bg-black/60 rounded overflow-hidden border border-zinc-800/60">
-                            <img
-                              src={item.images.waveform_m}
-                              alt="Waveform preview"
-                              className="w-full h-full object-cover opacity-75 hover:opacity-100 transition-opacity"
-                            />
-                          </div>
-                        ) : (
-                          <div className="mt-2 h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-emerald-500/40 rounded-full w-2/3" />
+                        {item.images?.waveform_m && (
+                          <div className="mt-2 h-7 w-full overflow-hidden rounded-control border border-line bg-surface-0">
+                            <img src={item.images.waveform_m} alt="" className="h-full w-full object-cover opacity-70 transition-opacity hover:opacity-100" />
                           </div>
                         )}
                       </div>
 
-                      {/* Add to Timeline Action */}
                       <button
                         type="button"
                         disabled={isDownloading}
@@ -499,23 +351,10 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
                           e.stopPropagation();
                           addToTimeline(item, onAddLibraryTrack);
                         }}
-                        className={`px-3 py-2 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
-                          isDownloading
-                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                            : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                        }`}
+                        className={pill(false, 'h-8 border-accent/40 text-accent hover:bg-accent-soft hover:text-accent')}
                       >
-                        {isDownloading ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Adding...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Add Track</span>
-                          </>
-                        )}
+                        {isDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Download className="h-3.5 w-3.5" />}
+                        <span>{isDownloading ? 'Adding...' : 'Add track'}</span>
                       </button>
                     </div>
                   );
@@ -523,181 +362,116 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
             </div>
           </div>
 
-          {/* Right Column: Detailed Sound Inspector & Metadata */}
-          <div className="w-full md:w-80 p-5 bg-[#101017] flex flex-col gap-4 overflow-y-auto shrink-0">
-            <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Sound Inspector</span>
-            </h3>
+          {/* Right: inspector */}
+          <div className="flex w-full shrink-0 flex-col gap-4 bg-surface-1 p-5 md:w-80 md:overflow-y-auto">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">Details</h3>
 
             {selectedItem ? (
               <div className="space-y-4 text-xs">
-                <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 space-y-2">
-                  <h4 className="font-bold text-zinc-100 text-sm">{selectedItem.name}</h4>
-                  <div className="text-[11px] text-zinc-400 flex items-center gap-2">
-                    <span>Creator:</span>
-                    <strong className="text-zinc-200">{selectedItem.username}</strong>
-                  </div>
-                  <div className="text-[11px] text-zinc-400 flex items-center gap-2">
-                    <span>Duration:</span>
-                    <strong className="text-emerald-400 font-mono">{selectedItem.duration.toFixed(2)} seconds</strong>
-                  </div>
-                  <div className="text-[11px] text-zinc-400 flex items-center gap-2">
-                    <span>License:</span>
-                    <strong className="text-emerald-400 font-mono">Creative Commons 0 (Free Broadcast)</strong>
-                  </div>
-                  <div className="text-[11px] text-zinc-400 flex items-center gap-2">
-                    <span>Format:</span>
-                    <span className="font-mono uppercase">{selectedItem.type || 'WAV'}</span>
-                  </div>
-                  <div className="text-[11px] text-zinc-400 flex items-center gap-2">
-                    <span>Sample Rate:</span>
-                    <span className="font-mono">{selectedItem.samplerate ? `${selectedItem.samplerate} Hz` : '48000 Hz'}</span>
-                  </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-ink">{selectedItem.name}</h4>
+                  <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[11px]">
+                    <dt className="text-ink-faint">Creator</dt>
+                    <dd className="truncate text-right text-ink">{selectedItem.username}</dd>
+                    <dt className="text-ink-faint">Length</dt>
+                    <dd className="font-num text-right text-ink">{selectedItem.duration.toFixed(2)} s</dd>
+                    <dt className="text-ink-faint">Licence</dt>
+                    <dd className="text-right text-ink">CC0, free to use</dd>
+                    <dt className="text-ink-faint">Format</dt>
+                    <dd className="font-num text-right uppercase text-ink">{selectedItem.type || 'WAV'}</dd>
+                    <dt className="text-ink-faint">Sample rate</dt>
+                    <dd className="font-num text-right text-ink">{selectedItem.samplerate ? `${selectedItem.samplerate} Hz` : '48000 Hz'}</dd>
+                  </dl>
                 </div>
 
-                {/* Big Preview Control */}
-                <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                    Audio Preview
-                  </span>
-                  <button
+                <div className="space-y-2 border-t border-line pt-4">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
                     onClick={() => togglePreview(selectedItem)}
-                    className="w-full py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                    leftIcon={currentPlayingId === selectedItem.id ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current" />}
                   >
-                    {currentPlayingId === selectedItem.id ? (
-                      <>
-                        <Pause className="w-4 h-4 fill-current text-emerald-400" />
-                        <span>Pause Preview</span>
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4 fill-current text-emerald-400 ml-0.5" />
-                        <span>Play Sample</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
+                    {currentPlayingId === selectedItem.id ? 'Pause preview' : 'Play preview'}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="w-full"
                     disabled={downloadingId === selectedItem.id}
                     onClick={() => addToTimeline(selectedItem, onAddLibraryTrack)}
-                    className="w-full py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold flex items-center justify-center gap-2 shadow-[0_0_12px_rgba(16,185,129,0.3)] transition-all cursor-pointer"
+                    leftIcon={downloadingId === selectedItem.id ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Download className="h-3.5 w-3.5" />}
                   >
-                    {downloadingId === selectedItem.id ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>{downloadStatusMsg || 'Downloading...'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4" />
-                        <span>Add to New Top Track</span>
-                      </>
-                    )}
-                  </button>
+                    {downloadingId === selectedItem.id ? downloadStatusMsg || 'Downloading...' : 'Add to a new top track'}
+                  </Button>
                 </div>
 
-                {/* Tags list */}
                 {selectedItem.tags && selectedItem.tags.length > 0 && (
-                  <div>
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
-                      Tags
-                    </span>
-                    <div className="flex flex-wrap gap-1">
+                  <div className="border-t border-line pt-4">
+                    <span className={label}>Tags</span>
+                    <div className="flex flex-wrap gap-1.5">
                       {selectedItem.tags.map((t) => (
-                        <span key={t} className="px-2 py-0.5 rounded bg-zinc-800 text-[10px] text-zinc-400">
-                          #{t}
-                        </span>
+                        <span key={t} className="rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[10px] text-ink-dim">#{t}</span>
                       ))}
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <div className="h-40 flex items-center justify-center text-zinc-600 text-xs">
-                Select a clip to inspect details
-              </div>
+              <div className="flex h-40 items-center justify-center text-xs text-ink-faint">Select a sound to see its details</div>
             )}
           </div>
         </div>
-      </div>
+      </ModalShell>
 
-      {/* Freesound OAuth In-App Modal Dialog */}
-      {isConnectModalOpen && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-          <div className="w-full max-w-md bg-[#14141E] border border-zinc-700 rounded-2xl shadow-2xl p-6 text-zinc-100 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Key className="w-5 h-5 text-amber-400" />
-                <h3 className="font-bold text-sm">Connect Freesound Account</h3>
-              </div>
-              <button
-                onClick={() => setIsConnectModalOpen(false)}
-                className="text-zinc-400 hover:text-white p-1 rounded"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              Freesound needs a free user authorization code to give you the full-quality original. This is optional: without it, sounds are still added to your timeline at preview quality.
-            </p>
-
-            {connectError && (
-              <div className="p-2.5 rounded bg-rose-950/70 border border-rose-800 text-xs text-rose-200">
-                {connectError}
-              </div>
+      <ModalShell
+        open={isOpen && isConnectModalOpen}
+        onClose={() => setIsConnectModalOpen(false)}
+        title="Connect Freesound account"
+        description="Optional. Without it, sounds are still added at preview quality."
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setIsConnectModalOpen(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={isExchangingCode || !authCodeInput.trim()}
+              loading={isExchangingCode}
+              onClick={async () => {
+                const ok = await exchangeCode(authCodeInput.trim());
+                if (ok) setAuthCodeInput('');
+              }}
+            >
+              Authorize and save
+            </Button>
+          </>
+        }
+      >
+        <p className="text-xs leading-relaxed text-ink-dim">
+          Freesound needs a free authorization code to give you the full-quality original file.
+        </p>
+        {connectError && <div className={`${notice('danger')} mt-3`} role="alert">{connectError}</div>}
+        <div className="mt-4 space-y-4">
+          <div>
+            <span className={label}>Step 1</span>
+            {authUrl ? (
+              <a href={authUrl} target="_blank" rel="noopener noreferrer" className={pill(true, 'h-8')}>
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Open the Freesound authorization page</span>
+              </a>
+            ) : (
+              <button type="button" onClick={fetchAuthUrl} className={pill(true, 'h-8')}>Load the authorization link</button>
             )}
-
-            <div className="space-y-3">
-              <div>
-                <span className="text-xs font-semibold text-zinc-200 block mb-1">Step 1: Open Authorize Page</span>
-                {authUrl ? (
-                  <a
-                    href={authUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs"
-                  >
-                    <span>Authorize on Freesound</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                ) : (
-                  <button
-                    onClick={fetchAuthUrl}
-                    className="text-xs text-emerald-400 underline cursor-pointer"
-                  >
-                    Load authorization URL...
-                  </button>
-                )}
-              </div>
-
-              <div>
-                <span className="text-xs font-semibold text-zinc-200 block mb-1">Step 2: Paste Authorization Code</span>
-                <input
-                  type="text"
-                  value={authCodeInput}
-                  onChange={(e) => setAuthCodeInput(e.target.value)}
-                  placeholder="Paste authorization code here"
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <button
-                disabled={isExchangingCode || !authCodeInput.trim()}
-                onClick={async () => {
-                  const ok = await exchangeCode(authCodeInput.trim());
-                  if (ok) setAuthCodeInput('');
-                }}
-                className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {isExchangingCode ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                <span>Authorize & Save Token</span>
-              </button>
-            </div>
           </div>
+          <Input
+            label="Step 2: paste the authorization code"
+            value={authCodeInput}
+            onChange={(e) => setAuthCodeInput(e.target.value)}
+            placeholder="Paste the code here"
+          />
         </div>
-      )}
-    </div>
+      </ModalShell>
+    </>
   );
 };

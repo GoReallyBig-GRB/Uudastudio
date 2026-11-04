@@ -5,30 +5,16 @@
  * and automatic addition to a new top track on the timeline.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  Search,
-  Music,
-  Play,
-  Pause,
-  ExternalLink,
-  ShieldCheck,
-  Download,
-  AlertTriangle,
-  RotateCcw,
-  CheckCircle,
-  Key,
-  X,
-  Radio,
-  SlidersHorizontal,
-  Clock,
-  Filter,
-  Sparkles,
-} from 'lucide-react';
+import { Search, Music, Play, Pause, ExternalLink, ShieldCheck, Download, AlertTriangle, Key } from 'lucide-react';
 import { Asset, FreesoundItem } from '../types';
 import { audioEngine } from '../audio/engine';
 import { useFreesound } from '../hooks/useFreesound';
+import { Button } from './ui/Button';
+import { Input } from './ui/Input';
+import { ModalShell } from './ui/ModalShell';
+import { FIELD, pill, notice, PanelHeader, ExpandRow } from './sidebarParts';
 
 interface SoundLibraryPanelProps {
   onAddLibraryTrack: (asset: Asset) => void;
@@ -40,7 +26,6 @@ const QUICK_TAGS = ['All', 'Transition', 'Stinger', 'Jingle', 'Ambience', 'Alarm
 
 export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
   onAddLibraryTrack,
-  onClose,
   onOpenLibraryModal,
 }) => {
   const [isFeatureEnabled, setIsFeatureEnabled] = useState(true);
@@ -136,398 +121,216 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#121216] border-r border-zinc-800 text-zinc-200 select-text">
-      {/* Panel Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/80 bg-[#16161c]">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]">
-            <Music className="w-4 h-4" />
-          </div>
-          <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-100 flex items-center gap-1.5">
-              <span>Sound Library</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono border border-emerald-500/40">
-                CC0 Only
-              </span>
-            </h2>
-            <p className="text-[10px] text-zinc-400">Freesound API • Public Domain CC0 Filter Locked</p>
-          </div>
-        </div>
+    <div className="flex h-full flex-col border-r border-line bg-surface-1 text-ink-dim select-text">
+      <PanelHeader icon={<Music className="h-3.5 w-3.5" />} title="Sound Library" subtitle="Freesound · CC0 public domain only" />
 
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              if (onOpenLibraryModal) {
-                onOpenLibraryModal();
-              } else {
-                window.dispatchEvent(new CustomEvent('uuda:open-library-modal'));
-              }
-            }}
-            title="Expand to Full Sound Library Workspace Modal"
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-800/80 transition-colors cursor-pointer"
-          >
-            <Sparkles className="w-3 h-3 text-emerald-400" />
-            <span>Expand Library</span>
-          </button>
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="text-zinc-400 hover:text-zinc-200 p-1 rounded hover:bg-zinc-800 transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Feature Flag Notice */}
       {!isFeatureEnabled ? (
-        <div className="p-6 text-center space-y-3 flex-1 flex flex-col items-center justify-center">
-          <AlertTriangle className="w-10 h-10 text-amber-400" />
-          <h3 className="text-sm font-bold text-zinc-200">Sound Library is Disabled</h3>
-          <p className="text-xs text-zinc-400 max-w-xs leading-relaxed">
-            The Freesound CC0 library is behind a feature flag (default off in production).
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <AlertTriangle className="h-8 w-8 text-warn" aria-hidden="true" />
+          <h3 className="text-sm font-semibold text-ink">Sound Library is off</h3>
+          <p className="max-w-xs text-xs leading-relaxed text-ink-dim">
+            The Freesound library is behind a feature flag, which is off by default in production.
           </p>
-          <button
-            onClick={() => setIsFeatureEnabled(true)}
-            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors"
-          >
-            Enable for this session
-          </button>
+          <Button variant="primary" size="sm" onClick={() => setIsFeatureEnabled(true)}>
+            Turn on for this session
+          </Button>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Connection status banner */}
-          <div className="p-2.5 rounded-lg bg-[#0a0a0e] border border-zinc-800 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  userToken ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
-                }`}
-              />
-              <span className="text-zinc-300 font-medium text-[11px]">
-                {userToken ? 'Freesound Account Connected' : 'Account Disconnected (Preview only)'}
-              </span>
-            </div>
+        <div className="flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 [scrollbar-width:thin]">
+          <ExpandRow
+            label="Open full sound library"
+            title="Open the larger Sound Library workspace"
+            onClick={() => {
+              if (onOpenLibraryModal) onOpenLibraryModal();
+              else window.dispatchEvent(new CustomEvent('uuda:open-library-modal'));
+            }}
+          />
 
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${userToken ? 'bg-ok' : 'bg-warn'}`} aria-hidden="true" />
+              <span className="truncate text-ink-dim">{userToken ? 'Account connected' : 'Not connected: preview only'}</span>
+            </span>
             {userToken ? (
               <button
+                type="button"
                 onClick={() => {
                   sessionStorage.removeItem('xpro_freesound_token');
                   setUserToken(null);
                 }}
-                className="text-[10px] text-zinc-500 hover:text-rose-400 transition-colors"
+                className={pill()}
               >
                 Disconnect
               </button>
             ) : (
-              <button
-                onClick={handleOpenConnectFlow}
-                className="text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
-              >
-                <Key className="w-3 h-3" />
-                <span>Connect Account</span>
+              <button type="button" onClick={handleOpenConnectFlow} className={pill(true)}>
+                <Key className="h-3 w-3" aria-hidden="true" />
+                <span>Connect</span>
               </button>
             )}
           </div>
 
-          {/* Search Form */}
-          <form onSubmit={handleSearch} className="space-y-2">
+          <form onSubmit={handleSearch} className="space-y-3 border-t border-line pt-3">
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint" aria-hidden="true" />
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search stingers, sweeps, sweeps, drops, impacts..."
-                className="w-full bg-[#0a0a0e] border border-zinc-700/80 rounded-lg pl-8.5 pr-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500"
+                aria-label="Search sounds"
+                placeholder="Search stingers, sweeps, impacts"
+                className={`${FIELD} h-8 pl-8`}
               />
             </div>
 
-            {/* Quick Tag Pills */}
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Quick tags">
               {QUICK_TAGS.map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => setSelectedTag(tag)}
-                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                    selectedTag === tag
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
-                      : 'bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-800'
-                  }`}
-                >
+                <button key={tag} type="button" aria-pressed={selectedTag === tag} onClick={() => setSelectedTag(tag)} className={pill(selectedTag === tag)}>
                   {tag}
                 </button>
               ))}
             </div>
 
-            {/* Filter controls row */}
-            <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
-              <div>
-                <label className="text-[9px] uppercase tracking-wider text-zinc-500 font-bold block mb-0.5">
-                  Duration
-                </label>
-                <select
-                  value={durationFilter}
-                  onChange={(e) => setDurationFilter(e.target.value as any)}
-                  className="w-full bg-[#0a0a0e] border border-zinc-800 rounded p-1 text-zinc-300 focus:outline-none"
-                >
-                  <option value="any">Any Length</option>
-                  <option value="short">&lt; 5 seconds</option>
-                  <option value="medium">5 - 20 seconds</option>
-                  <option value="long">20s - 5 minutes</option>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block min-w-0">
+                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-ink-dim">Length</span>
+                <select value={durationFilter} onChange={(e) => setDurationFilter(e.target.value as any)} className={`${FIELD} h-8 cursor-pointer`}>
+                  <option value="any">Any length</option>
+                  <option value="short">Under 5 s</option>
+                  <option value="medium">5 to 20 s</option>
+                  <option value="long">20 s to 5 min</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="text-[9px] uppercase tracking-wider text-zinc-500 font-bold block mb-0.5">
-                  Sort By
-                </label>
-                <select
-                  value={sortOrder}
-                  onChange={(e) => setSortOrder(e.target.value as any)}
-                  className="w-full bg-[#0a0a0e] border border-zinc-800 rounded p-1 text-zinc-300 focus:outline-none"
-                >
+              </label>
+              <label className="block min-w-0">
+                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-ink-dim">Sort by</span>
+                <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as any)} className={`${FIELD} h-8 cursor-pointer`}>
                   <option value="score">Relevance</option>
-                  <option value="downloads_desc">Most Downloaded</option>
-                  <option value="rating_desc">Highest Rated</option>
-                  <option value="created_desc">Newest Added</option>
+                  <option value="downloads_desc">Most downloaded</option>
+                  <option value="rating_desc">Highest rated</option>
+                  <option value="created_desc">Newest</option>
                 </select>
-              </div>
+              </label>
             </div>
           </form>
 
-          {/* Locked CC0 Badge Notice */}
-          <div className="p-2 rounded bg-emerald-950/30 border border-emerald-500/30 text-[10px] text-emerald-300 flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 text-[10px] text-ink-faint">
             <span className="flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Licence locked to CC0 (Creative Commons 0 - Public Domain)</span>
+              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>CC0 only, safe to use anywhere</span>
             </span>
-            <span className="font-mono text-zinc-400">
-              {totalCount !== null ? `${totalCount} sounds` : ''}
-            </span>
+            <span className="font-num">{totalCount !== null ? `${totalCount} sounds` : ''}</span>
           </div>
 
-          {/* Rate Limit Notice if active */}
           {rateLimitInfo && rateLimitInfo.remaining !== null && rateLimitInfo.remaining < 15 && (
-            <div className="p-2 rounded bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-300">
-              Freesound API requests remaining: {rateLimitInfo.remaining} / 60
-            </div>
+            <div className={notice('warn')}>Freesound requests left: {rateLimitInfo.remaining} of 60</div>
           )}
 
-          {/* Search Error */}
-          {searchError && (
-            <div className="p-3 rounded-lg bg-rose-500/15 border border-rose-500/40 text-xs text-rose-300">
-              {searchError}
-            </div>
-          )}
+          {searchError && <div className={notice('danger')} role="alert">{searchError}</div>}
 
-          {/* Results List */}
           {isLoading ? (
-            <div className="py-8 text-center text-xs text-zinc-500 space-y-2">
-              <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin mx-auto" />
-              <div>Querying Freesound API...</div>
+            <div className="space-y-2 py-8 text-center text-xs text-ink-faint">
+              <div className="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent motion-reduce:animate-none" />
+              <div>Searching Freesound...</div>
             </div>
           ) : results.length === 0 ? (
-            <div className="py-8 text-center text-xs text-zinc-500">
-              No CC0 sounds found matching your criteria. Try another keyword.
-            </div>
+            <div className="py-8 text-center text-xs text-ink-faint">No CC0 sounds match. Try another keyword.</div>
           ) : (
-            <div className="space-y-2">
+            <ul className="space-y-2">
               {results.map((item) => {
                 const isPlaying = currentPlayingId === item.id;
                 const isDownloading = downloadingId === item.id;
-
                 return (
-                  <div
-                    key={item.id}
-                    className="p-2.5 rounded-lg bg-[#0a0a0e] border border-zinc-800/80 hover:border-zinc-700 transition-colors space-y-2"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-zinc-200 truncate" title={item.name}>
-                          {item.name}
-                        </div>
-                        <div className="text-[10px] text-zinc-400 flex items-center gap-2 mt-0.5">
-                          <span>by {item.username}</span>
-                          <span>•</span>
-                          <span className="font-mono text-zinc-300">{item.duration.toFixed(1)}s</span>
-                          <span>•</span>
-                          <span className="px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">
-                            CC0
-                          </span>
-                        </div>
+                  <li key={item.id} className="space-y-2 rounded-control border border-line bg-surface-2 p-2.5">
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold text-ink" title={item.name}>{item.name}</div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-ink-faint">
+                        <span className="truncate">by {item.username}</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="font-num shrink-0">{item.duration.toFixed(1)}s</span>
+                        <span aria-hidden="true">·</span>
+                        <a href={item.url} target="_blank" rel="noreferrer" title="View on Freesound.org" className="shrink-0 hover:text-accent">
+                          Freesound ↗
+                        </a>
                       </div>
-
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="View on Freesound.org"
-                        className="text-zinc-500 hover:text-emerald-400 p-1 shrink-0 transition-colors"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
+                      {item.tags && item.tags.length > 0 && (
+                        <div className="mt-1 truncate text-[10px] text-ink-faint">{item.tags.slice(0, 4).map((t) => `#${t}`).join('  ')}</div>
+                      )}
                     </div>
-
-                    {/* Tags preview */}
-                    {item.tags && item.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 text-[9px] text-zinc-500">
-                        {item.tags.slice(0, 4).map((t) => (
-                          <span key={t} className="px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-800">
-                            #{t}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Actions: Preview & Add to Timeline */}
-                    <div className="flex items-center gap-2 pt-1 border-t border-zinc-800/60">
-                      {/* Preview Button */}
-                      <button
-                        type="button"
-                        onClick={() => togglePreview(item)}
-                        className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors ${
-                          isPlaying
-                            ? 'bg-emerald-500 text-black'
-                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
-                        }`}
-                      >
-                        {isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+                    <div className="flex items-center gap-1.5">
+                      <button type="button" onClick={() => togglePreview(item)} className={pill(isPlaying, 'w-[5.5rem]')}>
+                        {isPlaying ? <Pause className="h-3 w-3 fill-current" /> : <Play className="h-3 w-3 fill-current" />}
                         <span>{isPlaying ? 'Pause' : 'Preview'}</span>
                       </button>
-
-                      {/* Add to Timeline Button */}
                       <button
                         type="button"
                         disabled={isDownloading}
                         onClick={() => handleAddToTimeline(item)}
-                        className="flex-1 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40"
+                        className={pill(false, 'min-w-0 flex-1 border-accent/40 text-accent hover:bg-accent-soft hover:text-accent')}
                       >
-                        <Download className="w-3 h-3" />
-                        <span>{isDownloading ? downloadStatusMsg : 'Add to Timeline'}</span>
+                        <Download className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{isDownloading ? downloadStatusMsg : 'Add to timeline'}</span>
                       </button>
                     </div>
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
         </div>
       )}
 
-      {/* Freesound OAuth2 Connect Modal (Portal to body at z-[100] to ensure it cannot be covered by any timeline controls or strips) */}
-      {isConnectModalOpen &&
-        createPortal(
-          <div
-            className="fixed inset-0 bg-black/85 z-[100] flex items-center justify-center p-4 animate-in fade-in duration-150"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setIsConnectModalOpen(false);
-            }}
-          >
-            <div
-              className="bg-[#121218] border border-zinc-700/90 rounded-xl p-5 max-w-md w-full shadow-[0_20px_60px_rgba(0,0,0,0.9),0_0_24px_rgba(16,185,129,0.15)] space-y-4 animate-in zoom-in-95 duration-150"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Key className="w-4 h-4 text-emerald-400" />
-                  <h3 className="text-sm font-bold text-zinc-100">Connect Freesound Account</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsConnectModalOpen(false)}
-                  className="text-zinc-500 hover:text-zinc-300 p-1 rounded hover:bg-zinc-800 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Freesound API requires user authorization via OAuth2 to download original, uncompressed
-                audio files onto your multi-track timeline.
-              </p>
-
-              <div className="text-xs text-zinc-300 space-y-2.5 bg-[#0a0a0e] p-3 rounded-lg border border-zinc-800">
-                <div className="font-semibold text-zinc-200">How to connect:</div>
-                <div className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">
-                    1
-                  </span>
-                  <div className="flex-1">
-                    {authUrl ? (
-                      <a
-                        href={authUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/50 text-xs font-semibold transition-colors"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span>Open Freesound Login & Authorization Page ↗</span>
-                      </a>
-                    ) : (
-                      <span>Log in to your free Freesound.org account and authorize access.</span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">
-                    2
-                  </span>
-                  <span>Click <strong>Authorize</strong> to allow Uuda Studio to access CC0 downloads.</span>
-                </div>
-
-                <div className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] flex items-center justify-center shrink-0 mt-0.5 font-bold">
-                    3
-                  </span>
-                  <span>Copy the authorization code from Freesound and paste it below:</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">
-                  Authorization Code
-                </label>
-                <input
-                  type="text"
-                  value={authCodeInput}
-                  onChange={(e) => setAuthCodeInput(e.target.value)}
-                  placeholder="Paste authorization code here..."
-                  className="w-full bg-[#0a0a0e] border border-zinc-700 rounded-lg p-2.5 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 font-mono"
-                />
-              </div>
-
-              {connectError && (
-                <div className="text-xs text-rose-400 p-2.5 rounded bg-rose-500/10 border border-rose-500/30">
-                  {connectError}
-                </div>
+      {/* Connect dialog: portalled to the page so no panel layer can cover it */}
+      {createPortal(
+      <ModalShell
+        open={isConnectModalOpen}
+        onClose={() => setIsConnectModalOpen(false)}
+        title="Connect Freesound account"
+        description="Needed to download the original, full-quality audio onto your timeline."
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setIsConnectModalOpen(false)}>Cancel</Button>
+            <Button variant="primary" size="sm" disabled={isExchangingCode || !authCodeInput.trim()} onClick={handleExchangeCode}>
+              {isExchangingCode ? 'Connecting...' : 'Connect and enable downloads'}
+            </Button>
+          </>
+        }
+      >
+        <ol className="space-y-3 text-xs text-ink-dim">
+          <li className="flex items-start gap-2.5">
+            <span className="font-num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong text-[10px] text-ink">1</span>
+            <div className="flex-1">
+              {authUrl ? (
+                <a href={authUrl} target="_blank" rel="noopener noreferrer" className={pill(true, 'h-8')}>
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Open the Freesound authorization page</span>
+                </a>
+              ) : (
+                <span>Log in to your free Freesound.org account.</span>
               )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsConnectModalOpen(false)}
-                  className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={isExchangingCode || !authCodeInput.trim()}
-                  onClick={handleExchangeCode}
-                  className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 disabled:opacity-40 transition-colors shadow-lg shadow-emerald-900/30"
-                >
-                  {isExchangingCode ? 'Connecting...' : 'Connect & Enable Downloads'}
-                </button>
-              </div>
             </div>
-          </div>,
-          document.body
-        )}
+          </li>
+          <li className="flex items-start gap-2.5">
+            <span className="font-num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong text-[10px] text-ink">2</span>
+            <span>Choose <strong className="text-ink">Authorize</strong> to let Uuda Studio download CC0 sounds.</span>
+          </li>
+          <li className="flex items-start gap-2.5">
+            <span className="font-num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong text-[10px] text-ink">3</span>
+            <span>Copy the code Freesound shows you and paste it here.</span>
+          </li>
+        </ol>
+        <div className="mt-4">
+          <Input
+            label="Authorization code"
+            value={authCodeInput}
+            onChange={(e) => setAuthCodeInput(e.target.value)}
+            placeholder="Paste the code here"
+          />
+        </div>
+        {connectError && <div className={`${notice('danger')} mt-3`} role="alert">{connectError}</div>}
+      </ModalShell>,
+      document.body,
+      )}
     </div>
   );
 };
