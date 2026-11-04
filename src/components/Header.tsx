@@ -152,6 +152,21 @@ interface HeaderProps {
   onOpenVoiceoverModal?: () => void;
 }
 
+const MENU_ITEM = 'w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer';
+
+/** One row of the File menu: icon and label */
+const FileMenuItem: React.FC<{ icon: React.ReactNode; label: string; onClick?: () => void; title?: string; danger?: boolean }> = ({ icon, label, onClick, title, danger = false }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={title}
+    className={danger ? 'w-full text-left px-3 py-2 hover:bg-danger/15 flex items-center gap-2.5 text-danger transition-colors cursor-pointer' : MENU_ITEM}
+  >
+    <span className={danger ? 'text-danger' : 'text-ink-dim'}>{icon}</span>
+    <span className="font-medium">{label}</span>
+  </button>
+);
+
 export const Header: React.FC<HeaderProps> = ({
   project,
   isPlaying,
@@ -208,6 +223,13 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const projectFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // The toolbar's Import button asks for the same file picker as File > Import Audio Files
+  useEffect(() => {
+    const openPicker = () => fileInputRef.current?.click();
+    window.addEventListener('uuda:import-audio', openPicker);
+    return () => window.removeEventListener('uuda:import-audio', openPicker);
+  }, []);
 
   const [skipStep, setSkipStep] = useState<number>(readSkipStep);
   const [isEditMenuOpen, setIsEditMenuOpen] = useState(false);
@@ -324,87 +346,23 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => setIsProjectMenuOpen(false)}
               className="left-0 absolute top-full mt-1.5 w-64 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] bg-surface-2 border border-line-strong rounded-card shadow-float z-50 text-xs text-ink-dim uuda-pop-in py-1.5"
             >
-              <button
-                onClick={onNewProject}
-                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-              >
-                <FilePlus className="w-4 h-4 text-ink-dim" />
-                <div>
-                  <div className="font-medium">New Project...</div>
-                </div>
-              </button>
-
-              {onNewFromTemplate && (
-                <button
-                  onClick={onNewFromTemplate}
-                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <LayoutTemplate className="w-4 h-4 text-ink-dim" />
-                  <div>
-                    <div className="font-medium">New from Template...</div>
-                  </div>
-                </button>
-              )}
-
-              {onSaveAndNewProject && (
-                <button
-                  onClick={onSaveAndNewProject}
-                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <Save className="w-4 h-4 text-ink-dim" />
-                  <div>
-                    <div className="font-medium">Save & Start New</div>
-                  </div>
-                </button>
-              )}
-
-              {onOpenNewProjectInTab && (
-                <button
-                  onClick={onOpenNewProjectInTab}
-                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <ExternalLink className="w-4 h-4 text-ink-dim" />
-                  <div>
-                    <div className="font-medium">New Project in New Tab</div>
-                  </div>
-                </button>
-              )}
-
-              <button
-                onClick={() => projectFileInputRef.current?.click()}
-                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-              >
-                <FolderOpen className="w-4 h-4 text-ink-dim" />
-                <div>
-                  <div className="font-medium">Open Project from Computer...</div>
-                </div>
-              </button>
-
-              {onChooseProjectRoot && (
-                <button
-                  onClick={onChooseProjectRoot}
-                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <FolderArchive className="w-4 h-4 text-ink-dim" />
-                  <div>
-                    <div className="font-medium">Choose Root Folder...</div>
-                  </div>
-                </button>
-              )}
-
-              {onOpenProjectFromRoot && (
-                <button
-                  onClick={onOpenProjectFromRoot}
-                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <FolderOpen className="w-4 h-4 text-ink-dim" />
-                  <div>
-                    <div className="font-medium">Open from Root Folder...</div>
-                  </div>
-                </button>
-              )}
+              {/* Bring audio in */}
+              <FileMenuItem icon={<UploadCloud className="w-4 h-4" />} label="Import Audio Files..." onClick={() => fileInputRef.current?.click()} />
 
               <div className="h-px bg-line my-1" />
+
+              {/* Start something new */}
+              <FileMenuItem icon={<FilePlus className="w-4 h-4" />} label="New Project..." onClick={onNewProject} />
+              {onNewFromTemplate && <FileMenuItem icon={<LayoutTemplate className="w-4 h-4" />} label="New from Template..." onClick={onNewFromTemplate} />}
+              {onSaveAndNewProject && <FileMenuItem icon={<Save className="w-4 h-4" />} label="Save & Start New" onClick={onSaveAndNewProject} />}
+              {onOpenNewProjectInTab && <FileMenuItem icon={<ExternalLink className="w-4 h-4" />} label="New Project in New Tab" onClick={onOpenNewProjectInTab} />}
+
+              <div className="h-px bg-line my-1" />
+
+              {/* Open an existing project */}
+              <FileMenuItem icon={<FolderOpen className="w-4 h-4" />} label="Open Project from Computer..." onClick={() => projectFileInputRef.current?.click()} />
+              {onOpenProjectFromRoot && <FileMenuItem icon={<FolderOpen className="w-4 h-4" />} label="Open from Root Folder..." onClick={onOpenProjectFromRoot} />}
+
               <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-ink-faint font-semibold">
                 Recent Projects
               </div>
@@ -413,106 +371,55 @@ export const Header: React.FC<HeaderProps> = ({
                   key={recent.id}
                   onClick={() => projectFileInputRef.current?.click()}
                   title={`Choose the saved .uuda file for “${recent.name}”`}
-                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
+                  className={MENU_ITEM}
                 >
                   <FolderOpen className="w-4 h-4 text-ink-dim shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="font-medium truncate">{recent.name}</div>
-                    <div className="text-[10px] text-zinc-500">
+                    <div className="text-[10px] text-ink-faint">
                       {recent.trackCount} {recent.trackCount === 1 ? 'track' : 'tracks'} · {new Date(recent.lastOpenedAt).toLocaleDateString()}
                     </div>
                   </div>
                 </button>
               )) : (
-                <div className="px-3 py-2 text-[10px] text-zinc-500">Projects you open will appear here.</div>
+                <div className="px-3 py-2 text-[10px] text-ink-faint">Projects you open will appear here.</div>
               )}
-              <div className="px-3 pb-1 text-[10px] text-zinc-600">
+              <div className="px-3 pb-1 text-[10px] text-ink-faint">
                 Recent names are stored locally; choose a saved .uuda file to reopen a project.
               </div>
 
-              {onSaveAsTemplate && (
-                <button
-                  onClick={onSaveAsTemplate}
-                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <LayoutTemplate className="w-4 h-4 text-ink-dim" />
-                  <div>
-                    <div className="font-medium">Save as Template...</div>
-                  </div>
-                </button>
-              )}
+              <div className="h-px bg-line my-1" />
 
-              <button
-                onClick={onSaveProjectToFile}
-                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-              >
-                <Save className="w-4 h-4 text-ink-dim" />
-                <div>
-                  <div className="font-medium">Save Project to Computer</div>
-                </div>
-              </button>
-
-              {onSaveProjectAs && (
-                <button
-                  onClick={onSaveProjectAs}
-                  className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <Save className="w-4 h-4 text-ink-dim" />
-                  <div>
-                    <div className="font-medium">Save As...</div>
-                  </div>
-                </button>
-              )}
+              {/* Save and name the project */}
+              <FileMenuItem icon={<Save className="w-4 h-4" />} label="Save Project to Computer" onClick={onSaveProjectToFile} />
+              {onSaveProjectAs && <FileMenuItem icon={<Save className="w-4 h-4" />} label="Save As..." onClick={onSaveProjectAs} />}
+              {onSaveAsTemplate && <FileMenuItem icon={<LayoutTemplate className="w-4 h-4" />} label="Save as Template..." onClick={onSaveAsTemplate} />}
+              <FileMenuItem icon={<Edit3 className="w-4 h-4" />} label="Rename Project" onClick={() => window.dispatchEvent(new CustomEvent('uuda:rename-project'))} />
 
               <div className="h-px bg-line my-1" />
 
-              <button
-                onClick={() => window.dispatchEvent(new CustomEvent('uuda:rename-project'))}
-                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-              >
-                <Edit3 className="w-4 h-4 text-ink-dim" />
-                <div>
-                  <div className="font-medium">Rename Project</div>
-                </div>
-              </button>
-
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-              >
-                <UploadCloud className="w-4 h-4 text-ink-dim" />
-                <div>
-                  <div className="font-medium">Import Audio Files...</div>
-                </div>
-              </button>
-
-              <div className="h-px bg-line my-1" />
-
-              <button
+              {/* Set up */}
+              {onChooseProjectRoot && <FileMenuItem icon={<FolderArchive className="w-4 h-4" />} label="Choose Root Folder..." onClick={onChooseProjectRoot} />}
+              <FileMenuItem
+                icon={<Settings className="w-4 h-4" />}
+                label="Studio Settings..."
                 onClick={() => {
                   setIsProjectMenuOpen(false);
                   setIsSettingsOpen(true);
                 }}
-                className="w-full text-left px-3 py-2 hover:bg-white/5 hover:text-ink flex items-center gap-2.5 transition-colors cursor-pointer"
-              >
-                <Settings className="w-4 h-4 text-ink-dim" />
-                <div className="font-medium">Studio Settings...</div>
-              </button>
+              />
 
               <div className="h-px bg-line my-1" />
 
-              <button
+              <FileMenuItem
+                danger
+                icon={<Trash2 className="w-4 h-4" />}
+                label="Clear Session / Reset"
                 onClick={() => {
                   setIsProjectMenuOpen(false);
                   onClearSession();
                 }}
-                className="w-full text-left px-3 py-2 hover:bg-rose-500/20 hover:text-rose-300 flex items-center gap-2.5 text-rose-400 transition-colors cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4 text-rose-400" />
-                <div>
-                  <div className="font-medium">Clear Session / Reset</div>
-                </div>
-              </button>
+              />
             </div>
           )}
         </div>

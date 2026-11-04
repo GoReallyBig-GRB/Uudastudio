@@ -3712,6 +3712,10 @@ const MainStudio: React.FC = () => {
         onSplit={(id) => splitAny(id)}
         locked={!!selectedClip && isClipLocked(project, selectedClip)}
         onToggleLock={handleToggleLock}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
         onSilence={handleSilence}
         onCaptureNoise={() => void handleCaptureNoise()}
         hasNoisePrint={!!noisePrint}

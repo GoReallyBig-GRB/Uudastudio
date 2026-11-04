@@ -31,6 +31,10 @@ import {
   Trash2,
   Maximize2,
   Headphones,
+  Layers,
+  Undo2,
+  Redo2,
+  Upload,
 } from 'lucide-react';
 import { Clip } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
@@ -60,6 +64,11 @@ interface ClipToolbarProps {
   /** True when the selected clip or its group is locked (GR-4) */
   locked?: boolean;
   onToggleLock?: () => void;
+  /** Undo / Redo (icon-only pill at the right of the first row) */
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
   onOpenEffect?: (type: import('../types').EffectType) => void;
   onDeselect: () => void;
   /** Project title, shown at the left of this row; double-click it (or use File > Rename Project) to rename. */
@@ -198,6 +207,10 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onOpenEffect,
   locked,
   onToggleLock,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
   tool,
   onToolChange,
   focusActive,
@@ -237,6 +250,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
 
   const none = !hasClip && !hasRange;
   const idle = 'border-line bg-surface-1 text-ink-dim hover:bg-surface-3 hover:text-ink';
+  // Effects Rack and Master Console: larger and cyan-tinted so they read as panels, not edit buttons
+  const RACK = "flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-accent/40 bg-accent-soft px-3.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-40";
   const PILL = "flex h-[22px] shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40";
   return (
     <div className="bg-surface-0 border-b border-line px-4 py-1 flex flex-col gap-1 text-[10px] text-ink-dim shrink-0 select-none z-30">
@@ -270,6 +285,16 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             </span>
           )}
           <div className="h-3.5 w-px bg-line shrink-0" />
+          {/* Import: the same action as File > Import Audio Files (Header listens for this event) */}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('uuda:import-audio'))}
+            title="Import audio files (WAV, MP3, M4A)"
+            className={`${PILL} ${idle}`}
+          >
+            <Upload className="h-3 w-3" />
+            <span className="max-[1150px]:hidden">Import</span>
+          </button>
           <Capsule label="Timeline tool" size="sm">
             <CapsuleButton title="Select tool: move and edit clips (Z)" active={tool === 'select'} onClick={() => onToolChange('select')}>
               Select
@@ -278,29 +303,43 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               Range
             </CapsuleButton>
           </Capsule>
-          <Capsule label="View" size="sm">
+          {/* Focus switches the single-track view on; Solo and Mix then choose what you hear */}
+          <Capsule label="Focus view" size="sm">
             <CapsuleButton
-              title={focusActive ? 'Back to all tracks (F)' : 'Single-track view: work on this track alone, large (F)'}
+              title={focusActive ? 'Back to all tracks (F)' : 'Single-track view: work on this track alone, large (F). Turns on Solo and Mix.'}
               active={focusActive}
               onClick={onToggleFocus}
               icon={<Maximize2 className="h-3 w-3" />}
             >
-              {focusActive ? 'All tracks' : 'Focus'}
+              Focus
             </CapsuleButton>
             <CapsuleButton
-              title={!focusActive ? 'In Focus view you can hear only this track or the full mix' : focusSolo ? 'Hearing only this track. Click to hear the full mix.' : 'Hearing the full mix. Click to hear only this track.'}
+              title={focusActive ? 'Hear only this track' : 'Turn on Focus to choose what you hear'}
               active={focusActive && focusSolo}
               tone="gold"
               disabled={!focusActive}
-              onClick={onToggleFocusSolo}
+              onClick={() => !focusSolo && onToggleFocusSolo()}
               icon={<Headphones className="h-3 w-3" />}
             >
-              {focusSolo ? 'Solo' : 'Full mix'}
+              Solo
+            </CapsuleButton>
+            <CapsuleButton
+              title={focusActive ? 'Hear the full mix while this track is in focus' : 'Turn on Focus to choose what you hear'}
+              active={focusActive && !focusSolo}
+              disabled={!focusActive}
+              onClick={() => focusSolo && onToggleFocusSolo()}
+              icon={<Layers className="h-3 w-3" />}
+            >
+              Mix
             </CapsuleButton>
           </Capsule>
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          <Capsule label="History" size="sm">
+            <CapsuleButton iconOnly title="Undo (Ctrl+Z)" disabled={!canUndo || !onUndo} onClick={onUndo} icon={<Undo2 className="h-3 w-3" />} />
+            <CapsuleButton iconOnly title="Redo (Ctrl+Y)" disabled={!canRedo || !onRedo} onClick={onRedo} icon={<Redo2 className="h-3 w-3" />} />
+          </Capsule>
           <Capsule label="Clip edit" size="sm">
             <CapsuleButton
               title={hasRange ? 'Split the highlighted range out at both edges (so it can be silenced, raised, lowered or processed)' : hasClip ? 'Split clip at playhead (S)' : 'Select a clip to split'}
@@ -415,25 +454,29 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
 
         {/* The clip's own settings: always there, available when a clip is selected */}
         <div className="flex shrink-0 items-center gap-1.5">
-          <Capsule label="Racks" size="sm">
-            <CapsuleButton
-              title="Open the Audio Effects Rack (Delay, EQ, Chorus, Flanger, Phaser, Reverb)"
-              disabled={!onOpenEffect}
-              onClick={() => onOpenEffect?.('reverb')}
-              icon={<Sparkles className="h-3 w-3" />}
-            >
-              Effects Rack
-            </CapsuleButton>
-            <CapsuleButton
-              title={isTimelineCollapsed ? 'Show the timeline again' : 'Collapse the timeline to show only the Master Console'}
-              active={isTimelineCollapsed}
-              disabled={!onToggleTimelineCollapsed}
-              onClick={onToggleTimelineCollapsed}
-              icon={<SlidersHorizontal className="h-3 w-3" />}
-            >
-              {isTimelineCollapsed ? 'Show Timeline' : 'Master Console'}
-            </CapsuleButton>
-          </Capsule>
+          {/* The two panels stand apart from the edit buttons: their own accent pills, then a divider */}
+          <button
+            type="button"
+            title="Open the Audio Effects Rack (Delay, EQ, Chorus, Flanger, Phaser, Reverb)"
+            disabled={!onOpenEffect}
+            onClick={() => onOpenEffect?.('reverb')}
+            className={RACK}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>Effects<span className="max-[1100px]:hidden"> Rack</span></span>
+          </button>
+          <button
+            type="button"
+            title={isTimelineCollapsed ? 'Show the timeline again' : 'Collapse the timeline to show only the Master Console'}
+            aria-pressed={isTimelineCollapsed}
+            disabled={!onToggleTimelineCollapsed}
+            onClick={onToggleTimelineCollapsed}
+            className={`${RACK} ${isTimelineCollapsed ? '!bg-accent !text-accent-ink' : ''}`}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span>{isTimelineCollapsed ? 'Show Timeline' : <>Master<span className="max-[1100px]:hidden"> Console</span></>}</span>
+          </button>
+          <div className="mx-0.5 h-4 w-px shrink-0 bg-line-strong" />
           <button
             onClick={() => clip && onToggleMute(clip.id)}
             disabled={!clip}
@@ -441,7 +484,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             className={`${PILL} ${clip?.muted ? 'border-danger/40 bg-danger/10 text-danger' : idle}`}
           >
             {clip?.muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
-            <span>{clip?.muted ? 'Muted' : 'Mute'}</span>
+            <span className="max-[1150px]:hidden">{clip?.muted ? 'Muted' : 'Mute'}</span>
           </button>
           <button
             onClick={() => onToggleLock?.()}
@@ -451,7 +494,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             className={`${PILL} ${locked ? 'border-gold/50 bg-gold/10 text-gold' : idle}`}
           >
             {locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
-            <span className="max-[1100px]:hidden">{locked ? 'Locked' : 'Lock'}</span>
+            <span className="max-[1150px]:hidden">{locked ? 'Locked' : 'Lock'}</span>
           </button>
           <Capsule label="Move to track" size="sm">
             <CapsuleButton iconOnly title="Move clip to track above (Arrow Up)" disabled={!clip} onClick={() => clip && onMoveTrack(clip.id, 'up')} icon={<ArrowUp className="h-3 w-3" />} />
