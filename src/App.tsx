@@ -100,6 +100,8 @@ import { saveCloudTemplate, TemplateSyncError } from './templates/templateApi';
 import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, UudaTemplate } from './templates/template';
 import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
 import { VoiceoverModal } from './components/VoiceoverModal';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { undoLeftProcessingInPlace } from './history/historyLimits';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
 import { calculateMinimumTimelineZoom } from './components/timelineZoom';
 
@@ -373,6 +375,30 @@ const MainStudio: React.FC = () => {
   // Undo and long processed audio: every Compress / Denoise / Pitch / Speed / effect result on long audio is a full-length
   // copy on disk, so the history keeps a limited number of them (shorter audio: no limit) and removes copies nothing needs.
   const trimNoticeShownRef = useRef(false);
+  /** Start a new history (new, opened or reset project); the once-per-project undo notice may show again */
+  const resetHistory = useCallback((project: Project) => {
+    trimNoticeShownRef.current = false;
+    historyManagerRef.current.reset(project);
+  }, []);
+
+  // A blocking question or notice (replaces corner toasts for things the user must read and answer)
+  interface AskOptions { title: string; message: string; detail?: string; confirmLabel?: string; cancelLabel?: string | null }
+  const [confirmDialog, setConfirmDialog] = useState<AskOptions | null>(null);
+  const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
+  const askConfirm = useCallback((opts: AskOptions): Promise<boolean> => {
+    if (confirmResolveRef.current) return Promise.resolve(false); // one at a time
+    return new Promise<boolean>((resolve) => {
+      confirmResolveRef.current = resolve;
+      setConfirmDialog(opts);
+    });
+  }, []);
+  const answerConfirm = useCallback((ok: boolean) => {
+    const resolve = confirmResolveRef.current;
+    confirmResolveRef.current = null;
+    setConfirmDialog(null);
+    resolve?.(ok);
+  }, []);
+
   useEffect(() => {
     historyManagerRef.current.setPolicy({
       processedMinutes: (id) => {
@@ -381,9 +407,18 @@ const MainStudio: React.FC = () => {
       },
       limitFor: processedUndoLimit,
       onLimited: (limit) => {
+        // Shown once per project, as a popup that has to be answered. (It runs inside a state update, so it is queued.)
         if (trimNoticeShownRef.current) return;
         trimNoticeShownRef.current = true;
-        addToast({ type: 'info', title: 'Undo history shortened', message: `This audio is long, so Undo keeps the last ${limit} processed ${limit === 1 ? 'copy' : 'copies'} (each is a full-length copy on disk). Cuts, deletes, silence and level changes are not limited.` });
+        queueMicrotask(() => {
+          void askConfirm({
+            title: 'Undo is limited for this long audio',
+            message: `Each effect or processing step on audio this long makes a full-length copy on disk, so Undo keeps only the last ${limit} processed ${limit === 1 ? 'copy' : 'copies'}. Older processing steps can no longer be undone one at a time.`,
+            detail: 'Cuts, deletes, silence and level changes are not limited. When the steps run out, Undo goes back to the project as it was just before the first processing step, and asks you first.',
+            confirmLabel: 'OK',
+            cancelLabel: null,
+          });
+        });
       },
       onUnreferenced: (ids) => {
         for (const id of ids) {
@@ -395,7 +430,7 @@ const MainStudio: React.FC = () => {
         }
       },
     });
-  }, [addToast]);
+  }, [addToast, askConfirm]);
 
   // Sync undo/redo button states
   const updateHistoryFlags = useCallback(() => {
@@ -790,7 +825,7 @@ const MainStudio: React.FC = () => {
         if (isMounted && savedProject) {
           savedProjectRef.current = savedProject;
           setProject(savedProject);
-          historyManagerRef.current.reset(savedProject);
+          resetHistory(savedProject);
           updateHistoryFlags();
           setLastSavedAt(new Date());
 
@@ -1025,7 +1060,7 @@ const MainStudio: React.FC = () => {
     };
     savedProjectRef.current = blankProject;
     setProject(blankProject);
-    historyManagerRef.current.reset(blankProject);
+    resetHistory(blankProject);
     updateHistoryFlags();
     setSelectedTrackId(null);
     setSelectedClipIds(new Set());
@@ -1292,7 +1327,7 @@ const MainStudio: React.FC = () => {
       savedProjectRef.current = loadedProject;
       pluginManager.clearAll();
       setProject(loadedProject);
-      historyManagerRef.current.reset(loadedProject);
+      resetHistory(loadedProject);
       updateHistoryFlags();
       if (hasSavedPlugins(loadedProject)) {
         restorePluginStates(audioEngine.init(), loadedProject).catch((err) =>
@@ -3212,7 +3247,19 @@ const MainStudio: React.FC = () => {
   // 8. Undo / Redo
   const handleUndo = async () => {
     await flushPluginEdits();
+    // The steps for this long audio have run out: the next Undo jumps back past the processing. Ask before doing it.
+    if (historyManagerRef.current.nextUndoIsOriginal()) {
+      const go = await askConfirm({
+        title: 'Go back to the original audio?',
+        message: 'Undo has run out of steps for this long audio. Continuing takes the project back to just before the first processing step (effect, Compress, Denoise, Pitch or Speed), with the unprocessed audio.',
+        detail: 'Everything you did before that step is kept. The processing and the edits after it are undone. Redo brings them back.',
+        confirmLabel: 'Go back',
+        cancelLabel: 'Cancel',
+      });
+      if (!go) return;
+    }
     const toOriginal = historyManagerRef.current.nextUndoIsOriginal();
+    const before = projectRef.current;
     const previous = historyManagerRef.current.undo();
     if (previous) {
       const restored = { ...previous, mastering: projectRef.current.mastering };
@@ -3220,8 +3267,11 @@ const MainStudio: React.FC = () => {
       projectRef.current = restored;
       void syncPluginsToSnapshot(previous);
       updateHistoryFlags();
+      const isProcessed = (id: string) => { const a = audioEngine.getAsset(id); return !!(a?.processed); };
       if (toOriginal) {
-        addToast({ type: 'warning', title: 'Back to the original', message: 'Undo ran out of steps for this long audio, so this went back to the project as it was just before the first processing step (effect, Compress, Denoise, Pitch or Speed), with the unprocessed audio. Everything you did before that is kept; the processing and edits after it are undone. Redo brings them back.' });
+        addToast({ type: 'info', title: 'Back to the original', message: 'The project is as it was just before the first processing step. Redo brings the processing back.' });
+      } else if (undoLeftProcessingInPlace(before, previous, isProcessed)) {
+        addToast({ type: 'info', title: 'Undo', message: 'Reverted a light edit. The effect or processing from earlier is still applied; keep pressing Undo to remove it.' });
       } else {
         addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
       }
@@ -3293,7 +3343,7 @@ const MainStudio: React.FC = () => {
     };
     savedProjectRef.current = freshProject;
     setProject(freshProject);
-    historyManagerRef.current.reset(freshProject);
+    resetHistory(freshProject);
     updateHistoryFlags();
     setSelectedTrackId(null);
     setSelectedClipIds(new Set());
@@ -4086,6 +4136,17 @@ const MainStudio: React.FC = () => {
         isOpen={isVoiceoverModalOpen}
         onClose={() => setIsVoiceoverModalOpen(false)}
         onAddVoiceTrack={handleAddVoiceTrack}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDialog}
+        title={confirmDialog?.title ?? ''}
+        message={confirmDialog?.message ?? ''}
+        detail={confirmDialog?.detail}
+        confirmLabel={confirmDialog?.confirmLabel}
+        cancelLabel={confirmDialog?.cancelLabel}
+        onConfirm={() => answerConfirm(true)}
+        onCancel={() => answerConfirm(false)}
       />
 
       {/* Expanded Sound Effects & Music Loop Library Workspace Modal */}

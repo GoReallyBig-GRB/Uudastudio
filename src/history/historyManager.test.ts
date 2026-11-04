@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../types';
 import { HistoryManager } from './historyManager';
+import { undoLeftProcessingInPlace } from './historyLimits';
 
 const proj = (asset: string, tag = 0): Project =>
   ({ name: `p${tag}`, tracks: [{ id: 't', clips: [{ id: 'c', assetId: asset }] }] } as unknown as Project);
@@ -85,5 +86,62 @@ describe('history with processed copies of long audio', () => {
     while (h.undo()) steps++;
     expect(steps).toBe(2);
     expect(h.isAtOriginalAnchor()).toBe(false);
+  });
+
+  describe('a 127 minute track (limit 1): what Undo does', () => {
+    const long = (h: HistoryManager) =>
+      h.setPolicy({ processedMinutes: (id) => (id.startsWith('P') ? 127 : undefined), limitFor: () => 1 });
+    const isP = (id: string) => id.startsWith('P');
+    const assetOf = (p: Project | null) => p?.tracks[0].clips[0].assetId;
+
+    it('one effect then five light edits: five Undos only reach the state with the effect still applied', () => {
+      const h = new HistoryManager(proj('orig'));
+      long(h);
+      h.pushState(proj('P1'));
+      for (let i = 1; i <= 5; i++) h.pushState(proj('P1', i)); // five cuts / level changes after the effect
+      let last: Project | null = null;
+      let before = h.getPresent();
+      let stillProcessed = 0;
+      for (let i = 0; i < 5; i++) {
+        last = h.undo();
+        if (last && undoLeftProcessingInPlace(before, last, isP)) stillProcessed++;
+        before = last ?? before;
+      }
+      expect(assetOf(last)).toBe('P1'); // the effect is still there after five Undos
+      expect(stillProcessed).toBe(5); // every one of the five Undos only reverted a light edit; the effect stayed
+      expect(h.canUndo()).toBe(true);
+      expect(assetOf(h.undo())).toBe('orig'); // the sixth Undo is the one that removes the effect
+    });
+
+    it('two effects in a row: one Undo goes back to the unprocessed audio, and says so beforehand', () => {
+      const h = new HistoryManager(proj('orig'));
+      long(h);
+      h.pushState(proj('P1'));
+      h.pushState(proj('P2'));
+      expect(h.nextUndoIsOriginal()).toBe(true); // the app asks for confirmation here
+      expect(assetOf(h.undo())).toBe('orig');
+      expect(h.canUndo()).toBe(false);
+    });
+
+    it('a notice is raised each time the history is shortened', () => {
+      const h = new HistoryManager(proj('orig'));
+      const limited: number[] = [];
+      h.setPolicy({
+        processedMinutes: (id) => (id.startsWith('P') ? 127 : undefined),
+        limitFor: () => 1,
+        onLimited: (l) => limited.push(l),
+      });
+      h.pushState(proj('P1'));
+      expect(limited).toEqual([]); // one processed copy is within the limit
+      h.pushState(proj('P2'));
+      expect(limited).toEqual([1]);
+    });
+  });
+
+  it('undoLeftProcessingInPlace is false when the Undo removed the processing, or there was none', () => {
+    const isP = (id: string) => id.startsWith('P');
+    expect(undoLeftProcessingInPlace(proj('P1'), proj('orig'), isP)).toBe(false);
+    expect(undoLeftProcessingInPlace(proj('orig', 1), proj('orig', 2), isP)).toBe(false);
+    expect(undoLeftProcessingInPlace(proj('P1', 1), proj('P1', 2), isP)).toBe(true);
   });
 });
