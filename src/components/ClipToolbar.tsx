@@ -480,7 +480,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
           <button
             onClick={() => clip && onToggleMute(clip.id)}
             disabled={!clip}
-            title={clip ? 'Mute / Unmute clip' : 'Select a clip to mute it'}
+            title={clip ? 'Mute / Unmute clip (Ctrl+M)' : 'Select a clip to mute it'}
             className={`${PILL} ${clip?.muted ? 'border-danger/40 bg-danger/10 text-danger' : idle}`}
           >
             {clip?.muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}

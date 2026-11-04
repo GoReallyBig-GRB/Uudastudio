@@ -516,7 +516,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="w-full text-left px-3 py-1.5 hover:bg-white/5 hover:text-ink disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Mute / Unmute Clip</span>
-                <span className="font-num text-[10px] text-ink-faint">M</span>
+                <span className="font-num text-[10px] text-ink-faint">Ctrl+M</span>
               </button>
               <button
                 disabled={!hasSelectedClip}
