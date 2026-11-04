@@ -36,3 +36,18 @@ export const pastStatesToDrop = (
   }
   return 0;
 };
+
+/**
+ * True when an Undo changed something but left processed audio (an effect, Compress, Denoise, Pitch or Speed result) in
+ * place: the same processed copies are used before and after. The Undo then only reverted a lighter edit (a cut, a level
+ * change), so the effect is still there and the user needs to Undo again to remove it.
+ */
+export const undoLeftProcessingInPlace = (
+  before: Project,
+  after: Project,
+  isProcessed: (assetId: string) => boolean,
+): boolean => {
+  const processedBefore = [...assetIdsOf(before)].filter(isProcessed).sort();
+  const processedAfter = [...assetIdsOf(after)].filter(isProcessed).sort();
+  return processedAfter.length > 0 && processedBefore.join('|') === processedAfter.join('|');
+};
