@@ -23,6 +23,8 @@ import {
   Trash2,
   Layers,
   Lock,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import { Asset, VoiceMetadata } from '../types';
 import { audioEngine } from '../audio/engine';
@@ -210,6 +212,22 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
       v.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
     return matchesGender && matchesSearch;
   });
+
+  // Move the selection to the next or previous voice in the list as it is filtered, and audition it straight away,
+  // so a voice can be tested and the next one tried in one motion
+  const voiceListRef = useRef<HTMLUListElement | null>(null);
+  const stepVoice = (direction: 1 | -1) => {
+    if (isBusy || filteredVoices.length === 0) return;
+    const at = filteredVoices.findIndex((v) => v.name === selectedVoice);
+    const count = filteredVoices.length;
+    const next = at === -1 ? (direction === 1 ? 0 : count - 1) : (at + direction + count) % count;
+    const name = filteredVoices[next].name;
+    setSelectedVoice(name);
+    void voiceJob.audition(name);
+    requestAnimationFrame(() => {
+      voiceListRef.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
+    });
+  };
 
   const wordCount = script.trim() ? script.trim().split(/\s+/).length : 0;
   const estimatedSeconds = (wordCount / 2.5).toFixed(1);
@@ -507,40 +525,68 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
               />
             </div>
 
-            {/* Selected voice stays in view while the list scrolls */}
-            <div className="mb-3 flex items-center justify-between gap-3 rounded-control border border-accent/50 bg-accent-soft p-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
-                  <Lock className="h-3 w-3" aria-hidden="true" />
-                  <span>Selected{isBusy ? ' (locked while generating)' : ''}</span>
-                </div>
-                <div className="truncate text-sm font-semibold text-ink">
-                  {selectedVoice}
+            {/* Focus card: the one voice that will be used, always in view, with stepping and audition in one place */}
+            <div className="mb-3 rounded-control border border-accent/50 bg-accent-soft p-3" aria-live="polite">
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
+                {isBusy ? <Lock className="h-3 w-3" aria-hidden="true" /> : <Volume2 className={`h-3 w-3 ${selectedAuditioning && !isAuditionLoading ? 'animate-pulse motion-reduce:animate-none' : ''}`} aria-hidden="true" />}
+                <span>
+                  {isBusy
+                    ? 'Selected (locked while generating)'
+                    : selectedAuditioning
+                    ? isAuditionLoading ? 'Loading audition' : 'Auditioning now'
+                    : 'Selected voice'}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-base font-semibold text-ink">{selectedVoice}</div>
                   {selectedPicked && (
-                    <span className="ml-2 text-[11px] font-normal text-ink-dim">
+                    <div className="truncate text-[11px] text-ink-dim">
                       {selectedPicked.gender} · {selectedPicked.descriptor}
-                    </span>
+                    </div>
                   )}
                 </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => stepVoice(-1)}
+                    disabled={isBusy || filteredVoices.length === 0}
+                    title="Previous voice (plays it)"
+                    aria-label="Previous voice"
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-line-strong bg-surface-3 text-ink transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ChevronUp className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => stepVoice(1)}
+                    disabled={isBusy || filteredVoices.length === 0}
+                    title="Next voice (plays it)"
+                    aria-label="Next voice"
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-line-strong bg-surface-3 text-ink transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAuditionVoice(selectedVoice)}
+                    disabled={isAuditionLoading && !selectedAuditioning}
+                    className={auditionButtonClass(selectedAuditioning)}
+                  >
+                    {isAuditionLoading && selectedAuditioning ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    ) : selectedAuditioning ? (
+                      <Pause className="h-3.5 w-3.5" aria-hidden="true" />
+                    ) : (
+                      <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    <span>{selectedAuditioning ? 'Stop' : 'Audition'}</span>
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => handleAuditionVoice(selectedVoice)}
-                disabled={isAuditionLoading && !selectedAuditioning}
-                className={auditionButtonClass(selectedAuditioning)}
-              >
-                {isAuditionLoading && selectedAuditioning ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                ) : selectedAuditioning ? (
-                  <Pause className="h-3.5 w-3.5" aria-hidden="true" />
-                ) : (
-                  <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                )}
-                <span>{selectedAuditioning ? 'Stop' : 'Audition'}</span>
-              </button>
             </div>
 
-            <ul className="-mr-1 max-h-72 space-y-1.5 overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1" aria-label="Voices">
+            <ul ref={voiceListRef} className="-mr-1 max-h-72 space-y-1.5 overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1" aria-label="Voices">
               {filteredVoices.length === 0 && (
                 <li className="rounded-control border border-dashed border-line-strong p-4 text-center text-xs text-ink-faint">
                   No voice matches that search.
@@ -568,7 +614,13 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                       }}
                       className={`flex items-center justify-between gap-2 rounded-control border p-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
                         isBusy ? 'cursor-not-allowed' : 'cursor-pointer'
-                      } ${isSelected ? 'border-accent bg-accent-soft' : 'border-line bg-surface-2 hover:border-line-strong hover:bg-surface-3'}`}
+                      } ${
+                        isSelected
+                          ? 'border-accent bg-accent-soft'
+                          : isAuditioning
+                          ? 'border-accent/40 bg-surface-3'
+                          : 'border-line bg-surface-2 opacity-60 hover:border-line-strong hover:bg-surface-3 hover:opacity-100 focus-within:opacity-100'
+                      }`}
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface-3 text-xs font-semibold text-ink-dim" aria-hidden="true">
