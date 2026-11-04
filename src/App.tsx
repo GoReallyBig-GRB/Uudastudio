@@ -3515,8 +3515,8 @@ const MainStudio: React.FC = () => {
         }
       }
 
-      // M: Mute / unmute selected clip
-      if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey) {
+      // Ctrl+M / Cmd+M: Mute / unmute selected clip (plain M is kept free for markers)
+      if ((e.key === 'm' || e.key === 'M') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
         if (selectedUnitCount === 1) {
           e.preventDefault();
           handleToggleMuteClip();
@@ -3712,6 +3712,10 @@ const MainStudio: React.FC = () => {
         onSplit={(id) => splitAny(id)}
         locked={!!selectedClip && isClipLocked(project, selectedClip)}
         onToggleLock={handleToggleLock}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
         onSilence={handleSilence}
         onCaptureNoise={() => void handleCaptureNoise()}
         hasNoisePrint={!!noisePrint}

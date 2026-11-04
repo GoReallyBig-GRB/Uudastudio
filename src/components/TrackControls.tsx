@@ -274,7 +274,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
               e.stopPropagation();
               onUpdateTrack(track.id, { muted: !track.muted });
             }}
-            title={track.muted ? 'Unmute Track (M)' : 'Mute Track (M)'}
+            title={track.muted ? 'Unmute track' : 'Mute track'}
             className={`w-5 h-5 rounded-control text-[10px] font-bold tracking-tight transition-colors flex items-center justify-center cursor-pointer ${
               track.muted
                 ? 'bg-danger text-white'
