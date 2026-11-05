@@ -79,6 +79,10 @@ export const DspModals: React.FC<DspModalsProps> = ({
   onSetNoisePrint,
 }) => {
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const startedAtRef = useRef<number>(0);
+  useEffect(() => {
+    if (isProcessing) startedAtRef.current = Date.now();
+  }, [isProcessing]);
   const [processError, setProcessError] = useState<string | null>(null);
 
   // Clear errors when modal changes
@@ -1066,15 +1070,22 @@ export const DspModals: React.FC<DspModalsProps> = ({
           <div className="px-5 py-3 border-t border-zinc-800 bg-[#12121a] space-y-1.5">
             <div className="flex items-center justify-between text-[11px] text-zinc-300">
               <span>Processing {progress.label}</span>
-              <span className="font-mono">{Math.round(progress.fraction * 100)}%</span>
+              <span className="font-mono">
+                {Math.round(progress.fraction * 100)}%
+                {' · '}
+                {(() => {
+                  const elapsed = (Date.now() - startedAtRef.current) / 1000;
+                  const left = progress.fraction > 0.03 ? (elapsed * (1 - progress.fraction)) / progress.fraction : null;
+                  const fmt = (n: number) => (n >= 60 ? `${Math.floor(n / 60)}m ${Math.round(n % 60)}s` : `${Math.round(n)}s`);
+                  return left === null ? 'estimating time left...' : `about ${fmt(left)} left`;
+                })()}
+              </span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
               <div className="h-full bg-cyan-400 transition-[width] duration-200" style={{ width: `${Math.round(progress.fraction * 100)}%` }} />
             </div>
             {onStopProcessing && (
-              <button onClick={onStopProcessing} className="text-[11px] text-zinc-400 hover:text-red-300 cursor-pointer">
-                Stop (nothing will be changed)
-              </button>
+              <div className="text-[11px] text-zinc-500">Press Stop to cancel; nothing will be changed.</div>
             )}
           </div>
         )}
@@ -1083,13 +1094,18 @@ export const DspModals: React.FC<DspModalsProps> = ({
         <div className="px-5 py-3.5 border-t border-zinc-800 bg-[#161622] flex items-center justify-between">
           <button
             onClick={() => {
+              // While a long render runs this button stops it (between blocks); otherwise it closes the dialog
+              if (isProcessing) {
+                onStopProcessing?.();
+                return;
+              }
               stopPreview();
               onClose();
             }}
-            disabled={isProcessing}
-            className="px-3 py-1.5 rounded text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+            disabled={isProcessing && !onStopProcessing}
+            className="px-3 py-1.5 rounded text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Cancel
+            {isProcessing && onStopProcessing ? 'Stop' : 'Cancel'}
           </button>
 
           <button
