@@ -28,6 +28,11 @@ interface OverlapAddOptions {
   /** Write the final decay tail after the last block (default). False keeps the output exactly as long as the input,
    *  for a piece in the middle of a track whose next piece starts where this one ends. */
   keepTail?: boolean;
+  /** How many blocks are rendered at the same time (default 1). Reading, tail adding and writing stay in order, so the
+   *  result is identical for any value; rendering is what takes the time and runs on the audio threads. */
+  concurrency?: number;
+  /** Filled in with where the time went, in milliseconds (render is wall time of each group of blocks) */
+  timing?: { readMs: number; renderMs: number; writeMs: number; blocks: number };
 }
 
 /** Returns the number of frames written (the clip length, plus the final decay tail unless keepTail is false). */
@@ -35,22 +40,40 @@ export const overlapAddRender = async (opts: OverlapAddOptions): Promise<number>
   const blockFrames = Math.max(1, Math.round((opts.blockSeconds ?? EFFECT_BLOCK_SECONDS) * opts.sampleRate));
   let carry: Float32Array[] = [];
   let written = 0;
-  for (let start = 0; start < opts.source.totalFrames; start += blockFrames) {
+  const group = Math.max(1, Math.floor(opts.concurrency ?? 1));
+  const timing = opts.timing;
+  const starts: number[] = [];
+  for (let start = 0; start < opts.source.totalFrames; start += blockFrames) starts.push(start);
+  for (let g = 0; g < starts.length; g += group) {
     if (opts.signal?.aborted) throw new ChunkedCancelled();
-    const frames = Math.min(blockFrames, opts.source.totalFrames - start);
-    const input = await opts.source.read(start, frames);
-    const out = await opts.render(input);
-    // Add the previous block's tail onto the start of this block's output
-    for (let c = 0; c < out.length; c++) {
-      const tail = carry[c];
-      if (!tail) continue;
-      const n = Math.min(tail.length, out[c].length);
-      for (let i = 0; i < n; i++) out[c][i] += tail[i];
+    const batch = starts.slice(g, g + group);
+    const inputs: Float32Array[][] = [];
+    let t0 = performance.now();
+    for (const start of batch) {
+      const frames = Math.min(blockFrames, opts.source.totalFrames - start);
+      inputs.push(await opts.source.read(start, frames));
     }
-    await opts.write(out.map((ch) => ch.subarray(0, frames)));
-    written += frames;
-    carry = out.map((ch) => ch.slice(frames));
-    opts.onProgress?.(Math.min(1, written / opts.source.totalFrames));
+    if (timing) { timing.readMs += performance.now() - t0; t0 = performance.now(); }
+    const outs = await Promise.all(inputs.map((input) => opts.render(input)));
+    if (timing) { timing.renderMs += performance.now() - t0; t0 = performance.now(); }
+    for (let k = 0; k < batch.length; k++) {
+      if (opts.signal?.aborted) throw new ChunkedCancelled();
+      const out = outs[k];
+      const frames = Math.min(blockFrames, opts.source.totalFrames - batch[k]);
+      // Add the previous block's tail onto the start of this block's output
+      for (let c = 0; c < out.length; c++) {
+        const tail = carry[c];
+        if (!tail) continue;
+        const n = Math.min(tail.length, out[c].length);
+        for (let i = 0; i < n; i++) out[c][i] += tail[i];
+      }
+      await opts.write(out.map((ch) => ch.subarray(0, frames)));
+      written += frames;
+      carry = out.map((ch) => ch.slice(frames));
+      if (timing) timing.blocks++;
+      opts.onProgress?.(Math.min(1, written / opts.source.totalFrames));
+    }
+    if (timing) timing.writeMs += performance.now() - t0;
   }
   if (opts.signal?.aborted) throw new ChunkedCancelled();
   if ((opts.keepTail ?? true) && carry.length > 0 && carry[0].length > 0) {
@@ -71,6 +94,11 @@ export const processEffectChunked = async (opts: {
   /** See overlapAddRender; false for a range piece that is followed by more of the same track */
   keepTail?: boolean;
 }): Promise<ChunkedJobResult> => {
+  // Several blocks at once, but leave a core for the page itself
+  const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4;
+  const concurrency = Math.max(1, Math.min(4, cores - 1));
+  const timing = { readMs: 0, renderMs: 0, writeMs: 0, blocks: 0 };
+  const startedAt = performance.now();
   const assets = opts.clips.map((c) => opts.getAsset(c.assetId));
   if (assets.some((a) => !a)) throw new Error('Audio for this clip is not loaded.');
   const sampleRate = assets[0]!.sampleRate || 48000;
@@ -86,6 +114,8 @@ export const processEffectChunked = async (opts: {
       onProgress: opts.onProgress,
       signal: opts.signal,
       keepTail: opts.keepTail,
+      concurrency,
+      timing,
       render: async (block) => {
         const length = Math.max(1, block[0].length);
         const buffer = new AudioBuffer({ length, numberOfChannels: channels, sampleRate });
@@ -95,6 +125,8 @@ export const processEffectChunked = async (opts: {
       },
     });
     const meta = await writer.finish();
+    const sec = (ms: number) => (ms / 1000).toFixed(1);
+    console.info(`[effects] ${opts.effect.name}: ${timing.blocks} blocks, ${concurrency} at a time, ${sec(performance.now() - startedAt)} s total (read ${sec(timing.readMs)} s, render ${sec(timing.renderMs)} s, write ${sec(timing.writeMs)} s) for ${(meta.frames / sampleRate / 60).toFixed(1)} min of audio`);
     return { storeId: meta.storeId, frames: meta.frames, sampleRate, channels, durationSeconds: meta.frames / sampleRate };
   } catch (e) {
     await writer.abort();
