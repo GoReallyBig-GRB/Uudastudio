@@ -8,7 +8,7 @@ const echo = (delay: number) => (x: Float32Array): Float32Array => {
   return y;
 };
 
-const run = async (input: Float32Array, blockFrames: number, delay: number) => {
+const run = async (input: Float32Array, blockFrames: number, delay: number, keepTail = true) => {
   const sr = 1000;
   const chunks: Float32Array[] = [];
   const frames = await overlapAddRender({
@@ -17,6 +17,7 @@ const run = async (input: Float32Array, blockFrames: number, delay: number) => {
     blockSeconds: blockFrames / sr,
     render: async (b) => [echo(delay)(b[0])],
     write: async (c) => { chunks.push(c[0].slice()); },
+    keepTail,
   });
   const out = new Float32Array(frames);
   let o = 0;
@@ -40,5 +41,14 @@ describe('overlapAddRender', () => {
     const out = await run(x, 100, 250);
     expect(out.length).toBe(whole.length);
     for (let i = 0; i < whole.length; i++) expect(Math.abs(out[i] - whole[i])).toBeLessThan(1e-6);
+  });
+  it('keeps the output as long as the input when the tail is not wanted, with the same samples up to there', async () => {
+    const x = Float32Array.from({ length: 700 }, (_, i) => Math.sin(i * 0.05) + 0.2);
+    const whole = echo(150)(x);
+    for (const block of [100, 250, 700]) {
+      const out = await run(x, block, 150, false);
+      expect(out.length).toBe(x.length);
+      for (let i = 0; i < x.length; i++) expect(Math.abs(out[i] - whole[i])).toBeLessThan(1e-6);
+    }
   });
 });

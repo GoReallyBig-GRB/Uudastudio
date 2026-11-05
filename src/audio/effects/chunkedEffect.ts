@@ -25,9 +25,12 @@ interface OverlapAddOptions {
   write: (chunk: Float32Array[]) => Promise<void>;
   onProgress?: (fraction: number) => void;
   signal?: { aborted: boolean };
+  /** Write the final decay tail after the last block (default). False keeps the output exactly as long as the input,
+   *  for a piece in the middle of a track whose next piece starts where this one ends. */
+  keepTail?: boolean;
 }
 
-/** Returns the number of frames written (the clip length plus the final decay tail). */
+/** Returns the number of frames written (the clip length, plus the final decay tail unless keepTail is false). */
 export const overlapAddRender = async (opts: OverlapAddOptions): Promise<number> => {
   const blockFrames = Math.max(1, Math.round((opts.blockSeconds ?? EFFECT_BLOCK_SECONDS) * opts.sampleRate));
   let carry: Float32Array[] = [];
@@ -50,7 +53,7 @@ export const overlapAddRender = async (opts: OverlapAddOptions): Promise<number>
     opts.onProgress?.(Math.min(1, written / opts.source.totalFrames));
   }
   if (opts.signal?.aborted) throw new ChunkedCancelled();
-  if (carry.length > 0 && carry[0].length > 0) {
+  if ((opts.keepTail ?? true) && carry.length > 0 && carry[0].length > 0) {
     await opts.write(carry);
     written += carry[0].length;
   }
@@ -65,6 +68,8 @@ export const processEffectChunked = async (opts: {
   storeId: string;
   onProgress?: (fraction: number) => void;
   signal?: { aborted: boolean };
+  /** See overlapAddRender; false for a range piece that is followed by more of the same track */
+  keepTail?: boolean;
 }): Promise<ChunkedJobResult> => {
   const assets = opts.clips.map((c) => opts.getAsset(c.assetId));
   if (assets.some((a) => !a)) throw new Error('Audio for this clip is not loaded.');
@@ -80,6 +85,7 @@ export const processEffectChunked = async (opts: {
       write: writer.write,
       onProgress: opts.onProgress,
       signal: opts.signal,
+      keepTail: opts.keepTail,
       render: async (block) => {
         const length = Math.max(1, block[0].length);
         const buffer = new AudioBuffer({ length, numberOfChannels: channels, sampleRate });
