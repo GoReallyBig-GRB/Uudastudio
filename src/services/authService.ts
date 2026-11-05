@@ -133,7 +133,7 @@ class AuthService {
             email: fbUser.email || '',
             displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Producer',
             photoUrl: fbUser.photoURL || '',
-          });
+          }, { restore: true });
         } catch (err) {
           console.warn('Firebase auth state sync warning:', err);
         } finally {
@@ -212,9 +212,28 @@ class AuthService {
 
   private async syncWithBackend(
     token: string,
-    profile: { googleId: string; email: string; displayName: string; photoUrl: string }
+    profile: { googleId: string; email: string; displayName: string; photoUrl: string },
+    opts: { restore?: boolean } = {}
   ): Promise<void> {
     try {
+      // Opening the app again is not a sign-in. If the server still knows this browser's session, use it as it is.
+      // Going through /api/auth/google would count as a new sign-in, and for admins that emails a fresh login code every time.
+      if (opts.restore) {
+        try {
+          const meRes = await fetch('/api/auth/me', { credentials: 'same-origin' });
+          if (meRes.ok) {
+            const me = await meRes.json();
+            if (me?.user && String(me.user.email || '').toLowerCase() === profile.email.toLowerCase()) {
+              this.currentUser = me.user;
+              this.unreadTicketsCount = me.unreadTicketsCount || 0;
+              this.isAdminVerified = !!me.isAdminVerified;
+              return;
+            }
+          }
+        } catch {
+          /* no usable session: fall through to a real sign-in below */
+        }
+      }
       const res = await fetch('/api/auth/google', {
         method: 'POST',
         headers: {
