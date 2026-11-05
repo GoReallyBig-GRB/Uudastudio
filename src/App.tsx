@@ -334,6 +334,8 @@ const MainStudio: React.FC = () => {
   // Processing long or streamed audio: the dialog previews a short excerpt, Apply runs the whole clip block by block
   const [chunkedTarget, setChunkedTarget] = useState<{ clipIds: string[]; excerptAsset: Asset; excerptClip: Clip } | null>(null);
   const [chunkedProgress, setChunkedProgress] = useState<{ fraction: number; label: string } | null>(null);
+  // Set when the Effects Rack was opened on a highlighted range: the effect is applied to this piece only, not the whole track
+  const [effectRangeIds, setEffectRangeIds] = useState<string[] | null>(null);
   const chunkedAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const [pendingDsp, setPendingDsp] = useState<{ type: DspModalType; clipId: string; only?: boolean } | null>(null);
 
@@ -2774,6 +2776,22 @@ const MainStudio: React.FC = () => {
   const handleOpenEffect = (type: EffectType) => {
     if (selectionLocked()) return;
     setActiveEffectType(type);
+    if (rangeSelection) {
+      // A highlighted range: the effect goes on that range only. It is split out as a joined piece (the track stays one clip).
+      const anchor = rangeSelection.trackId;
+      const inner = editRange(undefined, true);
+      if (!inner || inner.length === 0) return;
+      const anchorClip = project.tracks.find((t) => t.id === anchor)?.clips.find((c) => inner.includes(c.id));
+      const target = anchorClip?.id ?? inner[0];
+      if (inner.length > 1) {
+        addToast({ type: 'info', title: 'One track at a time', message: 'The effect opened for the first track in the range. Select the other pieces and repeat to process them too.' });
+      }
+      setSelectedClipIds(new Set([target]));
+      setEffectRangeIds([target]);
+      setIsEffectsModalOpen(true);
+      return;
+    }
+    setEffectRangeIds(null);
     const sc = selectedClip;
     const ids = sc ? chainIds(project.tracks, sc.id) : [];
     const pieces = project.tracks.flatMap((t) => t.clips).filter((c) => ids.includes(c.id));
@@ -2859,7 +2877,7 @@ const MainStudio: React.FC = () => {
    * points at the new stored audio. Memory stays flat for any length. One undo step.
    */
   const applyChunked = async (
-    tool: ChunkTool | { kind: 'effect'; effect: TrackEffect },
+    tool: ChunkTool | { kind: 'effect'; effect: TrackEffect; keepTail?: boolean },
     label: string,
     opts?: { clipIds: string[]; onProgress?: (fraction: number) => void },
   ) => {
@@ -2878,7 +2896,7 @@ const MainStudio: React.FC = () => {
         opts?.onProgress?.(fraction);
       };
       const res = tool.kind === 'effect'
-        ? await processEffectChunked({ clips: pieces, getAsset: (id) => audioEngine.getAsset(id), effect: tool.effect, storeId, onProgress, signal: chunkedAbortRef.current })
+        ? await processEffectChunked({ clips: pieces, getAsset: (id) => audioEngine.getAsset(id), effect: tool.effect, keepTail: tool.keepTail, storeId, onProgress, signal: chunkedAbortRef.current })
         : await processClipsChunked({ clips: pieces, getAsset: (id) => audioEngine.getAsset(id), tool, storeId, onProgress, signal: chunkedAbortRef.current });
       const newAsset: Asset = {
         id: storeId,
@@ -2928,8 +2946,13 @@ const MainStudio: React.FC = () => {
 
   /** An effect on audio kept on disk, or on an edited clip: rendered block by block (with its decay tail) into ONE clip. */
   const handleApplyEffectChunked = async (targetClipId: string, effect: TrackEffect, onProgress?: (fraction: number) => void) => {
-    const ids = chainIds(project.tracks, targetClipId);
-    await applyChunked({ kind: 'effect', effect }, effect.name, { clipIds: ids, onProgress });
+    // On a range, only that piece is rendered (seconds, not the whole track). Its decay tail is kept only when nothing follows it.
+    const rangeIds = effectRangeIds && effectRangeIds.includes(targetClipId) ? effectRangeIds : null;
+    const chain = chainIds(project.tracks, targetClipId);
+    const ids = rangeIds ?? chain;
+    const lastOfChain = project.tracks.flatMap((t) => t.clips).filter((c) => chain.includes(c.id)).sort((x, y) => x.startSeconds - y.startSeconds).pop();
+    const keepTail = !rangeIds || (!!lastOfChain && ids.includes(lastOfChain.id));
+    await applyChunked({ kind: 'effect', effect, keepTail }, effect.name, { clipIds: ids, onProgress });
   };
 
   /** Learn the noise print from the highlighted range (its first track). Denoise then removes only that noise from whole clips. */
@@ -4097,9 +4120,11 @@ const MainStudio: React.FC = () => {
         onSelectClip={(id) => {
           setSelectedClipIds(new Set([id]));
         }}
-        onClose={() => setIsEffectsModalOpen(false)}
+        onClose={() => { setIsEffectsModalOpen(false); setEffectRangeIds(null); }}
         onApplyEffect={handleApplyEffect}
         onApplyEffectChunked={handleApplyEffectChunked}
+        restrictClipIds={effectRangeIds}
+        onStopProcessing={() => { chunkedAbortRef.current.aborted = true; }}
       />
 
       {/* DSP Processing Modals (Amplify, Compress, Denoise, Pitch, Speed) */}
