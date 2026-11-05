@@ -60,6 +60,10 @@ interface EffectsModalProps {
   ) => Promise<void>;
   /** Long audio kept on disk, or an edited clip: rendered block by block into one clip */
   onApplyEffectChunked?: (targetClipId: string, effect: TrackEffect, onProgress?: (fraction: number) => void) => Promise<void>;
+  /** Set when the rack was opened on a highlighted range: only these pieces are listed and each is processed on its own */
+  restrictClipIds?: string[] | null;
+  /** Stops a render in progress; nothing is changed */
+  onStopProcessing?: () => void;
 }
 
 // Effect default presets
@@ -198,17 +202,27 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   onClose,
   onApplyEffect,
   onApplyEffectChunked,
+  restrictClipIds,
+  onStopProcessing,
 }) => {
   const [activeType, setActiveType] = useState<EffectType>(initialEffectType);
   const [isBypassed, setIsBypassed] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [progress, setProgress] = useState<number | null>(null);
+  const startedAtRef = useRef<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // List all available clips in project
   const allClips = useMemo(() => {
     const list: { trackId: string; trackName: string; clip: Clip; asset: Asset | null; pieces: number }[] = [];
     for (const [trackIndex, track] of project.tracks.entries()) {
+      if (restrictClipIds) {
+        // A range: just the piece(s) that were split out, each on its own
+        for (const c of track.clips) {
+          if (restrictClipIds.includes(c.id)) list.push({ trackId: track.id, trackName: getTrackLabel(track, trackIndex), clip: c, asset: audioEngine.getAsset(c.assetId) || null, pieces: 1 });
+        }
+        continue;
+      }
       // An edited track (spliced pieces) is listed once, as one clip of its full length
       const chainOf = new Map<string, Clip[]>();
       for (const chain of chainsOnTrack(track.clips)) for (const c of chain) chainOf.set(c.id, chain);
@@ -228,7 +242,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
       }
     }
     return list;
-  }, [project.tracks]);
+  }, [project.tracks, restrictClipIds]);
 
   // Target clip selection state
   const [targetClipId, setTargetClipId] = useState<string | null>(selectedClipId || (allClips[0]?.clip.id ?? null));
@@ -421,10 +435,11 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
 
     try {
       const eff = getCurrentEffect();
-      const edited = (currentItem?.pieces ?? 1) > 1;
+      const edited = (currentItem?.pieces ?? 1) > 1 || !!restrictClipIds;
       if (!currentAsset.buffer || edited) {
         if (!onApplyEffectChunked) throw new Error('This audio is too long to render whole.');
         setProgress(0);
+        startedAtRef.current = Date.now();
         await onApplyEffectChunked(currentClip.id, eff, setProgress);
         onClose();
         return;
@@ -1020,6 +1035,37 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
             </div>
           </div>
         </div>
+
+        {isProcessing && progress !== null && (
+          <div className="px-5 py-3 border-t border-line bg-surface-1" role="status" aria-live="polite">
+            <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+              <span className="font-semibold text-ink">
+                Rendering {Math.round(progress * 100)}%
+                {restrictClipIds ? ' of the selected range' : ''}
+              </span>
+              <span className="font-num text-ink-dim">
+                {(() => {
+                  const elapsed = (Date.now() - startedAtRef.current) / 1000;
+                  const left = progress > 0.03 ? (elapsed * (1 - progress)) / progress : null;
+                  const fmt = (n: number) => (n >= 60 ? `${Math.floor(n / 60)}m ${Math.round(n % 60)}s` : `${Math.round(n)}s`);
+                  return left === null ? 'estimating time left...' : `about ${fmt(left)} left`;
+                })()}
+              </span>
+              {onStopProcessing && (
+                <button
+                  type="button"
+                  onClick={onStopProcessing}
+                  className="inline-flex h-7 cursor-pointer items-center rounded-full border border-line-strong bg-surface-3 px-3 text-[11px] font-semibold text-ink hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                >
+                  Stop
+                </button>
+              )}
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
+              <div className="h-full rounded-full bg-accent transition-[width] duration-200 ease-out" style={{ width: `${Math.max(2, Math.round(progress * 100))}%` }} />
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="px-5 py-3.5 border-t border-zinc-800 bg-[#161622] flex items-center justify-between">
