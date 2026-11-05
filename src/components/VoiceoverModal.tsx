@@ -129,6 +129,9 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
   const setErrorMessage = (message: string | null) => voiceJob.setError(message);
   const isBusy = status === 'sending' || status === 'decoding';
 
+  // Hooks must all run before the early return below, or opening the modal changes the hook count and crashes
+  const voiceListRef = useRef<HTMLUListElement | null>(null);
+
   if (!isOpen) return null;
 
   const handleAuditionVoice = (voiceName: string) => {
@@ -215,7 +218,6 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
 
   // Move the selection to the next or previous voice in the list as it is filtered, and audition it straight away,
   // so a voice can be tested and the next one tried in one motion
-  const voiceListRef = useRef<HTMLUListElement | null>(null);
   const stepVoice = (direction: 1 | -1) => {
     if (isBusy || filteredVoices.length === 0) return;
     const at = filteredVoices.findIndex((v) => v.name === selectedVoice);
