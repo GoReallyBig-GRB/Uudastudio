@@ -17,6 +17,9 @@ import {
   Sliders,
   Wand2,
   Sparkles,
+  AudioWaveform,
+  Group,
+  Ungroup,
   ChevronDown,
   Music,
   Gauge,
@@ -64,6 +67,10 @@ interface ClipToolbarProps {
   /** True when the selected clip or its group is locked (GR-4) */
   locked?: boolean;
   onToggleLock?: () => void;
+  /** One Group / Ungroup button: Ungroup while the selection holds grouped clips */
+  isGrouped?: boolean;
+  canGroup?: boolean;
+  onToggleGroup?: () => void;
   /** Undo / Redo (icon-only pill at the right of the first row) */
   canUndo?: boolean;
   canRedo?: boolean;
@@ -152,7 +159,7 @@ const FadeMenu: React.FC<{ clip: Clip; onUpdateClip: (clipId: string, updates: P
         className="flex h-[22px] shrink-0 cursor-pointer items-center gap-1 rounded-full border border-line bg-surface-1 px-2.5 text-[10px] font-semibold text-ink-dim transition-colors hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
       >
         <span>Fade</span>
-        <span className="font-num text-[10px] uppercase text-accent">{shape === 'linear' ? 'Lin' : 'Exp'}</span>
+        <span className="font-num text-[10px] uppercase text-accent max-[1100px]:hidden">{shape === 'linear' ? 'Lin' : 'Exp'}</span>
         <ChevronDown className="h-3 w-3 opacity-60" />
       </button>
       {open && (
@@ -207,6 +214,9 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onOpenEffect,
   locked,
   onToggleLock,
+  isGrouped = false,
+  canGroup = false,
+  onToggleGroup,
   canUndo = false,
   canRedo = false,
   onUndo,
@@ -257,8 +267,11 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
     <div className="bg-surface-0 border-b border-line px-4 py-1 flex flex-col gap-1 text-[10px] text-ink-dim shrink-0 select-none z-30">
       {/* Lane rules (owner, 2026-11-05): buttons sit by what they do and how often they are used. Recurrent edits (undo/redo, split, cut,
           copy, paste, silence, delete) are on the lane nearest the timeline, right after the processing tools. This lane holds the
-          session and view controls on the left and the clip's own settings on the right, with the panel launchers last. */}
-      {/* Row 1: project, import, pointer tool and view on the left; the clip's own settings, then the two panels, on the right */}
+          session and view controls on the left and the panel launchers on the right.
+          THE RULE (owner, 2026-11-06): any button whose function directly changes a track or clip (edits, processing, mute, lock,
+          group, move, fade) goes on the LOWER lane. Any button that selects an action or a range of actions (tool, view, panels)
+          goes on the UPPER lane. */}
+      {/* Row 1: project, import, pointer tool and view on the left; the two panels on the right */}
       <div className="flex items-center justify-between gap-3 min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           {isEditingName ? (
@@ -339,39 +352,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            onClick={() => clip && onToggleMute(clip.id)}
-            disabled={!clip}
-            title={clip ? 'Mute / Unmute clip (Ctrl+M)' : 'Select a clip to mute it'}
-            className={`${PILL} ${clip?.muted ? 'border-danger/40 bg-danger/10 text-danger' : idle}`}
-          >
-            {clip?.muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
-            <span className="max-[1150px]:hidden">{clip?.muted ? 'Muted' : 'Mute'}</span>
-          </button>
-          <button
-            onClick={() => onToggleLock?.()}
-            disabled={!clip || !onToggleLock}
-            title={clip ? (locked ? 'Unlock: allow moving and editing again (L)' : 'Lock: protect this clip or group from moving and editing (L)') : 'Select a clip or group to lock it'}
-            aria-pressed={!!locked}
-            className={`${PILL} ${locked ? 'border-gold/50 bg-gold/10 text-gold' : idle}`}
-          >
-            {locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
-            <span className="max-[1150px]:hidden">{locked ? 'Locked' : 'Lock'}</span>
-          </button>
-          <Capsule label="Move to track" size="sm">
-            <CapsuleButton iconOnly title="Move clip to track above (Arrow Up)" disabled={!clip} onClick={() => clip && onMoveTrack(clip.id, 'up')} icon={<ArrowUp className="h-3 w-3" />} />
-            <CapsuleButton iconOnly title="Move clip to track below (Arrow Down)" disabled={!clip} onClick={() => clip && onMoveTrack(clip.id, 'down')} icon={<ArrowDown className="h-3 w-3" />} />
-          </Capsule>
-          {clip ? (
-            <FadeMenu clip={clip} onUpdateClip={onUpdateClip} />
-          ) : (
-            <button disabled title="Select a clip to set its fades" className={`${PILL} ${idle}`}>
-              <span>Fade</span>
-              <ChevronDown className="h-3 w-3 opacity-60" />
-            </button>
-          )}
-          <div className="mx-0.5 h-4 w-px shrink-0 bg-line-strong" />
-          {/* Panel launchers close the lane, after Fade */}
+          {/* Panels that are opened from here: they choose what to work with, they do not change a clip */}
           <button
             type="button"
             title="Open the Audio Effects Rack (Delay, EQ, Chorus, Flanger, Phaser, Reverb)"
@@ -396,9 +377,9 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
         </div>
       </div>
 
-      {/* Row 2, nearest the tracks: what is done to the audio, then the everyday edits */}
+      {/* Row 2, nearest the tracks: what is done to the audio, the everyday edits, then the clip's own state, position and fades */}
       <div className="flex items-center justify-between gap-3 min-w-0">
-        <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-px scrollbar-none">
+        <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-px scrollbar-none max-[1100px]:gap-1">
           {/* Noise removal: learn the noise, then remove it. One cluster, in the order it is used. */}
           <Capsule label="Noise removal" size="sm">
             <CapsuleButton
@@ -407,13 +388,13 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={onCaptureNoise}
               icon={<Fingerprint className="h-3 w-3" />}
             >
-              {hasNoisePrint ? 'Noise sample ✓' : 'Noise sample'}
+              <span className="max-[1100px]:hidden">{hasNoisePrint ? 'Noise sample ✓' : 'Noise sample'}</span><span className="hidden max-[1100px]:inline">{hasNoisePrint ? 'Sample ✓' : 'Sample'}</span>
             </CapsuleButton>
             <CapsuleButton
               title={hasClip || hasRange ? (hasNoisePrint ? 'Remove the sampled noise from the selected clip or range' : 'Remove background noise. For best results take a Noise sample first (highlight a stretch with no speech)') : 'Select a clip or highlight a range to denoise'}
               disabled={none}
               onClick={() => !none && onOpenDsp('denoise')}
-              icon={<Sparkles className="h-3 w-3" />}
+              icon={<AudioWaveform className="h-3 w-3" />}
             >
               Denoise
             </CapsuleButton>
@@ -464,7 +445,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={() => (hasRange || hasClip) && onSplit(clip?.id ?? '')}
               icon={<Scissors className="h-3 w-3" />}
             >
-              <span className="max-[1250px]:hidden">Split</span>
+              <span className="max-[1330px]:hidden">Split</span>
             </CapsuleButton>
             <CapsuleButton
               title={hasRange ? 'Cut the highlighted range and close the gap (Ctrl+X)' : hasSelection ? 'Cut the selected clips (Ctrl+X)' : 'Select a clip or highlight a range to cut'}
@@ -472,7 +453,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={() => (hasRange || hasSelection) && onCut(clip?.id ?? '')}
               icon={<ScissorsLineDashed className="h-3 w-3" />}
             >
-              <span className="max-[1250px]:hidden">Cut</span>
+              <span className="max-[1330px]:hidden">Cut</span>
             </CapsuleButton>
             <CapsuleButton
               title={hasRange ? 'Copy the highlighted range (Ctrl+C)' : hasSelection ? 'Copy the selected clips (Ctrl+C)' : 'Select a clip or highlight a range to copy'}
@@ -480,7 +461,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={() => (hasRange || hasSelection) && onCopy(clip?.id ?? '')}
               icon={<Copy className="h-3 w-3" />}
             >
-              <span className="max-[1250px]:hidden">Copy</span>
+              <span className="max-[1330px]:hidden">Copy</span>
             </CapsuleButton>
             <CapsuleButton
               title={canPaste ? 'Paste at the playhead, onto the active track (Ctrl+V)' : 'Clipboard is empty'}
@@ -488,7 +469,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={onPaste}
               icon={<ClipboardPaste className="h-3 w-3" />}
             >
-              <span className="max-[1250px]:hidden">Paste</span>
+              <span className="max-[1330px]:hidden">Paste</span>
             </CapsuleButton>
             <CapsuleButton
               title={hasRange ? 'Silence the highlighted range (mutes just that part)' : hasSelection ? 'Silence the selected clips' : 'Select a clip or highlight a range to silence'}
@@ -496,7 +477,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={onSilence}
               icon={<VolumeX className="h-3 w-3" />}
             >
-              <span className="max-[1250px]:hidden">Silence</span>
+              <span className="max-[1330px]:hidden">Silence</span>
             </CapsuleButton>
           </Capsule>
           <button
@@ -506,8 +487,52 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             className={`${PILL} ${hasRange ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 focus-visible:ring-danger/50' : idle}`}
           >
             <Trash2 className="h-3 w-3" />
-            <span className="max-[1250px]:hidden">{hasRange ? `Delete ${rangeSeconds!.toFixed(2)}s` : 'Delete range'}</span>
+            <span className="max-[1330px]:hidden">{hasRange ? `Delete ${rangeSeconds!.toFixed(2)}s` : 'Delete range'}</span>
           </button>
+        </div>
+
+        {/* What changes the selected clip or track itself: its state, position and fades */}
+        <div className="flex shrink-0 items-center gap-1.5 max-[1100px]:gap-1">
+          <button
+            onClick={() => clip && onToggleMute(clip.id)}
+            disabled={!clip}
+            title={clip ? 'Mute / Unmute clip (Ctrl+M)' : 'Select a clip to mute it'}
+            className={`${PILL} ${clip?.muted ? 'border-danger/40 bg-danger/10 text-danger' : idle}`}
+          >
+            {clip?.muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+            <span className="max-[1440px]:hidden">{clip?.muted ? 'Muted' : 'Mute'}</span>
+          </button>
+          <button
+            onClick={() => onToggleLock?.()}
+            disabled={!clip || !onToggleLock}
+            title={clip ? (locked ? 'Unlock: allow moving and editing again (L)' : 'Lock: protect this clip or group from moving and editing (L)') : 'Select a clip or group to lock it'}
+            aria-pressed={!!locked}
+            className={`${PILL} ${locked ? 'border-gold/50 bg-gold/10 text-gold' : idle}`}
+          >
+            {locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+            <span className="max-[1440px]:hidden">{locked ? 'Locked' : 'Lock'}</span>
+          </button>
+          <button
+            onClick={() => onToggleGroup?.()}
+            disabled={!canGroup || !onToggleGroup}
+            title={isGrouped ? 'Ungroup: release the grouped clips (a locked group must be unlocked first)' : canGroup ? 'Group the selected clips so they move together' : 'Select two or more clips (Shift+click) to group them'}
+            className={`${PILL} ${idle}`}
+          >
+            {isGrouped ? <Ungroup className="h-3 w-3" /> : <Group className="h-3 w-3" />}
+            <span className="max-[1440px]:hidden">{isGrouped ? 'Ungroup' : 'Group'}</span>
+          </button>
+          <Capsule label="Move to track" size="sm">
+            <CapsuleButton iconOnly title="Move clip to track above (Arrow Up)" disabled={!clip} onClick={() => clip && onMoveTrack(clip.id, 'up')} icon={<ArrowUp className="h-3 w-3" />} />
+            <CapsuleButton iconOnly title="Move clip to track below (Arrow Down)" disabled={!clip} onClick={() => clip && onMoveTrack(clip.id, 'down')} icon={<ArrowDown className="h-3 w-3" />} />
+          </Capsule>
+          {clip ? (
+            <FadeMenu clip={clip} onUpdateClip={onUpdateClip} />
+          ) : (
+            <button disabled title="Select a clip to set its fades" className={`${PILL} ${idle}`}>
+              <span>Fade</span>
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </button>
+          )}
         </div>
       </div>
     </div>

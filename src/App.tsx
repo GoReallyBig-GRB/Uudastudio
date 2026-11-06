@@ -52,7 +52,7 @@ import { copyClipSet, pasteClipSet, type ClipSetClipboard } from './components/c
 import { isolateRangeInTracks } from './components/rangeIsolate';
 import { processEffectChunked } from './audio/effects/chunkedEffect';
 import { rippleInsert, joinTouching, shiftLaterClips } from './components/rippleInsert';
-import { breakChainAt, chainHead, chainIds, expandChains, remapSpliceIds, selectionUnitCount, spreadUpdate } from './components/spliceChains';
+import { breakChainAt, chainHead, chainIds, expandChains, healSeams, remapSpliceIds, selectionUnitCount, spreadUpdate } from './components/spliceChains';
 import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
@@ -336,6 +336,8 @@ const MainStudio: React.FC = () => {
   const [chunkedProgress, setChunkedProgress] = useState<{ fraction: number; label: string } | null>(null);
   // Set when the Effects Rack was opened on a highlighted range: the effect is applied to this piece only, not the whole track
   const [effectRangeIds, setEffectRangeIds] = useState<string[] | null>(null);
+  /** The highlighted range a tool was opened on. One rule: when the tool closes, that range is highlighted again (adjusted if the tool changed its length). */
+  const processedRangeRef = useRef<RangeSelection | null>(null);
   const chunkedAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const [pendingDsp, setPendingDsp] = useState<{ type: DspModalType; clipId: string; only?: boolean } | null>(null);
 
@@ -477,9 +479,9 @@ const MainStudio: React.FC = () => {
   const setProjectWithHistory = useCallback(
     (newProjectOrFn: Project | ((prev: Project) => Project), skipHistory = false) => {
       setProject((prev) => {
-        const next = typeof newProjectOrFn === 'function' ? newProjectOrFn(prev) : newProjectOrFn;
+        const made = typeof newProjectOrFn === 'function' ? newProjectOrFn(prev) : newProjectOrFn;
         // GR-4: a locked clip or group is never moved, edited or deleted. The change is refused as a whole.
-        if (!skipHistory && lockViolation(prev, next) > 0) {
+        if (!skipHistory && lockViolation(prev, made) > 0) {
           const now = Date.now();
           if (now - lockToastAtRef.current > 800) {
             lockToastAtRef.current = now;
@@ -487,6 +489,9 @@ const MainStudio: React.FC = () => {
           }
           return prev;
         }
+        // One rule for every edit: rounding in processed audio never breaks a clip into separate clips (see healSeams)
+        const healed = healSeams(made.tracks);
+        const next = healed === made.tracks ? made : { ...made, tracks: healed };
         if (!skipHistory) {
           historyManagerRef.current.pushState(next);
         }
@@ -2497,6 +2502,7 @@ const MainStudio: React.FC = () => {
     const oldEnd = dspTargetClip.startSeconds + dspTargetClip.durationSeconds;
     const delta = stretched.duration - dspTargetClip.durationSeconds;
     const targetId = dspTargetClip.id;
+    if (joinedPart) noteRangeLength(stretched.duration);
     setProjectWithHistory((prev) => {
       const owner = prev.tracks.find((t) => t.clips.some((c) => c.id === targetId));
       const updated = prev.tracks.map((t) => ({
@@ -2772,6 +2778,18 @@ const MainStudio: React.FC = () => {
 
   toggleLockRef.current = handleToggleLock;
 
+  /** A tool opened on a highlighted range has closed: highlight that range again, so the edit can be found and followed up. */
+  const restoreProcessedRange = () => {
+    const r = processedRangeRef.current;
+    processedRangeRef.current = null;
+    if (r && r.endSeconds > r.startSeconds) setRangeSelection(r);
+  };
+  /** The tool changed the length of the range (Speed): the highlight follows */
+  const noteRangeLength = (seconds: number) => {
+    const r = processedRangeRef.current;
+    if (r && seconds > 0) processedRangeRef.current = { ...r, endSeconds: r.startSeconds + seconds };
+  };
+
   /** Open the effects rack; an edited track is ONE track there, so its pieces are rendered into one clip first (one undo step) */
   const handleOpenEffect = (type: EffectType) => {
     if (selectionLocked()) return;
@@ -2779,8 +2797,9 @@ const MainStudio: React.FC = () => {
     if (rangeSelection) {
       // A highlighted range: the effect goes on that range only. It is split out as a joined piece (the track stays one clip).
       const anchor = rangeSelection.trackId;
+      processedRangeRef.current = rangeSelection;
       const inner = editRange(undefined, true);
-      if (!inner || inner.length === 0) return;
+      if (!inner || inner.length === 0) { processedRangeRef.current = null; return; }
       const anchorClip = project.tracks.find((t) => t.id === anchor)?.clips.find((c) => inner.includes(c.id));
       const target = anchorClip?.id ?? inner[0];
       if (inner.length > 1) {
@@ -2813,8 +2832,9 @@ const MainStudio: React.FC = () => {
     }
     const anchor = rangeSelection.trackId;
     // Joined: the processed range stays part of the track's one clip (it is not split off as a separate clip)
+    processedRangeRef.current = rangeSelection;
     const inner = editRange(undefined, true);
-    if (!inner || inner.length === 0) return;
+    if (!inner || inner.length === 0) { processedRangeRef.current = null; return; }
     const anchorClip = project.tracks.find((t) => t.id === anchor)?.clips.find((c) => inner.includes(c.id));
     const target = anchorClip?.id ?? inner[0];
     if (inner.length > 1) {
@@ -2917,6 +2937,7 @@ const MainStudio: React.FC = () => {
       const rangePiece = tool.kind === 'speed' && pieces.length === 1 && chainIds(project.tracks, first.id).length > 1;
       const oldEnd = last.startSeconds + last.durationSeconds;
       const delta = res.durationSeconds - (oldEnd - first.startSeconds);
+      if (tool.kind === 'speed' && rangePiece) noteRangeLength(res.durationSeconds);
       const ownerId = project.tracks.find((t) => t.clips.some((c) => c.id === first.id))?.id;
       setProjectWithHistory((prev0) => {
         const prev = rangePiece && ownerId ? { ...prev0, tracks: shiftLaterClips(prev0.tracks, ownerId, oldEnd, delta, new Set([first.id])) } : prev0;
@@ -3206,6 +3227,10 @@ const MainStudio: React.FC = () => {
 
   /** Tie the selected clips together so they select, move and delete as one unit. */
   const handleGroupSelected = () => {
+    if (selectedClipIds.size >= 2 && project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && isClipLocked(project, c)))) {
+      addToast({ type: 'info', title: 'Locked', message: 'A selected clip or group is locked, so it was not grouped. Unlock it first.' });
+      return;
+    }
     if (selectedClipIds.size < 2) {
       addToast({ type: 'info', title: 'Select clips to group', message: 'Hold Shift and click two or more clips, then group them.' });
       return;
@@ -3230,6 +3255,11 @@ const MainStudio: React.FC = () => {
     const groups = new Set<string>();
     for (const t of project.tracks) for (const c of t.clips) if (selectedClipIds.has(c.id) && c.groupId) groups.add(c.groupId);
     if (groups.size === 0) return;
+    // A locked group stays together until it is unlocked: say so, and change nothing (no plugin chain is removed either)
+    if (project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && isClipLocked(project, c)))) {
+      addToast({ type: 'info', title: 'Group is locked', message: 'It stays grouped. Unlock it first, then ungroup.' });
+      return;
+    }
     // One history step: clips, group chain data and (below) the live chain change together, so Undo brings them all back.
     setProjectWithHistory((prev) => {
       const remaining = { ...(prev.groupPlugins ?? {}) };
@@ -3256,6 +3286,10 @@ const MainStudio: React.FC = () => {
       message: hadChain ? 'The clips are independent again, and the group\'s plugins were removed.' : 'The clips are independent again.',
     });
   };
+
+  /** One Group / Ungroup button: it ungroups when the selection holds grouped clips, and groups two or more loose clips otherwise */
+  const selectionGrouped = project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && !!c.groupId));
+  const handleToggleGroup = () => (selectionGrouped ? handleUngroupSelected() : handleGroupSelected());
 
   const handleSelectAll = () => {
     const allIds = new Set<string>();
@@ -3735,6 +3769,9 @@ const MainStudio: React.FC = () => {
         onSplit={(id) => splitAny(id)}
         locked={!!selectedClip && isClipLocked(project, selectedClip)}
         onToggleLock={handleToggleLock}
+        isGrouped={selectionGrouped}
+        canGroup={selectionGrouped || selectedClipIds.size >= 2}
+        onToggleGroup={handleToggleGroup}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={handleUndo}
@@ -4120,7 +4157,7 @@ const MainStudio: React.FC = () => {
         onSelectClip={(id) => {
           setSelectedClipIds(new Set([id]));
         }}
-        onClose={() => { setIsEffectsModalOpen(false); setEffectRangeIds(null); }}
+        onClose={() => { setIsEffectsModalOpen(false); setEffectRangeIds(null); restoreProcessedRange(); }}
         onApplyEffect={handleApplyEffect}
         onApplyEffectChunked={handleApplyEffectChunked}
         restrictClipIds={effectRangeIds}
@@ -4137,7 +4174,7 @@ const MainStudio: React.FC = () => {
         previewIsExcerpt={!!chunkedTarget}
         noisePrint={noisePrint}
         onSetNoisePrint={setNoisePrint}
-        onClose={() => { setActiveDspModal(null); setChunkedTarget(null); }}
+        onClose={() => { setActiveDspModal(null); setChunkedTarget(null); restoreProcessedRange(); }}
         onApplyAmplify={handleApplyAmplify}
         onApplyCompressor={handleApplyCompressor}
         onApplyDenoise={handleApplyDenoise}

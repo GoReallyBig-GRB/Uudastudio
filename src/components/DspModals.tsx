@@ -15,7 +15,7 @@ import {
   AlertTriangle,
   Check,
   X,
-  Sparkles,
+  AudioWaveform,
   Play,
   Square,
   RefreshCw,
@@ -478,7 +478,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
           <div className="flex items-center gap-2">
             {activeModal === 'amplify' && <Volume2 className="w-4 h-4 text-cyan-400" />}
             {activeModal === 'compress' && <Sliders className="w-4 h-4 text-cyan-400" />}
-            {activeModal === 'denoise' && <Sparkles className="w-4 h-4 text-cyan-400" />}
+            {activeModal === 'denoise' && <AudioWaveform className="w-4 h-4 text-cyan-400" />}
             {activeModal === 'pitch' && <Music className="w-4 h-4 text-cyan-400" />}
             {activeModal === 'speed' && <Gauge className="w-4 h-4 text-cyan-400" />}
             <h2 className="font-bold text-sm tracking-wide text-zinc-100 uppercase">
@@ -725,7 +725,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
               <div className="p-2.5 rounded bg-cyan-950/40 border border-cyan-500/40 text-[11px] text-cyan-200 leading-relaxed">
                 <div className="font-semibold text-cyan-100 flex items-center justify-between gap-1.5 mb-1">
                   <div className="flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                    <AudioWaveform className="w-3.5 h-3.5 text-cyan-400" />
                     High-Precision Speech Enhancement & Suppression
                   </div>
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-900/60 text-cyan-300 border border-cyan-700/50">

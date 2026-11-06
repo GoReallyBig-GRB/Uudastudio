@@ -20,7 +20,7 @@ import {
   Fingerprint,
   Sliders,
   Wand2,
-  Sparkles,
+  AudioWaveform,
   Music,
   Gauge,
   Download,
@@ -493,7 +493,7 @@ export const ClipActionStrip: React.FC<ClipActionStripProps> = ({
                   <Fingerprint className="w-3 h-3 text-accent" />
                   <span>{hasNoisePrint ? 'Noise sample ✓' : 'Noise sample'}</span>
                 </button>
-                {dspButton('denoise', 'Denoise', Sparkles, hasNoisePrint ? 'Remove the sampled noise' : 'Remove background noise (take a Noise sample first for best results)')}
+                {dspButton('denoise', 'Denoise', AudioWaveform, hasNoisePrint ? 'Remove the sampled noise' : 'Remove background noise (take a Noise sample first for best results)')}
               </div>
               <div className="text-[9px] uppercase tracking-wider text-ink-faint px-0.5 pt-1">Level and timing</div>
               <div className="grid grid-cols-4 gap-1">

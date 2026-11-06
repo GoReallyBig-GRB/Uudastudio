@@ -86,6 +86,8 @@ export const processClipsChunked = async (opts: {
     } else {
       // The heavy work runs in a Web Worker (or here, if one cannot start), so the interface stays smooth
       const stage = await openStage({ tool, channels, totalFrames: source.totalFrames, sampleRate });
+      const timing = { readMs: 0, processMs: 0, writeMs: 0, blocks: 0 };
+      const startedAt = performance.now();
       try {
         frames = await runStreamed({
           source,
@@ -95,7 +97,10 @@ export const processClipsChunked = async (opts: {
           write: writer.write,
           onProgress: opts.onProgress,
           signal: opts.signal,
+          timing,
         });
+        const sec = (ms: number) => (ms / 1000).toFixed(1);
+        console.info(`[effects] ${tool.kind}: ${timing.blocks} blocks, ${sec(performance.now() - startedAt)} s total (read ${sec(timing.readMs)} s, process ${sec(timing.processMs)} s, write ${sec(timing.writeMs)} s) for ${(source.totalFrames / sampleRate / 60).toFixed(1)} min of audio`);
       } catch (e) {
         stage.close();
         throw e;
