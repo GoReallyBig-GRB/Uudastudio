@@ -215,11 +215,14 @@ export const runStreamed = async (opts: {
     p.catch(() => undefined);
     return p;
   };
-  let next: Promise<Float32Array[]> | null = starts.length ? readAt(0) : null;
+  // Two blocks are read ahead, so a slow disk read does not hold up the processing (blocks are a few megabytes each)
+  const AHEAD = 2;
+  const queue: Promise<Float32Array[]>[] = [];
+  for (let i = 0; i < Math.min(AHEAD, starts.length); i++) queue.push(readAt(i));
   for (let i = 0; i < starts.length; i++) {
     if (opts.signal?.aborted) throw new ChunkedCancelled();
-    const input = await waited(next!, 'readMs');
-    next = i + 1 < starts.length ? readAt(i + 1) : null;
+    const input = await waited(queue.shift()!, 'readMs');
+    if (i + AHEAD < starts.length) queue.push(readAt(i + AHEAD));
     await emit(await waited(Promise.resolve(stage.push(input)), 'processMs'));
     opts.onProgress?.(Math.min(1, (starts[i] + input[0].length) / source.totalFrames));
   }
