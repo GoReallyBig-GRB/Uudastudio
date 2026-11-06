@@ -2,12 +2,14 @@
  * Uuda Studio - New from template.
  * Pick a built-in starter or load a template file, look at what it sets up, and create the project.
  * If the current project has work in it, the choice is explicit: save it first, or use the template without saving.
+ * Built on the shared dialog frame: rounded panel, pill buttons and badges, tokens only.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { LayoutTemplate, X, Upload, Cloud, Trash2, Mic, Music, Volume2, Layers, ArrowDownToLine, SlidersHorizontal, AlertTriangle } from 'lucide-react';
+import { Upload, Cloud, Trash2, Mic, Music, Volume2, Layers, ArrowDownToLine, SlidersHorizontal, AlertTriangle } from 'lucide-react';
 import { BUILT_IN_TEMPLATES } from '../templates/builtIn';
 import { parseTemplate, TrackRole, UudaTemplate } from '../templates/template';
+import { Button, ModalShell, cn } from './ui';
 import { CloudTemplate, listCloudTemplates, deleteCloudTemplate, TemplateSyncError } from '../templates/templateApi';
 
 interface TemplatesModalProps {
@@ -24,10 +26,10 @@ interface TemplatesModalProps {
 }
 
 const ROLE_ICON: Record<TrackRole, React.ReactNode> = {
-  voice: <Mic className="w-3.5 h-3.5 text-cyan-300" />,
-  music: <Music className="w-3.5 h-3.5 text-emerald-300" />,
-  sfx: <Volume2 className="w-3.5 h-3.5 text-amber-300" />,
-  other: <Layers className="w-3.5 h-3.5 text-zinc-400" />,
+  voice: <Mic className="h-3.5 w-3.5 text-ink-dim" aria-hidden="true" />,
+  music: <Music className="h-3.5 w-3.5 text-ink-dim" aria-hidden="true" />,
+  sfx: <Volume2 className="h-3.5 w-3.5 text-ink-dim" aria-hidden="true" />,
+  other: <Layers className="h-3.5 w-3.5 text-ink-dim" aria-hidden="true" />,
 };
 
 const ROLE_LABEL: Record<TrackRole, string> = { voice: 'Voice', music: 'Music', sfx: 'Effects', other: 'Track' };
@@ -76,16 +78,8 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
   };
 
   useEffect(() => {
-    if (!isOpen) return;
-    setError(null);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
+    if (isOpen) setError(null);
+  }, [isOpen]);
 
   const all = [...BUILT_IN_TEMPLATES, ...cloud.map((c) => c.template), ...fromFiles];
   const cloudIds = new Set(cloud.map((c) => c.id));
@@ -110,195 +104,168 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
   };
 
   const names = (t: UudaTemplate, idxs: number[]) => idxs.map((i) => t.tracks[i]?.name).filter(Boolean).join(', ');
+  /** Small rounded label: quiet by default, cyan only for the account badge */
+  const badge = (tone: 'quiet' | 'accent') =>
+    cn('shrink-0 rounded-full border px-2 py-px text-[10px] font-medium', tone === 'accent' ? 'border-accent/40 bg-accent-soft text-accent' : 'border-line bg-surface-3 text-ink-dim');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-2 sm:p-4 select-none">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="New from template"
-        className="w-full max-w-3xl h-[calc(100dvh-1rem)] sm:h-auto sm:max-h-[calc(100dvh-2rem)] flex flex-col bg-[#101016] border border-zinc-700 rounded-lg overflow-hidden text-xs text-zinc-200"
-      >
-        <div className="flex items-center gap-3 px-3 sm:px-5 py-3 border-b border-zinc-800 bg-[#13131D] shrink-0">
-          <div className="w-8 h-8 rounded-sm bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-300 shrink-0">
-            <LayoutTemplate className="w-4 h-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-black uppercase tracking-wide text-white">New from template</h2>
-            <p className="hidden sm:block text-[11px] text-zinc-500">Starts an empty project with tracks, effects and ducking already set up</p>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Close" title="Close" className="p-1.5 rounded-sm text-zinc-400 hover:text-white hover:bg-zinc-800 cursor-pointer">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 flex flex-col sm:flex-row overflow-hidden">
-          {/* List */}
-          <div className="sm:w-60 shrink-0 border-b sm:border-b-0 sm:border-r border-zinc-800 bg-[#0D0D14] overflow-y-auto max-h-44 sm:max-h-none p-2 space-y-1.5">
-            {all.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setSelectedId(t.id)}
-                aria-pressed={t.id === selected.id}
-                className={`w-full text-left px-2.5 py-2 rounded-sm border cursor-pointer ${
-                  t.id === selected.id ? 'bg-[#181826] border-cyan-500/60' : 'bg-[#121218] border-zinc-800 hover:border-zinc-600'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-bold text-zinc-100 truncate">{t.name}</span>
-                  {t.builtIn ? (
-                    <span className="text-[9px] px-1 py-0.5 rounded-sm bg-purple-500/15 text-purple-300 font-mono font-bold shrink-0">Starter</span>
-                  ) : cloudIds.has(t.id) ? (
-                    <span className="text-[9px] px-1 py-0.5 rounded-sm bg-cyan-500/15 text-cyan-300 font-mono font-bold shrink-0">Account</span>
-                  ) : (
-                    <span className="text-[9px] px-1 py-0.5 rounded-sm bg-zinc-800 text-zinc-300 font-mono font-bold shrink-0">File</span>
-                  )}
-                </div>
-                <div className="text-[10px] text-zinc-500 mt-0.5">{t.tracks.length} tracks</div>
-              </button>
-            ))}
+    <ModalShell
+      open={isOpen}
+      onClose={onClose}
+      title="New from template"
+      description="Starts an empty project with tracks, effects and ducking already set up"
+      size="lg"
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          {hasWork && <Button variant="secondary" size="sm" onClick={() => onUseTemplate(selected, false)}>Use without saving</Button>}
+          <Button variant="primary" size="sm" onClick={() => onUseTemplate(selected, hasWork)}>{hasWork ? 'Save, then use' : 'Create project'}</Button>
+        </>
+      }
+    >
+      <div className="grid gap-5 sm:grid-cols-[15rem_1fr]">
+        {/* List */}
+        <div className="space-y-1.5">
+          {all.map((t) => (
             <button
+              key={t.id}
               type="button"
-              onClick={() => fileRef.current?.click()}
-              className="w-full flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-sm border border-dashed border-zinc-600 text-zinc-300 hover:text-cyan-300 hover:border-cyan-500/60 cursor-pointer"
+              onClick={() => setSelectedId(t.id)}
+              aria-pressed={t.id === selected.id}
+              className={cn(
+                'w-full cursor-pointer rounded-control border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+                t.id === selected.id ? 'border-accent/40 bg-accent-soft' : 'border-line bg-surface-2 hover:border-line-strong hover:bg-surface-3',
+              )}
             >
-              <Upload className="w-3.5 h-3.5" />
-              Open template file
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={(e) => {
-                void handleFile(e.target.files?.[0]);
-                e.target.value = '';
-              }}
-            />
-            {!signedIn && (
-              <p className="flex gap-1.5 text-[11px] text-zinc-500 px-1 pt-1">
-                <Cloud className="w-3.5 h-3.5 shrink-0 mt-px" />
-                Sign in to keep templates on your account.
-              </p>
-            )}
-            {signedIn && cloudLoading && <p className="text-[11px] text-zinc-500 px-1 pt-1">Loading your templates…</p>}
-            {cloudError && (
-              <p role="alert" className="flex gap-1.5 text-[11px] text-rose-300 px-1 pt-1">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-                {cloudError}
-              </p>
-            )}
-            {error && (
-              <p role="alert" className="flex gap-1.5 text-[11px] text-rose-300 px-1 pt-1">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-                {error}
-              </p>
-            )}
-          </div>
-
-          {/* Preview */}
-          <div className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-5 space-y-3">
-            <div>
-              <div className="flex items-start gap-2">
-                <h3 className="flex-1 min-w-0 text-sm font-bold text-white">{selected.name}</h3>
-                {cloudIds.has(selected.id) && (
-                  confirmDeleteId === selected.id ? (
-                    <span className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[11px] text-rose-300">Delete from your account?</span>
-                      <button type="button" disabled={deletingId === selected.id} onClick={() => void removeCloud(selected.id)} className="px-2 py-1 rounded-sm bg-rose-500 text-white font-bold cursor-pointer disabled:opacity-50">
-                        {deletingId === selected.id ? 'Deleting…' : 'Delete'}
-                      </button>
-                      <button type="button" onClick={() => setConfirmDeleteId(null)} className="px-2 py-1 rounded-sm text-zinc-400 hover:text-white hover:bg-zinc-800 cursor-pointer">Keep</button>
-                    </span>
-                  ) : (
-                    <button type="button" onClick={() => setConfirmDeleteId(selected.id)} aria-label="Delete this template from your account" title="Delete from your account" className="p-1.5 rounded-sm text-zinc-400 hover:text-rose-300 hover:bg-zinc-800 cursor-pointer shrink-0">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )
+              <div className="flex min-w-0 items-center gap-2">
+                <span className={cn('truncate text-xs font-semibold', t.id === selected.id ? 'text-accent' : 'text-ink')}>{t.name}</span>
+                {t.builtIn ? (
+                  <span className={badge('quiet')}>Starter</span>
+                ) : cloudIds.has(t.id) ? (
+                  <span className={badge('accent')}>Account</span>
+                ) : (
+                  <span className={badge('quiet')}>File</span>
                 )}
               </div>
-              {selected.description && <p className="text-zinc-400 mt-1">{selected.description}</p>}
-              {selected.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {selected.tags.map((tag) => (
-                    <span key={tag} className="px-1.5 py-0.5 rounded-sm bg-zinc-800 text-zinc-300 text-[10px]">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
+              <div className="mt-0.5 text-[10px] text-ink-faint">{t.tracks.length} tracks</div>
+            </button>
+          ))}
+          <Button variant="secondary" size="sm" className="w-full border-dashed" leftIcon={<Upload className="h-3.5 w-3.5" aria-hidden="true" />} onClick={() => fileRef.current?.click()}>
+            Open template file
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(e) => {
+              void handleFile(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+          {!signedIn && (
+            <p className="flex gap-1.5 px-1 pt-1 text-[11px] text-ink-faint">
+              <Cloud className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Sign in to keep templates on your account.
+            </p>
+          )}
+          {signedIn && cloudLoading && <p className="px-1 pt-1 text-[11px] text-ink-faint">Loading your templates…</p>}
+          {cloudError && (
+            <p role="alert" className="flex gap-1.5 px-1 pt-1 text-[11px] text-danger">
+              <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {cloudError}
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="flex gap-1.5 px-1 pt-1 text-[11px] text-danger">
+              <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {error}
+            </p>
+          )}
+        </div>
+
+        {/* Preview */}
+        <div className="min-w-0 space-y-4">
+          <div>
+            <div className="flex items-start gap-2">
+              <h3 className="min-w-0 flex-1 text-sm font-semibold text-ink">{selected.name}</h3>
+              {cloudIds.has(selected.id) && (
+                confirmDeleteId === selected.id ? (
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <span className="text-[11px] text-danger">Delete from your account?</span>
+                    <Button variant="danger" size="sm" disabled={deletingId === selected.id} onClick={() => void removeCloud(selected.id)}>
+                      {deletingId === selected.id ? 'Deleting…' : 'Delete'}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteId(null)}>Keep</Button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteId(selected.id)}
+                    aria-label="Delete this template from your account"
+                    title="Delete from your account"
+                    className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-ink-dim transition-colors hover:bg-danger/10 hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                )
               )}
             </div>
+            {selected.description && <p className="mt-1 text-xs text-ink-dim">{selected.description}</p>}
+            {selected.tags.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {selected.tags.map((tag) => (
+                  <span key={tag} className="rounded-full border border-line bg-surface-3 px-2.5 py-0.5 text-[10px] text-ink-dim">{tag}</span>
+                ))}
+              </div>
+            )}
+          </div>
 
-            <ol className="space-y-1.5">
-              {selected.tracks.map((t, i) => {
-                const role: TrackRole = t.role;
-                return (
-                <li key={i} className="flex items-start gap-2.5 px-2.5 py-2 rounded-sm bg-[#151522] border border-zinc-800">
-                  <span className="w-5 h-5 rounded-sm bg-zinc-800 flex items-center justify-center font-mono text-[10px] font-bold text-zinc-300 shrink-0">{i + 1}</span>
+          <ol className="space-y-1.5">
+            {selected.tracks.map((t, i) => {
+              const role: TrackRole = t.role;
+              return (
+                <li key={i} className="flex items-start gap-2.5 rounded-control border border-line bg-surface-2 px-3 py-2">
+                  <span className="font-num flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-3 text-[10px] font-semibold text-ink-dim">{i + 1}</span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
+                    <div className="flex min-w-0 items-center gap-1.5">
                       {ROLE_ICON[role]}
-                      <span className="font-bold text-zinc-100 truncate">{t.name}</span>
-                      <span className="text-[10px] text-zinc-500 shrink-0">{ROLE_LABEL[role]}</span>
+                      <span className="truncate text-xs font-semibold text-ink">{t.name}</span>
+                      <span className="shrink-0 text-[10px] text-ink-faint">{ROLE_LABEL[role]}</span>
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-zinc-400">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-ink-dim">
                       {t.plugins && t.plugins.length > 0 && (
                         <span className="flex items-center gap-1">
-                          <SlidersHorizontal className="w-3 h-3" />
+                          <SlidersHorizontal className="h-3 w-3" aria-hidden="true" />
                           {t.plugins.length} {t.plugins.length === 1 ? 'plugin' : 'plugins'}
                         </span>
                       )}
                       {t.ducking && t.ducking.enabled && (
-                        <span className="flex items-center gap-1 text-emerald-300">
-                          <ArrowDownToLine className="w-3 h-3" />
+                        <span className="flex items-center gap-1">
+                          <ArrowDownToLine className="h-3 w-3" aria-hidden="true" />
                           {t.ducking.sourceTrackIndexes.length > 0 ? `Ducks under ${names(selected, t.ducking.sourceTrackIndexes)}` : 'Auto duck on'}
                         </span>
                       )}
                     </div>
                   </div>
                 </li>
-                );
-              })}
-            </ol>
+              );
+            })}
+          </ol>
 
-            {selected.masterPlugins && selected.masterPlugins.length > 0 && (
-              <p className="text-[11px] text-zinc-400">Master bus: {selected.masterPlugins.length} {selected.masterPlugins.length === 1 ? 'plugin' : 'plugins'}</p>
-            )}
-            <p className="text-[11px] text-zinc-500">Tracks start empty. Record, import or generate audio into them.</p>
-          </div>
-        </div>
-
-        <div className="px-3 sm:px-5 py-3 border-t border-zinc-800 bg-[#13131D] shrink-0 space-y-2">
-          {hasWork && (
-            <p className="flex gap-1.5 text-[11px] text-amber-300">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-              This replaces the open project{projectName ? ` "${projectName}"` : ''}. Save it first if you want to keep it.
-            </p>
+          {selected.masterPlugins && selected.masterPlugins.length > 0 && (
+            <p className="text-[11px] text-ink-dim">Master bus: {selected.masterPlugins.length} {selected.masterPlugins.length === 1 ? 'plugin' : 'plugins'}</p>
           )}
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-sm text-zinc-400 hover:text-white hover:bg-zinc-800 cursor-pointer">
-              Cancel
-            </button>
-            {hasWork && (
-              <button
-                type="button"
-                onClick={() => onUseTemplate(selected, false)}
-                className="px-3 py-1.5 rounded-sm border border-zinc-600 text-zinc-200 hover:bg-zinc-800 cursor-pointer"
-              >
-                Use without saving
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => onUseTemplate(selected, hasWork)}
-              className="px-4 py-1.5 rounded-sm bg-cyan-500 hover:bg-cyan-400 text-black font-bold cursor-pointer"
-            >
-              {hasWork ? 'Save, then use' : 'Create project'}
-            </button>
-          </div>
+          <p className="text-[11px] text-ink-faint">Tracks start empty. Record, import or generate audio into them.</p>
         </div>
       </div>
-    </div>
+
+      {hasWork && (
+        <p className="mt-5 flex gap-1.5 rounded-control border border-warn/30 bg-warn/10 px-3 py-2 text-[11px] text-warn">
+          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          This replaces the open project{projectName ? ` "${projectName}"` : ''}. Save it first if you want to keep it.
+        </p>
+      )}
+    </ModalShell>
   );
 };
