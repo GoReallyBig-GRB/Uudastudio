@@ -20,6 +20,11 @@ export interface HistoryAssetPolicy {
 
 export class HistoryManager {
   private past: Project[] = [];
+  /** Name of the step that led from past[i] to the state after it (same length as past) */
+  private pastLabels: string[] = [];
+  private futureLabels: string[] = [];
+  /** Name of the step the last undo() or redo() went over, for the Undo / Redo message */
+  public lastStepLabel = '';
   private present: Project;
   private future: Project[] = [];
   private maxDepth: number = 60;
@@ -63,6 +68,7 @@ export class HistoryManager {
         if (first > 0 && first - 1 < drop) this.anchor = this.past[first - 1];
       }
       this.past = this.past.slice(drop);
+      this.pastLabels = this.pastLabels.slice(drop);
       if (limit !== null) policy.onLimited?.(limit);
     }
     const alive = new Set<string>();
@@ -84,6 +90,8 @@ export class HistoryManager {
 
   public reset(project: Project): void {
     this.past = [];
+    this.pastLabels = [];
+    this.futureLabels = [];
     this.present = JSON.parse(JSON.stringify(project));
     this.future = [];
     this.anchor = null;
@@ -92,18 +100,21 @@ export class HistoryManager {
     this.enforce(false);
   }
 
-  public pushState(nextProject: Project): void {
+  public pushState(nextProject: Project, label = ''): void {
     // Only push if there's an actual state change
     const nextSerialized = JSON.stringify(nextProject);
     const currSerialized = JSON.stringify(this.present);
     if (nextSerialized === currSerialized) return;
 
     this.past.push(this.present);
+    this.pastLabels.push(label);
     if (this.past.length > this.maxDepth) {
       this.past.shift();
+      this.pastLabels.shift();
     }
     this.present = JSON.parse(nextSerialized);
     this.future = [];
+    this.futureLabels = [];
     this.enforce();
   }
 
@@ -112,12 +123,16 @@ export class HistoryManager {
       // Out of steps: the last Undo returns to the state the history began with, if one was kept
       if (this.anchor && this.present !== this.anchor) {
         this.future.unshift(this.present);
+        this.futureLabels.unshift('processing');
+        this.lastStepLabel = 'processing';
         this.present = this.anchor;
         return this.present;
       }
       return null;
     }
     const previous = this.past.pop()!;
+    this.lastStepLabel = this.pastLabels.pop() ?? '';
+    this.futureLabels.unshift(this.lastStepLabel);
     this.future.unshift(this.present);
     this.present = previous;
     return this.present;
@@ -126,6 +141,8 @@ export class HistoryManager {
   public redo(): Project | null {
     if (this.future.length === 0) return null;
     const next = this.future.shift()!;
+    this.lastStepLabel = this.futureLabels.shift() ?? '';
+    this.pastLabels.push(this.lastStepLabel);
     this.past.push(this.present);
     this.present = next;
     return this.present;
