@@ -145,3 +145,25 @@ describe('history with processed copies of long audio', () => {
     expect(undoLeftProcessingInPlace(proj('P1', 1), proj('P1', 2), isP)).toBe(true);
   });
 });
+
+
+describe('HistoryManager step labels', () => {
+  const mk = (name: string) => ({ name, tracks: [] } as never);
+  it('reports the step that Undo and Redo went over', () => {
+    const h = new HistoryManager(mk('a'));
+    h.pushState(mk('b'), 'delete');
+    h.pushState(mk('c'), 'split');
+    h.undo(); expect(h.lastStepLabel).toBe('split');
+    h.undo(); expect(h.lastStepLabel).toBe('delete');
+    h.redo(); expect(h.lastStepLabel).toBe('delete');
+    h.redo(); expect(h.lastStepLabel).toBe('split');
+  });
+  it('a new edit after Undo discards the redo labels', () => {
+    const h = new HistoryManager(mk('a'));
+    h.pushState(mk('b'), 'cut');
+    h.undo();
+    h.pushState(mk('c'), 'paste');
+    expect(h.redo()).toBeNull();
+    h.undo(); expect(h.lastStepLabel).toBe('paste');
+  });
+});

@@ -90,6 +90,7 @@ import { PluginsRackModal } from './components/PluginsRackModal';
 import { pluginManager } from './plugins/pluginManager';
 import { groupChainId } from './plugins/groupChain';
 import { lockViolation, isClipLocked } from './components/clipLock';
+import { describeChange } from './history/changeLabel';
 import { dropGroupSettings, patchGroupSettings } from './audio/groupSettings';
 import { nextGroupColorIndex, nextGroupName, nextGroupNumber, summarizeGroups } from './audio/groupInfo';
 import { GroupListPanel } from './components/GroupListPanel';
@@ -474,8 +475,15 @@ const MainStudio: React.FC = () => {
   const addToastRef = useRef(addToast);
   addToastRef.current = addToast;
 
+  /** Names the edit being made (Cut and Delete look the same afterwards): set around a handler by withHint */
+  const stepHintRef = useRef<string | null>(null);
+  const withHint = <T,>(hint: string, fn: () => T): T => {
+    stepHintRef.current = hint;
+    try { return fn(); } finally { stepHintRef.current = null; }
+  };
   const setProjectWithHistory = useCallback(
-    (newProjectOrFn: Project | ((prev: Project) => Project), skipHistory = false) => {
+    (newProjectOrFn: Project | ((prev: Project) => Project), skipHistory = false, label?: string) => {
+      const hint = label ?? stepHintRef.current;
       setProject((prev) => {
         const next = typeof newProjectOrFn === 'function' ? newProjectOrFn(prev) : newProjectOrFn;
         // GR-4: a locked clip or group is never moved, edited or deleted. The change is refused as a whole.
@@ -488,7 +496,7 @@ const MainStudio: React.FC = () => {
           return prev;
         }
         if (!skipHistory) {
-          historyManagerRef.current.pushState(next);
+          historyManagerRef.current.pushState(next, hint ?? describeChange(prev, next));
         }
         return next;
       });
@@ -1978,7 +1986,7 @@ const MainStudio: React.FC = () => {
     }
   };
 
-  const handleCutClip = (clipId?: string) => {
+  const handleCutClipBody = (clipId?: string) => {
     setClipboardKind('clip');
     const idToCut = clipId || selectedClip?.id;
     if (!idToCut) {
@@ -1999,8 +2007,9 @@ const MainStudio: React.FC = () => {
       }
     }
   };
+  const handleCutClip = (...a: Parameters<typeof handleCutClipBody>) => withHint('cut', () => handleCutClipBody(...a));
 
-  const handlePasteClip = (targetTrackId?: string, targetTimeSeconds?: number) => {
+  const handlePasteClipBody = (targetTrackId?: string, targetTimeSeconds?: number) => {
     if (!clipboardClip) {
       addToast({
         type: 'warning',
@@ -2106,6 +2115,7 @@ const MainStudio: React.FC = () => {
       });
     }
   };
+  const handlePasteClip = (...a: Parameters<typeof handlePasteClipBody>) => withHint('paste', () => handlePasteClipBody(...a));
 
   const handleSplitClip = (clipId?: string) => {
     const idToSplit = clipId || selectedClip?.id;
@@ -2918,6 +2928,7 @@ const MainStudio: React.FC = () => {
       const oldEnd = last.startSeconds + last.durationSeconds;
       const delta = res.durationSeconds - (oldEnd - first.startSeconds);
       const ownerId = project.tracks.find((t) => t.clips.some((c) => c.id === first.id))?.id;
+      const stepName = tool.kind === 'effect' ? tool.effect.name.toLowerCase() : tool.kind === 'compress' ? 'compression' : tool.kind === 'denoise' ? 'denoise' : tool.kind === 'pitch' ? 'pitch change' : tool.kind === 'speed' ? 'speed change' : 'processing';
       setProjectWithHistory((prev0) => {
         const prev = rangePiece && ownerId ? { ...prev0, tracks: shiftLaterClips(prev0.tracks, ownerId, oldEnd, delta, new Set([first.id])) } : prev0;
         return {
@@ -2933,7 +2944,7 @@ const MainStudio: React.FC = () => {
             ),
         })),
         };
-      });
+      }, false, stepName);
       setSelectedClipIds(new Set([first.id]));
       addToast({ type: 'success', title: `${label} applied`, message: `Processed ${(res.durationSeconds / 60).toFixed(1)} min of audio in blocks. Undo restores the original.` });
     } catch (e) {
@@ -3018,9 +3029,10 @@ const MainStudio: React.FC = () => {
   };
 
   /** Cut = copy, then ripple-delete the range. */
-  const handleCutRange = () => {
+  const handleCutRangeBody = () => {
     if (handleCopyRange()) handleDeleteRange();
   };
+  const handleCutRange = (...a: Parameters<typeof handleCutRangeBody>) => withHint('cut', () => handleCutRangeBody(...a));
 
   const stampId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
   /** Ids of the existing tracks a stack of `count` layers lands on, starting at `startIndex` */
@@ -3028,7 +3040,7 @@ const MainStudio: React.FC = () => {
     new Set(project.tracks.slice(startIndex, startIndex + count).map((t) => t.id));
 
   /** Lay a copied range back at the playhead, as the same stack of tracks (starting on the selected track). */
-  const handlePasteRange = () => {
+  const handlePasteRangeBody = () => {
     if (!rangeClipboard) return;
     const selectedIndex = project.tracks.findIndex((t) => t.id === selectedTrackId);
     const sourceIndex = project.tracks.findIndex((t) => t.id === rangeClipboard.layers[0]?.sourceTrackId);
@@ -3051,6 +3063,7 @@ const MainStudio: React.FC = () => {
       message: `Pasted ${rangeClipboard.layers.length} ${rangeClipboard.layers.length === 1 ? 'track' : 'tracks'} at ${playheadSecondsRef.current.toFixed(2)}s${result.createdTrackIds.length ? ` (added ${result.createdTrackIds.length} ${result.createdTrackIds.length === 1 ? 'track' : 'tracks'})` : ''}.`,
     });
   };
+  const handlePasteRange = (...a: Parameters<typeof handlePasteRangeBody>) => withHint('paste', () => handlePasteRangeBody(...a));
 
   /** Pasted pieces of a spliced clip get their own join ids, so a copy never merges with the clip it came from */
   const withFreshSplices = (tracks: Track[], addedIds: string[]): Track[] => {
@@ -3074,7 +3087,7 @@ const MainStudio: React.FC = () => {
     return true;
   };
 
-  const handleCutSet = () => {
+  const handleCutSetBody = () => {
     if (!handleCopySet()) return;
     setProjectWithHistory((prev) => {
       const cut: Project = {
@@ -3088,8 +3101,9 @@ const MainStudio: React.FC = () => {
     });
     setSelectedClipIds(new Set());
   };
+  const handleCutSet = (...a: Parameters<typeof handleCutSetBody>) => withHint('cut', () => handleCutSetBody(...a));
 
-  const handlePasteSet = () => {
+  const handlePasteSetBody = () => {
     if (!clipSetClipboard) return;
     const selectedIndex = project.tracks.findIndex((t) => t.id === selectedTrackId);
     const sourceIndex = project.tracks.findIndex((t) => t.id === clipSetClipboard.layers[0]?.sourceTrackId);
@@ -3124,6 +3138,7 @@ const MainStudio: React.FC = () => {
     setSelectedClipIds(new Set(result.addedClipIds));
     addToast({ type: 'success', title: 'Pasted', message: `${result.addedClipIds.length} clips pasted at ${playheadSecondsRef.current.toFixed(2)}s.` });
   };
+  const handlePasteSet = (...a: Parameters<typeof handlePasteSetBody>) => withHint('paste', () => handlePasteSetBody(...a));
 
   /** Copy, Cut and Paste choose between a highlighted range, several clips and a single clip by what is selected / copied last. */
   const multiSelected = selectedClipIds.size > 1;
@@ -3294,9 +3309,9 @@ const MainStudio: React.FC = () => {
       if (toOriginal) {
         addToast({ type: 'info', title: 'Back to the original', message: 'The project is as it was just before the first processing step. Redo brings the processing back.' });
       } else if (undoLeftProcessingInPlace(before, previous, isProcessed)) {
-        addToast({ type: 'info', title: 'Undo', message: 'Reverted a light edit. The effect or processing from earlier is still applied; keep pressing Undo to remove it.' });
+        addToast({ type: 'info', title: 'Undo', message: `Undid ${historyManagerRef.current.lastStepLabel || 'a light edit'}. The effect or processing from earlier is still applied; keep pressing Undo to remove it.` });
       } else {
-        addToast({ type: 'info', title: 'Undo', message: 'Reverted last change.' });
+        addToast({ type: 'info', title: 'Undo', message: `Undid ${historyManagerRef.current.lastStepLabel || 'last change'}.` });
       }
     }
   };
@@ -3310,7 +3325,7 @@ const MainStudio: React.FC = () => {
       projectRef.current = restored;
       void syncPluginsToSnapshot(next);
       updateHistoryFlags();
-      addToast({ type: 'info', title: 'Redo', message: 'Reapplied change.' });
+      addToast({ type: 'info', title: 'Redo', message: `Redid ${historyManagerRef.current.lastStepLabel || 'last change'}.` });
     }
   };
 
