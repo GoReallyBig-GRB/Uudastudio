@@ -13,7 +13,9 @@ type AsyncStage = {
 
 interface Pending { resolve: (outs: Float32Array[]) => void; reject: (e: Error) => void }
 
-let worker: Worker | null = null;
+/** Background processors, started when first needed. A stage lives on one of them; stereo audio for tools that treat each
+ *  channel on its own (denoise, pitch, speed) runs one channel per processor, so both channels are worked on at once. */
+const workers: Worker[] = [];
 let workerBroken = false;
 let nextId = 1;
 const pending = new Map<string, Pending>();
@@ -26,43 +28,50 @@ const failAll = (message: string) => {
   pending.clear();
   openWaiters.forEach((w) => w.reject(err));
   openWaiters.clear();
-  try { worker?.terminate(); } catch { /* already gone */ }
-  worker = null;
+  for (const w of workers) { try { w.terminate(); } catch { /* already gone */ } }
+  workers.length = 0;
 };
 
-const getWorker = (): Worker | null => {
+const onWorkerMessage = (e: MessageEvent) => {
+  const m = e.data as { type: string; id: number; seq?: number; outs?: Float32Array[]; message?: string };
+  if (m.type === 'opened') {
+    openWaiters.get(m.id)?.opened();
+    openWaiters.delete(m.id);
+  } else if (m.type === 'out') {
+    const key = `${m.id}:${m.seq}`;
+    pending.get(key)?.resolve(m.outs ?? []);
+    pending.delete(key);
+  } else if (m.type === 'error') {
+    const err = new Error(m.message || 'Processing failed');
+    for (const [key, p] of pending) if (key.startsWith(`${m.id}:`)) { p.reject(err); pending.delete(key); }
+    openWaiters.get(m.id)?.reject(err);
+    openWaiters.delete(m.id);
+  }
+};
+
+/** How many processors may run at once: leave a core for the page itself */
+const poolLimit = (): number => Math.max(1, Math.min(4, (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4) - 1));
+
+/** The processor with this index (0, 1, ...), started on first use; null when workers are not available. */
+const getWorker = (index = 0): Worker | null => {
   if (workerBroken || typeof Worker === 'undefined') return null;
-  if (worker) return worker;
+  if (workers[index]) return workers[index];
   try {
-    const w = new Worker(new URL('./dspWorker.ts', import.meta.url), { type: 'module' });
-    w.onmessage = (e: MessageEvent) => {
-      const m = e.data as { type: string; id: number; seq?: number; outs?: Float32Array[]; message?: string };
-      if (m.type === 'opened') {
-        openWaiters.get(m.id)?.opened();
-        openWaiters.delete(m.id);
-      } else if (m.type === 'out') {
-        const key = `${m.id}:${m.seq}`;
-        pending.get(key)?.resolve(m.outs ?? []);
-        pending.delete(key);
-      } else if (m.type === 'error') {
-        const err = new Error(m.message || 'Processing failed');
-        for (const [key, p] of pending) if (key.startsWith(`${m.id}:`)) { p.reject(err); pending.delete(key); }
-        openWaiters.get(m.id)?.reject(err);
-        openWaiters.delete(m.id);
-      }
-    };
-    w.onerror = () => failAll('The background processor stopped unexpectedly.');
-    worker = w;
-    return w;
+    while (workers.length <= index) {
+      const w = new Worker(new URL('./dspWorker.ts', import.meta.url), { type: 'module' });
+      w.onmessage = onWorkerMessage;
+      w.onerror = () => failAll('The background processor stopped unexpectedly.');
+      workers.push(w);
+    }
+    return workers[index];
   } catch {
     workerBroken = true;
     return null;
   }
 };
 
-/** A stage that runs in the worker when one is available, otherwise in this thread. */
-export const openStage = async (spec: StageSpec): Promise<AsyncStage> => {
-  const w = getWorker();
+/** A stage on one given processor (or this thread, when there is none or it cannot start the stage). */
+const openOn = async (w: Worker | null, spec: StageSpec): Promise<AsyncStage> => {
   if (!w) return localStage(buildStage(spec));
   const id = nextId++;
   try {
@@ -90,6 +99,25 @@ export const openStage = async (spec: StageSpec): Promise<AsyncStage> => {
     finish: () => call({ type: 'finish' }, []),
     close: () => { try { w.postMessage({ type: 'close', id }); } catch { /* worker gone */ } },
   };
+};
+
+/** Tools whose channels never influence each other (compression links them, so it stays in one piece) */
+const channelsAreIndependent = (tool: StageSpec['tool']): boolean => tool.kind !== 'compress';
+
+/** A stage that runs in the worker when one is available, otherwise in this thread. */
+export const openStage = async (spec: StageSpec): Promise<AsyncStage> => {
+  const limit = Math.min(spec.channels, poolLimit());
+  if (spec.channels > 1 && limit > 1 && channelsAreIndependent(spec.tool) && getWorker(1)) {
+    // One channel per processor: same results as one stage over both channels, in about half the time
+    const subs = await Promise.all(Array.from({ length: spec.channels }, (_, c) => openOn(getWorker(c % limit), { ...spec, channels: 1 })));
+    const pick = (chunk: Float32Array[], c: number) => [chunk[Math.min(c, chunk.length - 1)]];
+    return {
+      push: async (chunk) => (await Promise.all(subs.map((st, c) => st.push(pick(chunk, c))))).map((o) => o[0] ?? new Float32Array(0)),
+      finish: async () => (await Promise.all(subs.map((st) => st.finish()))).map((o) => o[0] ?? new Float32Array(0)),
+      close: () => subs.forEach((st) => st.close()),
+    };
+  }
+  return openOn(getWorker(0), spec);
 };
 
 const localStage = (stage: SyncStage): AsyncStage => ({

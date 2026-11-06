@@ -91,37 +91,46 @@ export const chooseOffset = (
   const span = frame - hop;
   // Longer frames are compared on fewer points, so the cost per frame stays about the same
   const sub = Math.max(4, Math.round(frame / 600));
-  const coarse = Math.max(4, Math.round(search / 150));
   const tBase = targetPos - outBase;
+  // Two passes: a cheap sweep (wide steps, every other comparison point) finds the neighbourhood of the best match, then a
+  // full-precision pass checks every shift around the winner. The match is a broad peak (about a quarter of a pitch period
+  // wide), so the cheap sweep lands in it, and the fine pass picks the exact shift as before.
+  const coarse = Math.max(4, Math.round(search / COARSE_STEPS));
+  const subCoarse = sub * 2;
   let e2 = 0;
   for (let i = 0; i < span; i += sub) { const b = outArr[tBase + i]; e2 += b * b; }
-  const score = (d: number): number => {
+  let e2c = 0;
+  for (let i = 0; i < span; i += subCoarse) { const b = outArr[tBase + i]; e2c += b * b; }
+  const score = (d: number, step: number, energy: number): number => {
     const c = inPos + d;
     if (c < 0 || c + frame > total) return -Infinity;
     const cBase = c - inBase;
     let cr = 0;
     let e1 = 0;
-    for (let i = 0; i < span; i += sub) {
+    for (let i = 0; i < span; i += step) {
       const a = inArr[cBase + i];
       cr += a * outArr[tBase + i];
       e1 += a * a;
     }
-    return cr / Math.sqrt(e1 * e2 + 1e-9);
+    return cr / Math.sqrt(e1 * energy + 1e-9);
   };
   let best = 0;
   let bestScore = -Infinity;
   for (let d = -search; d <= search; d += coarse) {
-    const v = score(d);
+    const v = score(d, subCoarse, e2c);
     if (v > bestScore) { bestScore = v; best = d; }
   }
   const centre = best;
-  for (let d = centre - coarse + 1; d < centre + coarse; d++) {
-    if (d === centre) continue;
-    const v = score(d);
+  bestScore = -Infinity;
+  for (let d = centre - coarse; d <= centre + coarse; d++) {
+    const v = score(d, sub, e2);
     if (v > bestScore) { bestScore = v; best = d; }
   }
   return bestScore === -Infinity ? 0 : best;
 };
+
+/** Candidate shifts tried in the cheap sweep across the whole search range (the old search tried about 320 of them) */
+export const COARSE_STEPS = 90;
 
 /** How many samples at each end of a stretched piece are blended back to the exact original edge samples. */
 export const edgeGuardLength = (p: StretchParams): number => Math.max(32, p.frame >> 4);

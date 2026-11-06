@@ -31,6 +31,11 @@ describe('describeChange names what the edit did', () => {
     expect(describeChange(grouped, base)).toBe('ungroup');
     expect(describeChange(base, proj([clip('a', 0, 10, { locked: true }), clip('b', 10, 10)]))).toBe('lock');
   });
+  it('a whole track added or removed', () => {
+    const other = { id: 't2', name: 't2', clips: [clip('z', 0, 5, { trackId: 't2' })], volume: 1, pan: 0, muted: false, solo: false } as unknown as Project['tracks'][number];
+    expect(describeChange(proj([clip('a', 0, 10)], [other]), proj([clip('a', 0, 10)]))).toBe('delete track');
+    expect(describeChange(proj([clip('a', 0, 10)]), proj([clip('a', 0, 10)], [other]))).toBe('add track');
+  });
   it('a silenced range and a new clip', () => {
     expect(describeChange(proj([clip('a', 0, 20)]), proj([clip('a', 0, 5), clip('m', 5, 5, { muted: true }), clip('r', 10, 10)]))).toBe('silence');
     expect(describeChange(base, proj([clip('a', 0, 10), clip('b', 10, 10), clip('c', 20, 5)]))).toBe('add clip');
