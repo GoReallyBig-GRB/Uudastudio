@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Clip, Track } from '../types';
-import { breakChainAt, chainHead, chainIds, chainsOnTrack, expandChains, remapSpliceIds, seamFlags, selectionUnitCount, spreadUpdate } from './spliceChains';
+import { healSeams, breakChainAt, chainHead, chainIds, chainsOnTrack, expandChains, remapSpliceIds, seamFlags, selectionUnitCount, spreadUpdate } from './spliceChains';
 
 const clip = (id: string, start: number, dur: number, extra: Partial<Clip> = {}): Clip => ({
   id, trackId: 't1', assetId: 'a', name: id, startSeconds: start, offsetSeconds: 0, durationSeconds: dur,
@@ -57,5 +57,20 @@ describe('splice chains', () => {
     expect(out[0].spliceId).toBe('n1');
     expect(out[1].spliceId).toBe('n1');
     expect(out[3].spliceId).toBeUndefined();
+  });
+});
+
+describe('healSeams', () => {
+  const mk = (id: string, start: number, dur: number, tag?: string) => ({ id, trackId: 't', assetId: 'a', name: id, startSeconds: start, offsetSeconds: 0, durationSeconds: dur, gain: 1, fadeInSeconds: 0, fadeOutSeconds: 0, fadeShape: 'exponential', muted: false, spliceId: tag }) as never;
+  const tr = (clips: never[]) => [{ id: 't', name: 't', clips, volume: 1, pan: 0, muted: false, solo: false }] as never;
+  it('joins a processed piece that came back a frame fraction long or short', () => {
+    for (const drift of [1.1e-5, -1.1e-5, 2e-5]) {
+      const healed = healSeams(tr([mk('a', 0, 10, 's'), mk('b', 10, 5 + drift, 's'), mk('c', 15, 10, 's')])) as never as { clips: { id: string }[] }[];
+      expect(chainsOnTrack(healed[0].clips as never).map((c) => c.length)).toEqual([3]);
+    }
+  });
+  it('leaves real gaps and other clips alone, and returns the same array when nothing changes', () => {
+    const t = tr([mk('a', 0, 10, 's'), mk('b', 10.5, 5, 's'), mk('x', 20, 5)]);
+    expect(healSeams(t)).toBe(t);
   });
 });
