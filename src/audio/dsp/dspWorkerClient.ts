@@ -3,6 +3,8 @@
  * processing never depends on the worker being available. A remote stage looks like a MultiStage whose calls return promises.
  */
 import { StageSpec, SyncStage, buildStage } from './stages';
+import { createSegmentedChannel } from './segmentedStretch';
+import { pitchStretchParams, speedStretchParams } from './wsola';
 
 type AsyncStage = {
   push(chunk: Float32Array[]): Promise<Float32Array[]>;
@@ -104,8 +106,69 @@ const openOn = async (w: Worker | null, spec: StageSpec): Promise<AsyncStage> =>
 /** Tools whose channels never influence each other (compression links them, so it stays in one piece) */
 const channelsAreIndependent = (tool: StageSpec['tool']): boolean => tool.kind !== 'compress';
 
+/** Speed and pitch on a long track are cut into segments that run on all the processors at once (see segmentedStretch.ts) */
+const SEGMENT_MIN_SECONDS = 120;
+/** Adapts to the machine: all cores but one for the page (at most 8), fewer on a device that reports little memory.
+ *  Below 2 the plain single-run path is used, so a small machine never pays for segmenting. */
+const segmentPool = (): number => {
+  const nav = typeof navigator !== 'undefined' ? (navigator as Navigator & { deviceMemory?: number }) : null;
+  const cores = nav?.hardwareConcurrency || 4;
+  const memoryCap = nav?.deviceMemory && nav.deviceMemory <= 2 ? 2 : nav?.deviceMemory && nav.deviceMemory <= 4 ? 4 : 8;
+  return Math.max(1, Math.min(8, memoryCap, cores - 1));
+};
+
+const openSegmented = async (spec: StageSpec, pool: number): Promise<AsyncStage> => {
+  const { tool, sampleRate, totalFrames } = spec;
+  const ratio = tool.kind === 'speed' ? Math.max(0.2, Math.min(5, Number.isFinite(tool.ratio) ? tool.ratio : 1)) : 1;
+  const params = tool.kind === 'speed' ? speedStretchParams(sampleRate) : pitchStretchParams(Math.pow(2, Math.max(-24, Math.min(24, tool.kind === 'pitch' ? tool.semitones : 0)) / 12), sampleRate);
+  const segmentFrames = Math.round(Math.max(30, Math.min(120, totalFrames / sampleRate / (pool * 2))) * sampleRate);
+  let turn = 0;
+  const open: AsyncStage[] = [];
+  const runSegment = async (input: Float32Array): Promise<Float32Array> => {
+    const st = await openOn(getWorker(turn++ % pool), { ...spec, channels: 1, totalFrames: input.length });
+    open.push(st);
+    try {
+      const a = (await st.push([input]))[0] ?? new Float32Array(0);
+      const b = (await st.finish())[0] ?? new Float32Array(0);
+      const out = new Float32Array(a.length + b.length);
+      out.set(a);
+      out.set(b, a.length);
+      return out;
+    } finally {
+      st.close();
+      open.splice(open.indexOf(st), 1);
+    }
+  };
+  const chans = Array.from({ length: Math.max(1, spec.channels) }, () => createSegmentedChannel({
+    totalFrames, ratio, frame: params.frame, search: params.search, segmentFrames, runSegment, maxInFlight: pool + 1,
+  }));
+  // The channels run the same plan, so they normally hand back the same amount; keep any difference for the next call
+  const carry: Float32Array[] = chans.map(() => new Float32Array(0));
+  const common = (outs: Float32Array[]): Float32Array[] => {
+    const joined = outs.map((o, c) => {
+      const m = new Float32Array(carry[c].length + o.length);
+      m.set(carry[c]);
+      m.set(o, carry[c].length);
+      return m;
+    });
+    const n = Math.min(...joined.map((j) => j.length));
+    joined.forEach((j, c) => { carry[c] = j.subarray(n); });
+    return joined.map((j) => j.subarray(0, n));
+  };
+  const pick = (chunk: Float32Array[], c: number) => chunk[Math.min(c, chunk.length - 1)].slice();
+  return {
+    push: async (chunk) => common(await Promise.all(chans.map((ch, c) => ch.push(pick(chunk, c))))),
+    finish: async () => common(await Promise.all(chans.map((ch) => ch.finish()))),
+    close: () => { open.slice().forEach((st) => st.close()); },
+  };
+};
+
 /** A stage that runs in the worker when one is available, otherwise in this thread. */
 export const openStage = async (spec: StageSpec): Promise<AsyncStage> => {
+  if ((spec.tool.kind === 'pitch' || spec.tool.kind === 'speed') && spec.totalFrames >= SEGMENT_MIN_SECONDS * spec.sampleRate) {
+    const pool = segmentPool();
+    if (pool > 1 && getWorker(1)) return openSegmented(spec, pool);
+  }
   const limit = Math.min(spec.channels, poolLimit());
   if (spec.channels > 1 && limit > 1 && channelsAreIndependent(spec.tool) && getWorker(1)) {
     // One channel per processor: same results as one stage over both channels, in about half the time
