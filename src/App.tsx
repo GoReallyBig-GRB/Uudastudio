@@ -480,8 +480,10 @@ const MainStudio: React.FC = () => {
   /** Names the edit being made (Cut and Delete look the same afterwards): set around a handler by withHint */
   const stepHintRef = useRef<string | null>(null);
   const withHint = <T,>(hint: string, fn: () => T): T => {
-    stepHintRef.current = hint;
-    try { return fn(); } finally { stepHintRef.current = null; }
+    // The outer name wins (Cut calls the delete handler inside it), and is put back when the inner call ends
+    const outer = stepHintRef.current;
+    if (outer === null) stepHintRef.current = hint;
+    try { return fn(); } finally { stepHintRef.current = outer; }
   };
   const setProjectWithHistory = useCallback(
     (newProjectOrFn: Project | ((prev: Project) => Project), skipHistory = false, label?: string) => {
@@ -3206,7 +3208,7 @@ const MainStudio: React.FC = () => {
   };
 
   /** Remove the highlighted range from every track it covers; each track slides its own later audio left to close the gap. */
-  const handleDeleteRange = () => {
+  const handleDeleteRangeBody = () => {
     const sel = rangeSelection;
     if (!sel) return;
     const ids = rangeTrackIds(sel).filter((id) => project.tracks.some((t) => t.id === id));
@@ -3238,6 +3240,12 @@ const MainStudio: React.FC = () => {
       title: 'Range Deleted',
       message: `Removed ${result.removedSeconds.toFixed(2)}s from ${n === 1 ? 'this track' : `${n} tracks`} and closed the gap${n === 1 ? '' : 's'}.`,
     });
+  };
+  const handleDeleteRange = () => withHint('delete', handleDeleteRangeBody);
+  /** The one Delete: the highlighted range if there is one, otherwise the selected clips (same as the Delete key) */
+  const handleDeleteAny = () => {
+    if (rangeSelection) handleDeleteRange();
+    else if (selectedClipIds.size > 0) withHint('delete', handleDeleteSelected);
   };
 
   /** Tie the selected clips together so they select, move and delete as one unit. */
@@ -3818,7 +3826,8 @@ const MainStudio: React.FC = () => {
         focusSolo={focusSolo}
         onToggleFocusSolo={() => setFocusSolo((v) => !v)}
         rangeSeconds={rangeSelection ? rangeSelection.endSeconds - rangeSelection.startSeconds : null}
-        onDeleteRange={handleDeleteRange}
+        onDeleteRange={handleDeleteAny}
+        canDelete={!!rangeSelection || selectedClipIds.size > 0}
         isControllerCollapsed={isTimelineControlsCollapsed}
         onToggleController={handleToggleTimelineControls}
       />

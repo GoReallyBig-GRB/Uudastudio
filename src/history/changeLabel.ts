@@ -17,6 +17,9 @@ export const describeChange = (prev: Project, next: Project): string => {
   const added = [...after.values()].filter((c) => !before.has(c.id));
   const removed = [...before.values()].filter((c) => !after.has(c.id));
   const common = [...after.values()].filter((c) => before.has(c.id));
+  // A whole track added or removed is named as such, whatever clips it carried
+  if (next.tracks.length < prev.tracks.length) return 'delete track';
+  if (next.tracks.length > prev.tracks.length) return 'add track';
   const changed = (key: keyof Clip) => common.filter((c) => c[key] !== before.get(c.id)![key]);
 
   if (added.length === 0 && removed.length === 0) {
@@ -34,7 +37,6 @@ export const describeChange = (prev: Project, next: Project): string => {
     if (changed('locked').length > 0) return common.some((c) => c.locked) ? 'lock' : 'unlock';
     if (changed('name').length > 0) return 'rename';
     if (changed('durationSeconds').length > 0 || changed('offsetSeconds').length > 0) return 'trim';
-    if (prev.tracks.length !== next.tracks.length) return 'track change';
     if (prev.name !== next.name) return 'rename project';
     return 'change';
   }

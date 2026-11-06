@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pitchStretchParams, speedStretchParams, wsolaTimeStretch, resampleChannel } from './wsola';
+import { chooseOffset, pitchStretchParams, speedStretchParams, wsolaTimeStretch, resampleChannel } from './wsola';
 import { PitchShiftStage, WsolaStretcher } from './wsolaStream';
 
 const SR = 44100;
@@ -83,4 +83,65 @@ describe('very short pieces', () => {
     expect(wsolaTimeStretch(x, 1.5, speedStretchParams(SR)).length).toBe(resampleChannel(x, 1.5).length);
     expect(pitchStretchParams(0.5, SR).frame).toBeGreaterThan(speedStretchParams(SR).frame - 1);
   });
+});
+
+describe('the quick offset search finds nearly the best match', () => {
+  /** A voice-like signal: pulses at a gliding pitch through two resonances, with a changing loudness */
+  const voice = (seconds: number): Float32Array => {
+    let seed = 99;
+    const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 - 0.5; };
+    const x = new Float32Array(Math.round(seconds * SR));
+    const res = (f: number, bw: number) => { const r = Math.exp((-Math.PI * bw) / SR); return [2 * r * Math.cos((2 * Math.PI * f) / SR), -r * r]; };
+    const [ca, da] = res(700, 90);
+    const [cb, db] = res(1200, 110);
+    let ph = 0; let a1 = 0; let a2 = 0; let b1 = 0; let b2 = 0;
+    for (let i = 0; i < x.length; i++) {
+      ph += (110 + 60 * Math.sin((i / SR) * 1.3)) / SR;
+      let pulse = 0;
+      if (ph >= 1) { ph -= 1; pulse = 1; }
+      const env = 0.5 + 0.5 * Math.sin((i / SR) * 2.2);
+      const g = pulse * env * 3 + rand() * 0.02 * env;
+      const a = g + ca * a1 + da * a2; a2 = a1; a1 = a;
+      const b = g + cb * b1 + db * b2; b2 = b1; b1 = b;
+      x[i] = 0.05 * (a + 0.6 * b);
+    }
+    return x;
+  };
+
+  for (const [label, speed, params] of [['speed 1.25', 1.25, speedStretchParams(SR)], ['pitch +3', 1 / Math.pow(2, 3 / 12), pitchStretchParams(Math.pow(2, 3 / 12), SR)]] as const) {
+    it(`${label}: the chosen shift scores within a hair of the exhaustive best`, () => {
+      const x = voice(6);
+      const { frame, hop, search } = params;
+      const span = frame - hop;
+      const sub = Math.max(4, Math.round(frame / 600));
+      const outLength = Math.round(x.length / speed);
+      const out = new Float32Array(outLength + frame);
+      const win = Float32Array.from({ length: frame }, (_, i) => 0.5 * (1 - Math.cos((2 * Math.PI * i) / (frame - 1))));
+      const anaHop = Math.round(hop * speed);
+      const scoreAt = (nominal: number, outPos: number, d: number) => {
+        const c = nominal + d;
+        if (c < 0 || c + frame > x.length) return -Infinity;
+        let cr = 0; let e1 = 0; let e2 = 0;
+        for (let i = 0; i < span; i += sub) { const a = x[c + i]; const b = out[outPos + i]; cr += a * b; e1 += a * a; e2 += b * b; }
+        return cr / Math.sqrt(e1 * e2 + 1e-9);
+      };
+      const ratios: number[] = [];
+      for (let outPos = 0, inPos = 0; outPos < outLength; outPos += hop, inPos += anaHop) {
+        const nominal = Math.max(0, Math.min(inPos, x.length - frame));
+        let off = 0;
+        if (outPos > 0) {
+          off = chooseOffset(params, x, 0, out, 0, nominal, outPos, x.length);
+          let best = -Infinity;
+          for (let d = -search; d <= search; d++) best = Math.max(best, scoreAt(nominal, outPos, d));
+          if (best > 0.05) ratios.push(scoreAt(nominal, outPos, off) / best);
+        }
+        const a = Math.max(0, Math.min(x.length - frame, nominal + off));
+        for (let i = 0; i < frame; i++) out[outPos + i] += x[a + i] * win[i];
+      }
+      ratios.sort((p, q) => p - q);
+      const mean = ratios.reduce((n, v) => n + v, 0) / ratios.length;
+      expect(mean).toBeGreaterThan(0.99);
+      expect(ratios[Math.floor(ratios.length * 0.01)]).toBeGreaterThan(0.9);
+    });
+  }
 });

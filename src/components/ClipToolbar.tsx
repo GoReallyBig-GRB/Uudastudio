@@ -92,7 +92,9 @@ interface ClipToolbarProps {
   onToggleFocusSolo: () => void;
   /** Length of the highlighted range in seconds, or null when there is none. */
   rangeSeconds: number | null;
+  /** Delete: the highlighted range, or the selected clips when there is no range */
   onDeleteRange: () => void;
+  canDelete?: boolean;
   isControllerCollapsed?: boolean;
   onToggleController?: () => void;
   isTimelineCollapsed?: boolean;
@@ -229,6 +231,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onToggleFocusSolo,
   rangeSeconds,
   onDeleteRange,
+  canDelete = false,
   projectName,
   onRenameProject,
   isControllerCollapsed = false,
@@ -482,12 +485,12 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
           </Capsule>
           <button
             onClick={onDeleteRange}
-            disabled={!hasRange}
-            title={hasRange ? 'Delete the highlighted range from this track and close the gap (Delete)' : 'Highlight a range (Range tool, X) to delete it'}
-            className={`${PILL} ${hasRange ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 focus-visible:ring-danger/50' : idle}`}
+            disabled={!canDelete}
+            title={hasRange ? `Delete the highlighted ${rangeSeconds!.toFixed(2)}s from this track and close the gap (Delete)` : canDelete ? 'Delete the selected clips (Delete)' : 'Select a clip or highlight a range (Range tool, X) to delete it'}
+            className={`${PILL} ${canDelete ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 focus-visible:ring-danger/50' : idle}`}
           >
             <Trash2 className="h-3 w-3" />
-            <span className="max-[1330px]:hidden">{hasRange ? `Delete ${rangeSeconds!.toFixed(2)}s` : 'Delete range'}</span>
+            <span className="max-[1330px]:hidden">Delete</span>
           </button>
         </div>
 
