@@ -185,25 +185,46 @@ export const runStreamed = async (opts: {
   blockSeconds?: number;
   onProgress?: (fraction: number) => void;
   signal?: { aborted: boolean };
+  /** Filled in with the time spent waiting on each part, in milliseconds. Reading the next block and writing the previous
+   *  one happen while the current block is processed, so only the waiting is counted. */
+  timing?: { readMs: number; processMs: number; writeMs: number; blocks: number };
 }): Promise<number> => {
-  const { source } = opts;
+  const { source, timing } = opts;
   const stage = opts.makeStage(source.channels, source.totalFrames);
   const blockFrames = Math.max(1, Math.round((opts.blockSeconds ?? DEFAULT_BLOCK_SECONDS) * opts.sampleRate));
   let written = 0;
+  const waited = async <T,>(p: Promise<T>, bucket: 'readMs' | 'processMs' | 'writeMs'): Promise<T> => {
+    const t0 = performance.now();
+    try { return await p; } finally { if (timing) timing[bucket] += performance.now() - t0; }
+  };
+  let pendingWrite: Promise<void> = Promise.resolve();
   const emit = async (outs: Float32Array[]) => {
     const n = outs.length ? Math.min(...outs.map((o) => o.length)) : 0;
     if (n > 0) {
-      await opts.write(outs.map((o) => o.subarray(0, n)));
-      written += n;
+      // One write at a time, in order, while the next block is being processed
+      await waited(pendingWrite, 'writeMs');
+      const chunk = outs.map((o) => o.subarray(0, n));
+      pendingWrite = opts.write(chunk).then(() => { written += n; if (timing) timing.blocks++; });
+      pendingWrite.catch(() => undefined);
     }
   };
-  for (let start = 0; start < source.totalFrames; start += blockFrames) {
+  const starts: number[] = [];
+  for (let start = 0; start < source.totalFrames; start += blockFrames) starts.push(start);
+  const readAt = (i: number) => {
+    const p = source.read(starts[i], Math.min(blockFrames, source.totalFrames - starts[i]));
+    p.catch(() => undefined);
+    return p;
+  };
+  let next: Promise<Float32Array[]> | null = starts.length ? readAt(0) : null;
+  for (let i = 0; i < starts.length; i++) {
     if (opts.signal?.aborted) throw new ChunkedCancelled();
-    const count = Math.min(blockFrames, source.totalFrames - start);
-    await emit(await stage.push(await source.read(start, count)));
-    opts.onProgress?.(Math.min(1, (start + count) / source.totalFrames));
+    const input = await waited(next!, 'readMs');
+    next = i + 1 < starts.length ? readAt(i + 1) : null;
+    await emit(await waited(Promise.resolve(stage.push(input)), 'processMs'));
+    opts.onProgress?.(Math.min(1, (starts[i] + input[0].length) / source.totalFrames));
   }
   if (opts.signal?.aborted) throw new ChunkedCancelled();
-  await emit(await stage.finish());
+  await emit(await waited(Promise.resolve(stage.finish()), 'processMs'));
+  await waited(pendingWrite, 'writeMs');
   return written;
 };

@@ -49,9 +49,9 @@ export class CompressorStage implements MultiStage {
   private readonly s: CompressorSettings;
   private readonly lookahead: number;
   private readonly attackCoeff: number;
-  private readonly releaseCoeff: number;
-  private readonly makeupLin: number;
-  private readonly kneeBottomLin: number;
+  readonly releaseCoeff: number;
+  readonly makeupLin: number;
+  readonly kneeBottomLin: number;
   private readonly rings: Float32Array[] = [];
   private ringPos = 0;
   private env = 0;
@@ -79,24 +79,33 @@ export class CompressorStage implements MultiStage {
     const out = input.map(() => new Float32Array(n));
     const { thresholdDb, kneeDb, ratio } = this.s;
     const L = this.lookahead;
+    const chs = this.channels;
+    const { attackCoeff, releaseCoeff, makeupLin, kneeBottomLin } = this;
+    const ins = input;
+    const rings = this.rings;
+    // 20*log10(x) = DB_PER_LN * ln(x), and 10^(g/20) = exp(g * LN_PER_DB): same values as before, cheaper calls
+    const DB_PER_LN = 20 / Math.LN10;
+    const LN_PER_DB = Math.LN10 / 20;
     let pos = this.ringPos;
     let env = this.env;
     for (let i = 0; i < n; i++) {
-      let level = 0;
-      for (let c = 0; c < this.channels; c++) {
-        const a = Math.abs(input[c][i]);
+      let level = Math.abs(ins[0][i]);
+      for (let c = 1; c < chs; c++) {
+        const a = Math.abs(ins[c][i]);
         if (a > level) level = a;
       }
-      env = level > env ? level + this.attackCoeff * (env - level) : level + this.releaseCoeff * (env - level);
-      let gain = this.makeupLin;
-      if (env > this.kneeBottomLin) {
-        const gr = gainReductionDb(20 * Math.log10(env), thresholdDb, kneeDb, ratio);
-        gain *= Math.pow(10, gr / 20);
+      env = level > env ? level + attackCoeff * (env - level) : level + releaseCoeff * (env - level);
+      // In long silence the level detector decays towards zero; flush it before it reaches the very slow tiny numbers
+      if (env < 1e-20) env = 0;
+      let gain = makeupLin;
+      if (env > kneeBottomLin) {
+        const gr = gainReductionDb(DB_PER_LN * Math.log(env), thresholdDb, kneeDb, ratio);
+        gain *= Math.exp(gr * LN_PER_DB);
       }
-      for (let c = 0; c < this.channels; c++) {
-        const ring = this.rings[c];
+      for (let c = 0; c < chs; c++) {
+        const ring = rings[c];
         out[c][i] = ring[pos] * gain;
-        ring[pos] = input[c][i];
+        ring[pos] = ins[c][i];
       }
       pos = pos + 1 === L ? 0 : pos + 1;
     }
