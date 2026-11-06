@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Sparkles, Settings } from 'lucide-react';
+import { Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Plug, Settings } from 'lucide-react';
 import { TrackListPanel } from './TrackListPanel';
 import { VoicePanel } from './VoicePanel';
 import { SoundLibraryPanel } from './SoundLibraryPanel';
@@ -130,7 +130,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               title="Open Modular Audio Plugins Rack (WAM 2.0 & Native)"
               className={`${RAIL_LAYOUT} ${RAIL_IDLE}`}
             >
-              <Sparkles className="w-4 h-4" />
+              <Plug className="w-4 h-4" />
             </button>
           )}
 

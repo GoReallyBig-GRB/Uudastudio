@@ -3227,6 +3227,10 @@ const MainStudio: React.FC = () => {
 
   /** Tie the selected clips together so they select, move and delete as one unit. */
   const handleGroupSelected = () => {
+    if (selectedClipIds.size >= 2 && project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && isClipLocked(project, c)))) {
+      addToast({ type: 'info', title: 'Locked', message: 'A selected clip or group is locked, so it was not grouped. Unlock it first.' });
+      return;
+    }
     if (selectedClipIds.size < 2) {
       addToast({ type: 'info', title: 'Select clips to group', message: 'Hold Shift and click two or more clips, then group them.' });
       return;
@@ -3251,6 +3255,11 @@ const MainStudio: React.FC = () => {
     const groups = new Set<string>();
     for (const t of project.tracks) for (const c of t.clips) if (selectedClipIds.has(c.id) && c.groupId) groups.add(c.groupId);
     if (groups.size === 0) return;
+    // A locked group stays together until it is unlocked: say so, and change nothing (no plugin chain is removed either)
+    if (project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && isClipLocked(project, c)))) {
+      addToast({ type: 'info', title: 'Group is locked', message: 'It stays grouped. Unlock it first, then ungroup.' });
+      return;
+    }
     // One history step: clips, group chain data and (below) the live chain change together, so Undo brings them all back.
     setProjectWithHistory((prev) => {
       const remaining = { ...(prev.groupPlugins ?? {}) };
@@ -3277,6 +3286,10 @@ const MainStudio: React.FC = () => {
       message: hadChain ? 'The clips are independent again, and the group\'s plugins were removed.' : 'The clips are independent again.',
     });
   };
+
+  /** One Group / Ungroup button: it ungroups when the selection holds grouped clips, and groups two or more loose clips otherwise */
+  const selectionGrouped = project.tracks.some((t) => t.clips.some((c) => selectedClipIds.has(c.id) && !!c.groupId));
+  const handleToggleGroup = () => (selectionGrouped ? handleUngroupSelected() : handleGroupSelected());
 
   const handleSelectAll = () => {
     const allIds = new Set<string>();
@@ -3756,6 +3769,9 @@ const MainStudio: React.FC = () => {
         onSplit={(id) => splitAny(id)}
         locked={!!selectedClip && isClipLocked(project, selectedClip)}
         onToggleLock={handleToggleLock}
+        isGrouped={selectionGrouped}
+        canGroup={selectionGrouped || selectedClipIds.size >= 2}
+        onToggleGroup={handleToggleGroup}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={handleUndo}

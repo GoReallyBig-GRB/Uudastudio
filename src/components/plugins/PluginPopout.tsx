@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Power, RotateCcw, Sparkles } from 'lucide-react';
+import { X, Power, RotateCcw, Plug } from 'lucide-react';
 import { PluginInstance } from '../../plugins/types';
 import { pluginManager } from '../../plugins/pluginManager';
 import { getPluginPresets } from '../../plugins/presets';
@@ -70,7 +70,7 @@ export const PluginPopout: React.FC<PluginPopoutProps> = ({ instance, trackId, t
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800 shrink-0">
           <div className="w-8 h-8 rounded-sm bg-cyan-500/10 border border-cyan-500/40 flex items-center justify-center text-cyan-300 shrink-0">
-            <Sparkles className="w-4 h-4" />
+            <Plug className="w-4 h-4" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 min-w-0">
