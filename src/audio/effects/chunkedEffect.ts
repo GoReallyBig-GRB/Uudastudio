@@ -171,7 +171,7 @@ export const processEffectChunked = async (opts: {
     });
     const meta = await writer.finish();
     const sec = (ms: number) => (ms / 1000).toFixed(1);
-    console.info(`[effects] ${opts.effect.name} (${pool ? 'fast reverb' : 'built-in'}): ${timing.blocks} blocks, ${concurrency} at a time, ${sec(performance.now() - startedAt)} s total (read ${sec(timing.readMs)} s, render ${sec(timing.renderMs)} s, write ${sec(timing.writeMs)} s) for ${(meta.frames / sampleRate / 60).toFixed(1)} min of audio`);
+    console.info(`[effects] ${opts.effect.name} (${pool ? 'fast reverb' : 'built-in'}): ${timing.blocks} blocks, ${concurrency} at a time, ${sec(performance.now() - startedAt)} s total (read ${sec(timing.readMs)} s, render ${sec(timing.renderMs)} s, write ${sec(timing.writeMs)} s) for ${(meta.frames / sampleRate / 60).toFixed(1)} min of audio (${cores} logical cores)`);
     return { storeId: meta.storeId, frames: meta.frames, sampleRate, channels, durationSeconds: meta.frames / sampleRate };
   } catch (e) {
     await writer.abort();

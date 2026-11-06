@@ -103,6 +103,40 @@ export async function readStreamedChannelRange(storeId: string, channel: number,
   }
 }
 
+/**
+ * A reader for one finished asset that looks up its channel files once and reuses them, for a job that reads the same asset
+ * block after block (every read through readStreamedFrames repeats the folder and file lookups, which adds up over hundreds of
+ * blocks). Only for assets that are complete: the file sizes are taken when the first read happens.
+ */
+export const openStreamedReader = (storeId: string, channels: number) => {
+  let files: Promise<(File | null)[]> | null = null;
+  const open = () => {
+    files ??= (async () => {
+      const dir = await getStreamedAssetDir(storeId);
+      return Promise.all(Array.from({ length: Math.max(1, channels) }, async (_, c) => {
+        try { return dir ? await (await dir.getFileHandle(`ch${c}.f32`)).getFile() : null; } catch { return null; }
+      }));
+    })();
+    return files;
+  };
+  return async (startFrame: number, frames: number): Promise<Float32Array[]> => {
+    const list = await open();
+    return Promise.all(list.map(async (file) => {
+      if (!file) return new Float32Array(0);
+      try {
+        const start = Math.max(0, Math.floor(startFrame)) * 4;
+        const end = Math.min(file.size, start + Math.max(0, Math.floor(frames)) * 4);
+        if (end <= start) return new Float32Array(0);
+        const bytes = await file.slice(start, end).arrayBuffer();
+        return new Float32Array(bytes, 0, Math.floor(bytes.byteLength / 4));
+      } catch {
+        files = null; // the file went away or changed: look it up again next time
+        return new Float32Array(0);
+      }
+    }));
+  };
+};
+
 /** Reads the same frame range from every channel. */
 export async function readStreamedFrames(storeId: string, channels: number, startFrame: number, frames: number): Promise<Float32Array[]> {
   return Promise.all(Array.from({ length: Math.max(1, channels) }, (_, c) => readStreamedChannelRange(storeId, c, startFrame, frames)));

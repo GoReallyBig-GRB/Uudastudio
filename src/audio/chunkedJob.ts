@@ -6,7 +6,7 @@
  * their state across blocks and give the same samples as processing the whole clip at once.
  */
 import type { Asset, Clip, CompressorParams, DenoiseParams } from '../types';
-import { readStreamedFrames } from '../assets/streamedStore';
+import { openStreamedReader } from '../assets/streamedStore';
 import { createStreamedWriter, StreamedWriter } from '../assets/streamedWriter';
 import { WORKER_BLOCK_SECONDS, openStage } from './dsp/dspWorkerClient';
 import { ChunkedOptions, PieceSource, createVirtualSource, runChunked, runStreamed } from './chunkedProcess';
@@ -26,6 +26,8 @@ export const pieceFromClip = (asset: Asset, clip: Clip, bakeGain = true): PieceS
   const offsetFrames = Math.max(0, Math.round((clip.offsetSeconds || 0) * sr));
   const frames = Math.max(0, Math.round(clip.durationSeconds * sr));
   const channels = Math.max(1, asset.numberOfChannels);
+  // One reader per piece, so the asset's files are looked up once for the whole job
+  const streamed = !asset.buffer && asset.source ? openStreamedReader(asset.source.storeId, channels) : null;
   return {
     frames,
     gain: bakeGain ? clip.gain : 1,
@@ -38,7 +40,7 @@ export const pieceFromClip = (asset: Asset, clip: Clip, bakeGain = true): PieceS
         }
         return out;
       }
-      if (asset.source) return readStreamedFrames(asset.source.storeId, channels, offsetFrames + start, count);
+      if (streamed) return streamed(offsetFrames + start, count);
       return [new Float32Array(0)];
     },
   };
@@ -100,7 +102,7 @@ export const processClipsChunked = async (opts: {
           timing,
         });
         const sec = (ms: number) => (ms / 1000).toFixed(1);
-        console.info(`[effects] ${tool.kind}: ${timing.blocks} blocks, ${sec(performance.now() - startedAt)} s total (read ${sec(timing.readMs)} s, process ${sec(timing.processMs)} s, write ${sec(timing.writeMs)} s) for ${(source.totalFrames / sampleRate / 60).toFixed(1)} min of audio`);
+        console.info(`[effects] ${tool.kind}: ${timing.blocks} blocks, ${sec(performance.now() - startedAt)} s total (read ${sec(timing.readMs)} s, process ${sec(timing.processMs)} s, write ${sec(timing.writeMs)} s) for ${(source.totalFrames / sampleRate / 60).toFixed(1)} min of audio (${typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : '?'} logical cores)`);
       } catch (e) {
         stage.close();
         throw e;
