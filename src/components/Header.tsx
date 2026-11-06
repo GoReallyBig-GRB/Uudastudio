@@ -36,6 +36,7 @@ import {
   Edit3,
   UploadCloud,
   Sparkles,
+  Plug,
   ExternalLink,
   LayoutTemplate,
 } from 'lucide-react';
@@ -811,7 +812,7 @@ export const Header: React.FC<HeaderProps> = ({
           title="Open Modular Audio Plugins & Effects Rack (WAM 2.0 & Native Stems)"
           className={`${PILL_LAYOUT} ${PILL_IDLE} max-[1450px]:px-2.5`}
         >
-          <Sparkles className="w-3.5 h-3.5" />
+          <Plug className="w-3.5 h-3.5" />
           <span className="max-[1450px]:hidden">Plugins</span>
         </button>
 

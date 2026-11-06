@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Sparkles, Settings } from 'lucide-react';
+import { Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Plug, Settings } from 'lucide-react';
 import { TrackListPanel } from './TrackListPanel';
 import { VoicePanel } from './VoicePanel';
 import { SoundLibraryPanel } from './SoundLibraryPanel';
@@ -130,7 +130,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               title="Open Modular Audio Plugins Rack (WAM 2.0 & Native)"
               className={`${RAIL_LAYOUT} ${RAIL_IDLE}`}
             >
-              <Sparkles className="w-4 h-4" />
+              <Plug className="w-4 h-4" />
             </button>
           )}
 
@@ -209,7 +209,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
       {/* Main Panel Content Area (collapsed when isCollapsed is true) */}
       {!isCollapsed && (
-        <div className={`${activeTab === 'voice' ? 'w-96' : 'w-80'} max-w-[calc(100vw-3rem)] h-full flex flex-col min-w-0 bg-surface-1 animate-in fade-in duration-150 max-md:absolute max-md:left-full max-md:top-0 max-md:border-r max-md:border-zinc-700 max-md:shadow-[8px_0_24px_rgba(0,0,0,0.6)]`}>
+        <div className={`w-80 max-w-[calc(100vw-3rem)] h-full flex flex-col min-w-0 bg-surface-1 animate-in fade-in duration-150 max-md:absolute max-md:left-full max-md:top-0 max-md:border-r max-md:border-zinc-700 max-md:shadow-[8px_0_24px_rgba(0,0,0,0.6)]`}>
           {activeTab === 'tracks' && (
             <TrackListPanel
               tracks={tracks}

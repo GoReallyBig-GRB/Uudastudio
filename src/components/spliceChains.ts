@@ -11,6 +11,12 @@ import type { Clip, Track } from '../types';
 /** Two pieces touch when one ends within this many seconds of where the next begins. */
 export const SEAM_EPS = 1e-5;
 
+/**
+ * Processed audio is stored as whole frames, so a piece that was processed can come back up to half a frame (about 11 microseconds
+ * at 44.1 kHz) longer or shorter than the range it replaced. Within this many seconds, such a difference is rounding, not an edit.
+ */
+export const SEAM_HEAL_EPS = 1e-4;
+
 export interface Seams {
   /** Another piece of the same clip touches this piece's start */
   left: boolean;
@@ -160,4 +166,38 @@ export const remapSpliceIds = (clips: readonly Clip[], makeId: () => string): Cl
     if (!id) { id = makeId(); map.set(c.spliceId, id); }
     return { ...c, spliceId: id };
   });
+};
+
+/**
+ * One rule for every edit: pieces of one clip that nearly touch (rounding from processed audio) are made to touch exactly, by
+ * adjusting the end of the earlier piece. Without this, a processed range could slip a few microseconds from its neighbour and
+ * the clip would fall apart into separate clips. Returns the same array when nothing needed healing.
+ */
+export const healSeams = (tracks: Track[]): Track[] => {
+  let changedAny = false;
+  const out = tracks.map((t) => {
+    if (!t.clips.some((c) => c.spliceId)) return t;
+    const byTag = new Map<string, Clip[]>();
+    for (const c of t.clips) {
+      if (!c.spliceId) continue;
+      const list = byTag.get(c.spliceId);
+      if (list) list.push(c); else byTag.set(c.spliceId, [c]);
+    }
+    const fixes = new Map<string, number>();
+    for (const list of byTag.values()) {
+      if (list.length < 2) continue;
+      list.sort(byStart);
+      for (let i = 1; i < list.length; i++) {
+        const prev = list[i - 1];
+        const gap = list[i].startSeconds - (prev.startSeconds + prev.durationSeconds);
+        if (Math.abs(gap) > SEAM_EPS * 0.5 && Math.abs(gap) <= SEAM_HEAL_EPS && prev.durationSeconds + gap > 0) {
+          fixes.set(prev.id, prev.durationSeconds + gap);
+        }
+      }
+    }
+    if (fixes.size === 0) return t;
+    changedAny = true;
+    return { ...t, clips: t.clips.map((c) => (fixes.has(c.id) ? { ...c, durationSeconds: fixes.get(c.id)! } : c)) };
+  });
+  return changedAny ? out : tracks;
 };
