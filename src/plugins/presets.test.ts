@@ -13,7 +13,7 @@ describe('plugin presets', () => {
     for (const d of NATIVE_STEM_PLUGINS) {
       const list = getPluginPresets(d);
       expect(list[0].id).toBe('default');
-      expect(list.length >= 4 || list.length >= 3).toBe(true);
+      expect(list.length).toBeGreaterThanOrEqual(5); // Default plus at least four factory presets
       expect(new Set(list.map((p) => p.id)).size).toBe(list.length);
     }
   });
