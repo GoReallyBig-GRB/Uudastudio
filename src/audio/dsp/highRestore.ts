@@ -15,6 +15,8 @@ export const HIGH_CORNER_HZ = 800;
 export const MAX_RESTORE_GAIN = 1.8;
 /** Smoothing of the energy estimates (seconds). Long enough to be steady, short enough to follow a consonant. */
 export const RESTORE_SMOOTH_SECONDS = 0.012;
+/** Above this level the restored highs are bent down so they cannot clip (full scale is 1). */
+export const RESTORE_CEILING = 0.95;
 
 /** Second-order Butterworth high-pass that keeps its state between calls, so it can run on pieces as they arrive. */
 export class HighpassStream {
@@ -73,7 +75,15 @@ export class HighRestorer {
     this.smIn = this.alpha * this.smIn + (1 - this.alpha) * hiPow;
     let g = 1;
     if (this.smOut > 1e-14 && this.smIn > this.smOut) g = Math.min(MAX_RESTORE_GAIN, Math.sqrt(this.smIn / this.smOut));
-    const v = full + (g - 1) * hiOut;
-    return Number.isFinite(v) ? v : full;
+    let v = full + (g - 1) * hiOut;
+    if (!Number.isFinite(v)) return full;
+    // What this adds must not push the audio into clipping: above CEILING the added part is bent down smoothly, and never below the
+    // value the stretch itself produced
+    const a = Math.abs(v);
+    if (a > RESTORE_CEILING && a > Math.abs(full)) {
+      const bent = RESTORE_CEILING + (1 - RESTORE_CEILING) * Math.tanh((a - RESTORE_CEILING) / (1 - RESTORE_CEILING));
+      v = Math.sign(v) * Math.max(Math.abs(full), Math.min(a, bent));
+    }
+    return v;
   }
 }

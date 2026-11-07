@@ -9,6 +9,7 @@
  */
 
 import { HighRestorer, HighpassStream } from './highRestore';
+import { AntiAliasFilter, antiAliasCorner } from './antiAlias';
 
 /**
  * Resample a channel Float32Array by an arbitrary ratio using cubic Hermite interpolation
@@ -17,6 +18,9 @@ export function resampleChannel(input: Float32Array, ratio: number): Float32Arra
   if (!input || input.length === 0 || !Number.isFinite(ratio) || ratio <= 0) {
     return new Float32Array(Math.max(1, input?.length || 1));
   }
+  // Pitching up reads faster: remove what would fold back as noise (see antiAlias.ts)
+  const corner = antiAliasCorner(ratio);
+  if (corner !== null) input = new AntiAliasFilter(corner).process(input);
   const outLength = Math.max(1, Math.round(input.length / ratio));
   const output = new Float32Array(outLength);
   const maxIdx = input.length - 1;
