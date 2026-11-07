@@ -14,12 +14,14 @@ import { pluginManager } from '../../plugins/pluginManager';
 import { PluginPreset, formatParamValue, getPluginPresets, paramLabel } from '../../plugins/presets';
 import { compressorTransfer, eqBands, eqResponseDb } from '../../plugins/visuals';
 import { SharpCanvas } from './SharpCanvas';
+import { Switch } from '../ui';
 
 const MIX_KEY = 'dryWet';
-const GRID = '#1c1c28';
-const AXIS = '#5b5b70';
-const LINE = '#22d3ee';
-const MARK = '#f59e0b';
+// Canvas colours are the app tokens' values (surface-0, line, ink-faint, accent, ink)
+const GRID = '#1b1b1e';
+const AXIS = '#6b6b72';
+const LINE = '#00f0ff';
+const MARK = '#f2f2f0';
 
 function readValues(instance: PluginInstance): Record<string, number> {
   const out: Record<string, number> = {};
@@ -52,7 +54,7 @@ function drawCompressor(ctx: CanvasRenderingContext2D, w: number, h: number, v: 
   const y = (db: number) => 6 + (1 - (db - lo) / (hi - lo)) * ph;
   const clampDb = (db: number) => Math.max(lo, Math.min(hi, db));
 
-  ctx.fillStyle = '#08080d';
+  ctx.fillStyle = '#0a0a0b';
   ctx.fillRect(0, 0, w, h);
 
   ctx.lineWidth = 1;
@@ -74,7 +76,7 @@ function drawCompressor(ctx: CanvasRenderingContext2D, w: number, h: number, v: 
   }
 
   // 1:1 guide
-  ctx.strokeStyle = '#2b2b3c';
+  ctx.strokeStyle = '#2a2a2e';
   ctx.setLineDash([3, 3]);
   ctx.beginPath();
   ctx.moveTo(x(lo), y(lo));
@@ -118,7 +120,7 @@ function drawEq(ctx: CanvasRenderingContext2D, w: number, h: number, pluginId: s
   const fx = (f: number) => PAD_L + (Math.log10(f / 20) / 3) * pw;
   const dy = (db: number) => 6 + (1 - (db + range) / (2 * range)) * ph;
 
-  ctx.fillStyle = '#08080d';
+  ctx.fillStyle = '#0a0a0b';
   ctx.fillRect(0, 0, w, h);
   ctx.font = '10px ui-monospace, monospace';
   ctx.lineWidth = 1;
@@ -182,27 +184,17 @@ const ParamSlider: React.FC<SliderProps> = ({ id, def, value, onChange }) => {
   if (def.unit === 'bool') {
     const on = value >= 0.5;
     return (
-      <div className="flex items-center justify-between gap-2 min-h-[2.25rem]">
-        <span className="text-[11px] text-zinc-300 truncate">{label}</span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on}
-          onClick={() => onChange(id, on ? 0 : 1)}
-          className={`px-2.5 py-1 rounded-sm text-[11px] font-bold border cursor-pointer ${
-            on ? 'bg-cyan-500 text-black border-cyan-400' : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:text-zinc-200'
-          }`}
-        >
-          {on ? 'On' : 'Off'}
-        </button>
+      <div className="flex min-h-[2.25rem] items-center justify-between gap-2">
+        <span className="truncate text-xs text-ink-dim">{label}</span>
+        <Switch checked={on} onChange={(v) => onChange(id, v ? 1 : 0)} label={label} hideLabel />
       </div>
     );
   }
   return (
     <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-2 mb-1">
-        <span className="text-[11px] text-zinc-300 truncate">{label}</span>
-        <span className="text-[11px] font-mono font-bold text-cyan-300 shrink-0">{formatParamValue(id, value, def)}</span>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+        <span className="truncate text-xs text-ink-dim">{label}</span>
+        <span className="font-num shrink-0 text-xs text-ink">{formatParamValue(id, value, def)}</span>
       </div>
       <input
         type="range"
@@ -212,7 +204,7 @@ const ParamSlider: React.FC<SliderProps> = ({ id, def, value, onChange }) => {
         step={def.step || (def.max - def.min) / 100}
         value={value}
         onChange={(e) => onChange(id, parseFloat(e.target.value))}
-        className="w-full h-1.5 bg-zinc-800 rounded-sm accent-cyan-400 cursor-pointer"
+        className="w-full cursor-pointer"
       />
     </div>
   );
@@ -286,14 +278,14 @@ export const PluginPanel: React.FC<PluginPanelProps> = ({
   return (
     <div className="flex flex-col gap-3">
       {(showPresets || showMix) && (
-        <div className="flex flex-wrap items-center gap-2 p-2.5 bg-[#0b0b10] border border-zinc-800 rounded-md">
+        <div className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-surface-2 p-2.5">
           {showPresets && (
             <label className="flex items-center gap-2 min-w-0 flex-1 basis-48">
-              <span className="text-[11px] text-zinc-400 shrink-0">Preset</span>
+              <span className="shrink-0 text-xs text-ink-faint">Preset</span>
               <select
                 value={presetId}
                 onChange={(e) => applyPreset(e.target.value)}
-                className="min-w-0 flex-1 bg-[#14141d] border border-zinc-700 rounded-sm px-2 py-1 text-xs font-semibold text-cyan-300 cursor-pointer focus:outline-none focus:border-cyan-500"
+                className="h-8 min-w-0 flex-1 cursor-pointer rounded-full border border-line-strong bg-surface-3 px-3 text-xs font-semibold text-ink hover:border-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               >
                 {presetId === 'custom' && <option value="custom">Custom</option>}
                 {presets.map((p) => (
@@ -309,10 +301,10 @@ export const PluginPanel: React.FC<PluginPanelProps> = ({
       )}
 
       {showMix && hasMix && (
-        <div className="p-2.5 bg-[#0b0b10] border border-zinc-800 rounded-md">
-          <div className="flex items-baseline justify-between mb-1">
-            <span className="text-[11px] text-zinc-300">Dry / Wet</span>
-            <span className="text-[11px] font-mono font-bold text-cyan-300">{Math.round(mix * 100)}% wet</span>
+        <div className="rounded-card border border-line bg-surface-2 p-2.5">
+          <div className="mb-1.5 flex items-baseline justify-between">
+            <span className="text-xs text-ink-dim">Dry / Wet</span>
+            <span className="font-num text-xs text-ink">{Math.round(mix * 100)}% wet</span>
           </div>
           <input
             type="range"
@@ -325,9 +317,9 @@ export const PluginPanel: React.FC<PluginPanelProps> = ({
               setParam(MIX_KEY, parseFloat(e.target.value));
               setPresetId('custom');
             }}
-            className="w-full h-1.5 bg-zinc-800 rounded-sm accent-cyan-400 cursor-pointer"
+            className="w-full cursor-pointer"
           />
-          <div className="flex justify-between text-[10px] text-zinc-500 mt-0.5">
+          <div className="mt-0.5 flex justify-between text-[10px] text-ink-faint">
             <span>Dry</span>
             <span>Wet</span>
           </div>
@@ -339,12 +331,12 @@ export const PluginPanel: React.FC<PluginPanelProps> = ({
       ) : (
         <>
           {isCompressor && (
-            <div className="mx-auto w-full max-w-[260px] border border-zinc-800 rounded-sm overflow-hidden">
+            <div className="mx-auto w-full max-w-[260px] overflow-hidden rounded-control border border-line">
               <SharpCanvas aspect={1} draw={(ctx, w, h) => drawCompressor(ctx, w, h, values)} />
             </div>
           )}
           {isEq && (
-            <div className="w-full border border-zinc-800 rounded-sm overflow-hidden">
+            <div className="w-full overflow-hidden rounded-control border border-line">
               <SharpCanvas aspect={3} draw={(ctx, w, h) => drawEq(ctx, w, h, descriptor.id, values)} />
             </div>
           )}

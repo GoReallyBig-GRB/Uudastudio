@@ -9,7 +9,9 @@ import type { Asset, Clip, CompressorParams, DenoiseParams } from '../types';
 import { openStreamedReader } from '../assets/streamedStore';
 import { createStreamedWriter, StreamedWriter } from '../assets/streamedWriter';
 import { WORKER_BLOCK_SECONDS, openStage } from './dsp/dspWorkerClient';
-import { ChunkedOptions, PieceSource, createVirtualSource, runChunked, runStreamed } from './chunkedProcess';
+import type { StageTool } from './dsp/stages';
+import { ChunkedCancelled, ChunkedOptions, PieceSource, VirtualSource, createVirtualSource, runChunked, runStreamed } from './chunkedProcess';
+import { EnhanceSettings, LoudnessMeter, Measurement, NormalizePlan, NormalizeTarget, planNormalize } from './dsp/leveling';
 
 export type ChunkTool =
   | { kind: 'amplify'; gainDb: number }
@@ -18,7 +20,22 @@ export type ChunkTool =
   /** Keeps the length */
   | { kind: 'pitch'; semitones: number }
   /** ratio 2 = twice as fast, half as long; changes the length */
-  | { kind: 'speed'; ratio: number };
+  | { kind: 'speed'; ratio: number }
+  /** Measure first, then one constant gain onto the target; `evenOut` above 0 adds slow level evening (then loudness aims at `evenTargetDb`) */
+  | { kind: 'normalize'; target: NormalizeTarget; evenOut: number; evenTargetDb: number }
+  | { kind: 'enhance'; settings: EnhanceSettings };
+
+/** Read the whole source once and measure its peak and loudness. Fraction reported 0..1. */
+export const measureSource = async (source: VirtualSource, sampleRate: number, onProgress?: (f: number) => void, signal?: { aborted: boolean }): Promise<Measurement> => {
+  const meter = new LoudnessMeter(sampleRate);
+  const block = Math.round(20 * sampleRate);
+  for (let at = 0; at < source.totalFrames; at += block) {
+    if (signal?.aborted) throw new ChunkedCancelled();
+    meter.push(await source.read(at, Math.min(block, source.totalFrames - at)));
+    onProgress?.(Math.min(1, (at + block) / source.totalFrames));
+  }
+  return meter.result();
+};
 
 /** One clip as a source piece: its stretch of the stored audio, with the clip's gain and mute. Works for memory and disk audio. */
 export const pieceFromClip = (asset: Asset, clip: Clip, bakeGain = true): PieceSource => {
@@ -58,6 +75,8 @@ export interface ChunkedJobResult {
   sampleRate: number;
   channels: number;
   durationSeconds: number;
+  /** What a Normalize did, when it was one */
+  normalize?: NormalizePlan;
 }
 
 /**
@@ -83,11 +102,20 @@ export const processClipsChunked = async (opts: {
   try {
     const tool = opts.tool;
     let frames: number;
+    let plan: NormalizePlan | undefined;
     if (tool.kind === 'amplify') {
       frames = await runChunked({ source, sampleRate, leadInSeconds: 0, process: amplifyProcessor(tool.gainDb), write: writer.write, onProgress: opts.onProgress, signal: opts.signal });
+    } else if (tool.kind === 'normalize' && tool.evenOut <= 0) {
+      // Pass 1 measures the whole piece (reading only), pass 2 applies the one gain it found
+      const m = await measureSource(source, sampleRate, (f) => opts.onProgress?.(f * 0.3), opts.signal);
+      plan = planNormalize(m, tool.target);
+      frames = await runChunked({ source, sampleRate, leadInSeconds: 0, process: amplifyProcessor(plan.gainDb), write: writer.write, onProgress: (f) => opts.onProgress?.(0.3 + f * 0.7), signal: opts.signal });
     } else {
       // The heavy work runs in a Web Worker (or here, if one cannot start), so the interface stays smooth
-      const stage = await openStage({ tool, channels, totalFrames: source.totalFrames, sampleRate });
+      const stageTool: StageTool = tool.kind === 'normalize'
+        ? { kind: 'evenout', settings: { amount: tool.evenOut, targetDb: tool.evenTargetDb, ceilingDb: tool.target.mode === 'peak' ? tool.target.peakDb : tool.target.ceilingDb } }
+        : tool;
+      const stage = await openStage({ tool: stageTool, channels, totalFrames: source.totalFrames, sampleRate });
       const timing = { readMs: 0, processMs: 0, writeMs: 0, blocks: 0 };
       const startedAt = performance.now();
       try {
@@ -102,7 +130,7 @@ export const processClipsChunked = async (opts: {
           timing,
         });
         const sec = (ms: number) => (ms / 1000).toFixed(1);
-        console.info(`[effects] ${tool.kind}: ${timing.blocks} blocks, ${sec(performance.now() - startedAt)} s total (read ${sec(timing.readMs)} s, process ${sec(timing.processMs)} s, write ${sec(timing.writeMs)} s) for ${(source.totalFrames / sampleRate / 60).toFixed(1)} min of audio (${typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : '?'} logical cores)`);
+        console.info(`[effects] ${stageTool.kind}: ${timing.blocks} blocks, ${sec(performance.now() - startedAt)} s total (read ${sec(timing.readMs)} s, process ${sec(timing.processMs)} s, write ${sec(timing.writeMs)} s) for ${(source.totalFrames / sampleRate / 60).toFixed(1)} min of audio (${typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : '?'} logical cores)`);
       } catch (e) {
         stage.close();
         throw e;
@@ -110,7 +138,7 @@ export const processClipsChunked = async (opts: {
     }
     const meta = await writer.finish();
     frames = meta.frames;
-    return { storeId: meta.storeId, frames, sampleRate, channels, durationSeconds: frames / sampleRate };
+    return { storeId: meta.storeId, frames, sampleRate, channels, durationSeconds: frames / sampleRate, normalize: plan };
   } catch (e) {
     await writer.abort();
     throw e;
