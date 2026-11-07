@@ -448,7 +448,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               className="max-[1150px]:px-1.5"
               icon={<Zap className="h-3 w-3" />}
             >
-              <span className="max-[1279px]:hidden">Enhance</span>
+              <span className="max-[1439px]:hidden">Enhance</span>
             </CapsuleButton>
           </Capsule>
           <Capsule label="Level and timing" size="sm">
@@ -468,7 +468,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               className="max-[1150px]:px-1.5"
               icon={<Activity className="h-3 w-3" />}
             >
-              <span className="max-[1279px]:hidden">Normalize</span>
+              <span className="max-[1439px]:hidden">Normalize</span>
             </CapsuleButton>
             <CapsuleButton
               title={hasClip || hasRange ? 'Dynamics Compressor with threshold, ratio, attack, release' : 'Select a clip or highlight a range to compress'}
@@ -510,7 +510,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={() => (hasRange || hasClip) && onSplit(clip?.id ?? '')}
               icon={<Scissors className="h-3 w-3" />}
             >
-              <span className="max-[1650px]:hidden">Split</span>
+              <span className="max-[1150px]:hidden">Split</span>
             </CapsuleButton>
             <CapsuleButton
               title={hasRange ? 'Cut the highlighted range and close the gap (Ctrl+X)' : hasSelection ? 'Cut the selected clips (Ctrl+X)' : 'Select a clip or highlight a range to cut'}
@@ -518,7 +518,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={() => (hasRange || hasSelection) && onCut(clip?.id ?? '')}
               icon={<ScissorsLineDashed className="h-3 w-3" />}
             >
-              <span className="max-[1650px]:hidden">Cut</span>
+              <span className="max-[1150px]:hidden">Cut</span>
             </CapsuleButton>
             <CapsuleButton
               title={hasRange ? 'Copy the highlighted range (Ctrl+C)' : hasSelection ? 'Copy the selected clips (Ctrl+C)' : 'Select a clip or highlight a range to copy'}
@@ -526,7 +526,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={() => (hasRange || hasSelection) && onCopy(clip?.id ?? '')}
               icon={<Copy className="h-3 w-3" />}
             >
-              <span className="max-[1650px]:hidden">Copy</span>
+              <span className="max-[1150px]:hidden">Copy</span>
             </CapsuleButton>
             <CapsuleButton
               title={canPaste ? 'Paste at the playhead, onto the active track (Ctrl+V)' : 'Clipboard is empty'}
@@ -542,7 +542,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={onSilence}
               icon={<VolumeX className="h-3 w-3" />}
             >
-              <span className="max-[1650px]:hidden">Silence</span>
+              <span className="max-[1150px]:hidden">Silence</span>
             </CapsuleButton>
           </Capsule>
         </div>
