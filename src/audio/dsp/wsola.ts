@@ -8,6 +8,8 @@
  * Licence: MIT-compatible open mathematical implementation.
  */
 
+import { HighRestorer, HighpassStream } from './highRestore';
+
 /**
  * Resample a channel Float32Array by an arbitrary ratio using cubic Hermite interpolation
  */
@@ -47,6 +49,8 @@ export interface StretchParams {
   frame: number;
   hop: number;
   search: number;
+  /** Sample rate, for the high-band restore (48000 when absent) */
+  rate?: number;
 }
 
 const at48k = (samples: number, sampleRate: number) => Math.max(1, Math.round((samples * sampleRate) / 48000));
@@ -54,7 +58,7 @@ const at48k = (samples: number, sampleRate: number) => Math.max(1, Math.round((s
 /** Speed changes: about 43 ms frames, which keep speech crisp, with room to slide by about 10 ms to find the matching waveform. */
 export const speedStretchParams = (sampleRate = 48000): StretchParams => {
   const frame = Math.round(at48k(2048, sampleRate) / 4) * 4;
-  return { frame, hop: frame / 4, search: at48k(480, sampleRate) };
+  return { frame, hop: frame / 4, search: at48k(480, sampleRate), rate: sampleRate };
 };
 
 /**
@@ -65,7 +69,7 @@ export const speedStretchParams = (sampleRate = 48000): StretchParams => {
 export const pitchStretchParams = (ratio: number, sampleRate = 48000): StretchParams => {
   const period = sampleRate / (70 * Math.max(0.25, Math.min(4, ratio)));
   const frame = Math.round(Math.max(at48k(2048, sampleRate), 3 * period) / 4) * 4;
-  return { frame, hop: frame / 4, search: Math.max(at48k(480, sampleRate), Math.round(period)) };
+  return { frame, hop: frame / 4, search: Math.max(at48k(480, sampleRate), Math.round(period)), rate: sampleRate };
 };
 
 /**
@@ -162,6 +166,11 @@ export function wsolaTimeStretch(
   const weight = new Float32Array(outLength + frame);
   const window = new Float32Array(frame);
   for (let i = 0; i < frame; i++) window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (frame - 1)));
+  // The high band of the input, so the stretch can give back the highs that overlapping frames lose (see highRestore.ts)
+  const rate = params.rate ?? 48000;
+  const hp = new HighpassStream(rate).process(input);
+  const hiOut = new Float32Array(outLength + frame);
+  const hiPow = new Float32Array(outLength + frame);
 
   let outPos = 0;
   let inPos = 0;
@@ -172,8 +181,12 @@ export function wsolaTimeStretch(
     const offset = outPos > 0 ? chooseOffset(params, input, 0, output, 0, nominal, outPos, total) : 0;
     const actualIn = Math.max(0, Math.min(total - frame, nominal + offset));
     for (let i = 0; i < frame; i++) {
-      output[outPos + i] += input[actualIn + i] * window[i];
-      weight[outPos + i] += window[i];
+      const wv = window[i];
+      output[outPos + i] += input[actualIn + i] * wv;
+      weight[outPos + i] += wv;
+      const h = hp[actualIn + i];
+      hiOut[outPos + i] += h * wv;
+      hiPow[outPos + i] += h * h * wv;
     }
     outPos += hop;
     inPos += anaHop;
@@ -181,9 +194,12 @@ export function wsolaTimeStretch(
 
   // Divide by the accumulated window weights so the level stays even
   const result = new Float32Array(outLength);
+  const restorer = new HighRestorer(rate);
   for (let i = 0; i < outLength; i++) {
     const w = weight[i];
-    const v = w > 1e-6 ? output[i] / w : input[Math.min(total - 1, Math.round(i * speedRatio))];
+    let v: number;
+    if (w > 1e-6) v = restorer.next(output[i] / w, hiOut[i] / w, hiPow[i] / w);
+    else v = input[Math.min(total - 1, Math.round(i * speedRatio))];
     result[i] = Number.isFinite(v) ? v : 0;
   }
   // Edge guard: the very first and last samples are the original ones

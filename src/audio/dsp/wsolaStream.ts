@@ -6,6 +6,7 @@
  * the streamed result equals the whole-buffer result: there are no seams where blocks meet (see wsolaStream.test.ts).
  * The total input length must be known up front (it is: the clip's length).
  */
+import { HighRestorer, HighpassStream } from './highRestore';
 import { StretchParams, chooseOffset, edgeGuardLength, edgeGuardWeight, pitchStretchParams, resampleChannel, speedStretchParams, wsolaTimeStretch } from './wsola';
 
 export interface Stage {
@@ -97,6 +98,12 @@ export class WsolaStretcher implements Stage {
   private received = 0;
   private out = new Float32Array(0);
   private weight = new Float32Array(0);
+  /** High band of the input (aligned with inBuf), and the high-band sums that go with out/weight (see highRestore.ts) */
+  private hpBuf = new Float32Array(0);
+  private hiOut = new Float32Array(0);
+  private hiPow = new Float32Array(0);
+  private readonly highpass: HighpassStream;
+  private readonly restorer: HighRestorer;
   private outBase = 0; // absolute output index of out[0]
   private outPos = 0;
   private inPos = 0;
@@ -116,6 +123,8 @@ export class WsolaStretcher implements Stage {
     this.outLength = Math.max(1, Math.round(totalIn / speed));
     this.window = new Float32Array(this.frame);
     for (let i = 0; i < this.frame; i++) this.window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (this.frame - 1)));
+    this.highpass = new HighpassStream(params.rate ?? 48000);
+    this.restorer = new HighRestorer(params.rate ?? 48000);
     this.guard = Math.min(edgeGuardLength(params), this.outLength >> 1);
     this.whole = totalIn <= this.frame || this.outLength <= this.frame ? [] : null;
   }
@@ -126,10 +135,16 @@ export class WsolaStretcher implements Stage {
     const size = Math.max(need, this.out.length * 2, this.frame * 4);
     const o = new Float32Array(size);
     const w = new Float32Array(size);
+    const ho = new Float32Array(size);
+    const hp = new Float32Array(size);
     o.set(this.out);
     w.set(this.weight);
+    ho.set(this.hiOut);
+    hp.set(this.hiPow);
     this.out = o;
     this.weight = w;
+    this.hiOut = ho;
+    this.hiPow = hp;
   }
 
   /** Normalised value of absolute output index i (what the whole-buffer function stores in its result) */
@@ -137,7 +152,7 @@ export class WsolaStretcher implements Stage {
     const k = abs - this.outBase;
     if (k < 0 || k >= this.out.length) return 0;
     const w = this.weight[k];
-    let val = w > 1e-6 ? this.out[k] / w : this.out[k];
+    let val = w > 1e-6 ? this.restorer.next(this.out[k] / w, this.hiOut[k] / w, this.hiPow[k] / w) : this.out[k];
     if (!Number.isFinite(val)) val = 0;
     // Edge guard: blend the first and last few samples back to the original edge samples
     const g = this.guard;
@@ -164,6 +179,8 @@ export class WsolaStretcher implements Stage {
       const cut = keep - this.outBase;
       this.out = this.out.slice(cut);
       this.weight = this.weight.slice(cut);
+      this.hiOut = this.hiOut.slice(cut);
+      this.hiPow = this.hiPow.slice(cut);
       this.outBase = keep;
     }
     return res;
@@ -183,8 +200,12 @@ export class WsolaStretcher implements Stage {
       const base = actualIn - this.inBase;
       for (let i = 0; i < this.frame; i++) {
         const k = this.outPos + i - this.outBase;
-        this.out[k] += this.inBuf[base + i] * this.window[i];
-        this.weight[k] += this.window[i];
+        const wv = this.window[i];
+        this.out[k] += this.inBuf[base + i] * wv;
+        this.weight[k] += wv;
+        const h = this.hpBuf[base + i];
+        this.hiOut[k] += h * wv;
+        this.hiPow[k] += h * h * wv;
       }
       this.outPos += this.hop;
       this.inPos += this.anaHop;
@@ -196,6 +217,7 @@ export class WsolaStretcher implements Stage {
     const cut = Math.min(keepFrom - this.inBase, this.inBuf.length);
     if (cut > 0) {
       this.inBuf = this.inBuf.slice(cut);
+      this.hpBuf = this.hpBuf.slice(cut);
       this.inBase += cut;
     }
   }
@@ -225,6 +247,10 @@ export class WsolaStretcher implements Stage {
     merged.set(this.inBuf);
     merged.set(chunk, this.inBuf.length);
     this.inBuf = merged;
+    const hpMerged = new Float32Array(this.hpBuf.length + chunk.length);
+    hpMerged.set(this.hpBuf);
+    hpMerged.set(this.highpass.process(chunk), this.hpBuf.length);
+    this.hpBuf = hpMerged;
     this.received += chunk.length;
     this.run();
     // Hold back the last few samples until the end of the input is known (they are blended to the original edge)
