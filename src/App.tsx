@@ -22,6 +22,7 @@ import {
   GroupSettings,
 } from './types';
 import { audioEngine } from './audio/engine';
+import { playbackSignature } from './audio/playbackSignature';
 import { importStreamedFile, shouldStreamImport } from './assets/streamImport';
 import { deleteStreamedAssetWithRetry } from './assets/streamedStore';
 import { HistoryManager } from './history/historyManager';
@@ -57,6 +58,7 @@ import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type Timelin
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
 import { DspModals, DspModalType } from './components/DspModals';
+import { LevelModals } from './components/LevelModals';
 import { EffectsModal } from './components/EffectsModal';
 import { NewProjectModal } from './components/NewProjectModal';
 import { ResetSessionModal } from './components/ResetSessionModal';
@@ -964,10 +966,22 @@ const MainStudio: React.FC = () => {
     });
   }, []);
 
+  const playbackSigRef = useRef<string | null>(null);
+  const rescheduleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (rescheduleTimerRef.current) clearTimeout(rescheduleTimerRef.current); }, []);
+
   // Sync track gain and pan nodes with audio engine when project tracks change
   useEffect(() => {
     audioEngine.syncTracks(project.tracks);
     audioEngine.syncGroupSettings(project.groupSettings);
+    audioEngine.syncClipGains(); // a clip's gain edited while playing is heard at once
+    // Any other edit to the clips while playing (cut, delete, split, move, fades) is played from the current position again
+    const sig = playbackSignature(project.tracks);
+    if (playbackSigRef.current !== null && sig !== playbackSigRef.current && audioEngine.getIsPlaying()) {
+      if (rescheduleTimerRef.current) clearTimeout(rescheduleTimerRef.current);
+      rescheduleTimerRef.current = setTimeout(() => { rescheduleTimerRef.current = null; audioEngine.rescheduleFromNow(projectRef.current); }, 120);
+    }
+    playbackSigRef.current = sig;
     // Ducking settings or source clips may have changed mid-playback: re-apply only the curves that did
     audioEngine.refreshDucking(project);
   }, [project]);
@@ -2369,6 +2383,26 @@ const MainStudio: React.FC = () => {
     });
   };
 
+  /** Normalize and Enhance always run through the block pipeline, so any length works and the result is one clip */
+  const handleApplyLevel = async (tool: Extract<ChunkTool, { kind: 'normalize' | 'enhance' }>) => {
+    if (!dspTargetClip || !dspTargetAsset) throw new Error('Target clip or audio asset not found.');
+    await applyChunked(tool, tool.kind === 'normalize' ? 'Normalized' : 'Enhanced', chunkedTarget ? undefined : { clipIds: [dspTargetClip.id] });
+  };
+
+  /** Up to 20 seconds of the target for hearing a level tool before applying it */
+  const levelPreviewBuffer = useMemo(() => {
+    if (activeDspModal !== 'normalize' && activeDspModal !== 'enhance') return null;
+    if (chunkedTarget) return chunkedTarget.excerptAsset.buffer ?? null;
+    const buf = dspTargetAsset?.buffer;
+    if (!buf || !dspTargetClip) return null;
+    const sr = buf.sampleRate;
+    const from = Math.max(0, Math.round((dspTargetClip.offsetSeconds || 0) * sr));
+    const frames = Math.max(1, Math.min(Math.round(20 * sr), Math.round(dspTargetClip.durationSeconds * sr), buf.length - from));
+    const out = new AudioBuffer({ length: frames, numberOfChannels: buf.numberOfChannels, sampleRate: sr });
+    for (let c = 0; c < buf.numberOfChannels; c++) out.copyToChannel(buf.getChannelData(c).subarray(from, from + frames) as Float32Array<ArrayBuffer>, c);
+    return out;
+  }, [activeDspModal, chunkedTarget, dspTargetAsset, dspTargetClip]);
+
   const handleApplyCompressor = async (params: CompressorParams) => {
     if (!dspTargetClip || !dspTargetAsset) throw new Error('Target clip or audio asset not found.');
     if (chunkedTarget) {
@@ -2951,7 +2985,7 @@ const MainStudio: React.FC = () => {
       const delta = res.durationSeconds - (oldEnd - first.startSeconds);
       if (tool.kind === 'speed' && rangePiece) noteRangeLength(res.durationSeconds);
       const ownerId = project.tracks.find((t) => t.clips.some((c) => c.id === first.id))?.id;
-      const stepName = tool.kind === 'effect' ? tool.effect.name.toLowerCase() : tool.kind === 'compress' ? 'compression' : tool.kind === 'denoise' ? 'denoise' : tool.kind === 'pitch' ? 'pitch change' : tool.kind === 'speed' ? 'speed change' : 'processing';
+      const stepName = tool.kind === 'effect' ? tool.effect.name.toLowerCase() : tool.kind === 'compress' ? 'compression' : tool.kind === 'denoise' ? 'denoise' : tool.kind === 'pitch' ? 'pitch change' : tool.kind === 'speed' ? 'speed change' : tool.kind === 'normalize' ? 'normalize' : tool.kind === 'enhance' ? 'enhance' : 'processing';
       setProjectWithHistory((prev0) => {
         const prev = rangePiece && ownerId ? { ...prev0, tracks: shiftLaterClips(prev0.tracks, ownerId, oldEnd, delta, new Set([first.id])) } : prev0;
         return {
@@ -2969,7 +3003,13 @@ const MainStudio: React.FC = () => {
         };
       }, false, stepName);
       setSelectedClipIds(new Set([first.id]));
-      addToast({ type: 'success', title: `${label} applied`, message: `Processed ${(res.durationSeconds / 60).toFixed(1)} min of audio in blocks. Undo restores the original.` });
+      const plan = res.normalize;
+      const normalizeNote = plan
+        ? plan.silent
+          ? 'The selection is silent, so nothing was changed.'
+          : `Gain ${plan.gainDb > 0 ? '+' : ''}${plan.gainDb.toFixed(1)} dB. Peak now ${plan.resultPeakDb.toFixed(1)} dBFS${Number.isFinite(plan.resultLoudnessDb) ? `, loudness ${plan.resultLoudnessDb.toFixed(1)} dB` : ''}.${plan.limitedByPeaks ? ' Held back by peaks, so the loudness target was not fully reached.' : ''}`
+        : null;
+      addToast({ type: plan?.silent || plan?.limitedByPeaks ? 'warning' : 'success', title: `${label} applied`, message: normalizeNote ?? `Processed ${(res.durationSeconds / 60).toFixed(1)} min of audio in blocks. Undo restores the original.` });
     } catch (e) {
       if (e instanceof ChunkedCancelled) throw new Error('Stopped. Nothing was changed.');
       throw e;
@@ -4189,8 +4229,17 @@ const MainStudio: React.FC = () => {
       />
 
       {/* DSP Processing Modals (Amplify, Compress, Denoise, Pitch, Speed) */}
+      <LevelModals
+        active={activeDspModal === 'normalize' || activeDspModal === 'enhance' ? activeDspModal : null}
+        previewBuffer={levelPreviewBuffer}
+        previewIsExcerpt={!!chunkedTarget}
+        progress={chunkedProgress}
+        onStopProcessing={() => { chunkedAbortRef.current.aborted = true; }}
+        onClose={() => { setActiveDspModal(null); setChunkedTarget(null); restoreProcessedRange(); }}
+        onApply={handleApplyLevel}
+      />
       <DspModals
-        activeModal={activeDspModal}
+        activeModal={activeDspModal === 'normalize' || activeDspModal === 'enhance' ? null : activeDspModal}
         clip={chunkedTarget ? chunkedTarget.excerptClip : dspTargetClip}
         asset={chunkedTarget ? chunkedTarget.excerptAsset : dspTargetAsset}
         progress={chunkedProgress}

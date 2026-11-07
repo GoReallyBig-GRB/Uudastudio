@@ -21,6 +21,7 @@ import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { Project, Track, Clip, Asset, GroupSettings } from '../types';
 import { TrackControls } from './TrackControls';
 import { rangeTrackIds, type RangeSelection, type TimelineTool } from './rangeDelete';
+import { dragRangeEdge, rangeEdgeHit } from './rangeEdge';
 import { TITLE_PAD_X, displayTitle, fitTitle, formatClipLength, placeTip } from './clipTitle';
 import { TimelineRuler } from './TimelineRuler';
 import { ClipActionStrip } from './ClipActionStrip';
@@ -328,7 +329,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   // Marquee selection state
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   // Range tool drag: where it began (time and screen x) and whether the pointer has moved far enough to count as a drag.
-  const [rangeDrag, setRangeDrag] = useState<{ trackId: string; trackIndex: number; anchorSeconds: number; startClientX: number; moved: boolean } | null>(null);
+  const [rangeDrag, setRangeDrag] = useState<{ trackId: string; trackIndex: number; anchorSeconds: number; startClientX: number; moved: boolean; /** Set when an edge of the existing range was grabbed: the range being reshaped and which edge */ edge?: { sel: RangeSelection; grabbed: 'start' | 'end' } } | null>(null);
 
   // Fade handle drag state
   const [fadeDrag, setFadeDrag] = useState<FadeDragState | null>(null);
@@ -1001,6 +1002,13 @@ export const Timeline: React.FC<TimelineProps> = ({
     // Range tool (or Alt held): dragging highlights a span of this track. It never moves, trims or fades a clip.
     if (tool === 'range' || e.altKey) {
       onSelectTrack(track.id);
+      // Pressing on an edge of the highlighted range grabs it: drag to make the range longer or shorter
+      const grabbed = rangeEdgeHit(rangeSelection, track.id, timeAtClick, pixelsPerSecond);
+      if (rangeSelection && grabbed) {
+        const anchor = grabbed === 'start' ? rangeSelection.endSeconds : rangeSelection.startSeconds;
+        setRangeDrag({ trackId: rangeSelection.trackId, trackIndex, anchorSeconds: anchor, startClientX: e.clientX, moved: false, edge: { sel: rangeSelection, grabbed } });
+        return;
+      }
       // Clicking inside the range that is already highlighted keeps it (so double-click opens Quick Actions for it)
       if (
         rangeSelection &&
@@ -1189,6 +1197,10 @@ export const Timeline: React.FC<TimelineProps> = ({
         const x = e.clientX - rect.left + laneScrollContainerRef.current.scrollLeft - currentHeaderWidth;
         const here = Math.max(0, x / pixelsPerSecond);
         if (!rangeDrag.moved) setRangeDrag({ ...rangeDrag, moved: true });
+        if (rangeDrag.edge) {
+          onRangeSelect(dragRangeEdge(rangeDrag.edge.sel, rangeDrag.edge.grabbed, here));
+          return;
+        }
         // Dragging up or down across lanes widens the range to every track between where it began and the pointer
         const y = e.clientY - rect.top + laneScrollContainerRef.current.scrollTop;
         const overIndex = focused ? focusIndex : Math.max(0, Math.min(project.tracks.length - 1, Math.floor(y / rowHeight)));
@@ -1384,7 +1396,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
       if (rangeDrag) {
         // A click without a drag just moves the playhead, like a click on an empty lane.
-        if (!rangeDrag.moved) onSeek(rangeDrag.anchorSeconds);
+        if (!rangeDrag.moved && !rangeDrag.edge) onSeek(rangeDrag.anchorSeconds);
         setRangeDrag(null);
       }
 
@@ -1889,7 +1901,17 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
               left: `${rangeHighlight.startSeconds * pixelsPerSecond}px`,
               width: `${Math.max(1, (rangeHighlight.endSeconds - rangeHighlight.startSeconds) * pixelsPerSecond)}px`,
             }}
-          />
+          >
+            {/* Edge grips: with the Range tool, drag either edge to make the range longer or shorter */}
+            {(['left', 'right'] as const).map((side) => (
+              <span
+                key={side}
+                className={`absolute inset-y-0 flex w-3.5 items-center justify-center ${side === 'left' ? '-left-[7px]' : '-right-[7px]'} ${rangeTool ? 'pointer-events-auto cursor-col-resize' : ''}`}
+              >
+                <span className="h-6 w-1 rounded-full bg-accent/80" />
+              </span>
+            ))}
+          </div>
         )}
       </div>
     </div>

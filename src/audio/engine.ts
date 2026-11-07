@@ -116,7 +116,8 @@ export class AudioEngine {
   private lastTracks: Track[] = [];
   /** Temporary per-clip level multipliers (group mastering). Never saved; see audio/tempClipLevels.ts */
   private tempClipFactors: Record<string, number> = {};
-  private clipTrims: Array<{ clipId: string; node: GainNode }> = [];
+  /** `scheduledGain` is the clip's gain when it was scheduled; a later edit is heard by scaling the trim by new/old */
+  private clipTrims: Array<{ clipId: string; node: GainNode; scheduledGain: number }> = [];
   /** Per-track volume/pan stages feeding the group buses for the current playback (disconnected when it stops) */
 
   /** Duck curves already worked out, by track, so playing again does not re-measure the audio */
@@ -266,7 +267,38 @@ export class AudioEngine {
     this.tempClipFactors = factors;
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    for (const { clipId, node } of this.clipTrims) node.gain.setTargetAtTime(factors[clipId] ?? 1, t, 0.015);
+    for (const trim of this.clipTrims) trim.node.gain.setTargetAtTime(this.trimTarget(trim), t, 0.015);
+  }
+
+  /** What a clip's trim stage should be: the temporary level times how far the clip's gain has moved since it was scheduled */
+  private trimTarget(trim: { clipId: string; scheduledGain: number }): number {
+    let current: number | undefined;
+    for (const track of this.lastTracks) {
+      const c = track.clips.find((x) => x.id === trim.clipId);
+      if (c) { current = c.gain; break; }
+    }
+    // A clip scheduled at zero gain has nothing to scale: its new level is heard from the next play
+    const ratio = current !== undefined && trim.scheduledGain > 1e-6 ? current / trim.scheduledGain : 1;
+    return (this.tempClipFactors[trim.clipId] ?? 1) * ratio;
+  }
+
+  /**
+   * The clips changed while playing (cut, deleted, split, moved, faded...): play them from the current position again with the
+   * edit in place. The playhead and a range being previewed carry on; the restart is faded over a few milliseconds.
+   */
+  public rescheduleFromNow(project: Project): void {
+    if (!this.isPlaying || this.previewTargetId) return;
+    this.seek(this.getCurrentTime(), project);
+  }
+
+  /**
+   * Clip gain edited while playing (Amplify, the gain control, a range made louder): apply it to the clips that are sounding
+   * right now instead of at the next play. The clip's fades stay as scheduled; only the level behind them moves.
+   */
+  public syncClipGains(): void {
+    if (!this.ctx || this.clipTrims.length === 0) return;
+    const t = this.ctx.currentTime;
+    for (const trim of this.clipTrims) trim.node.gain.setTargetAtTime(this.trimTarget(trim), t, 0.015);
   }
 
   /** Hear only one track (single-track view with solo). null = the normal mix. Applies live to the track; grouped clips on other tracks stop at the next play. */
@@ -826,7 +858,7 @@ export class AudioEngine {
     trim.gain.value = this.tempClipFactors[clip.id] ?? 1;
     declick.connect(trim);
     trim.connect(destination);
-    this.clipTrims.push({ clipId: clip.id, node: trim });
+    this.clipTrims.push({ clipId: clip.id, node: trim, scheduledGain: clip.gain });
 
     if (asset.buffer) {
       const source = this.ctx.createBufferSource();

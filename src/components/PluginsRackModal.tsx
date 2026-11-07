@@ -5,15 +5,12 @@
  *
  * Chain list: reorder, bypass, one Mix control, show/hide the inline controls (eye), pop out into a full modal.
  * Layout: library on the left and chain on the right from md up; one pane at a time below that.
- * Look: solid surfaces, 1px borders, small radii. No blur and no glow.
+ * Look: the app's dialog frame, tokens only, pill controls, rounded cards. One cyan accent.
  */
 
 import React, { useEffect, useState } from 'react';
 import {
-  X,
   Sliders,
-  Plug,
-  Layers,
   Power,
   ChevronDown,
   ChevronUp,
@@ -21,11 +18,8 @@ import {
   Plus,
   ExternalLink,
   ShieldCheck,
-  Globe,
-  Cpu,
   Eye,
   EyeOff,
-  AlertTriangle,
   Maximize2,
 } from 'lucide-react';
 import { Track, Project } from '../types';
@@ -39,6 +33,7 @@ import {
   isModuleOriginWhitelisted,
 } from '../plugins/registry';
 import { getTrackLabel } from '../utils/tracks';
+import { Button, ModalShell, SegmentedControl, cn } from './ui';
 import { PluginPanel } from './plugins/PluginPanel';
 import { PluginPopout } from './plugins/PluginPopout';
 import { PreviewButton } from './plugins/PreviewButton';
@@ -147,8 +142,6 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
     if (popoutId && !activePlugins.some((p) => p.instanceId === popoutId)) setPopoutId(null);
   }, [activePlugins, popoutId]);
 
-  if (!isOpen) return null;
-
   const showChain = () => setPane('chain');
 
   const handleAddPlugin = async (descriptor: PluginDescriptor) => {
@@ -248,178 +241,127 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
   const popoutPlugin = popoutId ? activePlugins.find((p) => p.instanceId === popoutId) : undefined;
 
   const iconBtn =
-    'p-1.5 rounded-sm text-zinc-400 hover:text-white hover:bg-zinc-800 cursor-pointer disabled:opacity-25 disabled:cursor-default';
+    'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-dim transition-colors hover:bg-white/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-default disabled:opacity-25 disabled:hover:bg-transparent';
+  const field =
+    'h-9 w-full rounded-full border border-line-strong bg-surface-3 px-3.5 text-xs text-ink placeholder:text-ink-faint transition-colors hover:border-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50';
+  const chip = (on: boolean) =>
+    cn(
+      'h-6 shrink-0 rounded-full border px-2.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+      on ? 'border-accent/40 bg-accent-soft text-accent' : 'border-line text-ink-dim hover:border-line-strong hover:text-ink',
+    );
+  const childOpen = showCustomConfirm || !!popoutPlugin;
+
+  const libraryCard = (plugin: PluginDescriptor, note: React.ReactNode) => (
+    <div key={plugin.id} className="flex flex-col gap-1.5 rounded-card border border-line bg-surface-2 p-3 transition-colors hover:border-line-strong">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <span className="block truncate text-xs font-semibold text-ink">{plugin.name}</span>
+          <span className="text-[11px] text-ink-faint">{note}</span>
+        </div>
+        <Button size="sm" variant="secondary" onClick={() => handleAddPlugin(plugin)} leftIcon={<Plus className="h-3.5 w-3.5" aria-hidden="true" />} className="h-7 shrink-0 px-3">
+          Add
+        </Button>
+      </div>
+      <p className="line-clamp-2 text-xs leading-snug text-ink-dim">{plugin.description}</p>
+    </div>
+  );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 select-none">
-      <div className="w-full max-w-6xl h-[calc(100dvh-1rem)] sm:h-[90vh] bg-[#0F0F16] border border-zinc-700 rounded-lg flex flex-col overflow-hidden text-zinc-100">
-        {/* Header */}
-        <div className="px-3 sm:px-5 py-2.5 border-b border-zinc-800 flex flex-wrap items-center gap-x-4 gap-y-2 bg-[#13131D] shrink-0">
-          <div className="flex items-center gap-3 min-w-0 flex-1 basis-56">
-            <div className="w-8 h-8 rounded-sm bg-purple-500/15 border border-purple-500/40 flex items-center justify-center text-purple-300 shrink-0">
-              <Plug className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-sm font-black uppercase tracking-wide text-white truncate">Plugin Rack</h1>
-              <p className="hidden sm:block text-[11px] text-zinc-500 truncate">Effect chains for tracks, clip groups and the master bus</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 min-w-0 flex-1 basis-56 justify-end">
-            <label className="flex items-center gap-2 min-w-0 flex-1 max-w-xs bg-[#09090D] border border-zinc-700 rounded-sm px-2.5 py-1.5">
-              <span className="text-[11px] text-zinc-400 shrink-0">Target</span>
-              <select
-                value={activeTrackId || ''}
-                onChange={(e) => {
-                  if (e.target.value === MASTER_TRACK_ID) {
-                    setMasterTarget(true);
-                    setGroupTarget(null);
-                  } else if (isGroupChainId(e.target.value)) {
-                    setMasterTarget(false);
-                    setGroupTarget(groupIdOfChain(e.target.value));
-                  } else {
-                    setMasterTarget(false);
-                    setGroupTarget(null);
-                    onSelectTrack(e.target.value);
-                  }
-                }}
-                className="min-w-0 flex-1 bg-transparent text-xs font-bold text-cyan-300 focus:outline-none cursor-pointer truncate"
-              >
-                <option value={MASTER_TRACK_ID} className="bg-[#121218] text-zinc-200">
-                  Master Bus (whole mix)
+    <>
+      <ModalShell
+        open={isOpen}
+        onClose={onClose}
+        dismissible={!childOpen}
+        variant="workspace"
+        title="Plugin rack"
+        description="Effect chains for tracks, clip groups and the master bus"
+      >
+        {/* Target and preview */}
+        <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line px-5 py-3">
+          <label className="flex h-9 min-w-0 flex-1 basis-56 items-center gap-2 rounded-full border border-line-strong bg-surface-3 px-3.5 focus-within:ring-2 focus-within:ring-accent/50 sm:max-w-sm">
+            <span className="shrink-0 text-xs text-ink-faint">Target</span>
+            <select
+              value={activeTrackId || ''}
+              onChange={(e) => {
+                if (e.target.value === MASTER_TRACK_ID) {
+                  setMasterTarget(true);
+                  setGroupTarget(null);
+                } else if (isGroupChainId(e.target.value)) {
+                  setMasterTarget(false);
+                  setGroupTarget(groupIdOfChain(e.target.value));
+                } else {
+                  setMasterTarget(false);
+                  setGroupTarget(null);
+                  onSelectTrack(e.target.value);
+                }
+              }}
+              className="min-w-0 flex-1 cursor-pointer truncate bg-transparent text-xs font-semibold text-ink focus:outline-none"
+            >
+              <option value={MASTER_TRACK_ID} className="bg-surface-2 text-ink">
+                Master Bus (whole mix)
+              </option>
+              {groupIds.map((g) => (
+                <option key={g} value={groupChainId(g)} className="bg-surface-2 text-ink">
+                  {groupLabel(project, g)}
                 </option>
-                {groupIds.map((g) => (
-                  <option key={g} value={groupChainId(g)} className="bg-[#121218] text-zinc-200">
-                    {groupLabel(project, g)}
-                  </option>
-                ))}
-                {tracks.map((t, idx) => (
-                  <option key={t.id} value={t.id} className="bg-[#121218] text-zinc-200">
-                    {getTrackLabel(t, idx)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <PreviewButton project={project} targetId={activeTrackId} />
-            <button type="button" onClick={onClose} title="Close" aria-label="Close" className={iconBtn}>
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+              ))}
+              {tracks.map((t, idx) => (
+                <option key={t.id} value={t.id} className="bg-surface-2 text-ink">
+                  {getTrackLabel(t, idx)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <PreviewButton project={project} targetId={activeTrackId} />
         </div>
 
         {/* Pane switch (small screens only) */}
-        <div className="md:hidden grid grid-cols-2 p-1 gap-1 bg-[#0D0D14] border-b border-zinc-800 shrink-0">
-          {(['chain', 'library'] as const).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setPane(p)}
-              className={`py-1.5 rounded-sm text-xs font-bold cursor-pointer ${
-                pane === p ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              {p === 'chain' ? `Chain (${activePlugins.length})` : 'Library'}
-            </button>
-          ))}
+        <div className="shrink-0 border-b border-line px-5 py-2 md:hidden">
+          <SegmentedControl
+            label="Pane"
+            size="sm"
+            value={pane}
+            onChange={setPane}
+            options={[
+              { value: 'chain', label: `Chain (${activePlugins.length})` },
+              { value: 'library', label: 'Library' },
+            ]}
+          />
         </div>
 
-        {/* Third-party authorisation */}
-        {showCustomConfirm && pendingCustomDescriptor && (
-          <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-[#161622] border border-amber-500/60 rounded-lg p-5 space-y-3">
-              <div className="flex items-center gap-2.5 text-amber-400">
-                <AlertTriangle className="w-5 h-5 shrink-0" />
-                <h3 className="text-sm font-bold uppercase tracking-wide">Load external module?</h3>
-              </div>
-              <code className="block p-2 bg-black/60 rounded-sm text-[11px] font-mono text-cyan-300 break-all border border-zinc-800">
-                {pendingCustomDescriptor.moduleUrl}
-              </code>
-              <p className="text-[11px] text-zinc-400 leading-relaxed">
-                It runs in a sandboxed audio worklet. Only load modules from authors you trust.
-              </p>
-              <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCustomConfirm(false);
-                    setPendingCustomDescriptor(null);
-                  }}
-                  className="px-3 py-1.5 rounded-sm text-xs text-zinc-400 hover:bg-zinc-800 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmAddCustom}
-                  className="px-4 py-1.5 rounded-sm bg-amber-500 text-black font-bold text-xs hover:bg-amber-400 cursor-pointer"
-                >
-                  Load
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Body */}
-        <div className="flex-1 flex min-h-0 overflow-hidden md:divide-x divide-zinc-800">
+        <div className="flex min-h-0 flex-1 overflow-hidden md:divide-x md:divide-line">
           {/* Library */}
-          <div
-            className={`${pane === 'library' ? 'flex' : 'hidden'} md:flex w-full md:w-[340px] lg:w-[380px] flex-col bg-[#0D0D14] shrink-0 p-3 sm:p-4 overflow-y-auto gap-3`}
-          >
-            <span className="text-xs font-bold uppercase tracking-wide text-zinc-300 flex items-center gap-1.5">
-              <Layers className="w-4 h-4 text-purple-400" />
-              Library
-            </span>
-
-            <div className="grid grid-cols-2 p-1 gap-1 bg-[#14141E] border border-zinc-800 rounded-md">
-              <button
-                type="button"
-                onClick={() => setBrowserCategory('native')}
-                className={`py-1.5 rounded-sm text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
-                  browserCategory === 'native' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Cpu className="w-3.5 h-3.5" />
-                Native
-              </button>
-              <button
-                type="button"
-                onClick={() => setBrowserCategory('third-party')}
-                className={`py-1.5 rounded-sm text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
-                  browserCategory === 'third-party' ? 'bg-cyan-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Globe className="w-3.5 h-3.5" />
-                WAM
-              </button>
-            </div>
+          <div className={`${pane === 'library' ? 'flex' : 'hidden'} w-full shrink-0 flex-col gap-3 overflow-y-auto p-5 md:flex md:w-[340px] lg:w-[380px]`}>
+            <SegmentedControl
+              label="Library"
+              size="sm"
+              value={browserCategory}
+              onChange={setBrowserCategory}
+              options={[
+                { value: 'native', label: 'Native' },
+                { value: 'third-party', label: 'WAM' },
+              ]}
+            />
 
             {browserCategory === 'native' && (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <input
                   type="search"
+                  aria-label="Search effects"
                   value={pluginSearch}
                   onChange={(e) => setPluginSearch(e.target.value)}
                   placeholder="Search effects"
-                  className="w-full px-3 py-1.5 bg-[#14141E] border border-zinc-800 rounded-sm text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500"
+                  className={field}
                 />
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1.5">
                   {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setPluginCategory(key)}
-                      className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold border cursor-pointer ${
-                        pluginCategory === key
-                          ? 'bg-purple-600 border-purple-500 text-white'
-                          : 'bg-[#14141E] border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
+                    <button key={key} type="button" onClick={() => setPluginCategory(key)} aria-pressed={pluginCategory === key} className={chip(pluginCategory === key)}>
                       {label}
                     </button>
                   ))}
                 </div>
-                <div className="text-[10px] text-zinc-500">
+                <div className="text-[11px] text-ink-faint">
                   {filteredNativePlugins.length === NATIVE_STEM_PLUGINS.length
                     ? `${NATIVE_STEM_PLUGINS.length} plugins`
                     : `${filteredNativePlugins.length} of ${NATIVE_STEM_PLUGINS.length}`}
@@ -430,90 +372,41 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
             <div className="space-y-2">
               {browserCategory === 'native' ? (
                 filteredNativePlugins.length === 0 ? (
-                  <div className="text-[11px] text-zinc-500 py-4 text-center">No match.</div>
+                  <div className="py-4 text-center text-xs text-ink-faint">No match.</div>
                 ) : (
-                  filteredNativePlugins.map((plugin) => (
-                    <div
-                      key={plugin.id}
-                      className="p-3 bg-[#14141E] border border-zinc-800 hover:border-purple-500/60 rounded-md flex flex-col gap-1.5"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <span className="text-xs font-bold text-zinc-100 block truncate">{plugin.name}</span>
-                          <span className="text-[10px] text-zinc-500 capitalize">
-                            {CATEGORY_LABELS[plugin.category] || plugin.category}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleAddPlugin(plugin)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-sm bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold cursor-pointer shrink-0"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          Add
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-zinc-400 leading-snug line-clamp-2">{plugin.description}</p>
-                    </div>
-                  ))
+                  filteredNativePlugins.map((plugin) => libraryCard(plugin, <span className="capitalize">{CATEGORY_LABELS[plugin.category] || plugin.category}</span>))
                 )
               ) : (
                 <>
-                  {VERIFIED_THIRD_PARTY_PLUGINS.map((plugin) => (
-                    <div
-                      key={plugin.id}
-                      className="p-3 bg-[#14141E] border border-zinc-800 hover:border-cyan-500/60 rounded-md flex flex-col gap-1.5"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <span className="text-xs font-bold text-zinc-100 block truncate">{plugin.name}</span>
-                          <span className="text-[10px] text-cyan-400 flex items-center gap-1">
-                            <ShieldCheck className="w-3 h-3" />
-                            Verified
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleAddPlugin(plugin)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-sm bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold cursor-pointer shrink-0"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          Add
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-zinc-400 leading-snug line-clamp-2">{plugin.description}</p>
-                    </div>
-                  ))}
+                  {VERIFIED_THIRD_PARTY_PLUGINS.map((plugin) =>
+                    libraryCard(plugin, <span className="inline-flex items-center gap-1"><ShieldCheck className="h-3 w-3" aria-hidden="true" />Verified</span>),
+                  )}
 
-                  <form
-                    onSubmit={handleAddCustomWam}
-                    className="p-3 bg-[#111119] border border-dashed border-zinc-700 rounded-md space-y-2"
-                  >
-                    <span className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
-                      <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
+                  <form onSubmit={handleAddCustomWam} className="space-y-2.5 rounded-card border border-dashed border-line-strong p-3">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-ink">
+                      <ExternalLink className="h-3.5 w-3.5 text-ink-dim" aria-hidden="true" />
                       Load external WAM
                     </span>
                     <input
                       type="url"
+                      aria-label="Module URL"
                       value={customWamUrl}
                       onChange={(e) => setCustomWamUrl(e.target.value)}
                       placeholder="https://example.org/plugin/index.js"
-                      className="w-full bg-[#09090D] border border-zinc-800 rounded-sm px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500 font-mono"
+                      className={cn(field, 'font-mono')}
                     />
                     <input
                       type="text"
+                      aria-label="Name (optional)"
                       value={customWamName}
                       onChange={(e) => setCustomWamName(e.target.value)}
                       placeholder="Name (optional)"
-                      className="w-full bg-[#09090D] border border-zinc-800 rounded-sm px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500"
+                      className={field}
                     />
-                    {customUrlError && <p className="text-[10px] text-rose-400">{customUrlError}</p>}
-                    <button
-                      type="submit"
-                      className="w-full py-1.5 rounded-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs cursor-pointer"
-                    >
+                    {customUrlError && <p role="alert" className="text-xs text-danger">{customUrlError}</p>}
+                    <Button type="submit" size="sm" variant="secondary" className="w-full">
                       Import
-                    </button>
+                    </Button>
                   </form>
                 </>
               )}
@@ -521,15 +414,13 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
           </div>
 
           {/* Chain */}
-          <div
-            className={`${pane === 'chain' ? 'flex' : 'hidden'} md:flex flex-1 min-w-0 flex-col bg-[#111118] p-3 sm:p-5 overflow-y-auto gap-3`}
-          >
+          <div className={`${pane === 'chain' ? 'flex' : 'hidden'} min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-5 md:flex`}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-              <h2 className="text-xs font-black uppercase tracking-wide text-zinc-200 flex items-center gap-2 min-w-0">
-                <Sliders className="w-4 h-4 text-cyan-400 shrink-0" />
+              <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-ink">
+                <Sliders className="h-4 w-4 shrink-0 text-ink-dim" aria-hidden="true" />
                 <span className="truncate">Chain: {activeLabel}</span>
-              </h2>
-              <span className="text-[11px] text-zinc-500 font-mono">
+              </h3>
+              <span className="font-num text-xs text-ink-faint">
                 {activePlugins.length} {activePlugins.length === 1 ? 'plugin' : 'plugins'}
               </span>
             </div>
@@ -545,19 +436,15 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
             )}
 
             {activePlugins.length === 0 ? (
-              <div className="flex-1 min-h-[220px] border border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center p-6 text-center gap-3">
-                <Sliders className="w-7 h-7 text-zinc-600" />
+              <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center gap-3 rounded-card border border-dashed border-line-strong p-6 text-center">
+                <Sliders className="h-7 w-7 text-ink-faint" aria-hidden="true" />
                 <div>
-                  <h3 className="text-sm font-bold text-zinc-300">Chain is empty</h3>
-                  <p className="text-xs text-zinc-500 mt-1">Add a plugin from the library.</p>
+                  <h4 className="text-sm font-semibold text-ink">Chain is empty</h4>
+                  <p className="mt-1 text-xs text-ink-faint">Add a plugin from the library.</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPane('library')}
-                  className="md:hidden px-3 py-1.5 rounded-sm bg-purple-600 text-white text-xs font-bold cursor-pointer"
-                >
+                <Button variant="primary" size="sm" className="md:hidden" onClick={() => setPane('library')}>
                   Open library
-                </button>
+                </Button>
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -572,23 +459,21 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                   return (
                     <div
                       key={plugin.instanceId}
-                      className={`rounded-md border overflow-hidden ${
-                        plugin.isBypassed ? 'bg-[#14141c] border-zinc-800 opacity-70' : 'bg-[#151522] border-zinc-700'
-                      }`}
+                      className={cn('overflow-hidden rounded-card border', plugin.isBypassed ? 'border-line bg-surface-1 opacity-70' : 'border-line-strong bg-surface-2')}
                     >
                       {/* Row */}
-                      <div className="p-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 bg-[#181826]">
-                        <div className="flex items-center gap-2 min-w-0 flex-1 basis-44">
-                          <div className="flex flex-col shrink-0">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-2.5">
+                        <div className="flex min-w-0 flex-1 basis-44 items-center gap-2">
+                          <div className="flex shrink-0 flex-col">
                             <button
                               type="button"
                               disabled={index === 0}
                               onClick={() => handleMoveUp(index)}
                               title="Move up"
                               aria-label="Move up"
-                              className="text-zinc-500 hover:text-zinc-200 disabled:opacity-20 cursor-pointer"
+                              className="rounded-full text-ink-faint hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-20"
                             >
-                              <ChevronUp className="w-3.5 h-3.5" />
+                              <ChevronUp className="h-3.5 w-3.5" />
                             </button>
                             <button
                               type="button"
@@ -596,41 +481,40 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                               onClick={() => handleMoveDown(index)}
                               title="Move down"
                               aria-label="Move down"
-                              className="text-zinc-500 hover:text-zinc-200 disabled:opacity-20 cursor-pointer"
+                              className="rounded-full text-ink-faint hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-20"
                             >
-                              <ChevronDown className="w-3.5 h-3.5" />
+                              <ChevronDown className="h-3.5 w-3.5" />
                             </button>
                           </div>
-                          <span className="w-5 h-5 rounded-sm bg-zinc-800 flex items-center justify-center font-mono text-[10px] font-bold text-zinc-300 shrink-0">
+                          <span className="font-num flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-3 text-[10px] font-semibold text-ink-dim">
                             {index + 1}
                           </span>
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-xs font-bold text-zinc-100 truncate">{descriptor.name}</span>
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-xs font-semibold text-ink">{descriptor.name}</span>
                               {isMissing ? (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded-sm font-mono font-bold shrink-0 bg-amber-500/20 text-amber-300">
-                                  Missing
-                                </span>
+                                <span className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[10px] font-medium text-warn">Missing</span>
                               ) : (
                                 <span
-                                  className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-sm font-mono font-bold shrink-0 ${
-                                    isNative ? 'bg-purple-500/15 text-purple-300' : 'bg-cyan-500/15 text-cyan-300'
-                                  }`}
+                                  className={cn(
+                                    'hidden shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium sm:inline',
+                                    isNative ? 'bg-surface-3 text-ink-dim' : 'bg-accent-soft text-accent',
+                                  )}
                                 >
                                   {isNative ? 'Native' : 'WAM'}
                                 </span>
                               )}
                             </div>
-                            <span className={`text-[10px] truncate block ${isMissing ? 'text-amber-400' : 'text-zinc-500'}`}>
+                            <span className={cn('block truncate text-[11px]', isMissing ? 'text-warn' : 'text-ink-faint')}>
                               {isMissing ? `${plugin.missingReason || 'Not available'} Audio passes through; settings are kept.` : descriptor.vendor}
                             </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 ml-auto">
+                        <div className="ml-auto flex items-center gap-1.5">
                           {hasMix && (
-                            <label className="flex items-center gap-2 bg-[#0C0C12] border border-zinc-800 rounded-sm px-2 py-1">
-                              <span className="text-[10px] text-zinc-400 font-semibold uppercase">Mix</span>
+                            <label className="mr-1 flex items-center gap-2 rounded-full border border-line bg-surface-3 px-3 py-1">
+                              <span className="text-[11px] text-ink-dim">Mix</span>
                               <input
                                 type="range"
                                 aria-label="Mix"
@@ -643,71 +527,58 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                                     pluginManager.setPluginDryWet(activeTrackId, plugin.instanceId, parseFloat(e.target.value));
                                   }
                                 }}
-                                className="w-16 sm:w-20 h-1.5 bg-zinc-700 rounded-sm accent-cyan-400 cursor-pointer"
+                                className="w-16 cursor-pointer sm:w-20"
                               />
-                              <span className="text-[10px] font-mono text-cyan-300 font-bold w-8 text-right">
-                                {Math.round(plugin.dryWet * 100)}%
-                              </span>
+                              <span className="font-num w-8 text-right text-[11px] text-ink">{Math.round(plugin.dryWet * 100)}%</span>
                             </label>
                           )}
 
                           {!isMissing && (
-                          <button
-                            type="button"
-                            onClick={() => handleToggleBypass(plugin)}
-                            title={plugin.isBypassed ? 'Bypassed. Click to engage' : 'Active. Click to bypass'}
-                            aria-pressed={!plugin.isBypassed}
-                            className={`flex items-center gap-1.5 px-2 py-1 rounded-sm text-[11px] font-bold border cursor-pointer ${
-                              plugin.isBypassed
-                                ? 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
-                                : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/50'
-                            }`}
-                          >
-                            <Power className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">{plugin.isBypassed ? 'Off' : 'On'}</span>
-                          </button>
-                          )}
-
-                          {!isMissing && (
-                          <button
-                            type="button"
-                            onClick={() => setOpenPanels((prev) => ({ ...prev, [plugin.instanceId]: !prev[plugin.instanceId] }))}
-                            title={panelOpen ? 'Hide controls' : 'Show controls'}
-                            aria-label={panelOpen ? 'Hide controls' : 'Show controls'}
-                            aria-pressed={panelOpen}
-                            className={`${iconBtn} ${panelOpen ? 'bg-purple-500/20 text-purple-200' : ''}`}
-                          >
-                            {panelOpen ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                          )}
-
-                          {!ownsGui && !isMissing && (
                             <button
                               type="button"
-                              onClick={() => setPopoutId(plugin.instanceId)}
-                              title="Open in a window"
-                              aria-label="Open in a window"
-                              className={iconBtn}
+                              onClick={() => handleToggleBypass(plugin)}
+                              title={plugin.isBypassed ? 'Bypassed. Click to engage' : 'Active. Click to bypass'}
+                              aria-pressed={!plugin.isBypassed}
+                              className={cn(
+                                'flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+                                plugin.isBypassed
+                                  ? 'border-line-strong bg-surface-3 text-ink-dim hover:text-ink'
+                                  : 'border-accent/40 bg-accent-soft text-accent',
+                              )}
                             >
-                              <Maximize2 className="w-4 h-4" />
+                              <Power className="h-3.5 w-3.5" aria-hidden="true" />
+                              <span className="hidden sm:inline">{plugin.isBypassed ? 'Off' : 'On'}</span>
                             </button>
                           )}
 
-                          <button
-                            type="button"
-                            onClick={() => handleRemovePlugin(plugin.instanceId)}
-                            title="Remove"
-                            aria-label="Remove"
-                            className={`${iconBtn} hover:text-rose-400`}
-                          >
-                            <Trash2 className="w-4 h-4" />
+                          {!isMissing && (
+                            <button
+                              type="button"
+                              onClick={() => setOpenPanels((prev) => ({ ...prev, [plugin.instanceId]: !prev[plugin.instanceId] }))}
+                              title={panelOpen ? 'Hide controls' : 'Show controls'}
+                              aria-label={panelOpen ? 'Hide controls' : 'Show controls'}
+                              aria-pressed={panelOpen}
+                              className={cn(iconBtn, panelOpen && 'bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent')}
+                            >
+                              {panelOpen ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          )}
+
+                          {!ownsGui && !isMissing && (
+                            <button type="button" onClick={() => setPopoutId(plugin.instanceId)} title="Open in a window" aria-label="Open in a window" className={iconBtn}>
+                              <Maximize2 className="h-4 w-4" />
+                            </button>
+                          )}
+
+                          <button type="button" onClick={() => handleRemovePlugin(plugin.instanceId)} title="Remove" aria-label="Remove" className={cn(iconBtn, 'hover:text-danger')}>
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       </div>
 
                       {/* Inline controls (eye) */}
                       {panelOpen && (
-                        <div className="p-3 bg-[#111119] border-t border-zinc-800">
+                        <div className="border-t border-line bg-surface-1 p-3">
                           <PluginPanel instance={plugin} trackId={activeTrackId || ''} showPresets showMix={false} />
                         </div>
                       )}
@@ -718,7 +589,40 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
             )}
           </div>
         </div>
-      </div>
+      </ModalShell>
+
+      {/* Third-party authorisation: a separate dialog above the rack */}
+      <ModalShell
+        open={showCustomConfirm && !!pendingCustomDescriptor}
+        onClose={() => {
+          setShowCustomConfirm(false);
+          setPendingCustomDescriptor(null);
+        }}
+        title="Load external module?"
+        description="It runs in a sandboxed audio worklet. Only load modules from authors you trust."
+        size="sm"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowCustomConfirm(false);
+                setPendingCustomDescriptor(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleConfirmAddCustom}>
+              Load
+            </Button>
+          </>
+        }
+      >
+        <code className="block break-all rounded-control border border-line bg-surface-0 p-3 font-mono text-[11px] text-ink-dim">
+          {pendingCustomDescriptor?.moduleUrl}
+        </code>
+      </ModalShell>
 
       {popoutPlugin && activeTrackId && (
         <PluginPopout
@@ -729,6 +633,6 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
           onClose={() => setPopoutId(null)}
         />
       )}
-    </div>
+    </>
   );
 };

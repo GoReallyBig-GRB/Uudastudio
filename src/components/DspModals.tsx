@@ -39,7 +39,7 @@ import { NoisePrint, learnNoisePrint, quietestStretch } from '../audio/dsp/noise
 import { processPitchShift, processTimeStretch } from '../audio/dsp/wsola';
 import { PITCH_PRESETS, presetFor } from '../audio/dsp/pitchPresets';
 
-export type DspModalType = 'amplify' | 'compress' | 'denoise' | 'pitch' | 'speed' | null;
+export type DspModalType = 'amplify' | 'compress' | 'denoise' | 'pitch' | 'speed' | 'normalize' | 'enhance' | null;
 
 interface DspModalsProps {
   activeModal: DspModalType;
