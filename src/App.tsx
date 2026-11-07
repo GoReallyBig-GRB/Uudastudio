@@ -65,7 +65,7 @@ import { ResetSessionModal } from './components/ResetSessionModal';
 import { ToastProvider, useToast } from './components/Toast';
 import { PerfHud } from './perf/PerfHud';
 import { perfCount } from './perf/perfProbe';
-import { ChevronLeft, Eye, SlidersHorizontal, X, XCircle } from 'lucide-react';
+import { ChevronLeft, Eye, SlidersHorizontal } from 'lucide-react';
 import { processCompression } from './audio/dsp/compressor';
 import { processBasicDenoise } from './audio/dsp/denoiser';
 import { processPitchShift, processTimeStretch } from './audio/dsp/wsola';
@@ -107,6 +107,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { undoLeftProcessingInPlace } from './history/historyLimits';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
 import { calculateMinimumTimelineZoom } from './components/timelineZoom';
+import { ProgressIndicator } from './components/ui';
 
 
 interface ProjectFileWritable {
@@ -3921,61 +3922,29 @@ const MainStudio: React.FC = () => {
         {/* Center Workspace: Either Multi-Track Waveform Timeline OR Dedicated Editing & Mixing Desk */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-[#0A0A0C]">
       {trackImportProgress && !isTrackImportIndicatorDismissed && (
-        <div
-          role="status"
-          aria-live="polite"
-          aria-label={`Uploading ${trackImportProgress.fileName}`}
-          className="pointer-events-none absolute bottom-8 left-1/2 z-30 w-80 max-w-[calc(100%-2rem)] -translate-x-1/2"
-        >
-          <div className="relative rounded-xl border border-white/[0.08] bg-[#111116]/95 px-5 pb-4 pt-5 shadow-[0_12px_48px_rgba(0,0,0,0.42)] backdrop-blur-xl">
-            <button
-              type="button"
-              aria-label="Dismiss upload indicator"
-              title="Hide indicator; upload continues"
-              onClick={() => {
-                isTrackImportIndicatorDismissedRef.current = true;
-                setIsTrackImportIndicatorDismissed(true);
-                if (trackImportProgressTimerRef.current) {
-                  clearInterval(trackImportProgressTimerRef.current);
-                  trackImportProgressTimerRef.current = null;
-                }
-              }}
-              className="pointer-events-auto absolute right-2 top-2 rounded p-1 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-            <div className="mb-2 truncate pr-5 text-xs font-medium text-zinc-200" title={trackImportProgress.fileName}>
-              {trackImportProgress.fileName}
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800 ring-1 ring-white/[0.06]">
-              <div
-                className="track-import-progress-fill h-full rounded-full bg-emerald-400 shadow-[0_0_14px_rgba(52,211,153,0.38)]"
-                style={{ width: `${Math.max(0, Math.min(100, trackImportProgress.progress))}%` }}
-              />
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div className="text-[11px] font-medium tracking-[0.08em] text-zinc-300">
-                Uploading...
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  importCancelledRef.current = true;
-                  streamImportCancelRef.current?.();
-                  if (trackImportProgressTimerRef.current) {
-                    clearInterval(trackImportProgressTimerRef.current);
-                    trackImportProgressTimerRef.current = null;
-                  }
-                  setTrackImportProgress(null);
-                }}
-                className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-red-400/20 px-2 py-1 text-[10px] font-semibold text-red-300 transition-colors hover:border-red-400/40 hover:bg-red-400/10 hover:text-red-200"
-              >
-                <XCircle className="h-3 w-3" />
-                Cancel upload
-              </button>
-            </div>
-          </div>
-        </div>
+        <ProgressIndicator
+          variant="floating"
+          fraction={Math.max(0, Math.min(100, trackImportProgress.progress)) / 100}
+          label={`Uploading ${trackImportProgress.fileName}`}
+          cancelLabel="Cancel upload"
+          onDismiss={() => {
+            isTrackImportIndicatorDismissedRef.current = true;
+            setIsTrackImportIndicatorDismissed(true);
+            if (trackImportProgressTimerRef.current) {
+              clearInterval(trackImportProgressTimerRef.current);
+              trackImportProgressTimerRef.current = null;
+            }
+          }}
+          onCancel={() => {
+            importCancelledRef.current = true;
+            streamImportCancelRef.current?.();
+            if (trackImportProgressTimerRef.current) {
+              clearInterval(trackImportProgressTimerRef.current);
+              trackImportProgressTimerRef.current = null;
+            }
+            setTrackImportProgress(null);
+          }}
+        />
       )}
           {isTimelineViewCollapsed ? (
             <div className="flex-1 flex flex-col h-full overflow-hidden p-3 bg-[#0c0c11]">
