@@ -87,6 +87,10 @@ export const expandChains = (tracks: readonly Track[], ids: ReadonlySet<string>)
   return out;
 };
 
+/** How many clips a track holds as the user sees them: every joined chain of pieces counts once. */
+export const clipUnitCount = (clips: readonly Clip[]): number =>
+  clips.length - chainsOnTrack(clips).reduce((n, chain) => n + chain.length - 1, 0);
+
 /** How many clips the user sees in a selection: a whole chain counts once. */
 export const selectionUnitCount = (tracks: readonly Track[], ids: ReadonlySet<string>): number => {
   if (ids.size === 0) return 0;

@@ -31,6 +31,7 @@ import {
   PhaserParams,
   ReverbParams,
 } from '../types';
+import { ProgressIndicator } from './ui';
 import { EFFECT_PRESETS } from './effectPresets';
 import {
   buildDelayNode,
@@ -465,50 +466,63 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
 
         {/* Effect Parameters Body */}
         <div className="p-3 sm:p-5 space-y-4 min-h-0 flex-1 overflow-y-auto">
-          {/* Preset Selector & Bypass Switch */}
-          <div className="flex items-center justify-between bg-zinc-900/80 p-2.5 rounded-xl border border-zinc-800">
-            <div className="flex items-center gap-2">
-              <span className="text-zinc-400 text-[11px] font-semibold">Preset:</span>
-              <select
-                onChange={(e) => {
-                  const idx = parseInt(e.target.value, 10);
-                  const p = EFFECT_PRESETS[activeType]?.[idx]?.params;
-                  if (p) {
-                    if (activeType === 'delay') setDelayParams({ ...p });
-                    else if (activeType === 'equalizer') setEqParams({ ...p });
-                    else if (activeType === 'chorus') setChorusParams({ ...p });
-                    else if (activeType === 'flanger') setFlangerParams({ ...p });
-                    else if (activeType === 'phaser') setPhaserParams({ ...p });
-                    else if (activeType === 'reverb') setReverbParams({ ...p });
-                    handleParamChange();
-                  }
-                }}
-                className="bg-[#0b0b10] border border-zinc-700 rounded-md px-2 py-1 text-xs text-zinc-200 font-medium cursor-pointer"
-              >
-                {EFFECT_PRESETS[activeType]?.map((preset, idx) => (
-                  <option key={idx} value={idx}>
-                    {preset.name}
-                  </option>
-                ))}
-              </select>
+          {/* Presets as pills (the one matching the current settings is lit, "Custom" otherwise) and the bypass switch */}
+          <div className="flex items-start justify-between gap-3 rounded-card border border-line bg-surface-1 p-3">
+            <div className="min-w-0 flex-1">
+              <span className="mb-1.5 block text-[11px] font-semibold text-ink-dim">Presets</span>
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Presets">
+                {(() => {
+                  const current = JSON.stringify(
+                    activeType === 'delay' ? delayParams : activeType === 'equalizer' ? eqParams : activeType === 'chorus' ? chorusParams : activeType === 'flanger' ? flangerParams : activeType === 'phaser' ? phaserParams : reverbParams,
+                  );
+                  const list = EFFECT_PRESETS[activeType] ?? [];
+                  const matched = list.findIndex((pr) => JSON.stringify(pr.params) === current);
+                  const pill = (on: boolean) =>
+                    `h-7 cursor-pointer rounded-full border px-3 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+                      on ? 'border-accent/50 bg-accent-soft text-accent' : 'border-line text-ink-dim hover:border-line-strong hover:text-ink'
+                    }`;
+                  return (
+                    <>
+                      {list.map((preset, idx) => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          aria-pressed={idx === matched}
+                          onClick={() => {
+                            const p = preset.params;
+                            if (activeType === 'delay') setDelayParams({ ...p });
+                            else if (activeType === 'equalizer') setEqParams({ ...p });
+                            else if (activeType === 'chorus') setChorusParams({ ...p });
+                            else if (activeType === 'flanger') setFlangerParams({ ...p });
+                            else if (activeType === 'phaser') setPhaserParams({ ...p });
+                            else if (activeType === 'reverb') setReverbParams({ ...p });
+                            handleParamChange();
+                          }}
+                          className={pill(idx === matched)}
+                        >
+                          {preset.name}
+                        </button>
+                      ))}
+                      {matched < 0 && <span className="inline-flex h-7 items-center rounded-full border border-dashed border-line-strong px-3 text-[11px] text-ink-faint">Custom</span>}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsBypassed(!isBypassed);
-                  handleParamChange();
-                }}
-                className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all cursor-pointer ${
-                  isBypassed
-                    ? 'bg-amber-500 text-black shadow-[0_0_8px_rgba(245,158,11,0.5)]'
-                    : 'bg-zinc-800 text-zinc-300 hover:text-white'
-                }`}
-              >
-                {isBypassed ? 'BYPASSED' : 'BYPASS'}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsBypassed(!isBypassed);
+                handleParamChange();
+              }}
+              aria-pressed={isBypassed}
+              className={`h-7 shrink-0 cursor-pointer rounded-full border px-3 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+                isBypassed ? 'border-warn/50 bg-warn/15 text-warn' : 'border-line text-ink-dim hover:border-line-strong hover:text-ink'
+              }`}
+            >
+              {isBypassed ? 'Bypassed' : 'Bypass'}
+            </button>
           </div>
 
           {/* DELAY CONTROLS */}
@@ -949,33 +963,13 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
         </div>
 
         {isProcessing && progress !== null && (
-          <div className="px-5 py-3 border-t border-line bg-surface-1" role="status" aria-live="polite">
-            <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
-              <span className="font-semibold text-ink">
-                Rendering {Math.round(progress * 100)}%
-                {restrictClipIds ? ' of the selected range' : ''}
-              </span>
-              <span className="font-num text-ink-dim">
-                {(() => {
-                  const elapsed = (Date.now() - startedAtRef.current) / 1000;
-                  const left = progress > 0.03 ? (elapsed * (1 - progress)) / progress : null;
-                  const fmt = (n: number) => (n >= 60 ? `${Math.floor(n / 60)}m ${Math.round(n % 60)}s` : `${Math.round(n)}s`);
-                  return left === null ? 'estimating time left...' : `about ${fmt(left)} left`;
-                })()}
-              </span>
-              {onStopProcessing && (
-                <button
-                  type="button"
-                  onClick={onStopProcessing}
-                  className="inline-flex h-7 cursor-pointer items-center rounded-full border border-line-strong bg-surface-3 px-3 text-[11px] font-semibold text-ink hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-                >
-                  Stop
-                </button>
-              )}
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
-              <div className="h-full rounded-full bg-accent transition-[width] duration-200 ease-out" style={{ width: `${Math.max(2, Math.round(progress * 100))}%` }} />
-            </div>
+          <div className="border-t border-line bg-surface-1 px-5 py-3">
+            <ProgressIndicator
+              fraction={progress}
+              label={`Rendering${restrictClipIds ? ' the selected range' : ''}`}
+              onCancel={onStopProcessing}
+              cancelLabel="Stop"
+            />
           </div>
         )}
 

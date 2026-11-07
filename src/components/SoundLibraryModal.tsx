@@ -354,7 +354,7 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
                         className={pill(false, 'h-8 border-accent/40 text-accent hover:bg-accent-soft hover:text-accent')}
                       >
                         {isDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Download className="h-3.5 w-3.5" />}
-                        <span>{isDownloading ? 'Adding...' : 'Add track'}</span>
+                        <span>{isDownloading ? 'Adding...' : userToken ? 'Add track' : 'Connect to add'}</span>
                       </button>
                     </div>
                   );
@@ -402,7 +402,7 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
                     onClick={() => addToTimeline(selectedItem, onAddLibraryTrack)}
                     leftIcon={downloadingId === selectedItem.id ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Download className="h-3.5 w-3.5" />}
                   >
-                    {downloadingId === selectedItem.id ? downloadStatusMsg || 'Downloading...' : 'Add to a new top track'}
+                    {downloadingId === selectedItem.id ? downloadStatusMsg || 'Downloading...' : userToken ? 'Add to a new top track' : 'Connect Freesound to add'}
                   </Button>
                 </div>
 
@@ -428,7 +428,7 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
         open={isOpen && isConnectModalOpen}
         onClose={() => setIsConnectModalOpen(false)}
         title="Connect Freesound account"
-        description="Optional. Without it, sounds are still added at preview quality."
+        description="Needed to download sounds onto your timeline. You can search and preview without it."
         size="sm"
         footer={
           <>

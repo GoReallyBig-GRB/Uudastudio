@@ -759,29 +759,7 @@ app.post('/api/freesound/oauth/token', async (req: Request, res: Response): Prom
   }
 });
 
-// Freesound preview audio through our server (no sign-in needed): lets anyone add a sound at preview quality using
-// the app's own API access. Only Freesound's own CDN is allowed, so this cannot be used as an open proxy.
-app.get('/api/freesound/preview', rateLimit({ name: 'fs-preview', windowMs: 60 * 1000, max: 30 }), async (req: Request, res: Response): Promise<void> => {
-  try {
-    const raw = typeof req.query.url === 'string' ? req.query.url : '';
-    let target: URL;
-    try { target = new URL(raw); } catch { res.status(400).json({ error: 'Invalid preview address.' }); return; }
-    if (target.protocol !== 'https:' || target.hostname !== 'cdn.freesound.org') {
-      res.status(400).json({ error: 'Only Freesound previews can be fetched.' });
-      return;
-    }
-    const upstream = await fetch(target.toString());
-    if (!upstream.ok) {
-      res.status(upstream.status === 404 ? 404 : 502).json({ error: 'The preview could not be fetched from Freesound.' });
-      return;
-    }
-    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'audio/mpeg');
-    res.send(Buffer.from(await upstream.arrayBuffer()));
-  } catch (err: unknown) {
-    console.error('Freesound preview error:', err);
-    res.status(500).json({ error: 'Could not fetch the preview.' });
-  }
-});
+// (There is deliberately no unauthenticated preview-download route: adding a sound to a project needs the user's own connected Freesound account.)
 
 // Freesound Download Original Sound File (Requires User's OAuth2 access token)
 app.get('/api/freesound/download/:soundId', async (req: Request, res: Response): Promise<void> => {

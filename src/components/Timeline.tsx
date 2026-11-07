@@ -11,6 +11,7 @@
 
 import { isClipLocked } from './clipLock';
 import { getPlayhead, subscribePlayhead, usePlayhead } from '../playback/playheadStore';
+import { markerColor, markersOf, recolorMarker, removeMarker } from '../audio/markers';
 import { colorFromHex, groupColor, summarizeGroups, withAlpha } from '../audio/groupInfo';
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { CanvasWindow, canvasWindowFor, needsRecentre } from './canvasWindow';
@@ -169,6 +170,54 @@ const CLIP_SHADES = [
 ] as const;
 const FULL_HEADER_WIDTH = 272;
 const COLLAPSED_HEADER_WIDTH = 32;
+
+/** Marker arrowheads on the ruler (pointing down at their time) with a faint line through the tracks. Click seeks, Shift+click changes the colour, right-click removes. */
+const MarkerOverlay: React.FC<{
+  project: Project;
+  headerWidth: number;
+  pixelsPerSecond: number;
+  scrollLeft: number;
+  timelineWidth: number;
+  onSeek: (seconds: number) => void;
+  onUpdateProject: (p: Project) => void;
+}> = ({ project, headerWidth, pixelsPerSecond, scrollLeft, timelineWidth, onSeek, onUpdateProject }) => {
+  const list = markersOf(project);
+  if (list.length === 0) return null;
+  return (
+    <>
+      {list.map((m) => {
+        const x = headerWidth + m.timeSeconds * pixelsPerSecond - scrollLeft;
+        if (x < headerWidth - 8 || x > headerWidth + timelineWidth + 8) return null;
+        const color = markerColor(m);
+        return (
+          <div key={m.id} className="absolute top-0 bottom-0 z-20 pointer-events-none select-none" style={{ left: `${x}px` }}>
+            <button
+              type="button"
+              aria-label={`Marker at ${formatTimecode(m.timeSeconds)}`}
+              title={`Marker ${formatTimecode(m.timeSeconds)}. Click: go here. Shift+click: change colour. Right-click: remove.`}
+              className="pointer-events-auto absolute top-0 -translate-x-1/2 cursor-pointer focus-visible:outline-none"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (e.shiftKey) onUpdateProject(recolorMarker(project, m.id));
+                else onSeek(m.timeSeconds);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onUpdateProject(removeMarker(project, m.id));
+              }}
+            >
+              <svg width="14" height="12" viewBox="0 0 14 12" className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                <path d="M1 0H13L7 11Z" fill={color} />
+              </svg>
+            </button>
+            <div className="absolute top-[11px] bottom-0 w-px -translate-x-1/2 opacity-40" style={{ background: color }} />
+          </div>
+        );
+      })}
+    </>
+  );
+};
 
 /** The playhead (head on the ruler and the line down through the tracks). The only part of the timeline that re-renders while playing. */
 const PlayheadOverlay: React.FC<{
@@ -1564,6 +1613,16 @@ export const Timeline: React.FC<TimelineProps> = ({
         timelineWidth={timelineWidth}
         isControlsCollapsed={isControlsCollapsed}
         onToggleCollapseControls={handleToggleControls}
+      />
+
+      <MarkerOverlay
+        project={project}
+        headerWidth={currentHeaderWidth}
+        pixelsPerSecond={pixelsPerSecond}
+        scrollLeft={scrollLeft}
+        timelineWidth={timelineWidth}
+        onSeek={onSeek}
+        onUpdateProject={onUpdateProject}
       />
 
       {/* Unified Playhead: Head on the time ruler + Body Line across all tracks (always perfectly synchronized) */}

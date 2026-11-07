@@ -3,7 +3,7 @@
  * Mastering is an optional step in front of it; its row shows what will be applied and links back to it.
  */
 import React, { useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, Download, Loader2, X } from 'lucide-react';
+import { ArrowLeft, Check, Download, X } from 'lucide-react';
 import type { Project } from '../types';
 import { selectionScope } from '../audio/exportScope';
 import { applyTempLevels, hasTempLevels, type TempClipLevels } from '../audio/tempClipLevels';
@@ -14,6 +14,7 @@ import { analysisIsCurrent, masteringKey, BROADCAST_PRESETS, type BroadcastPrese
 import { encodeProjectFile } from '../storage/projectFile';
 import { audioEngine } from '../audio/engine';
 import { formatTrackLength } from '../utils/formatters';
+import { ProgressIndicator } from './ui';
 
 type ExportFormat = 'wav' | 'mp3' | 'uuda';
 type Mp3Bitrate = 128 | 192 | 256 | 320;
@@ -348,16 +349,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
 
             <footer className="shrink-0 border-t border-zinc-800 bg-[#0c0c10] px-5 py-5 sm:px-7">
               {running && progress ? (
-                <div role="status">
-                  <div className="mb-2.5 flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-2 text-zinc-300"><Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-300 motion-reduce:animate-none" />{progress.message}</span>
-                    <span className="mono-nums text-zinc-400">{progress.percent}%</span>
-                  </div>
-                  <div className="h-1 overflow-hidden rounded-full bg-zinc-800">
-                    <div className="h-full rounded-full bg-cyan-300 transition-[width] duration-300" style={{ width: `${progress.percent}%` }} />
-                  </div>
-                  <button type="button" onClick={() => { cancelled.current = true; }} className="mt-4 h-11 w-full rounded-full border border-zinc-700 text-sm font-semibold text-zinc-200 transition-colors hover:bg-zinc-800">Cancel export</button>
-                </div>
+                <ProgressIndicator fraction={progress.percent / 100} label={progress.message} onCancel={() => { cancelled.current = true; }} cancelLabel="Cancel export" />
               ) : (
                 <div className="flex items-center justify-between gap-4">
                   <p className="mono-nums whitespace-nowrap text-xs text-zinc-500">

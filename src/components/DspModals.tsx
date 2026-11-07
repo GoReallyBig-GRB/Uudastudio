@@ -38,6 +38,7 @@ import { processCompression } from '../audio/dsp/compressor';
 import { NoisePrint, learnNoisePrint, quietestStretch } from '../audio/dsp/noisePrint';
 import { processPitchShift, processTimeStretch } from '../audio/dsp/wsola';
 import { PITCH_PRESETS, presetFor } from '../audio/dsp/pitchPresets';
+import { ProgressIndicator } from './ui';
 
 export type DspModalType = 'amplify' | 'compress' | 'denoise' | 'pitch' | 'speed' | 'normalize' | 'enhance' | null;
 
@@ -1067,26 +1068,13 @@ export const DspModals: React.FC<DspModalsProps> = ({
           </div>
         )}
         {isProcessing && progress && (
-          <div className="px-5 py-3 border-t border-zinc-800 bg-[#12121a] space-y-1.5">
-            <div className="flex items-center justify-between text-[11px] text-zinc-300">
-              <span>Processing {progress.label}</span>
-              <span className="font-mono">
-                {Math.round(progress.fraction * 100)}%
-                {' · '}
-                {(() => {
-                  const elapsed = (Date.now() - startedAtRef.current) / 1000;
-                  const left = progress.fraction > 0.03 ? (elapsed * (1 - progress.fraction)) / progress.fraction : null;
-                  const fmt = (n: number) => (n >= 60 ? `${Math.floor(n / 60)}m ${Math.round(n % 60)}s` : `${Math.round(n)}s`);
-                  return left === null ? 'estimating time left...' : `about ${fmt(left)} left`;
-                })()}
-              </span>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
-              <div className="h-full bg-cyan-400 transition-[width] duration-200" style={{ width: `${Math.round(progress.fraction * 100)}%` }} />
-            </div>
-            {onStopProcessing && (
-              <div className="text-[11px] text-zinc-500">Press Stop to cancel; nothing will be changed.</div>
-            )}
+          <div className="border-t border-line bg-surface-1 px-5 py-3">
+            <ProgressIndicator
+              fraction={progress.fraction}
+              label={`Processing ${progress.label}`}
+              onCancel={onStopProcessing}
+              cancelLabel="Stop"
+            />
           </div>
         )}
 

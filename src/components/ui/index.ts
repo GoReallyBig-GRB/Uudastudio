@@ -8,3 +8,4 @@ export { ModalShell, type ModalShellProps } from './ModalShell';
 export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from './SegmentedControl';
 export { Slider, type SliderProps } from './Slider';
 export { Switch, type SwitchProps } from './Switch';
+export { ProgressIndicator, type ProgressIndicatorProps } from './ProgressIndicator';

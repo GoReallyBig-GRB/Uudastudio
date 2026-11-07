@@ -74,3 +74,21 @@ describe('healSeams', () => {
     expect(healSeams(t)).toBe(t);
   });
 });
+
+describe('clipUnitCount', () => {
+  const piece = (id: string, start: number, dur: number, spliceId?: string) =>
+    ({ id, trackId: 't', assetId: 'a', name: id, startSeconds: start, offsetSeconds: 0, durationSeconds: dur, gain: 1, fadeInSeconds: 0, fadeOutSeconds: 0, fadeShape: 'linear', spliceId }) as any;
+  it('counts a joined chain of pieces as one clip', async () => {
+    const { clipUnitCount } = await import('./spliceChains');
+    expect(clipUnitCount([piece('a', 0, 5, 's'), piece('b', 5, 3, 's'), piece('c', 8, 2, 's')])).toBe(1);
+  });
+  it('counts separate clips, and a chain beside a loose clip, separately', async () => {
+    const { clipUnitCount } = await import('./spliceChains');
+    expect(clipUnitCount([piece('a', 0, 5, 's'), piece('b', 5, 3, 's'), piece('z', 20, 2)])).toBe(2);
+    expect(clipUnitCount([])).toBe(0);
+  });
+  it('pieces with a gap between them are two clips', async () => {
+    const { clipUnitCount } = await import('./spliceChains');
+    expect(clipUnitCount([piece('a', 0, 5, 's'), piece('b', 6, 3, 's')])).toBe(2);
+  });
+});
