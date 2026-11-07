@@ -32,7 +32,8 @@ import { pluginManager } from '../plugins/pluginManager';
 import { pruneEmptiedTracks, getTrackLabel } from '../utils/tracks';
 import { formatTimecode } from '../utils/formatters';
 import { gainToY, yToGain } from './clipGainLine';
-import { chainIds, seamFlags, selectionUnitCount } from './spliceChains';
+import { chainIds, healSeams, seamFlags, selectionUnitCount } from './spliceChains';
+import { planDragMove } from './clipDragPlan';
 
 interface TimelineProps {
   project: Project;
@@ -1369,7 +1370,6 @@ export const Timeline: React.FC<TimelineProps> = ({
             clips: [...t.clips],
           }));
 
-          const draggedClipIds = new Set(initialClips.keys());
 
           // Remove dragged clips from their source tracks
           for (const [clipId, info] of initialClips.entries()) {
@@ -1379,53 +1379,23 @@ export const Timeline: React.FC<TimelineProps> = ({
             }
           }
 
-          // Insert each dragged clip into its target track with overlap prevention
-          for (const [clipId, info] of initialClips.entries()) {
-            const srcIdx = info.trackIndex;
-            const targetIdx = Math.max(0, Math.min(newTracks.length - 1, srcIdx + currentDrow));
-            const targetTrack = newTracks[targetIdx];
-
-            let candidateStart = Math.max(0, info.startSeconds + currentDt);
-            const clipDuration = info.clip.durationSeconds;
-
-            // COLLISION & OVERLAP PREVENTION (Point 8)
-            // Once edges touch, clips cannot move across, overlap, or cover each other.
-            const otherClips = targetTrack.clips.filter(c => c.id !== clipId);
-            otherClips.sort((a, b) => a.startSeconds - b.startSeconds);
-
-            // Left obstacle boundary (clips that finish before or at candidate start)
-            let minAllowedStart = 0;
-            for (const other of otherClips) {
-              const otherEnd = other.startSeconds + other.durationSeconds;
-              if (other.startSeconds < candidateStart || (srcIdx === targetIdx && other.startSeconds < info.startSeconds)) {
-                minAllowedStart = Math.max(minAllowedStart, otherEnd);
-              }
-            }
-
-            // Right obstacle boundary (clips that start after candidate start)
-            let maxAllowedStart = Infinity;
-            for (const other of otherClips) {
-              if (other.startSeconds > candidateStart || (srcIdx === targetIdx && other.startSeconds > info.startSeconds)) {
-                maxAllowedStart = Math.min(maxAllowedStart, other.startSeconds - clipDuration);
-                break;
-              }
-            }
-
-            candidateStart = Math.max(minAllowedStart, candidateStart);
-            if (maxAllowedStart !== Infinity) {
-              candidateStart = Math.min(maxAllowedStart, candidateStart);
-            }
-            candidateStart = Math.max(0, candidateStart);
-
-            const movedClip: Clip = {
-              ...info.clip,
-              trackId: targetTrack.id,
-              startSeconds: candidateStart,
-            };
-
-            targetTrack.clips.push(movedClip);
-            targetTrack.clips.sort((a, b) => a.startSeconds - b.startSeconds);
+          // The whole selection moves as one rigid block (see clipDragPlan): an edited clip's pieces share one shift, so its
+          // joins can never come apart, and the block stops as a whole when anything is in the way.
+          const plan = planDragMove(
+            project.tracks,
+            [...initialClips.entries()].map(([id, info]) => ({ id, trackIndex: info.trackIndex, startSeconds: info.startSeconds, durationSeconds: info.clip.durationSeconds })),
+            currentDt,
+            currentDrow,
+          );
+          if (!plan.ok || (plan.dt === 0 && plan.drow === 0)) {
+            setDraggingClips(null);
+            return;
           }
+          for (const [, info] of initialClips.entries()) {
+            const targetTrack = newTracks[info.trackIndex + plan.drow];
+            targetTrack.clips.push({ ...info.clip, trackId: targetTrack.id, startSeconds: Math.max(0, info.startSeconds + plan.dt) });
+          }
+          for (const t of newTracks) t.clips.sort((x, y) => x.startSeconds - y.startSeconds);
 
           // A lane emptied by this move that was never renamed, mixed or given effects would be left as an orphan
           const { tracks: tidyTracks, removedIds } = pruneEmptiedTracks(
@@ -1433,7 +1403,7 @@ export const Timeline: React.FC<TimelineProps> = ({
             newTracks,
             (id) => pluginManager.getPluginsForTrack(id).length > 0
           );
-          onUpdateProject({ ...project, tracks: tidyTracks });
+          onUpdateProject({ ...project, tracks: healSeams(tidyTracks) });
           if (removedIds.length > 0) onTracksAutoRemoved?.(removedIds);
         }
         setDraggingClips(null);
