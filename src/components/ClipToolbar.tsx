@@ -23,6 +23,8 @@ import {
   ChevronDown,
   Music,
   Gauge,
+  Activity,
+  Zap,
   Volume2,
   VolumeX,
   Fingerprint,
@@ -384,11 +386,12 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
       <div className="flex items-center justify-between gap-3 min-w-0">
         <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-px scrollbar-none max-[1100px]:gap-1">
           {/* Noise removal: learn the noise, then remove it. One cluster, in the order it is used. */}
-          <Capsule label="Noise removal" size="sm">
+          <Capsule label="Clean up" size="sm">
             <CapsuleButton
               title={hasRange ? 'Use the highlighted range as the noise sample: Denoise then removes only that noise from the whole track' : 'Highlight a few seconds with no speech (Range tool, X) to use as the noise sample'}
               disabled={!hasRange || !onCaptureNoise}
               onClick={onCaptureNoise}
+              className="max-[1150px]:px-1.5"
               icon={<Fingerprint className="h-3 w-3" />}
             >
               <span className="max-[1100px]:hidden">{hasNoisePrint ? 'Noise sample ✓' : 'Noise sample'}</span><span className="hidden max-[1100px]:inline">{hasNoisePrint ? 'Sample ✓' : 'Sample'}</span>
@@ -397,9 +400,19 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               title={hasClip || hasRange ? (hasNoisePrint ? 'Remove the sampled noise from the selected clip or range' : 'Remove background noise. For best results take a Noise sample first (highlight a stretch with no speech)') : 'Select a clip or highlight a range to denoise'}
               disabled={none}
               onClick={() => !none && onOpenDsp('denoise')}
+              className="max-[1150px]:px-1.5"
               icon={<AudioWaveform className="h-3 w-3" />}
             >
               Denoise
+            </CapsuleButton>
+            <CapsuleButton
+              title={hasClip || hasRange ? 'One-step cleanup for any recording: removes rumble, adds clarity, evens out the level' : 'Select a clip or highlight a range to enhance'}
+              disabled={none}
+              onClick={() => !none && onOpenDsp('enhance')}
+              className="max-[1150px]:px-1.5"
+              icon={<Zap className="h-3 w-3" />}
+            >
+              <span className="max-[1650px]:hidden">Enhance</span>
             </CapsuleButton>
           </Capsule>
           <Capsule label="Level and timing" size="sm">
@@ -407,14 +420,25 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               title={hasClip || hasRange ? 'Amplify gain in dB with clipping warning' : 'Select a clip or highlight a range to amplify'}
               disabled={none}
               onClick={() => !none && onOpenDsp('amplify')}
+              className="max-[1150px]:px-1.5"
               icon={<Sliders className="h-3 w-3" />}
             >
               Amplify
             </CapsuleButton>
             <CapsuleButton
+              title={hasClip || hasRange ? 'Normalize to a loudness or peak target, optionally evening out highs and lows' : 'Select a clip or highlight a range to normalize'}
+              disabled={none}
+              onClick={() => !none && onOpenDsp('normalize')}
+              className="max-[1150px]:px-1.5"
+              icon={<Activity className="h-3 w-3" />}
+            >
+              <span className="max-[1650px]:hidden">Normalize</span>
+            </CapsuleButton>
+            <CapsuleButton
               title={hasClip || hasRange ? 'Dynamics Compressor with threshold, ratio, attack, release' : 'Select a clip or highlight a range to compress'}
               disabled={none}
               onClick={() => !none && onOpenDsp('compress')}
+              className="max-[1150px]:px-1.5"
               icon={<Wand2 className="h-3 w-3" />}
             >
               Compress
@@ -423,6 +447,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               title={hasClip || hasRange ? 'Change pitch without changing duration (-12 to +12 semitones)' : 'Select a clip or highlight a range to change pitch'}
               disabled={none}
               onClick={() => !none && onOpenDsp('pitch')}
+              className="max-[1150px]:px-1.5"
               icon={<Music className="h-3 w-3" />}
             >
               Pitch
@@ -431,6 +456,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               title={hasClip || hasRange ? 'Change tempo/speed without changing pitch (WSOLA time-stretch)' : 'Select a clip or highlight a range to change speed'}
               disabled={none}
               onClick={() => !none && onOpenDsp('speed')}
+              className="max-[1150px]:px-1.5"
               icon={<Gauge className="h-3 w-3" />}
             >
               Speed
