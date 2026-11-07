@@ -15,6 +15,7 @@ import { formatTrackLength, trackEndSeconds } from '../utils/formatters';
 import { HoverTitle } from './ui';
 import { ColorBox } from './ColorBox';
 import { displayTitle } from './clipTitle';
+import { clipUnitCount, selectionUnitCount } from './spliceChains';
 import { getTrackLabel, renameUpdate, isTrackEmpty } from '../utils/tracks';
 
 interface TrackListPanelProps {
@@ -175,7 +176,7 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                       <span className="text-warn font-semibold">Empty</span>
                     ) : (
                       <span>
-                        {track.clips.length} {track.clips.length === 1 ? 'clip' : 'clips'} · {formatTrackLength(trackEndSeconds(track.clips))}
+                        {clipUnitCount(track.clips)} {clipUnitCount(track.clips) === 1 ? 'clip' : 'clips'} · {formatTrackLength(trackEndSeconds(track.clips))}
                       </span>
                     )}
                     {track.muted && <span className="text-danger font-semibold">Muted</span>}
@@ -184,13 +185,16 @@ export const TrackListPanel: React.FC<TrackListPanelProps> = ({
                   {(() => {
                     const picked = selectedClipIds ? track.clips.filter((c) => selectedClipIds.has(c.id)) : [];
                     if (picked.length === 0) return null;
+                    // Joined pieces are one clip: count and name them as such
+                    const units = selectionUnitCount([track], new Set(picked.map((c) => c.id)));
+                    const head = [...picked].sort((a, b) => a.startSeconds - b.startSeconds)[0];
                     return (
                       <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-accent">
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-                        {picked.length === 1 ? (
-                          <HoverTitle text={displayTitle(picked[0].name)} maxChars={24} className="font-semibold" />
+                        {units === 1 ? (
+                          <HoverTitle text={displayTitle(head.name)} maxChars={24} className="font-semibold" />
                         ) : (
-                          <span className="font-semibold">{picked.length} clips selected</span>
+                          <span className="font-semibold">{units} clips selected</span>
                         )}
                       </div>
                     );
