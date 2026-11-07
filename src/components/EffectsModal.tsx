@@ -193,7 +193,10 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   const referenceBufferRef = useRef<AudioBuffer | null>(null);
   const debounceRestartRef = useRef<any>(null);
 
+  /** Numbers each preview request so a slow one that finishes after Stop or a newer request is dropped */
+  const previewRequestRef = useRef(0);
   const stopPreview = () => {
+    previewRequestRef.current += 1;
     if (previewSourceRef.current) {
       try {
         previewSourceRef.current.stop();
@@ -244,6 +247,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   // Live real-time preview player
   const startPreview = async (mode: 'original' | 'processed') => {
     stopPreview();
+    const requestId = ++previewRequestRef.current;
 
     try {
       if (!previewCtxRef.current || previewCtxRef.current.state === 'closed') {
@@ -277,6 +281,8 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
         return;
       }
 
+      // A newer request started while this one was reading the clip (sliders or presets moved): do not play two copies
+      if (requestId !== previewRequestRef.current) return;
       const source = ctx.createBufferSource();
       source.buffer = sliceBuf;
       source.loop = isLooping;
@@ -314,7 +320,11 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
       }
 
       source.onended = () => {
-        if (!isLooping) setPreviewState('none');
+        // A replaced source ends on its own later; it must not reset the state of the one that replaced it
+        if (!isLooping && previewSourceRef.current === source) {
+          previewSourceRef.current = null;
+          setPreviewState('none');
+        }
       };
 
       source.start(0);
