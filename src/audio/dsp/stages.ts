@@ -8,12 +8,17 @@ import { CompressorStage } from './compressorStream';
 import { makeDenoiseStage } from './denoiseStream';
 import { PitchShiftStage, WsolaStretcher } from './wsolaStream';
 import { speedStretchParams } from './wsola';
+import { EnhanceSettings, EvenOutSettings, buildEnhanceChain, buildEvenOutChain } from './leveling';
 
 export type StageTool =
   | { kind: 'compress'; params: CompressorParams }
   | { kind: 'denoise'; params: DenoiseParams }
   | { kind: 'pitch'; semitones: number }
-  | { kind: 'speed'; ratio: number };
+  | { kind: 'speed'; ratio: number }
+  /** One-step cleanup and levelling; the channels are linked */
+  | { kind: 'enhance'; settings: EnhanceSettings }
+  /** Slow level evening with a peak ceiling (Normalize's "even out") */
+  | { kind: 'evenout'; settings: EvenOutSettings };
 
 export interface StageSpec {
   tool: StageTool;
@@ -31,6 +36,8 @@ export interface SyncStage {
 export const buildStage = ({ tool, channels, totalFrames, sampleRate }: StageSpec): SyncStage => {
   const each = <T>(make: () => T): T[] => Array.from({ length: channels }, make);
   if (tool.kind === 'compress') return new CompressorStage(sampleRate, tool.params);
+  if (tool.kind === 'enhance') return buildEnhanceChain(sampleRate, tool.settings);
+  if (tool.kind === 'evenout') return buildEvenOutChain(sampleRate, tool.settings);
   if (tool.kind === 'denoise') return perChannel(each(() => makeDenoiseStage(totalFrames, sampleRate, tool.params)));
   if (tool.kind === 'pitch') return perChannel(each(() => new PitchShiftStage(totalFrames, tool.semitones, sampleRate)));
   const speed = Math.max(0.2, Math.min(5, Number.isFinite(tool.ratio) ? tool.ratio : 1));

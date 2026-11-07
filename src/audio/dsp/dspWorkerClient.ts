@@ -103,8 +103,8 @@ const openOn = async (w: Worker | null, spec: StageSpec): Promise<AsyncStage> =>
   };
 };
 
-/** Tools whose channels never influence each other (compression links them, so it stays in one piece) */
-const channelsAreIndependent = (tool: StageSpec['tool']): boolean => tool.kind !== 'compress';
+/** Tools whose channels never influence each other (compression, levelling and enhance link them, so they stay in one piece) */
+const channelsAreIndependent = (tool: StageSpec['tool']): boolean => tool.kind !== 'compress' && tool.kind !== 'enhance' && tool.kind !== 'evenout';
 
 /** Speed and pitch on a long track are cut into segments that run on all the processors at once (see segmentedStretch.ts) */
 const SEGMENT_MIN_SECONDS = 120;
