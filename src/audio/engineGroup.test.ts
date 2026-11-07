@@ -104,4 +104,37 @@ describe('group channel', () => {
     engine.stop();
     expect(engine.clipTrims.length).toBe(0);
   });
+
+  it('a clip gain edited while playing is heard at once, together with a temporary level', async () => {
+    delete engine.scheduleClip;
+    await engine.play(project, 0);
+    const trims = engine.clipTrims.filter((t: any) => t.clipId === 'c2');
+    expect(trims[0].node.gain.value).toBe(1);
+    const louder = project.tracks.map((t) => ({ ...t, clips: t.clips.map((c) => (c.id === 'c2' ? { ...c, gain: 2 } : c)) }));
+    engine.lastTracks = louder;
+    engine.syncClipGains();
+    expect(trims[0].node.gain.value).toBeCloseTo(2);
+    engine.setTempClipLevels({ c2: 0.5 });
+    expect(trims[0].node.gain.value).toBeCloseTo(1); // 2 x 0.5
+    // a clip that no longer exists is left alone
+    engine.lastTracks = [];
+    expect(() => engine.syncClipGains()).not.toThrow();
+    engine.stop();
+  });
+
+  it('rescheduleFromNow plays the edited clips again from the current position, only while playing', async () => {
+    engine.rescheduleFromNow(project); // not playing: nothing happens
+    expect(scheduled.length).toBe(0);
+    await engine.play(project, 0);
+    const before = scheduled.length;
+    expect(before).toBeGreaterThan(0);
+    const cut = { ...project, tracks: project.tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => c.id !== 'c2') })) } as Project;
+    engine.rescheduleFromNow(cut);
+    await new Promise((r) => setTimeout(r, 0));
+    const after = scheduled.slice(before).map((x) => x.id);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after).not.toContain('c2');
+    expect(engine.getIsPlaying()).toBe(true);
+    engine.stop();
+  });
 });

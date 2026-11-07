@@ -964,10 +964,22 @@ const MainStudio: React.FC = () => {
     });
   }, []);
 
+  const playbackSigRef = useRef<string | null>(null);
+  const rescheduleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (rescheduleTimerRef.current) clearTimeout(rescheduleTimerRef.current); }, []);
+
   // Sync track gain and pan nodes with audio engine when project tracks change
   useEffect(() => {
     audioEngine.syncTracks(project.tracks);
     audioEngine.syncGroupSettings(project.groupSettings);
+    audioEngine.syncClipGains(); // a clip's gain edited while playing is heard at once
+    // Any other edit to the clips while playing (cut, delete, split, move, fades) is played from the current position again
+    const sig = playbackSignature(project.tracks);
+    if (playbackSigRef.current !== null && sig !== playbackSigRef.current && audioEngine.getIsPlaying()) {
+      if (rescheduleTimerRef.current) clearTimeout(rescheduleTimerRef.current);
+      rescheduleTimerRef.current = setTimeout(() => { rescheduleTimerRef.current = null; audioEngine.rescheduleFromNow(projectRef.current); }, 120);
+    }
+    playbackSigRef.current = sig;
     // Ducking settings or source clips may have changed mid-playback: re-apply only the curves that did
     audioEngine.refreshDucking(project);
   }, [project]);
