@@ -22,6 +22,7 @@ import {
   GroupSettings,
 } from './types';
 import { audioEngine } from './audio/engine';
+import { toggleMarkerAt } from './audio/markers';
 import { importStreamedFile, shouldStreamImport } from './assets/streamImport';
 import { deleteStreamedAssetWithRetry } from './assets/streamedStore';
 import { HistoryManager } from './history/historyManager';
