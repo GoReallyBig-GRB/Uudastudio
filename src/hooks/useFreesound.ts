@@ -313,12 +313,9 @@ class SharedSoundStore {
   }
 
   public async addToTimeline(item: FreesoundItem, onAddLibraryTrack: (asset: Asset) => void) {
-    // Without a connected account, the sound is added at preview quality through the app's own Freesound access.
-    // Connecting an account (optional) gives the full-quality original.
-    const previewUrl =
-      item.previews['preview-hq-mp3'] || item.previews['preview-hq-ogg'] || item.previews['preview-lq-mp3'] || item.previews['preview-lq-ogg'];
-    const usePreview = !this.state.userToken;
-    if (usePreview && !previewUrl) {
+    // Searching and previewing are open to everyone; adding a sound to the timeline needs the user's own connected Freesound
+    // account (Freesound's terms tie downloads to the person's own account).
+    if (!this.state.userToken) {
       this.setState({ isConnectModalOpen: true });
       this.fetchAuthUrl();
       return;
@@ -326,17 +323,15 @@ class SharedSoundStore {
 
     this.setState({
       downloadingId: item.id,
-      downloadStatusMsg: usePreview ? `Fetching ${item.name} (preview quality)...` : `Downloading original audio (${item.name})...`,
+      downloadStatusMsg: `Downloading original audio (${item.name})...`,
     });
 
     try {
-      const res = usePreview
-        ? await fetch(`/api/freesound/preview?url=${encodeURIComponent(previewUrl!)}`)
-        : await fetch(`/api/freesound/download/${item.id}`, {
-            headers: {
-              Authorization: `Bearer ${this.state.userToken}`,
-            },
-          });
+      const res = await fetch(`/api/freesound/download/${item.id}`, {
+        headers: {
+          Authorization: `Bearer ${this.state.userToken}`,
+        },
+      });
 
       if (res.status === 401) {
         this.setUserToken(null);
@@ -380,10 +375,10 @@ class SharedSoundStore {
 
       onAddLibraryTrack(newAsset);
 
-      this.setState({ downloadStatusMsg: usePreview ? 'Added at preview quality. Connect Freesound for the original.' : 'Added to timeline!' });
+      this.setState({ downloadStatusMsg: 'Added to timeline!' });
       setTimeout(() => {
         this.setState({ downloadingId: null, downloadStatusMsg: '' });
-      }, usePreview ? 4000 : 1200);
+      }, 1200);
     } catch (err: unknown) {
       console.error('Download error:', err);
       this.setState({
