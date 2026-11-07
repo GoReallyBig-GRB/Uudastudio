@@ -6,7 +6,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, AudioWaveform, Play, Square, X } from 'lucide-react';
-import { Button, ModalShell, SegmentedControl, Slider } from './ui';
+import { Button, ModalShell, ProgressIndicator, SegmentedControl, Slider } from './ui';
 import type { ChunkTool } from '../audio/chunkedJob';
 import { DEFAULT_ENHANCE, LoudnessMeter, buildEnhanceChain, buildEvenOutChain, planNormalize, type NormalizeTarget } from '../audio/dsp/leveling';
 
@@ -212,18 +212,12 @@ export const LevelModals: React.FC<LevelModalsProps> = ({ active, previewBuffer,
         )}
 
         {busy && progress && (
-          <div className="space-y-1.5" role="status" aria-live="polite">
-            <div className="flex items-center justify-between text-xs text-ink-dim">
-              <span>{progress.fraction < 0.3 && isNormalize && evenOut === 0 ? 'Measuring' : 'Processing'}</span>
-              <span className="font-num tabular-nums">{Math.round(progress.fraction * 100)}%</span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
-              <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.round(progress.fraction * 100)}%` }} />
-            </div>
-            {onStopProcessing && (
-              <Button variant="ghost" size="sm" onClick={onStopProcessing} leftIcon={<X className="h-3 w-3" aria-hidden="true" />}>Stop</Button>
-            )}
-          </div>
+          <ProgressIndicator
+            fraction={progress.fraction}
+            label={progress.fraction < 0.3 && isNormalize && evenOut === 0 ? 'Measuring' : 'Processing'}
+            onCancel={onStopProcessing}
+            cancelLabel="Stop"
+          />
         )}
         {error && <p className="rounded-control border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">{error}</p>}
       </div>
