@@ -23,6 +23,7 @@ import {
 } from './types';
 import { audioEngine } from './audio/engine';
 import { playbackSignature } from './audio/playbackSignature';
+import { toggleMarkerAt } from './audio/markers';
 import { importStreamedFile, shouldStreamImport } from './assets/streamImport';
 import { deleteStreamedAssetWithRetry } from './assets/streamedStore';
 import { HistoryManager } from './history/historyManager';
@@ -77,7 +78,7 @@ import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJo
 import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
 import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
-import { formatVolumeDb } from './utils/formatters';
+import { formatTimecode, formatVolumeDb } from './utils/formatters';
 import { masteringController } from './audio/masteringController';
 import { selectionScope } from './audio/exportScope';
 import { applyTempLevels, hasTempLevels, levelFactors, pruneTempLevels, setTempLevel, type TempClipLevels } from './audio/tempClipLevels';
@@ -2629,6 +2630,14 @@ const MainStudio: React.FC = () => {
   };
 
   /** The same change to several clips as ONE undo step */
+  /** M: a marker at the playhead, or remove the one already there */
+  const handleToggleMarker = () => {
+    const t = playheadSecondsRef.current;
+    const { project: next, added } = toggleMarkerAt(project, t, () => `mk-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    setProjectWithHistory(next, false, added ? 'marker' : 'marker removal');
+    addToast({ type: 'info', title: added ? 'Marker added' : 'Marker removed', message: formatTimecode(t) });
+  };
+
   const handleUpdateClips = (clipIds: string[], updates: Partial<Clip>) => {
     const ids = new Set(clipIds);
     setProjectWithHistory((prev) => ({
@@ -3545,6 +3554,12 @@ const MainStudio: React.FC = () => {
         }
       }
 
+      // M: marker at the playhead (Ctrl+M stays Mute)
+      if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        handleToggleMarker();
+      }
+
       // F: single-track view on / off (the selected clip's track, else the selected track, else the first)
       if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
@@ -3871,6 +3886,8 @@ const MainStudio: React.FC = () => {
         rangeSeconds={rangeSelection ? rangeSelection.endSeconds - rangeSelection.startSeconds : null}
         onDeleteRange={handleDeleteAny}
         canDelete={!!rangeSelection || selectedClipIds.size > 0}
+        onToggleMarker={handleToggleMarker}
+        markerCount={project.markers?.length ?? 0}
         isControllerCollapsed={isTimelineControlsCollapsed}
         onToggleController={handleToggleTimelineControls}
       />
