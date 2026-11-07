@@ -60,6 +60,8 @@ const FACTORY: Factory = {
     ['Subtle Thicken', { rateHz: 0.8, depthMs: 3, voices: 2, dryWet: 0.3 }],
     ['Lush Ensemble', { rateHz: 1.2, depthMs: 8, voices: 5, dryWet: 0.5 }],
     ['Wide Vocal Double', { rateHz: 0.6, depthMs: 12, voices: 4, dryWet: 0.4 }],
+    ['Classic Slow Chorus', { rateHz: 0.5, depthMs: 7, voices: 2, dryWet: 0.5 }],
+    ['Vibrato Wobble', { rateHz: 5.5, depthMs: 4, voices: 2, dryWet: 1 }],
   ],
   'uuda-native-deesser': [
     ['Gentle', { frequency: 7000, threshold: -20, reduction: 5, listenSibilance: 0 }],
@@ -77,6 +79,9 @@ const FACTORY: Factory = {
     ['Soft Jet', { rateHz: 0.2, depthMs: 2.5, delayMs: 3, feedback: 0.5, dryWet: 0.4 }],
     ['Metallic Sweep', { rateHz: 0.8, depthMs: 3.5, delayMs: 1.5, feedback: 0.8, dryWet: 0.55 }],
     ['Subtle Movement', { rateHz: 0.3, depthMs: 1, delayMs: 3, feedback: 0.3, dryWet: 0.3 }],
+    ['Tape Flange', { rateHz: 0.1, depthMs: 3, delayMs: 2, feedback: 0.65, dryWet: 0.5 }],
+    ['Hollow Barber Jet', { rateHz: 0.05, depthMs: 4.5, delayMs: 4, feedback: -0.7, dryWet: 0.6 }],
+    ['Resonant Whoosh', { rateHz: 1.5, depthMs: 2, delayMs: 1, feedback: 0.85, dryWet: 0.5 }],
   ],
   'uuda-native-gain-pan': [
     ['Trim -6 dB', { gainDb: -6, pan: 0 }],
@@ -100,6 +105,8 @@ const FACTORY: Factory = {
     ['Light', { threshold: -48, attack: 3, hold: 60, release: 150, range: 24 }],
     ['Speech', { threshold: -40, attack: 2, hold: 50, release: 120, range: 40 }],
     ['Tight', { threshold: -36, attack: 1, hold: 30, release: 80, range: 60 }],
+    ['Drum Tight', { threshold: -30, attack: 0.5, hold: 12, release: 50, range: 70 }],
+    ['Noise Floor Only', { threshold: -55, attack: 8, hold: 80, release: 300, range: 12 }],
   ],
   'uuda-native-param-eq': [
     ['Voice Clarity', { lowGain: -3, lowMidGain: -2, midGain: 0, highMidGain: 3, highGain: 2, midQ: 1.2, outputTrim: 0 }],
@@ -111,6 +118,8 @@ const FACTORY: Factory = {
     ['Slow Swirl', { rateHz: 0.2, depth: 0.8, centerFreqHz: 900, stages: 8, feedback: 0.5, dryWet: 0.5 }],
     ['Fast Jet', { rateHz: 2, depth: 0.9, centerFreqHz: 1800, stages: 6, feedback: 0.6, dryWet: 0.55 }],
     ['Subtle', { rateHz: 0.35, depth: 0.4, centerFreqHz: 1000, stages: 4, feedback: 0.2, dryWet: 0.3 }],
+    ['Classic Phase 90', { rateHz: 0.5, depth: 0.7, centerFreqHz: 800, stages: 4, feedback: 0.3, dryWet: 0.5 }],
+    ['Deep Resonant Wash', { rateHz: 0.15, depth: 1, centerFreqHz: 600, stages: 12, feedback: 0.8, dryWet: 0.6 }],
   ],
   'uuda-native-saturator': [
     ['Subtle Warmth', { drive: 2, tone: 8000, outputTrim: -1, dryWet: 0.5 }],
