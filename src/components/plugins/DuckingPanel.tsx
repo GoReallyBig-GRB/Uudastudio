@@ -10,6 +10,7 @@ import { Track } from '../../types';
 import { DuckingSettings } from '../../types';
 import { normalizeDucking } from '../../audio/ducking';
 import { getTrackLabel } from '../../utils/tracks';
+import { Switch, cn } from '../ui';
 
 interface DuckingPanelProps {
   track: Track;
@@ -43,9 +44,9 @@ const DuckSlider: React.FC<{ def: SliderDef; value: number; onCommit: (v: number
   };
   return (
     <label className="block min-w-0">
-      <div className="flex items-baseline justify-between gap-2 text-[11px]">
-        <span className="text-zinc-400 truncate">{def.label}</span>
-        <span className="font-mono text-cyan-300 shrink-0">
+      <div className="flex items-baseline justify-between gap-2 text-xs">
+        <span className="truncate text-ink-dim">{def.label}</span>
+        <span className="font-num shrink-0 text-ink">
           {Math.round(draft)} {def.unit}
         </span>
       </div>
@@ -60,7 +61,7 @@ const DuckSlider: React.FC<{ def: SliderDef; value: number; onCommit: (v: number
         onPointerUp={commit}
         onKeyUp={commit}
         onBlur={commit}
-        className="w-full h-1.5 bg-zinc-800 rounded-sm accent-cyan-400 cursor-pointer"
+        className="mt-1.5 w-full cursor-pointer"
       />
     </label>
   );
@@ -77,35 +78,22 @@ export const DuckingPanel: React.FC<DuckingPanelProps> = ({ track, tracks, onCha
   };
 
   return (
-    <section className="border border-zinc-800 rounded-md bg-[#0D0D14] shrink-0">
+    <section className="shrink-0 rounded-card border border-line bg-surface-2">
       <div className="flex items-center gap-3 px-3 py-2">
-        <ArrowDownToLine className="w-4 h-4 text-emerald-400 shrink-0" />
+        <ArrowDownToLine className="h-4 w-4 shrink-0 text-ink-dim" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <h3 className="text-xs font-black uppercase tracking-wide text-zinc-200">Auto duck</h3>
-          <p className="text-[11px] text-zinc-500 truncate">Lower this track when the voice speaks</p>
+          <h3 className="text-xs font-semibold text-ink">Auto duck</h3>
+          <p className="truncate text-[11px] text-ink-faint">Lower this track when the voice speaks</p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={s.enabled}
-          aria-label="Auto duck"
-          onClick={() => onChange({ enabled: !s.enabled })}
-          className={`relative w-10 h-5 rounded-full border shrink-0 cursor-pointer ${
-            s.enabled ? 'bg-emerald-500/30 border-emerald-500' : 'bg-zinc-800 border-zinc-600'
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 w-4 h-4 rounded-full ${s.enabled ? 'left-5 bg-emerald-300' : 'left-0.5 bg-zinc-400'}`}
-          />
-        </button>
+        <Switch checked={s.enabled} onChange={(v) => onChange({ enabled: v })} label="Auto duck" hideLabel />
       </div>
 
       {s.enabled && (
-        <div className="px-3 pb-3 space-y-3 border-t border-zinc-800 pt-3">
+        <div className="space-y-3 border-t border-line px-3 pb-3 pt-3">
           <div>
-            <div className="text-[11px] text-zinc-400 mb-1.5">Duck when these tracks have sound</div>
+            <div className="mb-1.5 text-xs text-ink-dim">Duck when these tracks have sound</div>
             {others.length === 0 ? (
-              <p className="text-[11px] text-zinc-500">Add the voice track first.</p>
+              <p className="text-xs text-ink-faint">Add the voice track first.</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {others.map(({ t, i }) => {
@@ -116,11 +104,10 @@ export const DuckingPanel: React.FC<DuckingPanelProps> = ({ track, tracks, onCha
                       type="button"
                       aria-pressed={on}
                       onClick={() => toggleSource(t.id)}
-                      className={`px-2 py-1 rounded-sm text-[11px] font-bold border cursor-pointer max-w-full truncate ${
-                        on
-                          ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/60'
-                          : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:text-zinc-200'
-                      }`}
+                      className={cn(
+                        'h-7 max-w-full truncate rounded-full border px-3 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+                        on ? 'border-accent/40 bg-accent-soft text-accent' : 'border-line text-ink-dim hover:border-line-strong hover:text-ink',
+                      )}
                     >
                       {getTrackLabel(t, i)}
                     </button>
@@ -128,7 +115,7 @@ export const DuckingPanel: React.FC<DuckingPanelProps> = ({ track, tracks, onCha
                 })}
               </div>
             )}
-            {noSource && others.length > 0 && <p className="text-[11px] text-amber-400 mt-1.5">Pick at least one track, or nothing will duck.</p>}
+            {noSource && others.length > 0 && <p className="mt-1.5 text-xs text-warn">Pick at least one track, or nothing will duck.</p>}
           </div>
 
           <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-x-4 gap-y-2.5">

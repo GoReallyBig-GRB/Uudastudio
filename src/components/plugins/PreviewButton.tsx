@@ -1,13 +1,14 @@
 /**
  * Uuda Studio - Plugin preview button
  * Loops the targeted track (or the whole mix for the master bus) through its plugin chain, on its own,
- * without moving the timeline playhead. Shared by the rack header and the plugin pop-out.
+ * without moving the timeline playhead. Shared by the rack and the plugin pop-out.
  */
 
 import React, { useEffect, useState } from 'react';
 import { Play, Square } from 'lucide-react';
 import { Project } from '../../types';
 import { audioEngine } from '../../audio/engine';
+import { Button } from '../ui';
 
 interface PreviewButtonProps {
   project: Project;
@@ -15,9 +16,11 @@ interface PreviewButtonProps {
   targetId: string | null;
   /** Hide the text label (icon only) on cramped layouts */
   compact?: boolean;
+  /** Show the notice above the button (when the button sits at the bottom of a dialog) */
+  above?: boolean;
 }
 
-export const PreviewButton: React.FC<PreviewButtonProps> = ({ project, targetId, compact }) => {
+export const PreviewButton: React.FC<PreviewButtonProps> = ({ project, targetId, compact, above }) => {
   const [playing, setPlaying] = useState<boolean>(() => audioEngine.getPreviewTarget() === targetId && !!targetId);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -46,26 +49,19 @@ export const PreviewButton: React.FC<PreviewButtonProps> = ({ project, targetId,
 
   return (
     <div className="relative shrink-0">
-      <button
-        type="button"
+      <Button
+        variant={playing ? 'danger' : 'secondary'}
+        size="sm"
         onClick={toggle}
         disabled={!targetId}
         aria-pressed={playing}
         title={playing ? 'Stop preview' : 'Preview this track on its own (loops)'}
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-xs font-bold border cursor-pointer disabled:opacity-30 disabled:cursor-default ${
-          playing
-            ? 'bg-rose-500/15 text-rose-300 border-rose-500/60'
-            : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500/25'
-        }`}
+        leftIcon={playing ? <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" /> : <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" />}
       >
-        {playing ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
         <span className={compact ? 'sr-only' : 'hidden sm:inline'}>{playing ? 'Stop' : 'Preview'}</span>
-      </button>
+      </Button>
       {message && (
-        <div
-          role="status"
-          className="absolute right-0 top-full mt-1 z-10 w-56 px-2.5 py-1.5 rounded-sm bg-[#1b1b24] border border-zinc-600 text-[11px] text-zinc-200"
-        >
+        <div role="status" className={`absolute left-0 z-10 w-56 ${above ? 'bottom-full mb-1' : 'top-full mt-1'} rounded-control border border-line-strong bg-surface-2 px-3 py-2 text-xs text-ink shadow-float`}>
           {message}
         </div>
       )}
