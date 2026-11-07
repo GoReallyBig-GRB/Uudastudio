@@ -251,20 +251,45 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
     );
   const childOpen = showCustomConfirm || !!popoutPlugin;
 
-  const libraryCard = (plugin: PluginDescriptor, note: React.ReactNode) => (
-    <div key={plugin.id} className="flex flex-col gap-1.5 rounded-card border border-line bg-surface-2 p-3 transition-colors hover:border-line-strong">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <span className="block truncate text-xs font-semibold text-ink">{plugin.name}</span>
-          <span className="text-[11px] text-ink-faint">{note}</span>
+  /** Library card. A plugin already in this chain gets a cyan glow, an "In chain" badge and an "Add again" button, so a second copy is always deliberate. */
+  const libraryCard = (plugin: PluginDescriptor, note: React.ReactNode) => {
+    const copies = activePlugins.filter((p) => p.descriptor.id === plugin.id).length;
+    const inChain = copies > 0;
+    return (
+      <div
+        key={plugin.id}
+        className={cn(
+          'flex flex-col gap-1.5 rounded-card border bg-surface-2 p-3 transition-colors',
+          inChain ? 'border-accent/70 shadow-[0_0_14px_-3px_var(--color-accent)]' : 'border-line hover:border-line-strong',
+        )}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <span className="block text-sm font-bold leading-tight text-ink">{plugin.name}</span>
+            <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-faint">
+              <span className="rounded-full bg-surface-3 px-2 py-0.5">{note}</span>
+              {inChain && (
+                <span className="rounded-full bg-accent-soft px-2 py-0.5 font-semibold text-accent">
+                  {copies > 1 ? `In chain x${copies}` : 'In chain'}
+                </span>
+              )}
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant={inChain ? 'secondary' : 'primary'}
+            onClick={() => handleAddPlugin(plugin)}
+            title={inChain ? 'Already in this chain. Add a second copy only if you mean to.' : 'Add to this chain'}
+            leftIcon={<Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+            className="h-7 shrink-0 px-3"
+          >
+            {inChain ? 'Add again' : 'Add'}
+          </Button>
         </div>
-        <Button size="sm" variant="secondary" onClick={() => handleAddPlugin(plugin)} leftIcon={<Plus className="h-3.5 w-3.5" aria-hidden="true" />} className="h-7 shrink-0 px-3">
-          Add
-        </Button>
+        <p className="line-clamp-2 text-xs leading-snug text-ink-dim">{plugin.description}</p>
       </div>
-      <p className="line-clamp-2 text-xs leading-snug text-ink-dim">{plugin.description}</p>
-    </div>
-  );
+    );
+  };
 
   return (
     <>
@@ -459,7 +484,7 @@ export const PluginsRackModal: React.FC<PluginsRackModalProps> = ({
                   return (
                     <div
                       key={plugin.instanceId}
-                      className={cn('overflow-hidden rounded-card border', plugin.isBypassed ? 'border-line bg-surface-1 opacity-70' : 'border-line-strong bg-surface-2')}
+                      className={cn('overflow-hidden rounded-card border', plugin.isBypassed ? 'border-line bg-surface-1 opacity-70' : 'border-accent/70 bg-surface-2 shadow-[0_0_14px_-3px_var(--color-accent)]')}
                     >
                       {/* Row */}
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-2.5">
