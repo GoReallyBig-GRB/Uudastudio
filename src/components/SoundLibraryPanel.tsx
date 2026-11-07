@@ -149,7 +149,7 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
           <div className="flex items-center justify-between gap-2 text-[11px]">
             <span className="flex min-w-0 items-center gap-2">
               <span className={`h-2 w-2 shrink-0 rounded-full ${userToken ? 'bg-ok' : 'bg-warn'}`} aria-hidden="true" />
-              <span className="truncate text-ink-dim">{userToken ? 'Account connected' : 'Not connected: preview only'}</span>
+              <span className="truncate text-ink-dim">{userToken ? 'Account connected' : 'Not connected: preview only, downloads off'}</span>
             </span>
             {userToken ? (
               <button
@@ -268,7 +268,7 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
                         className={pill(false, 'min-w-0 flex-1 border-accent/40 text-accent hover:bg-accent-soft hover:text-accent')}
                       >
                         <Download className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{isDownloading ? downloadStatusMsg : 'Add to timeline'}</span>
+                        <span className="truncate">{isDownloading ? downloadStatusMsg : userToken ? 'Add to timeline' : 'Connect to add'}</span>
                       </button>
                     </div>
                   </li>
