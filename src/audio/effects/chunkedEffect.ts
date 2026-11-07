@@ -121,7 +121,9 @@ export const processEffectChunked = async (opts: {
 }): Promise<ChunkedJobResult> => {
   // Several blocks at once, but leave a core for the page itself
   const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4;
-  let concurrency = Math.max(1, Math.min(4, cores - 1));
+  // The phaser's filters are far heavier to render than the other built-in effects (about seven times a chorus), so it
+  // gets every spare core; the lighter ones are limited by reading and writing, where more blocks at once do not help.
+  let concurrency = Math.max(1, Math.min(opts.effect.type === 'phaser' ? 8 : 4, cores - 1));
   const timing = { readMs: 0, renderMs: 0, writeMs: 0, blocks: 0 };
   const startedAt = performance.now();
   const assets = opts.clips.map((c) => opts.getAsset(c.assetId));
