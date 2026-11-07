@@ -2326,7 +2326,9 @@ const MainStudio: React.FC = () => {
       // Non-destructive clip gain multiplier
       const multiplier = Math.pow(10, params.gainDb / 20);
       const newGain = Math.max(0, (dspTargetClip.gain || 1.0) * multiplier);
-      handleUpdateClip(dspTargetClip.id, { gain: newGain });
+      // On a highlighted range only that piece changes; handleUpdateClip would spread the level to every piece of the spliced clip
+      if (processedRangeRef.current) handleUpdateClips([dspTargetClip.id], { gain: newGain });
+      else handleUpdateClip(dspTargetClip.id, { gain: newGain });
       addToast({
         type: 'success',
         title: 'Amplify Applied',
