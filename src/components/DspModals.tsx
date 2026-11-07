@@ -134,7 +134,11 @@ export const DspModals: React.FC<DspModalsProps> = ({
   const previewSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const previewCtxRef = useRef<AudioContext | null>(null);
 
+  /** Each preview request gets a number; a slow one that finishes after a newer request started is thrown away instead of playing on top of it */
+  const previewRequestRef = useRef(0);
+
   const stopPreview = () => {
+    previewRequestRef.current += 1;
     if (previewSourceRef.current) {
       try {
         previewSourceRef.current.stop();
@@ -190,6 +194,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
     }
 
     stopPreview();
+    const requestId = ++previewRequestRef.current;
 
     try {
       if (!previewCtxRef.current || previewCtxRef.current.state === 'closed') {
@@ -251,13 +256,17 @@ export const DspModals: React.FC<DspModalsProps> = ({
         }
       }
 
+      // A newer request (the sliders moved while this one was rendering) or a Stop has taken over: do not start a second copy
+      if (requestId !== previewRequestRef.current) return;
       const source = previewCtxRef.current.createBufferSource();
       source.buffer = bufferToPlay;
       source.loop = isLooping;
       source.connect(previewCtxRef.current.destination);
 
       source.onended = () => {
-        if (!source.loop) {
+        // A source that was replaced (the sliders moved, or Stop) ends later on its own; it must not reset the new one's state
+        if (!source.loop && previewSourceRef.current === source) {
+          previewSourceRef.current = null;
           setPreviewState('none');
         }
       };
