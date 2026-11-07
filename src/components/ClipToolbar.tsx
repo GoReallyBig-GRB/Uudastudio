@@ -271,6 +271,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
       {/* Lane rules (owner, 2026-11-05): buttons sit by what they do and how often they are used. Recurrent edits (undo/redo, split, cut,
           copy, paste, silence, delete) are on the lane nearest the timeline, right after the processing tools. This lane holds the
           session and view controls on the left and the panel launchers on the right.
+          OWNER UPDATE (2026-11-07): Lock and Group sit on the UPPER lane, Delete is the last button of the LOWER lane.
           THE RULE (owner, 2026-11-06): any button whose function directly changes a track or clip (edits, processing, mute, lock,
           group, move, fade) goes on the LOWER lane. Any button that selects an action or a range of actions (tool, view, panels)
           goes on the UPPER lane. */}
@@ -322,6 +323,25 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               Range
             </CapsuleButton>
           </Capsule>
+          <button
+            onClick={() => onToggleLock?.()}
+            disabled={!clip || !onToggleLock}
+            title={clip ? (locked ? 'Unlock: allow moving and editing again (L)' : 'Lock: protect this clip or group from moving and editing (L)') : 'Select a clip or group to lock it'}
+            aria-pressed={!!locked}
+            className={`${PILL} ${locked ? 'border-gold/50 bg-gold/10 text-gold' : idle}`}
+          >
+            {locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+            <span className="max-[1440px]:hidden">{locked ? 'Locked' : 'Lock'}</span>
+          </button>
+          <button
+            onClick={() => onToggleGroup?.()}
+            disabled={!canGroup || !onToggleGroup}
+            title={isGrouped ? 'Ungroup: release the grouped clips (a locked group must be unlocked first)' : canGroup ? 'Group the selected clips so they move together' : 'Select two or more clips (Shift+click) to group them'}
+            className={`${PILL} ${idle}`}
+          >
+            {isGrouped ? <Ungroup className="h-3 w-3" /> : <Group className="h-3 w-3" />}
+            <span className="max-[1440px]:hidden">{isGrouped ? 'Ungroup' : 'Group'}</span>
+          </button>
           {/* Focus switches the single-track view on; Solo and Mix then choose what you hear */}
           <Capsule label="Focus view" size="sm">
             <CapsuleButton
@@ -483,15 +503,6 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               <span className="max-[1330px]:hidden">Silence</span>
             </CapsuleButton>
           </Capsule>
-          <button
-            onClick={onDeleteRange}
-            disabled={!canDelete}
-            title={hasRange ? `Delete the highlighted ${rangeSeconds!.toFixed(2)}s from this track and close the gap (Delete)` : canDelete ? 'Delete the selected clips (Delete)' : 'Select a clip or highlight a range (Range tool, X) to delete it'}
-            className={`${PILL} ${canDelete ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 focus-visible:ring-danger/50' : idle}`}
-          >
-            <Trash2 className="h-3 w-3" />
-            <span className="max-[1330px]:hidden">Delete</span>
-          </button>
         </div>
 
         {/* What changes the selected clip or track itself: its state, position and fades */}
@@ -505,25 +516,6 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             {clip?.muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
             <span className="max-[1440px]:hidden">{clip?.muted ? 'Muted' : 'Mute'}</span>
           </button>
-          <button
-            onClick={() => onToggleLock?.()}
-            disabled={!clip || !onToggleLock}
-            title={clip ? (locked ? 'Unlock: allow moving and editing again (L)' : 'Lock: protect this clip or group from moving and editing (L)') : 'Select a clip or group to lock it'}
-            aria-pressed={!!locked}
-            className={`${PILL} ${locked ? 'border-gold/50 bg-gold/10 text-gold' : idle}`}
-          >
-            {locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
-            <span className="max-[1440px]:hidden">{locked ? 'Locked' : 'Lock'}</span>
-          </button>
-          <button
-            onClick={() => onToggleGroup?.()}
-            disabled={!canGroup || !onToggleGroup}
-            title={isGrouped ? 'Ungroup: release the grouped clips (a locked group must be unlocked first)' : canGroup ? 'Group the selected clips so they move together' : 'Select two or more clips (Shift+click) to group them'}
-            className={`${PILL} ${idle}`}
-          >
-            {isGrouped ? <Ungroup className="h-3 w-3" /> : <Group className="h-3 w-3" />}
-            <span className="max-[1440px]:hidden">{isGrouped ? 'Ungroup' : 'Group'}</span>
-          </button>
           <Capsule label="Move to track" size="sm">
             <CapsuleButton iconOnly title="Move clip to track above (Arrow Up)" disabled={!clip} onClick={() => clip && onMoveTrack(clip.id, 'up')} icon={<ArrowUp className="h-3 w-3" />} />
             <CapsuleButton iconOnly title="Move clip to track below (Arrow Down)" disabled={!clip} onClick={() => clip && onMoveTrack(clip.id, 'down')} icon={<ArrowDown className="h-3 w-3" />} />
@@ -536,6 +528,15 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               <ChevronDown className="h-3 w-3 opacity-60" />
             </button>
           )}
+          <button
+            onClick={onDeleteRange}
+            disabled={!canDelete}
+            title={hasRange ? `Delete the highlighted ${rangeSeconds!.toFixed(2)}s from this track and close the gap (Delete)` : canDelete ? 'Delete the selected clips (Delete)' : 'Select a clip or highlight a range (Range tool, X) to delete it'}
+            className={`${PILL} ${canDelete ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 focus-visible:ring-danger/50' : idle}`}
+          >
+            <Trash2 className="h-3 w-3" />
+            <span className="max-[1330px]:hidden">Delete</span>
+          </button>
         </div>
       </div>
     </div>
