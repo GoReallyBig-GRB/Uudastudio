@@ -209,6 +209,13 @@ export interface ProjectSettings {
   duckingAmountDb: number; // default -12 dB
 }
 
+/** A timeline marker (key M). The colour is an index into MARKER_COLORS. */
+export interface Marker {
+  id: string;
+  timeSeconds: number;
+  colorIndex: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -223,6 +230,8 @@ export interface Project {
   groupSettings?: Record<string, GroupSettings>;
   /** Mastering on the master bus (preset, settings, on/off, saved loudness analysis), saved with the project. */
   mastering?: import('../audio/masteringSettings').MasteringSettings;
+  /** Timeline markers, sorted by time. */
+  markers?: Marker[];
   updatedAt?: number;
 }
 

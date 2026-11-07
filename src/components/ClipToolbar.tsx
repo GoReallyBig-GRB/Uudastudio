@@ -8,6 +8,7 @@
 
 import React, { useEffect, useState } from 'react';
 import {
+  MapPin,
   Lock,
   Unlock,
   Scissors,
@@ -95,6 +96,9 @@ interface ClipToolbarProps {
   /** Delete: the highlighted range, or the selected clips when there is no range */
   onDeleteRange: () => void;
   canDelete?: boolean;
+  /** Add a marker at the playhead (or remove the one already there). Key M. */
+  onToggleMarker?: () => void;
+  markerCount?: number;
   isControllerCollapsed?: boolean;
   onToggleController?: () => void;
   isTimelineCollapsed?: boolean;
@@ -231,6 +235,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onToggleFocusSolo,
   rangeSeconds,
   onDeleteRange,
+  onToggleMarker,
+  markerCount = 0,
   canDelete = false,
   projectName,
   onRenameProject,
@@ -322,6 +328,16 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               Range
             </CapsuleButton>
           </Capsule>
+          <button
+            type="button"
+            onClick={onToggleMarker}
+            disabled={!onToggleMarker}
+            title={`Marker: add one at the playhead, or remove the one there (M).${markerCount ? ` ${markerCount} in this project.` : ''}`}
+            className={`${PILL} ${idle}`}
+          >
+            <MapPin className="h-3 w-3" />
+            <span className="max-[1150px]:hidden">Marker</span>
+          </button>
           {/* Focus switches the single-track view on; Solo and Mix then choose what you hear */}
           <Capsule label="Focus view" size="sm">
             <CapsuleButton
