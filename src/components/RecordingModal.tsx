@@ -460,7 +460,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
 
         {/* Permission Denied Error Banner */}
         {permissionError && (
-          <div className="m-4 p-4 rounded-lg bg-danger/40 border border-danger/60 text-danger text-xs flex items-start gap-3">
+          <div className="m-4 p-4 rounded-lg bg-danger/10 border border-danger/60 text-danger text-xs flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
             <div className="space-y-1">
               <div className="font-semibold text-danger">Microphone Access Denied</div>
@@ -470,7 +470,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
               </div>
               <button
                 onClick={() => initStreamAndDevices(deviceSettings, eqSettings)}
-                className="mt-2 px-3 py-1 bg-danger/20 hover:bg-danger/30 border border-danger/60 text-danger rounded text-[11px] font-semibold transition-colors"
+                className="mt-2 px-3 py-1 bg-danger/20 hover:bg-danger/10 border border-danger/60 text-danger rounded text-[11px] font-semibold transition-colors"
               >
                 Retry Microphone Permission
               </button>

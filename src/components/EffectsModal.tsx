@@ -427,7 +427,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
 
         {/* Error notification */}
         {errorMessage && (
-          <div className="px-5 py-2 bg-danger/80 border-b border-danger text-danger text-[11px] flex items-center justify-between">
+          <div className="px-5 py-2 bg-danger/10 border-b border-danger text-danger text-[11px] flex items-center justify-between">
             <span>{errorMessage}</span>
             <button onClick={() => setErrorMessage(null)} className="text-danger hover:text-white cursor-pointer">
               <X className="w-3.5 h-3.5" />
@@ -968,7 +968,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                 className={`flex-1 py-1.5 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   previewState === 'processed'
                     ? 'bg-accent text-black font-bold'
-                    : 'bg-accent/80 hover:bg-accent text-accent border border-accent/60'
+                    : 'bg-accent/10 hover:bg-accent/20 text-accent border border-accent/60'
                 }`}
               >
                 {previewState === 'processed' ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}

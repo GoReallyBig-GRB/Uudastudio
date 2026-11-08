@@ -137,7 +137,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
 
           {/* Error Banner */}
           {errorMessage && (
-            <div className="mb-6 p-3.5 rounded-control bg-danger/40 border border-danger/70 text-danger text-xs flex items-start gap-2.5 animate-in fade-in">
+            <div className="mb-6 p-3.5 rounded-control bg-danger/10 border border-danger/70 text-danger text-xs flex items-start gap-2.5 animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
               <div className="flex-1 leading-relaxed">
                 <span>{errorMessage}</span>

@@ -394,7 +394,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
         <button
           onClick={signOut}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-control bg-surface-2/60 hover:bg-danger/40 text-ink-dim hover:text-danger border border-line-strong/60 text-xs font-medium transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-control bg-surface-2/60 hover:bg-danger/10 text-ink-dim hover:text-danger border border-line-strong/60 text-xs font-medium transition-colors cursor-pointer"
         >
           <LogOut className="w-3.5 h-3.5" />
           <span>Sign Out</span>
@@ -496,13 +496,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
               </div>
 
               {accountSuccessMsg && (
-                <div className="p-3 bg-ok/40 border border-ok/40 text-ok text-xs rounded-control flex items-center gap-2">
+                <div className="p-3 bg-ok/10 border border-ok/40 text-ok text-xs rounded-control flex items-center gap-2">
                   <Check className="w-4 h-4" />
                   <span>{accountSuccessMsg}</span>
                 </div>
               )}
               {accountErrorMsg && (
-                <div className="p-3 bg-danger/40 border border-danger/40 text-danger text-xs rounded-control flex items-center gap-2">
+                <div className="p-3 bg-danger/10 border border-danger/40 text-danger text-xs rounded-control flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4" />
                   <span>{accountErrorMsg}</span>
                 </div>
@@ -590,7 +590,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
               </div>
 
               {prefsSuccessMsg && (
-                <div className="p-3 bg-ok/40 border border-ok/40 text-ok text-xs rounded-control flex items-center gap-2">
+                <div className="p-3 bg-ok/10 border border-ok/40 text-ok text-xs rounded-control flex items-center gap-2">
                   <Check className="w-4 h-4" />
                   <span>{prefsSuccessMsg}</span>
                 </div>
@@ -688,7 +688,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
               </div>
 
               {keySavedMsg && (
-                <div className="p-3 bg-ok/40 border border-ok/40 text-ok text-xs rounded-control flex items-center gap-2">
+                <div className="p-3 bg-ok/10 border border-ok/40 text-ok text-xs rounded-control flex items-center gap-2">
                   <Check className="w-4 h-4" />
                   <span>{keySavedMsg}</span>
                 </div>
@@ -733,7 +733,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                     <button
                       type="button"
                       onClick={handleRemoveOwnKey}
-                      className="px-3 py-2 rounded-control bg-surface-2 hover:bg-danger/40 text-ink-dim hover:text-danger text-xs font-medium transition-colors cursor-pointer"
+                      className="px-3 py-2 rounded-control bg-surface-2 hover:bg-danger/10 text-ink-dim hover:text-danger text-xs font-medium transition-colors cursor-pointer"
                     >
                       Remove Key
                     </button>
@@ -751,7 +751,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                         Access over 600,000 Creative Commons sound effects and music loops.
                       </p>
                     </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-ok text-ok border border-ok">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-ok text-surface-0 border border-ok">
                       Active
                     </span>
                   </div>
@@ -893,7 +893,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                         </button>
                         <button
                           onClick={() => handleDeleteProject(proj.id)}
-                          className="p-1.5 rounded hover:bg-danger/40 text-ink-dim hover:text-danger transition-colors"
+                          className="p-1.5 rounded hover:bg-danger/10 text-ink-dim hover:text-danger transition-colors"
                           title="Delete"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -943,9 +943,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
                             activeTicket.status === 'Open'
-                              ? 'bg-accent text-accent border border-accent'
+                              ? 'bg-accent text-surface-0 border border-accent'
                               : activeTicket.status === 'Resolved'
-                              ? 'bg-ok text-ok border border-ok'
+                              ? 'bg-ok text-surface-0 border border-ok'
                               : 'bg-surface-2 text-ink-dim border border-line-strong'
                           }`}
                         >
@@ -1055,9 +1055,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider shrink-0 ${
                             t.status === 'Open'
-                              ? 'bg-accent text-accent border border-accent'
+                              ? 'bg-accent text-surface-0 border border-accent'
                               : t.status === 'Resolved'
-                              ? 'bg-ok text-ok border border-ok'
+                              ? 'bg-ok text-surface-0 border border-ok'
                               : 'bg-surface-2 text-ink-dim border border-line-strong'
                           }`}
                         >
@@ -1110,7 +1110,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                   Permanently deletes your account record, cloud projects, audio assets, support tickets, and studio preferences from our servers.
                 </p>
 
-                <div className="p-3 bg-danger/30 border border-danger/50 rounded-control text-[11px] text-danger">
+                <div className="p-3 bg-danger/10 border border-danger/50 rounded-control text-[11px] text-danger">
                   <strong>Notice: </strong>
                   This action is irreversible. Signing in with this Google account again in the future will create a completely fresh, empty account.
                 </div>
