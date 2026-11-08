@@ -36,6 +36,9 @@ import { chainIds, healSeams, seamFlags, selectionUnitCount } from './spliceChai
 import { planDragMove, selectionForPointerDown } from './clipDragPlan';
 
 interface TimelineProps {
+  /** Join mode: the order in which clips were picked (clip id -> 1, 2, 3...). While onJoinPick is set, clicking a clip picks it instead of selecting or dragging. */
+  joinBadges?: Map<string, number>;
+  onJoinPick?: (clipId: string) => void;
   project: Project;
   pixelsPerSecond: number;
   onViewportWidthChange?: (width: number) => void;
@@ -174,7 +177,7 @@ const FULL_HEADER_WIDTH = 272;
 const COLLAPSED_HEADER_WIDTH = 32;
 
 /** Marker arrowheads on the ruler (pointing down at their time) with a faint line through the tracks. Click seeks, Shift+click changes the colour, right-click removes. */
-const MarkerOverlay: React.FC<{
+export const MarkerOverlay: React.FC<{
   project: Project;
   headerWidth: number;
   pixelsPerSecond: number;
@@ -203,12 +206,14 @@ const MarkerOverlay: React.FC<{
             <button
               type="button"
               aria-label={`Marker at ${formatTimecode(m.timeSeconds)}`}
-              title={`${m.name ? `${m.name}, ` : 'Marker '}${formatTimecode(m.timeSeconds)}${m.clipId ? ', moves with its clip' : ''}. Click: go here. Double-click: name it. Shift+click: change colour. Right-click: remove.`}
+              title={`${m.name ? `${m.name}, ` : 'Marker '}${formatTimecode(m.timeSeconds)}${m.clipId ? ', moves with its clip' : ''}. Click: go here. Click again: name it. Shift+click: change colour. Right-click: remove.`}
               className="pointer-events-auto absolute top-0 -translate-x-1/2 cursor-pointer focus-visible:outline-none"
               onClick={(e) => {
                 e.stopPropagation();
-                if (e.shiftKey) onUpdateProject(recolorMarker(project, m.id));
-                else onSeek(m.timeSeconds);
+                if (e.shiftKey) { onUpdateProject(recolorMarker(project, m.id)); return; }
+                // A second click, with the playhead already on the marker, opens the name box (no double-click needed)
+                if (Math.abs(getPlayhead() - m.timeSeconds) < 0.02) { setDraft(m.name ?? ''); setEditingId(m.id); return; }
+                onSeek(m.timeSeconds);
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -244,7 +249,11 @@ const MarkerOverlay: React.FC<{
             ) : m.name ? (
               <span className="absolute left-2 top-0 max-w-[9rem] truncate rounded bg-surface-0/80 px-1.5 text-[10px] leading-4 text-ink" style={{ borderLeft: `2px solid ${color}` }}>{m.name}</span>
             ) : null}
-            <div className="absolute top-[11px] bottom-0 w-px -translate-x-1/2" style={{ background: color, opacity: m.clipId ? 0.55 : 0.3 }} />
+            {/* Perforated line: dashes of the marker's colour. Stronger when the marker is attached to a clip and moves with it. */}
+            <div
+              className="absolute top-[11px] bottom-0 w-px -translate-x-1/2"
+              style={{ backgroundImage: `repeating-linear-gradient(to bottom, ${color} 0 4px, transparent 4px 8px)`, opacity: m.clipId ? 0.85 : 0.5 }}
+            />
           </div>
         );
       })}
@@ -299,6 +308,8 @@ const PlayheadOverlay: React.FC<{
 };
 
 export const Timeline: React.FC<TimelineProps> = ({
+  joinBadges,
+  onJoinPick,
   project,
   pixelsPerSecond,
   onViewportWidthChange,
@@ -1083,6 +1094,14 @@ export const Timeline: React.FC<TimelineProps> = ({
     if (e.button === 2) return; // ignore right click for drag (let context menu handle)
     hideTitleTip();
 
+    // Join mode: a click picks (or un-picks) the clip under the pointer; nothing is selected, moved or trimmed
+    if (onJoinPick) {
+      const x = (e.clientX - e.currentTarget.getBoundingClientRect().left) / pixelsPerSecond;
+      const hit = track.clips.find((c) => x >= c.startSeconds && x <= c.startSeconds + c.durationSeconds);
+      if (hit) onJoinPick(hit.id);
+      return;
+    }
+
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
@@ -1695,6 +1714,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 onLanePointerLeave={hideTitleTip}
                 onLaneDoubleClick={handleLaneDoubleClick}
                 onLaneContextMenu={handleLaneContextMenu}
+                joinBadges={joinBadges}
               />
               );
             })}
@@ -1860,6 +1880,7 @@ interface TrackRowContainerProps {
   onLanePointerLeave: () => void;
   onLaneDoubleClick: (e: React.MouseEvent<HTMLDivElement>, track: Track) => void;
   onLaneContextMenu: (e: React.MouseEvent<HTMLDivElement>, track: Track) => void;
+  joinBadges?: Map<string, number>;
   rowHeight: number;
 }
 
@@ -1887,6 +1908,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
   onLanePointerLeave,
   onLaneDoubleClick,
   onLaneContextMenu,
+  joinBadges,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -1944,6 +1966,16 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
           }}
           className="block pointer-events-none"
         />
+        {joinBadges && track.clips.filter((c) => joinBadges.has(c.id)).map((c) => (
+          <span
+            key={`join-${c.id}`}
+            aria-label={`Join order ${joinBadges.get(c.id)}`}
+            className="pointer-events-none absolute z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[11px] font-bold text-surface-0 shadow-float"
+            style={{ left: `${c.startSeconds * pixelsPerSecond + 6}px`, top: 6 }}
+          >
+            {joinBadges.get(c.id)}
+          </span>
+        ))}
         {rangeHighlight && (
           <div
             aria-hidden="true"
