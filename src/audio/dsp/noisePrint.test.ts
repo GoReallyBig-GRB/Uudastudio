@@ -118,10 +118,10 @@ describe('finding the quiet part', () => {
 });
 
 describe('denoise with a print', () => {
-  it('uses the print when the settings carry one, the basic gate otherwise', () => {
+  it('uses the print when the settings carry one (gap cleanup off), the basic gate otherwise', () => {
     const print = learnNoisePrint([noise(SR, 4)], SR);
     const x = noise(SR, 6);
-    const withPrint = denoiseChannels([x], SR, { highPassFreq: 80, noiseFloorThresholdDb: -40, reductionDb: 18, print, sensitivity: 1.5 })[0];
+    const withPrint = denoiseChannels([x], SR, { highPassFreq: 80, noiseFloorThresholdDb: -40, reductionDb: 18, print, sensitivity: 1.5, gapCleanupDb: 0 })[0];
     const direct = run(x, print, 18, 1.5);
     let worst = 0;
     for (let i = 0; i < x.length; i++) worst = Math.max(worst, Math.abs(withPrint[i] - direct[i]));

@@ -5,6 +5,9 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { PresetBar } from './PresetBar';
+import { ENHANCE_PRESETS } from './dspPresets';
+import { loadCustomPresets, removeCustomPreset, saveCustomPreset } from './customPresets';
 import { Activity, AudioWaveform, Play, Square, X } from 'lucide-react';
 import { Button, ModalShell, ProgressIndicator, SegmentedControl, Slider } from './ui';
 import type { ChunkTool } from '../audio/chunkedJob';
@@ -75,8 +78,11 @@ export const LevelModals: React.FC<LevelModalsProps> = ({ active, previewBuffer,
   const [heard, setHeard] = useState<{ a: AudioBuffer; b: AudioBuffer } | null>(null);
   const audition = useAudition();
 
+  const [customEnhance, setCustomEnhance] = useState(() => loadCustomPresets<{ strength: number }>('enhance'));
   useEffect(() => {
-    if (!active) { audition.stop(); setBusy(false); setError(null); setHeard(null); }
+    if (!active) { audition.stop(); setBusy(false); setError(null); setHeard(null); return; }
+    // Every opening starts from the defaults, so the last job's settings never carry over to a new track
+    setMode('loudness'); setPeakDb(-1); setLoudness('-16'); setEvenOut(0); setStrength(Math.round(DEFAULT_ENHANCE.strength * 100));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
   useEffect(() => { setHeard(null); audition.stop(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mode, peakDb, loudness, evenOut, strength]);
@@ -187,6 +193,16 @@ export const LevelModals: React.FC<LevelModalsProps> = ({ active, previewBuffer,
           </>
         ) : (
           <>
+            <PresetBar
+              presets={ENHANCE_PRESETS}
+              activeIndex={ENHANCE_PRESETS.findIndex((p) => p.strength === strength)}
+              onPick={(i) => setStrength(ENHANCE_PRESETS[i].strength)}
+              custom={customEnhance}
+              activeCustomIndex={customEnhance.findIndex((p) => p.value.strength === strength)}
+              onPickCustom={(i) => setStrength(customEnhance[i].value.strength)}
+              onRemoveCustom={(n) => setCustomEnhance(removeCustomPreset<{ strength: number }>('enhance', n))}
+              onSave={(n) => setCustomEnhance(saveCustomPreset('enhance', n, { strength }))}
+            />
             <Slider label="Strength" value={strength} min={0} max={100} step={5} display={`${strength}%`} onChange={setStrength} />
             <ul className="space-y-1 text-xs text-ink-faint">
               <li>Removes rumble and thumps below 80 Hz</li>

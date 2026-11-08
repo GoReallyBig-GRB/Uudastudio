@@ -60,6 +60,10 @@ export interface DenoiseParams {
   sensitivity?: number;
   /** With a print: 0 to 1, how much the voice is shielded (default 0.5) */
   voiceProtection?: number;
+  /** With a print: dB above the noise floor below which the gaps between phrases are closed (0 = off). Removes street sounds, pumps and breaths the print cannot */
+  gapCleanupDb?: number;
+  /** Steepness of the gate below its threshold (default 1.8; the gap cleanup uses 3) */
+  expansion?: number;
   /** With a print: output only what is being removed, to check that no voice is in it */
   listenRemoved?: boolean;
 }

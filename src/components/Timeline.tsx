@@ -87,7 +87,8 @@ interface TimelineProps {
   tool: TimelineTool;
   rangeSelection: RangeSelection | null;
   onRangeSelect: (selection: RangeSelection | null) => void;
-  onUpdateClip: (clipId: string, updates: Partial<Clip>) => void;
+  /** `gesture` names one drag: all its moves are a single undo step */
+  onUpdateClip: (clipId: string, updates: Partial<Clip>, gesture?: string) => void;
   onFileDrop: (files: FileList) => void;
   isControlsCollapsed?: boolean;
   onToggleCollapseControls?: () => void;
@@ -386,6 +387,13 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   // On-clip volume line drag
   const [gainDrag, setGainDrag] = useState<GainDragState | null>(null);
+  // Every pointer press starts a new gesture; the moves of one drag share its number so Undo reverts the whole drag at once
+  const gestureRef = useRef(0);
+  useEffect(() => {
+    const next = () => { gestureRef.current += 1; };
+    window.addEventListener('pointerdown', next, true);
+    return () => window.removeEventListener('pointerdown', next, true);
+  }, []);
 
   // Drag-and-drop file overlay state
   const [isDragOverFiles, setIsDragOverFiles] = useState<boolean>(false);
@@ -1264,7 +1272,7 @@ export const Timeline: React.FC<TimelineProps> = ({
             startSeconds: newStart,
             offsetSeconds: newOffset,
             durationSeconds: newDuration,
-          });
+          }, `trim:${gestureRef.current}`);
         } else {
           // Dragging inward to the left (dt < 0) deletes right portion of waveform
           const trimAmount = Math.max(0, Math.min(edgeTrimDrag.initialDurationSeconds - 0.05, -dt));
@@ -1272,7 +1280,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
           onUpdateClip(edgeTrimDrag.clipId, {
             durationSeconds: newDuration,
-          });
+          }, `trim:${gestureRef.current}`);
         }
         return;
       }
@@ -1320,7 +1328,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
       // 3b. Volume line drag
       if (gainDrag) {
-        onUpdateClip(gainDrag.clipId, { gain: yToGain(e.clientY - gainDrag.laneTop, 4, gainDrag.clipH) });
+        onUpdateClip(gainDrag.clipId, { gain: yToGain(e.clientY - gainDrag.laneTop, 4, gainDrag.clipH) }, `gain:${gestureRef.current}`);
       }
 
       // 4. Fade drag
@@ -1330,9 +1338,9 @@ export const Timeline: React.FC<TimelineProps> = ({
         const newFade = Math.max(0, Math.min(fadeDrag.maxFade, fadeDrag.initialFade + dt));
 
         if (fadeDrag.type === 'in') {
-          onUpdateClip(fadeDrag.clipId, { fadeInSeconds: newFade });
+          onUpdateClip(fadeDrag.clipId, { fadeInSeconds: newFade }, `fade:${gestureRef.current}`);
         } else {
-          onUpdateClip(fadeDrag.clipId, { fadeOutSeconds: newFade });
+          onUpdateClip(fadeDrag.clipId, { fadeOutSeconds: newFade }, `fade:${gestureRef.current}`);
         }
       }
     };

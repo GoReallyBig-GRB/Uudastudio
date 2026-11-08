@@ -6,7 +6,7 @@
  */
 import type { DenoiseParams } from '../../types';
 import type { Stage } from './wsolaStream';
-import { NoisePrintStage } from './noisePrint';
+import { NoisePrintStage, type NoisePrint } from './noisePrint';
 
 const BLOCK = 512;
 const HOP = 128;
@@ -51,6 +51,7 @@ export class DenoiseStage implements Stage {
   private readonly numBlocks: number;
   private readonly thresholdLinear: number;
   private readonly maxAttenuation: number;
+  private readonly expansion: number;
   private readonly attackCoeff: number;
   private readonly releaseCoeff: number;
   private weightSum = 0;
@@ -71,6 +72,7 @@ export class DenoiseStage implements Stage {
     this.numBlocks = totalIn <= BLOCK ? 0 : Math.max(1, Math.floor((totalIn - BLOCK) / HOP));
     this.thresholdLinear = Math.pow(10, num(params.noiseFloorThresholdDb, -40) / 20);
     this.maxAttenuation = Math.pow(10, -num(params.reductionDb, 12) / 20);
+    this.expansion = Math.max(1, num(params.expansion, 1.8));
     const attackMs = num(params.attackMs, 8);
     const releaseMs = num(params.releaseMs, 90);
     this.attackCoeff = Math.exp(-1 / ((attackMs / 1000) * (sampleRate / HOP)));
@@ -89,7 +91,7 @@ export class DenoiseStage implements Stage {
     let target = 1;
     if (rms < this.thresholdLinear) {
       const ratio = Math.max(0.0001, rms / this.thresholdLinear);
-      target = Math.max(this.maxAttenuation, Math.pow(ratio, 1.8));
+      target = Math.max(this.maxAttenuation, Math.pow(ratio, this.expansion));
     }
     const coeff = target > this.smoothed ? this.attackCoeff : this.releaseCoeff;
     this.smoothed = target + coeff * (this.smoothed - target);
@@ -159,11 +161,53 @@ export class DenoiseStage implements Stage {
   }
 }
 
-/** The stage for these settings: the noise print when one was learned, else the basic gate. */
-export const makeDenoiseStage = (totalIn: number, sampleRate: number, params: DenoiseParams): Stage =>
-  params.print
-    ? new NoisePrintStage(totalIn, sampleRate, params.print, { reductionDb: num(params.reductionDb, 14), sensitivity: num(params.sensitivity, 1.5), voiceProtection: params.voiceProtection, listenRemoved: params.listenRemoved })
-    : new DenoiseStage(totalIn, sampleRate, params);
+/** Two stages in a row (the first one's output feeds the second); one channel. */
+class SerialStage implements Stage {
+  constructor(private readonly first: Stage, private readonly second: Stage) {}
+  push(chunk: Float32Array): Float32Array {
+    const mid = this.first.push(chunk);
+    return mid.length ? this.second.push(mid) : new Float32Array(0);
+  }
+  finish(): Float32Array {
+    const mid = this.first.finish();
+    const a = mid.length ? this.second.push(mid) : new Float32Array(0);
+    const b = this.second.finish();
+    if (!a.length) return b;
+    const out = new Float32Array(a.length + b.length);
+    out.set(a, 0);
+    out.set(b, a.length);
+    return out;
+  }
+}
+
+/** Overall loudness of the learned noise, in dBFS RMS (Parseval over the sqrt-Hann analysis frames) */
+export const noisePrintLevelDb = (print: NoisePrint): number => {
+  const p = print.power;
+  const n = print.fftSize;
+  let sum = p[0] + p[p.length - 1];
+  for (let k = 1; k < p.length - 1; k++) sum += 2 * p[k];
+  // frame energy = sum / n; the window keeps half the energy of a flat frame, so the true mean square is 2 * energy / n
+  return 10 * Math.log10((2 * sum) / (n * n) + 1e-20);
+};
+
+/** Default distance above the noise floor at which the gap cleanup opens, in dB */
+export const DEFAULT_GAP_CLEANUP_DB = 24;
+
+/**
+ * The stage for these settings. With a learned noise print: the print takes out the steady noise, then (unless switched off)
+ * a gap cleanup (and the rumble cut) closes the audio between phrases: anything below `noise floor + gapCleanupDb` is turned down, which removes
+ * what the print cannot (a passing street sound, a mic pump, a breath) while speech, being far above that level, is not touched.
+ * The rumble cut (highPassFreq) also applies. Without a print: the basic gate.
+ */
+export const makeDenoiseStage = (totalIn: number, sampleRate: number, params: DenoiseParams): Stage => {
+  if (!params.print) return new DenoiseStage(totalIn, sampleRate, params);
+  const print = new NoisePrintStage(totalIn, sampleRate, params.print, { reductionDb: num(params.reductionDb, 14), sensitivity: num(params.sensitivity, 1.5), voiceProtection: params.voiceProtection, listenRemoved: params.listenRemoved });
+  const gap = Math.max(0, num(params.gapCleanupDb, DEFAULT_GAP_CLEANUP_DB));
+  // Listening to what is removed shows the print's part only; the gap cleanup works on the clean result
+  if (params.listenRemoved || gap <= 0) return print;
+  const closing = { ...params, noiseFloorThresholdDb: noisePrintLevelDb(params.print) + gap, reductionDb: Math.max(12, num(params.reductionDb, 14) + 6), expansion: 3 };
+  return new SerialStage(print, new DenoiseStage(totalIn, sampleRate, closing));
+};
 
 /** The whole clip at once (same code and result as streaming it). */
 export const denoiseChannels = (channels: Float32Array[], sampleRate: number, params: DenoiseParams): Float32Array[] =>

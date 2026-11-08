@@ -6,6 +6,8 @@
 
 import { chainsOnTrack } from './spliceChains';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { PresetBar } from './PresetBar';
+import { loadCustomPresets, removeCustomPreset, saveCustomPreset } from './customPresets';
 import {
   Sparkles,
   Play,
@@ -178,12 +180,27 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   const currentAsset = currentItem?.asset || null;
 
   // Parameter states per effect
+  const [customEffects, setCustomEffects] = useState<Record<string, { name: string; value: any }[]>>(() =>
+    Object.fromEntries((Object.keys(EFFECT_PRESETS) as EffectType[]).map((t) => [t, loadCustomPresets<any>(`effect.${t}`)])),
+  );
   const [delayParams, setDelayParams] = useState<DelayParams>(EFFECT_PRESETS.delay[0].params);
   const [eqParams, setEqParams] = useState<EqualizerParams>(EFFECT_PRESETS.equalizer[0].params);
   const [chorusParams, setChorusParams] = useState<ChorusParams>(EFFECT_PRESETS.chorus[0].params);
   const [flangerParams, setFlangerParams] = useState<FlangerParams>(EFFECT_PRESETS.flanger[0].params);
   const [phaserParams, setPhaserParams] = useState<PhaserParams>(EFFECT_PRESETS.phaser[0].params);
   const [reverbParams, setReverbParams] = useState<ReverbParams>(EFFECT_PRESETS.reverb[0].params);
+
+  // Every opening starts from each effect's first preset, so the last job's settings never carry over to a new track
+  useEffect(() => {
+    if (!isOpen) return;
+    setDelayParams(EFFECT_PRESETS.delay[0].params);
+    setEqParams(EFFECT_PRESETS.equalizer[0].params);
+    setChorusParams(EFFECT_PRESETS.chorus[0].params);
+    setFlangerParams(EFFECT_PRESETS.flanger[0].params);
+    setPhaserParams(EFFECT_PRESETS.phaser[0].params);
+    setReverbParams(EFFECT_PRESETS.reverb[0].params);
+    setIsBypassed(false);
+  }, [isOpen]);
 
   // Live Audition State
   const [previewState, setPreviewState] = useState<'none' | 'original' | 'processed'>('none');
@@ -480,44 +497,33 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           <div className="flex items-start justify-between gap-3 rounded-card border border-line bg-surface-1 p-3">
             <div className="min-w-0 flex-1">
               <span className="mb-1.5 block text-[11px] font-semibold text-ink-dim">Presets</span>
-              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Presets">
-                {(() => {
-                  const current = JSON.stringify(
-                    activeType === 'delay' ? delayParams : activeType === 'equalizer' ? eqParams : activeType === 'chorus' ? chorusParams : activeType === 'flanger' ? flangerParams : activeType === 'phaser' ? phaserParams : reverbParams,
-                  );
-                  const list = EFFECT_PRESETS[activeType] ?? [];
-                  const matched = list.findIndex((pr) => JSON.stringify(pr.params) === current);
-                  const pill = (on: boolean) =>
-                    `h-7 cursor-pointer rounded-full border px-3 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
-                      on ? 'border-accent/50 bg-accent-soft text-accent' : 'border-line text-ink-dim hover:border-line-strong hover:text-ink'
-                    }`;
-                  return (
-                    <>
-                      {list.map((preset, idx) => (
-                        <button
-                          key={preset.name}
-                          type="button"
-                          aria-pressed={idx === matched}
-                          onClick={() => {
-                            const p = preset.params;
-                            if (activeType === 'delay') setDelayParams({ ...p });
-                            else if (activeType === 'equalizer') setEqParams({ ...p });
-                            else if (activeType === 'chorus') setChorusParams({ ...p });
-                            else if (activeType === 'flanger') setFlangerParams({ ...p });
-                            else if (activeType === 'phaser') setPhaserParams({ ...p });
-                            else if (activeType === 'reverb') setReverbParams({ ...p });
-                            handleParamChange();
-                          }}
-                          className={pill(idx === matched)}
-                        >
-                          {preset.name}
-                        </button>
-                      ))}
-                      {matched < 0 && <span className="inline-flex h-7 items-center rounded-full border border-dashed border-line-strong px-3 text-[11px] text-ink-faint">Custom</span>}
-                    </>
-                  );
-                })()}
-              </div>
+              {(() => {
+                const currentParams = activeType === 'delay' ? delayParams : activeType === 'equalizer' ? eqParams : activeType === 'chorus' ? chorusParams : activeType === 'flanger' ? flangerParams : activeType === 'phaser' ? phaserParams : reverbParams;
+                const current = JSON.stringify(currentParams);
+                const list = EFFECT_PRESETS[activeType] ?? [];
+                const customList = customEffects[activeType] ?? [];
+                const setParams = (p: any) => {
+                  if (activeType === 'delay') setDelayParams({ ...p });
+                  else if (activeType === 'equalizer') setEqParams({ ...p });
+                  else if (activeType === 'chorus') setChorusParams({ ...p });
+                  else if (activeType === 'flanger') setFlangerParams({ ...p });
+                  else if (activeType === 'phaser') setPhaserParams({ ...p });
+                  else if (activeType === 'reverb') setReverbParams({ ...p });
+                  handleParamChange();
+                };
+                return (
+                  <PresetBar
+                    presets={list}
+                    activeIndex={list.findIndex((pr) => JSON.stringify(pr.params) === current)}
+                    onPick={(i) => setParams(list[i].params)}
+                    custom={customList}
+                    activeCustomIndex={customList.findIndex((pr) => JSON.stringify(pr.value) === current)}
+                    onPickCustom={(i) => setParams(customList[i].value)}
+                    onRemoveCustom={(n) => setCustomEffects({ ...customEffects, [activeType]: removeCustomPreset<any>(`effect.${activeType}`, n) })}
+                    onSave={(n) => setCustomEffects({ ...customEffects, [activeType]: saveCustomPreset(`effect.${activeType}`, n, currentParams) })}
+                  />
+                );
+              })()}
             </div>
 
             <button
