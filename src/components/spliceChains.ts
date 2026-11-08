@@ -205,3 +205,49 @@ export const healSeams = (tracks: Track[]): Track[] => {
   });
   return changedAny ? out : tracks;
 };
+
+export type RejoinPlan =
+  | { ok: true; trackId: string; moves: { clipId: string; startSeconds: number }[] }
+  | { ok: false; reason: 'none' | 'already' | 'locked' | 'no-room' };
+
+/**
+ * Bring the pieces of one edited clip back together. Every piece sharing the selected piece's spliceId (on any track) is laid
+ * end to end on the selected piece's track, in the order they sit on the timeline now, beginning where the earliest piece
+ * starts. Refuses when the pieces already form one chain, when one is locked, or when another clip is in the way.
+ */
+export const rejoinPlan = (tracks: readonly Track[], clipId: string): RejoinPlan => {
+  const target = tracks.find((t) => t.clips.some((c) => c.id === clipId));
+  const sel = target?.clips.find((c) => c.id === clipId);
+  if (!target || !sel || !sel.spliceId) return { ok: false, reason: 'none' };
+  const trackIndex = new Map(tracks.map((t, i) => [t.id, i]));
+  const pieces = tracks.flatMap((t) => t.clips).filter((c) => c.spliceId === sel.spliceId)
+    .sort((a, b) => a.startSeconds - b.startSeconds || (trackIndex.get(a.trackId) ?? 0) - (trackIndex.get(b.trackId) ?? 0));
+  if (pieces.length < 2) return { ok: false, reason: 'none' };
+  const together = pieces.every((p) => p.trackId === target.id) && chainsOnTrack(target.clips).some((ch) => ch.length === pieces.length && pieces.every((p) => ch.some((c) => c.id === p.id)));
+  if (together) return { ok: false, reason: 'already' };
+  if (pieces.some((p) => p.locked)) return { ok: false, reason: 'locked' };
+  let at = pieces[0].startSeconds;
+  const moves: { clipId: string; startSeconds: number }[] = [];
+  for (const p of pieces) { moves.push({ clipId: p.id, startSeconds: at }); at += p.durationSeconds; }
+  const end = at;
+  const ids = new Set(pieces.map((p) => p.id));
+  const start = pieces[0].startSeconds;
+  const blocked = target.clips.some((c) => !ids.has(c.id) && c.startSeconds < end - SEAM_EPS && c.startSeconds + c.durationSeconds > start + SEAM_EPS);
+  if (blocked) return { ok: false, reason: 'no-room' };
+  return { ok: true, trackId: target.id, moves };
+};
+
+/** The tracks after a successful plan: the pieces move onto the plan's track at their new starts. */
+export const applyRejoin = (tracks: readonly Track[], plan: Extract<RejoinPlan, { ok: true }>): Track[] => {
+  const to = new Map(plan.moves.map((m) => [m.clipId, m.startSeconds]));
+  const moved: Clip[] = [];
+  const stripped = tracks.map((t) => ({
+    ...t,
+    clips: t.clips.filter((c) => {
+      if (!to.has(c.id)) return true;
+      moved.push({ ...c, trackId: plan.trackId, startSeconds: to.get(c.id)! });
+      return false;
+    }),
+  }));
+  return stripped.map((t) => (t.id === plan.trackId ? { ...t, clips: [...t.clips, ...moved].sort((a, b) => a.startSeconds - b.startSeconds) } : t));
+};

@@ -41,6 +41,7 @@ import {
   Undo2,
   Redo2,
   Upload,
+  Link2,
 } from 'lucide-react';
 import { Clip } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
@@ -100,6 +101,10 @@ interface ClipToolbarProps {
   canDelete?: boolean;
   /** Add a marker at the playhead (or remove the one already there). Key M. */
   onToggleMarker?: () => void;
+  /** Bring the pieces of the selected edited clip back together */
+  onRejoin?: () => void;
+  /** True when the selected clip has pieces that are torn apart (so Rejoin has something to do) */
+  canRejoin?: boolean;
   markerCount?: number;
   isControllerCollapsed?: boolean;
   onToggleController?: () => void;
@@ -238,6 +243,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   rangeSeconds,
   onDeleteRange,
   onToggleMarker,
+  onRejoin,
+  canRejoin = false,
   markerCount = 0,
   canDelete = false,
   projectName,
@@ -534,7 +541,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               onClick={onPaste}
               icon={<ClipboardPaste className="h-3 w-3" />}
             >
-              <span className="max-[1650px]:hidden">Paste</span>
+              <span className="max-[1500px]:hidden">Paste</span>
             </CapsuleButton>
             <CapsuleButton
               title={hasRange ? 'Silence the highlighted range (mutes just that part)' : hasSelection ? 'Silence the selected clips' : 'Select a clip or highlight a range to silence'}
@@ -543,6 +550,14 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               icon={<VolumeX className="h-3 w-3" />}
             >
               <span className="max-[1150px]:hidden">Silence</span>
+            </CapsuleButton>
+            <CapsuleButton
+              title={canRejoin ? 'Rejoin: bring the pieces of this edited clip back together as one clip, on this track' : 'Rejoin is available when the selected clip was edited in pieces that have been pulled apart'}
+              disabled={!canRejoin || !onRejoin}
+              onClick={onRejoin}
+              icon={<Link2 className="h-3 w-3" />}
+            >
+              <span className="max-[1500px]:hidden">Rejoin</span>
             </CapsuleButton>
           </Capsule>
         </div>

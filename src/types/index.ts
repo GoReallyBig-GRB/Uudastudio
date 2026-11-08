@@ -218,6 +218,10 @@ export interface Marker {
   id: string;
   timeSeconds: number;
   colorIndex: number;
+  /** Optional label shown beside the flag */
+  name?: string;
+  /** The clip this marker is attached to: when that clip moves, the marker moves with it. Absent = fixed in time. */
+  clipId?: string;
 }
 
 export interface Project {
