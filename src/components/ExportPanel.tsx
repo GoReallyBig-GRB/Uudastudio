@@ -163,46 +163,46 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
     >
       <section
         role="dialog" aria-modal="true" aria-labelledby="export-heading"
-        className="uuda-pop-in flex max-h-[92vh] w-full max-w-[540px] flex-col overflow-hidden rounded-3xl border border-zinc-800 bg-[#101015] text-zinc-100 shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
+        className="uuda-pop-in flex max-h-[92vh] w-full max-w-[540px] flex-col overflow-hidden rounded-3xl border border-line bg-surface-1 text-ink shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
       >
         <header className="flex items-start justify-between gap-4 px-5 pb-2 pt-6 sm:px-7">
           <div>
             <h2 id="export-heading" className="text-xl font-semibold tracking-tight">Export</h2>
-            <p className="mt-1 text-xs text-zinc-500">
+            <p className="mt-1 text-xs text-ink-faint">
               {hasAudio ? `${formatTrackLength(seconds) || '<1m'} of audio, ${sampleRate / 1000} kHz` : 'Nothing on the timeline yet'}
             </p>
           </div>
-          <button type="button" onClick={closeIfIdle} disabled={running} aria-label="Close" className="-mr-2 -mt-1 rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-30">
+          <button type="button" onClick={closeIfIdle} disabled={running} aria-label="Close" className="-mr-2 -mt-1 rounded-full p-2 text-ink-faint transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-30">
             <X className="h-4 w-4" />
           </button>
         </header>
 
         {finished && !running ? (
           <div className="flex flex-col items-center px-7 pb-8 pt-6 text-center" role="status">
-            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-cyan-300 text-zinc-950 shadow-[0_0_30px_rgba(0,240,255,0.35)]">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-surface-0">
               <Check className="h-7 w-7" strokeWidth={3} />
             </span>
             <h3 className="mt-5 max-w-full truncate text-lg font-semibold">{finished.filename}</h3>
-            <p className="mt-1 text-sm text-zinc-400">{formatSize(finished.blob.size)}, sent to your downloads</p>
+            <p className="mt-1 text-sm text-ink-dim">{formatSize(finished.blob.size)}, sent to your downloads</p>
             {finished.stats && finished.mastered && (
               <dl className="mt-6 grid w-full grid-cols-2 gap-3 text-left">
-                <div className="rounded-2xl border border-zinc-800 bg-[#0e0e13] px-4 py-3">
-                  <dt className="text-[11px] text-zinc-500">Loudness</dt>
-                  <dd className="mono-nums mt-0.5 text-lg">{lufs(finished.stats.integratedLUFS)}<span className="ml-1 text-xs text-zinc-500">LUFS</span></dd>
-                  <dd className={`text-[11px] ${measuredOk ? 'text-cyan-300' : 'text-amber-300'}`}>{measuredOk ? `On target (${lufs(mastering.targetLufs)})` : `Target was ${lufs(mastering.targetLufs)}`}</dd>
+                <div className="rounded-2xl border border-line bg-surface-1 px-4 py-3">
+                  <dt className="text-[11px] text-ink-faint">Loudness</dt>
+                  <dd className="mono-nums mt-0.5 text-lg">{lufs(finished.stats.integratedLUFS)}<span className="ml-1 text-xs text-ink-faint">LUFS</span></dd>
+                  <dd className={`text-[11px] ${measuredOk ? 'text-accent' : 'text-warn'}`}>{measuredOk ? `On target (${lufs(mastering.targetLufs)})` : `Target was ${lufs(mastering.targetLufs)}`}</dd>
                 </div>
-                <div className="rounded-2xl border border-zinc-800 bg-[#0e0e13] px-4 py-3">
-                  <dt className="text-[11px] text-zinc-500">True peak</dt>
-                  <dd className="mono-nums mt-0.5 text-lg">{lufs(finished.stats.truePeakDbTP)}<span className="ml-1 text-xs text-zinc-500">dBTP</span></dd>
-                  <dd className="text-[11px] text-zinc-500">{finished.verifiedFromFile ? 'Measured in the saved file' : 'Measured as written'}</dd>
+                <div className="rounded-2xl border border-line bg-surface-1 px-4 py-3">
+                  <dt className="text-[11px] text-ink-faint">True peak</dt>
+                  <dd className="mono-nums mt-0.5 text-lg">{lufs(finished.stats.truePeakDbTP)}<span className="ml-1 text-xs text-ink-faint">dBTP</span></dd>
+                  <dd className="text-[11px] text-ink-faint">{finished.verifiedFromFile ? 'Measured in the saved file' : 'Measured as written'}</dd>
                 </div>
               </dl>
             )}
             <div className="mt-7 flex w-full gap-3">
-              <button type="button" onClick={() => triggerFileDownload(finished.blob, finished.filename)} className="h-12 flex-1 rounded-full border border-zinc-700 text-sm font-semibold text-zinc-100 transition-colors hover:bg-zinc-800">
+              <button type="button" onClick={() => triggerFileDownload(finished.blob, finished.filename)} className="h-12 flex-1 rounded-full border border-line-strong text-sm font-semibold text-ink transition-colors hover:bg-surface-2">
                 Download again
               </button>
-              <button type="button" onClick={onClose} className="h-12 flex-1 rounded-full bg-zinc-50 text-sm font-semibold text-zinc-950 transition-colors hover:bg-white">
+              <button type="button" onClick={onClose} className="h-12 flex-1 rounded-full border border-line-strong bg-surface-2 text-sm font-semibold text-ink transition-colors hover:bg-surface-3">
                 Done
               </button>
             </div>
@@ -211,30 +211,30 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
           <>
             <div className={`flex-1 space-y-7 overflow-y-auto px-5 pb-6 pt-5 transition-opacity sm:px-7 ${running ? 'pointer-events-none opacity-40' : ''}`} aria-busy={running}>
               {tempActive && (
-                <div className="flex items-center justify-between gap-3 rounded-2xl border border-cyan-400/30 bg-cyan-400/5 px-4 py-3 text-xs text-zinc-300">
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-accent/30 bg-accent-soft px-4 py-3 text-xs text-ink-dim">
                   <span>Temporary clip levels are applied to this export ({Object.keys(tempClipLevels).length} {Object.keys(tempClipLevels).length === 1 ? 'clip' : 'clips'}). They are not saved.</span>
                   {onResetTempLevels && (
-                    <button type="button" onClick={onResetTempLevels} className="shrink-0 rounded-full border border-zinc-700 px-3 py-1 font-semibold text-zinc-100 hover:bg-zinc-800">
+                    <button type="button" onClick={onResetTempLevels} className="shrink-0 rounded-full border border-line-strong px-3 py-1 font-semibold text-ink hover:bg-surface-2">
                       Reset
                     </button>
                   )}
                 </div>
               )}
               <div>
-                <label htmlFor="export-title" className="mb-2 block text-xs font-medium text-zinc-400">Name</label>
-                <div className="flex items-baseline gap-2 border-b border-zinc-700 pb-2 transition-colors focus-within:border-cyan-300">
+                <label htmlFor="export-title" className="mb-2 block text-xs font-medium text-ink-dim">Name</label>
+                <div className="flex items-baseline gap-2 border-b border-line-strong pb-2 transition-colors focus-within:border-accent">
                   <input
                     id="export-title" value={title} maxLength={180} placeholder="Name your file" autoFocus
                     onChange={(e) => setTitle(e.target.value)} disabled={running}
-                    className="min-w-0 flex-1 bg-transparent text-xl font-medium outline-none placeholder:text-zinc-600"
+                    className="min-w-0 flex-1 bg-transparent text-xl font-medium outline-none placeholder:text-ink-faint"
                   />
-                  <span className="mono-nums shrink-0 text-sm text-zinc-500">.{format}</span>
+                  <span className="mono-nums shrink-0 text-sm text-ink-faint">.{format}</span>
                 </div>
               </div>
 
               {selection && format !== 'uuda' && (
                 <div>
-                  <div className="mb-2 text-xs font-medium text-zinc-400">What to export</div>
+                  <div className="mb-2 text-xs font-medium text-ink-dim">What to export</div>
                   <div role="radiogroup" aria-label="What to export" className="grid grid-cols-2 gap-2.5">
                     {([
                       { value: 'all' as const, name: 'Whole project', detail: 'Every track and clip' },
@@ -245,21 +245,21 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
                         aria-checked={(lockedToSelection ? 'selection' : scope) === o.value}
                         disabled={lockedToSelection && o.value === 'all'}
                         onClick={() => setScope(o.value)}
-                        className={`rounded-2xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${(lockedToSelection ? 'selection' : scope) === o.value ? 'border-cyan-300/60 bg-cyan-300/10' : 'border-zinc-800 bg-[#0e0e13] hover:bg-zinc-900 disabled:hover:bg-[#0e0e13]'}`}
+                        className={`rounded-2xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${(lockedToSelection ? 'selection' : scope) === o.value ? 'border-accent/60 bg-accent-soft' : 'border-line bg-surface-1 hover:bg-surface-1 disabled:hover:bg-surface-1'}`}
                       >
                         <div className="text-sm font-semibold">{o.name}</div>
-                        <div className="text-[11px] text-zinc-500">{o.detail}</div>
+                        <div className="text-[11px] text-ink-faint">{o.detail}</div>
                       </button>
                     ))}
                   </div>
                   {lockedToSelection && (
-                    <div className="mt-2 text-[11px] text-zinc-500">Locked to the selected group so the rest of the mix is never included by mistake. Click empty timeline space to deselect, then export for the whole project.</div>
+                    <div className="mt-2 text-[11px] text-ink-faint">Locked to the selected group so the rest of the mix is never included by mistake. Click empty timeline space to deselect, then export for the whole project.</div>
                   )}
                 </div>
               )}
 
               <div>
-                <div className="mb-2 text-xs font-medium text-zinc-400">Format</div>
+                <div className="mb-2 text-xs font-medium text-ink-dim">Format</div>
                 <div role="radiogroup" aria-label="Format" className="grid grid-cols-3 gap-2.5">
                   {FORMATS.map((f) => {
                     const on = format === f.value;
@@ -267,10 +267,10 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
                       <button
                         key={f.value} type="button" role="radio" aria-checked={on}
                         onClick={() => { setFormat(f.value); setFinished(null); setError(null); }}
-                        className={`rounded-2xl border px-3.5 py-3.5 text-left transition-colors focus-visible sm:px-4:outline focus-visible:outline-2 focus-visible:outline-cyan-300 ${on ? 'border-cyan-300/70 bg-cyan-300/[0.06]' : 'border-zinc-800 bg-[#0e0e13] hover:border-zinc-600'}`}
+                        className={`rounded-2xl border px-3.5 py-3.5 text-left transition-colors focus-visible sm:px-4:outline focus-visible:outline-2 focus-visible:outline-accent ${on ? 'border-accent/70 bg-accent/[0.06]' : 'border-line bg-surface-1 hover:border-line-strong'}`}
                       >
-                        <span className={`block text-base font-semibold ${on ? 'text-zinc-50' : 'text-zinc-300'}`}>{f.name}</span>
-                        <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">{f.detail}</span>
+                        <span className={`block text-base font-semibold ${on ? 'text-ink' : 'text-ink-dim'}`}>{f.name}</span>
+                        <span className="mt-0.5 block text-[11px] leading-snug text-ink-faint">{f.detail}</span>
                       </button>
                     );
                   })}
@@ -278,36 +278,36 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
 
                 <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none ${format === 'mp3' ? 'mt-3 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`} aria-hidden={format !== 'mp3'}>
                   <div className="overflow-hidden">
-                    <div role="radiogroup" aria-label="MP3 bitrate" className="grid grid-cols-4 gap-1 rounded-full border border-zinc-800 bg-[#0a0a0e] p-1">
+                    <div role="radiogroup" aria-label="MP3 bitrate" className="grid grid-cols-4 gap-1 rounded-full border border-line bg-surface-0 p-1">
                       {MP3_BITRATES.map((b) => (
                         <button
                           key={b} type="button" role="radio" aria-checked={kbps === b} tabIndex={format === 'mp3' ? 0 : -1} onClick={() => setKbps(b)}
-                          className={`rounded-full py-1.5 text-xs font-semibold transition-colors ${kbps === b ? 'bg-zinc-700 text-zinc-50' : 'text-zinc-500 hover:text-zinc-200'}`}
+                          className={`rounded-full py-1.5 text-xs font-semibold transition-colors ${kbps === b ? 'bg-surface-3 text-ink' : 'text-ink-faint hover:text-ink'}`}
                         >
                           {b} <span className="font-normal opacity-60">kbps</span>
                         </button>
                       ))}
                     </div>
-                    <p className="mt-2 text-[11px] text-zinc-500">192 suits most uses. 320 keeps the most detail.</p>
+                    <p className="mt-2 text-[11px] text-ink-faint">192 suits most uses. 320 keeps the most detail.</p>
                   </div>
                 </div>
 
                 {format === 'uuda' && (
-                  <p className="mt-3 text-xs leading-relaxed text-zinc-500">Saves the timeline with its audio so you can reopen it in Uuda Studio. It is not a rendered mix.</p>
+                  <p className="mt-3 text-xs leading-relaxed text-ink-faint">Saves the timeline with its audio so you can reopen it in Uuda Studio. It is not a rendered mix.</p>
                 )}
 
                 {mp3TooHigh && (
-                  <div role="group" aria-label="Sample rate" className="mt-3 rounded-2xl border border-amber-400/30 bg-amber-400/[0.05] p-4 text-xs leading-relaxed">
-                    <p className="text-amber-100">This project runs at {sampleRate / 1000} kHz. MP3 holds up to 48 kHz, which covers everything you can hear.</p>
+                  <div role="group" aria-label="Sample rate" className="mt-3 rounded-2xl border border-warn/30 bg-warn/[0.05] p-4 text-xs leading-relaxed">
+                    <p className="text-warn">This project runs at {sampleRate / 1000} kHz. MP3 holds up to 48 kHz, which covers everything you can hear.</p>
                     {optimise48 ? (
-                      <p className="mt-2 flex items-center justify-between gap-3 text-zinc-300">
+                      <p className="mt-2 flex items-center justify-between gap-3 text-ink-dim">
                         <span>The MP3 will be converted to 48 kHz. Your project stays at {sampleRate / 1000} kHz.</span>
-                        <button type="button" onClick={() => setOptimise48(false)} className="shrink-0 font-semibold text-cyan-300 hover:text-cyan-100">Change</button>
+                        <button type="button" onClick={() => setOptimise48(false)} className="shrink-0 font-semibold text-accent hover:text-accent">Change</button>
                       </p>
                     ) : (
                       <div className="mt-3 grid grid-cols-2 gap-2">
-                        <button type="button" onClick={() => { setFormat('wav'); setFinished(null); }} className="h-10 rounded-full border border-zinc-600 text-xs font-semibold text-zinc-100 transition-colors hover:bg-zinc-800">Export as WAV</button>
-                        <button type="button" onClick={() => setOptimise48(true)} className="h-10 rounded-full bg-zinc-50 text-xs font-semibold text-zinc-950 transition-colors hover:bg-white">Optimise to 48 kHz</button>
+                        <button type="button" onClick={() => { setFormat('wav'); setFinished(null); }} className="h-10 rounded-full border border-line-strong text-xs font-semibold text-ink transition-colors hover:bg-surface-2">Export as WAV</button>
+                        <button type="button" onClick={() => setOptimise48(true)} className="h-10 rounded-full border border-line-strong bg-surface-2 text-xs font-semibold text-ink transition-colors hover:bg-surface-3">Optimise to 48 kHz</button>
                       </div>
                     )}
                   </div>
@@ -316,12 +316,12 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
 
               {isAudio && (
                 <div>
-                  <div className="mb-2 text-xs font-medium text-zinc-400">Mastering</div>
-                  <div className="rounded-2xl border border-zinc-800 bg-[#0e0e13] px-4 py-3.5">
+                  <div className="mb-2 text-xs font-medium text-ink-dim">Mastering</div>
+                  <div className="rounded-2xl border border-line bg-surface-1 px-4 py-3.5">
                     <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-zinc-100">{useMastering ? presetName : 'Original mix'}</div>
-                        <div className="mt-0.5 text-xs leading-snug text-zinc-500">
+                        <div className="truncate text-sm font-semibold text-ink">{useMastering ? presetName : 'Original mix'}</div>
+                        <div className="mt-0.5 text-xs leading-snug text-ink-faint">
                           {useMastering
                             ? `${lufs(mastering.targetLufs)} LUFS, peaks under ${lufs(mastering.ceilingDbTP)} dBTP${matched ? '' : '. Loudness is measured first.'}`
                             : 'No mastering applied'}
@@ -330,12 +330,12 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
                       <button
                         type="button" role="switch" aria-checked={useMastering} aria-label="Apply mastering"
                         onClick={() => setUseMastering((v) => !v)}
-                        className={`relative h-7 w-12 shrink-0 rounded-full transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 ${useMastering ? 'bg-cyan-300' : 'bg-zinc-700'}`}
+                        className={`relative h-7 w-12 shrink-0 rounded-full transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${useMastering ? 'bg-accent' : 'bg-surface-3'}`}
                       >
-                        <span className={`absolute top-1 h-5 w-5 rounded-full shadow transition-all duration-200 motion-reduce:transition-none ${useMastering ? 'left-6 bg-zinc-950' : 'left-1 bg-zinc-300'}`} />
+                        <span className={`absolute top-1 h-5 w-5 rounded-full shadow transition-all duration-200 motion-reduce:transition-none ${useMastering ? 'left-6 bg-surface-0' : 'left-1 bg-ink-dim'}`} />
                       </button>
                     </div>
-                    <button type="button" onClick={onEditMastering} className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-cyan-300 hover:text-cyan-100">
+                    <button type="button" onClick={onEditMastering} className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-accent hover:text-accent">
                       <ArrowLeft className="h-3.5 w-3.5" /> {useMastering ? 'Edit mastering' : 'Open mastering'}
                     </button>
                   </div>
@@ -343,21 +343,21 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
               )}
 
               {error && (
-                <p role="alert" className="rounded-2xl border border-rose-400/30 bg-rose-400/[0.06] px-4 py-3 text-xs leading-relaxed text-rose-200">{error}</p>
+                <p role="alert" className="rounded-2xl border border-danger/30 bg-danger/[0.06] px-4 py-3 text-xs leading-relaxed text-danger">{error}</p>
               )}
             </div>
 
-            <footer className="shrink-0 border-t border-zinc-800 bg-[#0c0c10] px-5 py-5 sm:px-7">
+            <footer className="shrink-0 border-t border-line bg-[#0c0c10] px-5 py-5 sm:px-7">
               {running && progress ? (
                 <ProgressIndicator fraction={progress.percent / 100} label={progress.message} onCancel={() => { cancelled.current = true; }} cancelLabel="Cancel export" />
               ) : (
                 <div className="flex items-center justify-between gap-4">
-                  <p className="mono-nums whitespace-nowrap text-xs text-zinc-500">
+                  <p className="mono-nums whitespace-nowrap text-xs text-ink-faint">
                     {isAudio && hasAudio ? `About ${formatSize(sizeBytes)}` : format === 'uuda' ? 'Project file' : ''}
                   </p>
                   <button
                     type="button" onClick={handleExport} disabled={!hasAudio || !title.trim() || blocked}
-                    className="flex h-12 items-center gap-2 whitespace-nowrap rounded-full bg-zinc-50 px-6 text-sm font-semibold text-zinc-950 transition-colors hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:opacity-40"
+                    className="flex h-12 items-center gap-2 whitespace-nowrap rounded-full bg-gold px-6 text-sm font-semibold text-gold-ink transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
                   >
                     <Download className="h-4 w-4" /> Export {format === 'uuda' ? 'project' : format.toUpperCase()}
                   </button>

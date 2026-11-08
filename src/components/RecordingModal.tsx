@@ -419,24 +419,24 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 select-none animate-in fade-in duration-150">
-      <div className="bg-[#101016] border border-zinc-800 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-zinc-100 max-h-[calc(100dvh-1.5rem)] md:h-[92dvh]">
+      <div className="bg-[#101016] border border-line rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-ink max-h-[calc(100dvh-1.5rem)] md:h-[92dvh]">
         {/* Header */}
-        <div className="px-3 sm:px-5 py-3.5 border-b border-zinc-800/80 bg-[#13131c] flex items-center justify-between shrink-0">
+        <div className="px-3 sm:px-5 py-3.5 border-b border-line/80 bg-surface-1 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-md bg-danger/20 text-danger border border-danger/40 flex items-center justify-center">
               <Mic className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold tracking-tight text-zinc-100 flex items-center gap-2">
+              <h2 className="text-sm font-bold tracking-tight text-ink flex items-center gap-2">
                 <span>Record Input</span>
                 {isRecording && (
-                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/50 text-[10px] font-mono animate-pulse font-semibold">
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-danger/20 text-danger border border-danger/50 text-[10px] font-mono animate-pulse font-semibold">
                     <Radio className="w-2.5 h-2.5" />
                     LIVE ON AIR
                   </span>
                 )}
               </h2>
-              <div className="text-[11px] text-zinc-500">
+              <div className="text-[11px] text-ink-faint">
                 {targetTrackName
                   ? `Recording into “${targetTrackName}” at the playhead`
                   : '4-band input EQ applied directly before capture'}
@@ -452,7 +452,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
               }
               onClose();
             }}
-            className="p-1 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+            className="p-1 rounded text-ink-dim hover:text-ink hover:bg-surface-2 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -460,17 +460,17 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
 
         {/* Permission Denied Error Banner */}
         {permissionError && (
-          <div className="m-4 p-4 rounded-lg bg-rose-950/40 border border-rose-500/60 text-rose-200 text-xs flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+          <div className="m-4 p-4 rounded-lg bg-danger/40 border border-danger/60 text-danger text-xs flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <div className="font-semibold text-rose-100">Microphone Access Denied</div>
+              <div className="font-semibold text-danger">Microphone Access Denied</div>
               <p className="text-[11px] leading-relaxed opacity-90">{permissionError}</p>
-              <div className="text-[11px] text-rose-300 font-mono pt-1">
+              <div className="text-[11px] text-danger font-mono pt-1">
                 Tip: Click the lock or settings icon in your browser URL address bar &rarr; Permissions &rarr; Microphone &rarr; Allow, then click Retry below.
               </div>
               <button
                 onClick={() => initStreamAndDevices(deviceSettings, eqSettings)}
-                className="mt-2 px-3 py-1 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/60 text-rose-200 rounded text-[11px] font-semibold transition-colors"
+                className="mt-2 px-3 py-1 bg-danger/20 hover:bg-danger/30 border border-danger/60 text-danger rounded text-[11px] font-semibold transition-colors"
               >
                 Retry Microphone Permission
               </button>
@@ -481,10 +481,10 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
         {/* Main Content Area */}
         <div className="p-5 overflow-y-auto space-y-4 flex-1">
           {/* Other tracks while recording: duck (project ducking level), mute, or leave alone */}
-          <div className="bg-[#0B0B0F] p-3.5 rounded-lg border border-zinc-800/80 flex flex-wrap items-center justify-between gap-3">
+          <div className="bg-surface-0 p-3.5 rounded-lg border border-line/80 flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-xs font-semibold text-zinc-200">Other tracks while recording</div>
-              <div className="text-[11px] text-zinc-500">
+              <div className="text-xs font-semibold text-ink">Other tracks while recording</div>
+              <div className="text-[11px] text-ink-faint">
                 {otherTracksMode === 'duck' && `Lowered by ${duckingAmountDb} dB (change the level in Settings)`}
                 {otherTracksMode === 'mute' && 'Silent while you record, restored when you stop'}
                 {otherTracksMode === 'off' && 'Play at full volume (use headphones)'}
@@ -507,14 +507,14 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
           </div>
 
           {/* Section 1: Input Device Picker & Stream Stats */}
-          <div className="bg-[#0B0B0F] p-3.5 rounded-lg border border-zinc-800/80 space-y-3">
+          <div className="bg-surface-0 p-3.5 rounded-lg border border-line/80 space-y-3">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
-                <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="font-semibold text-ink flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-accent" />
                 Input Device
               </span>
               {streamStats && (
-                <span className="text-[10px] font-mono text-zinc-400">
+                <span className="text-[10px] font-mono text-ink-dim">
                   {streamStats.sampleRate} Hz · {streamStats.channelCount === 2 ? 'Joint Stereo' : 'Mono'}
                   {streamStats.latencyMs ? ` · ${streamStats.latencyMs}ms latency` : ''}
                 </span>
@@ -528,7 +528,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
                   disabled={isRecording || isInitializingStream}
                   value={deviceSettings.deviceId}
                   onChange={(e) => handleChangeDevice(e.target.value)}
-                  className="w-full bg-[#14141E] border border-zinc-700/80 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-cyan-500 font-medium"
+                  className="w-full bg-surface-2 border border-line-strong/80 rounded px-2.5 py-1.5 text-xs text-ink focus:outline-none focus:border-accent font-medium"
                 >
                   {devices.map((d) => (
                     <option key={d.deviceId} value={d.deviceId}>
@@ -540,58 +540,58 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
 
               {/* Live Input Meter */}
               <div className="flex flex-col justify-center">
-                <div className="flex justify-between text-[10px] text-zinc-500 mb-1">
+                <div className="flex justify-between text-[10px] text-ink-faint mb-1">
                   <span>INPUT LEVEL</span>
-                  <span className="font-mono text-zinc-400">PEAK / RMS</span>
+                  <span className="font-mono text-ink-dim">PEAK / RMS</span>
                 </div>
-                <div className="h-2.5 w-full bg-black/60 rounded-xs border border-zinc-800 overflow-hidden">
+                <div className="h-2.5 w-full bg-black/60 rounded-xs border border-line overflow-hidden">
                   <canvas ref={meterCanvasRef} width={280} height={10} className="w-full h-full block" />
                 </div>
               </div>
             </div>
 
             {/* Broadcast Studio DSP Toggles */}
-            <div className="pt-2 border-t border-zinc-800/60 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+            <div className="pt-2 border-t border-line/60 flex flex-wrap items-center justify-between gap-2 text-[11px]">
               <div className="flex items-center gap-3">
-                <label className="flex items-center gap-1.5 cursor-pointer text-zinc-400 hover:text-zinc-200">
+                <label className="flex items-center gap-1.5 cursor-pointer text-ink-dim hover:text-ink">
                   <input
                     type="checkbox"
                     checked={deviceSettings.echoCancellation}
                     onChange={() => handleToggleDsp('echoCancellation')}
-                    className="rounded bg-zinc-800 border-zinc-700 accent-cyan-400"
+                    className="rounded bg-surface-2 border-line-strong accent-accent"
                   />
                   <span>Echo Cancellation</span>
                 </label>
 
-                <label className="flex items-center gap-1.5 cursor-pointer text-zinc-400 hover:text-zinc-200">
+                <label className="flex items-center gap-1.5 cursor-pointer text-ink-dim hover:text-ink">
                   <input
                     type="checkbox"
                     checked={deviceSettings.noiseSuppression}
                     onChange={() => handleToggleDsp('noiseSuppression')}
-                    className="rounded bg-zinc-800 border-zinc-700 accent-cyan-400"
+                    className="rounded bg-surface-2 border-line-strong accent-accent"
                   />
                   <span>Noise Suppression</span>
                 </label>
 
-                <label className="flex items-center gap-1.5 cursor-pointer text-zinc-400 hover:text-zinc-200">
+                <label className="flex items-center gap-1.5 cursor-pointer text-ink-dim hover:text-ink">
                   <input
                     type="checkbox"
                     checked={deviceSettings.autoGainControl}
                     onChange={() => handleToggleDsp('autoGainControl')}
-                    className="rounded bg-zinc-800 border-zinc-700 accent-cyan-400"
+                    className="rounded bg-surface-2 border-line-strong accent-accent"
                   />
                   <span>Auto Gain</span>
                 </label>
               </div>
 
-              <div className="text-[10px] text-zinc-500 italic">
+              <div className="text-[10px] text-ink-faint italic">
                 (Studio default: all DSP off)
               </div>
             </div>
 
             {/* XLR Interface Honest Note */}
-            <div className="p-2 rounded bg-zinc-900/60 border border-zinc-800/60 text-[10px] text-zinc-400 leading-relaxed flex items-start gap-1.5">
-              <HelpCircle className="w-3.5 h-3.5 text-cyan-400 shrink-0 mt-0.5" />
+            <div className="p-2 rounded bg-surface-1/60 border border-line/60 text-[10px] text-ink-dim leading-relaxed flex items-start gap-1.5">
+              <HelpCircle className="w-3.5 h-3.5 text-accent shrink-0 mt-0.5" />
               <span>
                 <strong>Hardware note:</strong> XLR microphones require an audio interface. Multi-channel capture depends on whether your browser exposes them as separate or joint channels ({streamStats?.channelCount === 2 ? 'joint stereo detected' : 'mono detected'}).
               </span>
@@ -599,17 +599,17 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
           </div>
 
           {/* Section 2: Virtual 4-Band Input EQ */}
-          <div className="bg-[#0B0B0F] p-3.5 rounded-lg border border-zinc-800/80 space-y-3">
+          <div className="bg-surface-0 p-3.5 rounded-lg border border-line/80 space-y-3">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2">
-                <Settings2 className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="font-semibold text-zinc-200">4-Band Input EQ</span>
+                <Settings2 className="w-3.5 h-3.5 text-accent" />
+                <span className="font-semibold text-ink">4-Band Input EQ</span>
                 <button
                   onClick={() => handleUpdateEQ({ bypassed: !eqSettings.bypassed })}
                   className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold transition-colors ${
                     eqSettings.bypassed
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                      : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      ? 'bg-warn/20 text-warn border border-warn/40'
+                      : 'bg-surface-2 text-ink-dim hover:text-ink'
                   }`}
                 >
                   {eqSettings.bypassed ? 'BYPASSED' : 'ACTIVE'}
@@ -621,7 +621,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
                 <select
                   value={selectedPresetId}
                   onChange={(e) => handleSelectPreset(e.target.value)}
-                  className="bg-[#14141E] border border-zinc-700/80 rounded px-2 py-1 text-[11px] text-zinc-200 focus:outline-none focus:border-cyan-500"
+                  className="bg-surface-2 border border-line-strong/80 rounded px-2 py-1 text-[11px] text-ink focus:outline-none focus:border-accent"
                 >
                   {presets.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -633,7 +633,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
                 <button
                   onClick={handleSetCurrentAsDefault}
                   title="Set current preset as automatic default"
-                  className="p-1 rounded bg-zinc-800/80 text-zinc-400 hover:text-cyan-300 transition-colors"
+                  className="p-1 rounded bg-surface-2/80 text-ink-dim hover:text-accent transition-colors"
                 >
                   <Check className="w-3 h-3" />
                 </button>
@@ -641,7 +641,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
                 <button
                   onClick={() => setShowSavePresetInput(!showSavePresetInput)}
                   title="Save current EQ settings as a new preset"
-                  className="p-1 rounded bg-zinc-800/80 text-zinc-400 hover:text-cyan-300 transition-colors"
+                  className="p-1 rounded bg-surface-2/80 text-ink-dim hover:text-accent transition-colors"
                 >
                   <BookmarkPlus className="w-3 h-3" />
                 </button>
@@ -650,7 +650,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
                   <button
                     onClick={() => handleDeletePreset(selectedPresetId)}
                     title="Delete preset"
-                    className="p-1 rounded bg-zinc-800/80 text-zinc-400 hover:text-rose-400 transition-colors"
+                    className="p-1 rounded bg-surface-2/80 text-ink-dim hover:text-danger transition-colors"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -660,17 +660,17 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
 
             {/* Save Preset Dialog Input */}
             {showSavePresetInput && (
-              <div className="flex items-center gap-2 p-2 bg-[#14141E] rounded border border-zinc-700 text-xs">
+              <div className="flex items-center gap-2 p-2 bg-surface-2 rounded border border-line-strong text-xs">
                 <input
                   type="text"
                   placeholder="New Preset Name..."
                   value={newPresetName}
                   onChange={(e) => setNewPresetName(e.target.value)}
-                  className="bg-black/60 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-100 flex-1 focus:outline-none"
+                  className="bg-black/60 border border-line-strong rounded px-2 py-1 text-xs text-ink flex-1 focus:outline-none"
                 />
                 <button
                   onClick={handleSaveNewPreset}
-                  className="px-2.5 py-1 bg-cyan-500 text-black font-semibold rounded text-xs hover:bg-cyan-400 transition-colors"
+                  className="px-2.5 py-1 bg-accent text-black font-semibold rounded text-xs hover:bg-accent transition-colors"
                 >
                   Save
                 </button>
@@ -678,21 +678,21 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
             )}
 
             {/* EQ Curve Display */}
-            <div className="h-18 w-full bg-[#08080C] rounded border border-zinc-800/80 overflow-hidden">
+            <div className="h-18 w-full bg-[#08080C] rounded border border-line/80 overflow-hidden">
               <canvas ref={eqCurveCanvasRef} width={580} height={72} className="w-full h-full block" />
             </div>
 
             {/* 4 EQ Band Sliders */}
             <div className="grid grid-cols-4 gap-3 pt-1 text-[11px]">
               {/* Band 1: Low Shelf 80Hz */}
-              <div className="flex flex-col gap-1 bg-[#121218] p-2 rounded border border-zinc-800">
-                <div className="flex justify-between text-zinc-400">
-                  <span className="font-semibold text-zinc-300">80 Hz</span>
-                  <span className="font-mono text-cyan-400">
+              <div className="flex flex-col gap-1 bg-surface-1 p-2 rounded border border-line">
+                <div className="flex justify-between text-ink-dim">
+                  <span className="font-semibold text-ink-dim">80 Hz</span>
+                  <span className="font-mono text-accent">
                     {eqSettings.lowShelf80Hz > 0 ? `+${eqSettings.lowShelf80Hz}` : eqSettings.lowShelf80Hz} dB
                   </span>
                 </div>
-                <div className="text-[10px] text-zinc-500">Low Shelf</div>
+                <div className="text-[10px] text-ink-faint">Low Shelf</div>
                 <input
                   type="range"
                   min="-12"
@@ -701,19 +701,19 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
                   disabled={eqSettings.bypassed}
                   value={eqSettings.lowShelf80Hz}
                   onChange={(e) => handleUpdateEQ({ lowShelf80Hz: parseFloat(e.target.value) })}
-                  className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                  className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                 />
               </div>
 
               {/* Band 2: Peaking 400Hz (Q 1.2) */}
-              <div className="flex flex-col gap-1 bg-[#121218] p-2 rounded border border-zinc-800">
-                <div className="flex justify-between text-zinc-400">
-                  <span className="font-semibold text-zinc-300">400 Hz</span>
-                  <span className="font-mono text-cyan-400">
+              <div className="flex flex-col gap-1 bg-surface-1 p-2 rounded border border-line">
+                <div className="flex justify-between text-ink-dim">
+                  <span className="font-semibold text-ink-dim">400 Hz</span>
+                  <span className="font-mono text-accent">
                     {eqSettings.peak400Hz > 0 ? `+${eqSettings.peak400Hz}` : eqSettings.peak400Hz} dB
                   </span>
                 </div>
-                <div className="text-[10px] text-zinc-500">Peak (Q 1.2)</div>
+                <div className="text-[10px] text-ink-faint">Peak (Q 1.2)</div>
                 <input
                   type="range"
                   min="-12"
@@ -722,19 +722,19 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
                   disabled={eqSettings.bypassed}
                   value={eqSettings.peak400Hz}
                   onChange={(e) => handleUpdateEQ({ peak400Hz: parseFloat(e.target.value) })}
-                  className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                  className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                 />
               </div>
 
               {/* Band 3: Peaking 2500Hz (Q 1.5) */}
-              <div className="flex flex-col gap-1 bg-[#121218] p-2 rounded border border-zinc-800">
-                <div className="flex justify-between text-zinc-400">
-                  <span className="font-semibold text-zinc-300">2.5 kHz</span>
-                  <span className="font-mono text-cyan-400">
+              <div className="flex flex-col gap-1 bg-surface-1 p-2 rounded border border-line">
+                <div className="flex justify-between text-ink-dim">
+                  <span className="font-semibold text-ink-dim">2.5 kHz</span>
+                  <span className="font-mono text-accent">
                     {eqSettings.peak2500Hz > 0 ? `+${eqSettings.peak2500Hz}` : eqSettings.peak2500Hz} dB
                   </span>
                 </div>
-                <div className="text-[10px] text-zinc-500">Peak (Q 1.5)</div>
+                <div className="text-[10px] text-ink-faint">Peak (Q 1.5)</div>
                 <input
                   type="range"
                   min="-12"
@@ -743,19 +743,19 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
                   disabled={eqSettings.bypassed}
                   value={eqSettings.peak2500Hz}
                   onChange={(e) => handleUpdateEQ({ peak2500Hz: parseFloat(e.target.value) })}
-                  className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                  className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                 />
               </div>
 
               {/* Band 4: High Shelf 8000Hz */}
-              <div className="flex flex-col gap-1 bg-[#121218] p-2 rounded border border-zinc-800">
-                <div className="flex justify-between text-zinc-400">
-                  <span className="font-semibold text-zinc-300">8.0 kHz</span>
-                  <span className="font-mono text-cyan-400">
+              <div className="flex flex-col gap-1 bg-surface-1 p-2 rounded border border-line">
+                <div className="flex justify-between text-ink-dim">
+                  <span className="font-semibold text-ink-dim">8.0 kHz</span>
+                  <span className="font-mono text-accent">
                     {eqSettings.highShelf8000Hz > 0 ? `+${eqSettings.highShelf8000Hz}` : eqSettings.highShelf8000Hz} dB
                   </span>
                 </div>
-                <div className="text-[10px] text-zinc-500">High Shelf</div>
+                <div className="text-[10px] text-ink-faint">High Shelf</div>
                 <input
                   type="range"
                   min="-12"
@@ -764,7 +764,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
                   disabled={eqSettings.bypassed}
                   value={eqSettings.highShelf8000Hz}
                   onChange={(e) => handleUpdateEQ({ highShelf8000Hz: parseFloat(e.target.value) })}
-                  className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                  className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                 />
               </div>
             </div>
@@ -772,17 +772,17 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
         </div>
 
         {/* Footer Transport & Record Button */}
-        <div className="px-5 py-4 border-t border-zinc-800/80 bg-[#12121A] flex items-center justify-between shrink-0">
+        <div className="px-5 py-4 border-t border-line/80 bg-[#12121A] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             {isRecording ? (
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
-                <span className="font-mono text-lg font-bold text-rose-400">
+                <div className="w-3 h-3 rounded-full bg-danger animate-ping" />
+                <span className="font-mono text-lg font-bold text-danger">
                   {formatTimecode(elapsedSeconds)}
                 </span>
               </div>
             ) : (
-              <span className="text-xs text-zinc-400">
+              <span className="text-xs text-ink-dim">
                 Ready to capture. Recorded track lands at index 0.
               </span>
             )}
@@ -792,7 +792,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
             {isRecording ? (
               <button
                 onClick={handleStopRecording}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs shadow-[0_0_20px_rgba(244,63,94,0.4)] transition-all cursor-pointer"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-danger hover:bg-danger text-white font-bold text-xs shadow-[0_0_20px_rgba(244,63,94,0.4)] transition-all cursor-pointer"
               >
                 <Square className="w-4 h-4 fill-current" />
                 <span>STOP & DOCK TRACK</span>
@@ -801,7 +801,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
               <button
                 disabled={Boolean(permissionError)}
                 onClick={handleStartRecording}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-white font-bold text-xs shadow-[0_0_20px_rgba(239,68,68,0.35)] transition-all cursor-pointer disabled:opacity-40"
+                className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-gradient-to-r from-danger to-danger hover:from-danger hover:to-danger text-white font-bold text-xs shadow-[0_0_20px_rgba(239,68,68,0.35)] transition-all cursor-pointer disabled:opacity-40"
               >
                 <div className="w-3 h-3 rounded-full bg-white animate-pulse" />
                 <span>RECORD NOW</span>
