@@ -23,6 +23,7 @@ import {
 } from './types';
 import { audioEngine } from './audio/engine';
 import { playbackSignature } from './audio/playbackSignature';
+import { insertSilenceInTracks, shiftMarkersForInsert, silenceAssetId, SILENCE_ASSET_SECONDS, type SilenceScope } from './components/insertSilence';
 import { toggleMarkerAt, neighbourMarker, followClips, markerLabel } from './audio/markers';
 import { importStreamedFile, shouldStreamImport } from './assets/streamImport';
 import { deleteStreamedAssetWithRetry } from './assets/streamedStore';
@@ -2779,6 +2780,38 @@ const MainStudio: React.FC = () => {
   };
 
   /** Silence: a highlighted range, or the selected clips, goes quiet (it can be undone, or the piece unmuted). */
+  /** The one small generated silent asset that every inserted silence plays (created once per sample rate) */
+  const ensureSilenceAsset = (sampleRate: number) => {
+    const id = silenceAssetId(sampleRate);
+    if (audioEngine.getAsset(id)) return;
+    const buffer = new AudioBuffer({ length: Math.round(SILENCE_ASSET_SECONDS * sampleRate), sampleRate, numberOfChannels: 1 });
+    const asset: Asset = { id, name: 'Silence', kind: 'import', buffer, sampleRate, durationSeconds: SILENCE_ASSET_SECONDS, numberOfChannels: 1 };
+    audioEngine.registerAsset(asset);
+    saveAssetToDB(asset).catch((err) => console.warn('Failed to save silence asset to IndexedDB:', err));
+    peakProvider.clearAsset(id);
+  };
+
+  /** Insert silence: a gap of the chosen length at the playhead (or the start of the highlighted range). The clip it cuts stays one clip. */
+  const handleInsertSilence = (lengthSeconds: number, scope: SilenceScope) => {
+    const sel = rangeSelection;
+    const at = sel ? sel.startSeconds : playheadSecondsRef.current;
+    const selectedTrack = project.tracks.find((t) => t.clips.some((c) => selectedClipIds.has(c.id)))?.id;
+    const trackId = (sel ? rangeTrackIds(sel)[0] : undefined) ?? selectedTrack ?? selectedTrackId ?? project.tracks[0]?.id;
+    if (!trackId || !project.tracks.some((t) => t.id === trackId)) {
+      addToast({ type: 'info', title: 'Nothing to insert into', message: 'Add audio to a track first.' });
+      return;
+    }
+    ensureSilenceAsset(project.sampleRate);
+    const makeId = () => `clip-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    setProjectWithHistory((prev) => {
+      const tracks = insertSilenceInTracks({ tracks: prev.tracks, trackId, atSeconds: at, lengthSeconds, scope, sampleRate: prev.sampleRate, makeId });
+      const shifted = shiftMarkersForInsert(prev.markers, prev.tracks, at, lengthSeconds, scope, trackId);
+      return { ...prev, tracks, ...(shifted ? { markers: shifted } : {}) };
+    }, false, 'insert silence');
+    if (sel) setRangeSelection(null);
+    addToast({ type: 'success', title: 'Silence inserted', message: `${lengthSeconds.toFixed(2)} s at ${formatTimecode(at)}${scope === 'all' ? ' on all tracks' : ''}. Undo removes it.` });
+  };
+
   const handleSilence = () => {
     if (rangeSelection) {
       const done = editRange(() => ({ muted: true }), true);
@@ -3969,6 +4002,8 @@ const MainStudio: React.FC = () => {
         canDelete={!!rangeSelection || selectedClipIds.size > 0}
         onToggleMarker={handleToggleMarker}
         onRejoin={handleRejoin}
+        onInsertSilence={handleInsertSilence}
+        rangeStartSeconds={rangeSelection ? rangeSelection.startSeconds : null}
         canRejoin={canRejoin}
         markerCount={project.markers?.length ?? 0}
         isControllerCollapsed={isTimelineControlsCollapsed}

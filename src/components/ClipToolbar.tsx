@@ -46,6 +46,7 @@ import {
 import { Clip } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
 import { DspModalType } from './DspModals';
+import { InsertSilenceMenu } from './InsertSilenceMenu';
 import { Capsule, CapsuleButton, HoverTitle } from './ui';
 import type { TimelineTool } from './rangeDelete';
 
@@ -102,6 +103,8 @@ interface ClipToolbarProps {
   /** Add a marker at the playhead (or remove the one already there). Key M. */
   onToggleMarker?: () => void;
   /** Bring the pieces of the selected edited clip back together */
+  onInsertSilence?: (lengthSeconds: number, scope: 'track' | 'all') => void;
+  rangeStartSeconds?: number | null;
   onRejoin?: () => void;
   /** True when the selected clip has pieces that are torn apart (so Rejoin has something to do) */
   canRejoin?: boolean;
@@ -244,6 +247,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onDeleteRange,
   onToggleMarker,
   onRejoin,
+  onInsertSilence,
+  rangeStartSeconds = null,
   canRejoin = false,
   markerCount = 0,
   canDelete = false,
@@ -551,6 +556,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             >
               <span className="max-[1150px]:hidden">Silence</span>
             </CapsuleButton>
+            {onInsertSilence && <InsertSilenceMenu rangeSeconds={rangeSeconds ?? null} rangeStartSeconds={rangeStartSeconds} onInsert={onInsertSilence} />}
             <CapsuleButton
               title={canRejoin ? 'Rejoin: make the selected clip and its neighbours one clip again (pieces cut with Split, or edited pieces pulled apart)' : 'Rejoin: select a clip that was cut with Split, or edited in pieces. Pieces must touch and come from the same audio'}
               disabled={!canRejoin || !onRejoin}
