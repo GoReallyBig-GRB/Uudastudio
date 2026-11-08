@@ -90,27 +90,27 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#08080A] flex flex-col justify-between overflow-y-auto antialiased select-none font-sans">
+    <div className="fixed inset-0 z-50 bg-surface-0 flex flex-col justify-between overflow-y-auto antialiased select-none font-sans">
       {/* Top Bar with Brand and Back Navigation */}
-      <header className="h-16 px-6 border-b border-zinc-800/80 flex items-center justify-between shrink-0">
+      <header className="h-16 px-6 border-b border-line/80 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-indigo-600 flex items-center justify-center shadow-[0_0_15px_rgba(0,240,255,0.3)]">
-            <span className="font-extrabold text-white text-sm tracking-wider">U</span>
+          <div className="w-8 h-8 rounded-control bg-accent flex items-center justify-center ">
+            <span className="font-extrabold text-surface-0 text-sm tracking-wider">U</span>
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-black text-lg tracking-wider text-white">UUDA</span>
-              <span className="text-[11px] uppercase font-bold tracking-widest text-cyan-400">
+              <span className="font-black text-lg tracking-wider text-ink">UUDA</span>
+              <span className="text-[11px] uppercase font-bold tracking-widest text-accent">
                 STUDIO
               </span>
             </div>
-            <p className="text-[11px] text-zinc-500">Browser-Based Audio Studio for Broadcast & Podcasts</p>
+            <p className="text-[11px] text-ink-faint">Browser-Based Audio Studio for Broadcast & Podcasts</p>
           </div>
         </div>
 
         <button
           onClick={onContinueAsGuest}
-          className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-cyan-300 transition-colors cursor-pointer px-3 py-1.5 rounded-md hover:bg-zinc-800/60 border border-transparent hover:border-zinc-700/60"
+          className="flex items-center gap-1.5 text-xs text-ink-dim hover:text-accent transition-colors cursor-pointer px-3 py-1.5 rounded-md hover:bg-surface-2/60 border border-transparent hover:border-line-strong/60"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Back to Studio</span>
@@ -119,30 +119,30 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
 
       {/* Main Center Card */}
       <main className="flex-1 flex items-center justify-center p-6">
-        <div className="w-full max-w-md bg-[#111116] border border-zinc-800 rounded-2xl p-8 shadow-2xl relative overflow-hidden">
+        <div className="w-full max-w-md bg-surface-2 border border-line rounded-2xl p-8 shadow-2xl relative overflow-hidden">
           {/* Subtle background glow */}
-          <div className="absolute -top-24 -left-24 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -top-24 -left-24 w-48 h-48 bg-accent-soft rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-accent-soft rounded-full blur-3xl pointer-events-none" />
 
           {/* Header Title */}
           <div className="text-center mb-8 relative">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-zinc-900 border border-zinc-700/60 mb-4 shadow-inner">
-              <Sparkles className="w-6 h-6 text-cyan-400" />
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-card bg-surface-1 border border-line-strong/60 mb-4 shadow-inner">
+              <Sparkles className="w-6 h-6 text-accent" />
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Sign in to Uuda Studio</h1>
-            <p className="text-sm text-zinc-400 mt-2">
-              New or returning? <span className="text-zinc-200 font-medium">Continue with Google</span>
+            <h1 className="text-2xl font-bold text-ink tracking-tight">Sign in to Uuda Studio</h1>
+            <p className="text-sm text-ink-dim mt-2">
+              New or returning? <span className="text-ink font-medium">Continue with Google</span>
             </p>
           </div>
 
           {/* Error Banner */}
           {errorMessage && (
-            <div className="mb-6 p-3.5 rounded-lg bg-rose-950/40 border border-rose-800/70 text-rose-200 text-xs flex items-start gap-2.5 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <div className="mb-6 p-3.5 rounded-control bg-danger/40 border border-danger/70 text-danger text-xs flex items-start gap-2.5 animate-in fade-in">
+              <AlertCircle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
               <div className="flex-1 leading-relaxed">
                 <span>{errorMessage}</span>
                 {errorMessage.includes('blocked') && (
-                  <p className="mt-1 text-[11px] text-rose-300/80">
+                  <p className="mt-1 text-[11px] text-danger/80">
                     Your account has been deactivated. For inquiries, please reach out to support.
                   </p>
                 )}
@@ -157,7 +157,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
                 type="button"
                 onClick={handleFirebaseGoogleSignIn}
                 disabled={isSigningIn}
-                className="w-full h-12 rounded-xl bg-white hover:bg-zinc-100 text-zinc-900 font-semibold text-sm flex items-center justify-center gap-3 transition-all shadow-[0_2px_12px_rgba(255,255,255,0.15)] hover:shadow-[0_4px_16px_rgba(255,255,255,0.25)] cursor-pointer active:scale-[0.99] disabled:opacity-50"
+                className="w-full h-12 rounded-card bg-ink hover:brightness-95 text-surface-0 font-semibold text-sm flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-50"
               >
                 {/* Official Google G Logo */}
                 <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
@@ -183,17 +183,17 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
 
               {/* Testing only: shown when the server has DEV_AUTH_BYPASS on. Signs in a non-admin tester account. */}
               {devLoginAvailable && (
-                <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3">
+                <div className="rounded-card border border-warn/40 bg-warn/5 p-3">
                   <button
                     type="button"
                     onClick={handleDevSignIn}
                     disabled={isSigningIn}
-                    className="w-full h-10 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="w-full h-10 rounded-control bg-warn hover:bg-warn text-black font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <FlaskConical className="w-4 h-4" />
                     <span>Developer sign-in (testing only)</span>
                   </button>
-                  <p className="text-[11px] text-amber-200/80 mt-2 leading-snug">
+                  <p className="text-[11px] text-warn/80 mt-2 leading-snug">
                     Signs in as a non-admin test account. Shown only because this server has testing sign-in switched on.
                   </p>
                 </div>
@@ -204,11 +204,11 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
                 <button
                   type="button"
                   onClick={onContinueAsGuest}
-                  className="text-xs text-zinc-400 hover:text-cyan-300 underline underline-offset-4 transition-colors cursor-pointer"
+                  className="text-xs text-ink-dim hover:text-accent underline underline-offset-4 transition-colors cursor-pointer"
                 >
                   Use the editor without an account
                 </button>
-                <p className="text-[11px] text-zinc-500 mt-1">
+                <p className="text-[11px] text-ink-faint mt-1">
                   Offline recorder, library import & mastering remain free; voice generation requires sign-in.
                 </p>
               </div>
@@ -216,13 +216,13 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
           )}
 
           {/* Privacy & Policy Note */}
-          <div className="mt-8 pt-4 border-t border-zinc-800/80 flex items-center justify-between text-[11px] text-zinc-500">
+          <div className="mt-8 pt-4 border-t border-line/80 flex items-center justify-between text-[11px] text-ink-faint">
             <span className="flex items-center gap-1.5">
-              <Lock className="w-3 h-3 text-zinc-600" />
+              <Lock className="w-3 h-3 text-ink-faint" />
               <span>Permanent Google ID Identity</span>
             </span>
             <span className="flex items-center gap-1.5">
-              <Shield className="w-3 h-3 text-zinc-600" />
+              <Shield className="w-3 h-3 text-ink-faint" />
               <span>Standard Free Quota</span>
             </span>
           </div>
@@ -230,7 +230,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
       </main>
 
       {/* Footer */}
-      <footer className="h-12 px-6 border-t border-zinc-800/80 flex items-center justify-between text-[11px] text-zinc-500 shrink-0">
+      <footer className="h-12 px-6 border-t border-line/80 flex items-center justify-between text-[11px] text-ink-faint shrink-0">
         <div>Uuda Studio • Professional Broadcast & Podcast Audio DAW</div>
         <div className="flex gap-4">
           <span>Standard Google Quota</span>

@@ -384,15 +384,15 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-2 sm:p-4 select-none animate-in fade-in duration-100">
-      <div className="w-full max-w-xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] bg-[#101016] border border-cyan-500/50 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col text-xs text-zinc-200">
+      <div className="w-full max-w-xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] bg-[#101016] border border-accent/50 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col text-xs text-ink">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 bg-[#161622]">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-line bg-surface-2">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-cyan-400" />
-            <h2 className="font-extrabold text-sm uppercase tracking-wider text-zinc-100">
+            <Sparkles className="w-4 h-4 text-accent" />
+            <h2 className="font-extrabold text-sm uppercase tracking-wider text-ink">
               Audio Effects Suite Rack
             </h2>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono font-bold">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent-soft text-accent font-mono font-bold">
               Real DSP
             </span>
           </div>
@@ -402,7 +402,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
               stopPreview();
               onClose();
             }}
-            className="p-1 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="p-1 rounded-md text-ink-dim hover:text-white hover:bg-surface-2 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -410,19 +410,19 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
 
         {/* Error notification */}
         {errorMessage && (
-          <div className="px-5 py-2 bg-rose-950/80 border-b border-rose-800 text-rose-200 text-[11px] flex items-center justify-between">
+          <div className="px-5 py-2 bg-danger/80 border-b border-danger text-danger text-[11px] flex items-center justify-between">
             <span>{errorMessage}</span>
-            <button onClick={() => setErrorMessage(null)} className="text-rose-400 hover:text-white cursor-pointer">
+            <button onClick={() => setErrorMessage(null)} className="text-danger hover:text-white cursor-pointer">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
         {/* Target Audio Strip */}
-        <div className="px-4 py-2.5 bg-[#0b0b10] border-b border-zinc-800 flex items-center justify-between gap-3">
+        <div className="px-4 py-2.5 bg-[#0b0b10] border-b border-line flex items-center justify-between gap-3">
           {allClips.length > 0 ? (
             <div className="flex items-center gap-2 flex-1 min-w-0">
-              <span className="text-zinc-400 font-medium text-[11px] shrink-0">Target Clip:</span>
+              <span className="text-ink-dim font-medium text-[11px] shrink-0">Target Clip:</span>
               <select
                 value={currentClip?.id || ''}
                 onChange={(e) => {
@@ -430,7 +430,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                   setTargetClipId(e.target.value);
                   onSelectClip?.(e.target.value);
                 }}
-                className="bg-[#14141d] border border-zinc-700/80 rounded-md px-2.5 py-1 text-xs text-cyan-300 font-medium truncate flex-1 cursor-pointer focus:border-cyan-500"
+                className="bg-[#14141d] border border-line-strong/80 rounded-md px-2.5 py-1 text-xs text-accent font-medium truncate flex-1 cursor-pointer focus:border-accent"
               >
                 {allClips.map(({ trackName, clip: c }) => (
                   <option key={c.id} value={c.id}>
@@ -440,15 +440,15 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
               </select>
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-cyan-300 text-[11px]">
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <div className="flex items-center gap-2 text-accent text-[11px]">
+              <Sparkles className="w-3.5 h-3.5 text-accent shrink-0" />
               <span>Auditioning on <strong>Studio Reference Audio</strong>. Record or import audio to apply directly to timeline clips.</span>
             </div>
           )}
         </div>
 
         {/* Effect Selector Tabs */}
-        <div className="flex items-center px-4 border-b border-zinc-800 bg-[#0d0d12] gap-1 overflow-x-auto scrollbar-none">
+        <div className="flex items-center px-4 border-b border-line bg-[#0d0d12] gap-1 overflow-x-auto scrollbar-none">
           {([
             { id: 'delay', label: 'Stereo Delay' },
             { id: 'equalizer', label: 'Parametric EQ' },
@@ -465,8 +465,8 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
               }}
               className={`py-2 px-3.5 border-b-2 font-semibold text-xs transition-all cursor-pointer shrink-0 ${
                 activeType === id
-                  ? 'border-cyan-400 text-cyan-300 bg-cyan-500/10'
-                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                  ? 'border-accent text-accent bg-accent-soft'
+                  : 'border-transparent text-ink-dim hover:text-ink'
               }`}
             >
               {label}
@@ -539,9 +539,9 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           {activeType === 'delay' && (
             <div className="space-y-3">
               <div>
-                <div className="flex justify-between text-zinc-300 mb-1">
+                <div className="flex justify-between text-ink-dim mb-1">
                   <span>Delay Time</span>
-                  <span className="font-mono text-cyan-400 font-bold">{delayParams.timeMs} ms</span>
+                  <span className="font-mono text-accent font-bold">{delayParams.timeMs} ms</span>
                 </div>
                 <input
                   type="range"
@@ -553,14 +553,14 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                     setDelayParams({ ...delayParams, timeMs: parseInt(e.target.value, 10) });
                     handleParamChange();
                   }}
-                  className="w-full h-1.5 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                  className="w-full h-1.5 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                 />
               </div>
 
               <div>
-                <div className="flex justify-between text-zinc-300 mb-1">
+                <div className="flex justify-between text-ink-dim mb-1">
                   <span>Feedback (Decay Repetitions)</span>
-                  <span className="font-mono text-cyan-400 font-bold">{Math.round(delayParams.feedback * 100)}%</span>
+                  <span className="font-mono text-accent font-bold">{Math.round(delayParams.feedback * 100)}%</span>
                 </div>
                 <input
                   type="range"
@@ -572,15 +572,15 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                     setDelayParams({ ...delayParams, feedback: parseFloat(e.target.value) });
                     handleParamChange();
                   }}
-                  className="w-full h-1.5 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                  className="w-full h-1.5 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                 />
               </div>
 
               <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-1 text-[10px]">
+                  <div className="flex justify-between text-ink-dim mb-1 text-[10px]">
                     <span>High-Pass Filter</span>
-                    <span className="font-mono text-cyan-400">{delayParams.lowCutHz} Hz</span>
+                    <span className="font-mono text-accent">{delayParams.lowCutHz} Hz</span>
                   </div>
                   <input
                     type="range"
@@ -592,14 +592,14 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                       setDelayParams({ ...delayParams, lowCutHz: parseInt(e.target.value, 10) });
                       handleParamChange();
                     }}
-                    className="w-full h-1 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                   />
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-1 text-[10px]">
+                  <div className="flex justify-between text-ink-dim mb-1 text-[10px]">
                     <span>Low-Pass Filter</span>
-                    <span className="font-mono text-cyan-400">{delayParams.highCutHz} Hz</span>
+                    <span className="font-mono text-accent">{delayParams.highCutHz} Hz</span>
                   </div>
                   <input
                     type="range"
@@ -611,7 +611,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                       setDelayParams({ ...delayParams, highCutHz: parseInt(e.target.value, 10) });
                       handleParamChange();
                     }}
-                    className="w-full h-1 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                   />
                 </div>
               </div>
@@ -625,14 +625,14 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                       setDelayParams({ ...delayParams, pingPong: e.target.checked });
                       handleParamChange();
                     }}
-                    className="accent-cyan-400"
+                    className="accent-accent"
                   />
                   <span>Ping-Pong Stereo Bouncing</span>
                 </label>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-zinc-400">Dry/Wet:</span>
-                  <span className="text-cyan-400 font-bold font-mono">{Math.round(delayParams.dryWet * 100)}%</span>
+                  <span className="text-ink-dim">Dry/Wet:</span>
+                  <span className="text-accent font-bold font-mono">{Math.round(delayParams.dryWet * 100)}%</span>
                 </div>
               </div>
             </div>
@@ -642,15 +642,15 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           {activeType === 'equalizer' && (
             <div className="space-y-3">
               {eqParams.bands.map((band, idx) => (
-                <div key={band.id} className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800 flex items-center gap-3">
-                  <span className="w-14 text-[10px] font-bold text-cyan-300 font-mono">
+                <div key={band.id} className="p-2 rounded-lg bg-surface-1/60 border border-line flex items-center gap-3">
+                  <span className="w-14 text-[10px] font-bold text-accent font-mono">
                     {band.type.toUpperCase().replace('ING', '')}
                   </span>
 
                   <div className="flex-1">
-                    <div className="flex justify-between text-[10px] text-zinc-400 mb-0.5">
+                    <div className="flex justify-between text-[10px] text-ink-dim mb-0.5">
                       <span>{band.frequency} Hz</span>
-                      <span className="font-mono text-cyan-400 font-bold">
+                      <span className="font-mono text-accent font-bold">
                         {band.gainDb > 0 ? `+${band.gainDb}` : band.gainDb} dB
                       </span>
                     </div>
@@ -666,15 +666,15 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                         setEqParams({ ...eqParams, bands: newBands });
                         handleParamChange();
                       }}
-                      className="w-full h-1 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                      className="w-full h-1 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                     />
                   </div>
                 </div>
               ))}
 
-              <div className="flex justify-between items-center pt-1 text-zinc-400">
+              <div className="flex justify-between items-center pt-1 text-ink-dim">
                 <span>Master EQ Dry/Wet:</span>
-                <span className="text-cyan-400 font-bold font-mono">{Math.round(eqParams.dryWet * 100)}%</span>
+                <span className="text-accent font-bold font-mono">{Math.round(eqParams.dryWet * 100)}%</span>
               </div>
             </div>
           )}
@@ -683,9 +683,9 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           {activeType === 'chorus' && (
             <div className="space-y-3">
               <div>
-                <div className="flex justify-between text-zinc-300 mb-1">
+                <div className="flex justify-between text-ink-dim mb-1">
                   <span>Modulation Rate</span>
-                  <span className="font-mono text-cyan-400 font-bold">{chorusParams.rateHz} Hz</span>
+                  <span className="font-mono text-accent font-bold">{chorusParams.rateHz} Hz</span>
                 </div>
                 <input
                   type="range"
@@ -697,14 +697,14 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                     setChorusParams({ ...chorusParams, rateHz: parseFloat(e.target.value) });
                     handleParamChange();
                   }}
-                  className="w-full h-1.5 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                  className="w-full h-1.5 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                 />
               </div>
 
               <div>
-                <div className="flex justify-between text-zinc-300 mb-1">
+                <div className="flex justify-between text-ink-dim mb-1">
                   <span>Modulation Depth</span>
-                  <span className="font-mono text-cyan-400 font-bold">{chorusParams.depthMs} ms</span>
+                  <span className="font-mono text-accent font-bold">{chorusParams.depthMs} ms</span>
                 </div>
                 <input
                   type="range"
@@ -716,15 +716,15 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                     setChorusParams({ ...chorusParams, depthMs: parseFloat(e.target.value) });
                     handleParamChange();
                   }}
-                  className="w-full h-1.5 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                  className="w-full h-1.5 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                 />
               </div>
 
               <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-1 text-[10px]">
+                  <div className="flex justify-between text-ink-dim mb-1 text-[10px]">
                     <span>Stereo Spread</span>
-                    <span className="font-mono text-cyan-400">{Math.round(chorusParams.stereoSpread * 100)}%</span>
+                    <span className="font-mono text-accent">{Math.round(chorusParams.stereoSpread * 100)}%</span>
                   </div>
                   <input
                     type="range"
@@ -736,13 +736,13 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                       setChorusParams({ ...chorusParams, stereoSpread: parseFloat(e.target.value) });
                       handleParamChange();
                     }}
-                    className="w-full h-1 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                   />
                 </div>
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-1 text-[10px]">
+                  <div className="flex justify-between text-ink-dim mb-1 text-[10px]">
                     <span>Dry/Wet Mix</span>
-                    <span className="font-mono text-cyan-400">{Math.round(chorusParams.dryWet * 100)}%</span>
+                    <span className="font-mono text-accent">{Math.round(chorusParams.dryWet * 100)}%</span>
                   </div>
                   <input
                     type="range"
@@ -754,7 +754,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                       setChorusParams({ ...chorusParams, dryWet: parseFloat(e.target.value) });
                       handleParamChange();
                     }}
-                    className="w-full h-1 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                   />
                 </div>
               </div>
@@ -765,9 +765,9 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           {activeType === 'flanger' && (
             <div className="space-y-3">
               <div>
-                <div className="flex justify-between text-zinc-300 mb-1">
+                <div className="flex justify-between text-ink-dim mb-1">
                   <span>LFO Rate (Sweep Speed)</span>
-                  <span className="font-mono text-cyan-400 font-bold">{flangerParams.rateHz} Hz</span>
+                  <span className="font-mono text-accent font-bold">{flangerParams.rateHz} Hz</span>
                 </div>
                 <input
                   type="range"
@@ -779,14 +779,14 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                     setFlangerParams({ ...flangerParams, rateHz: parseFloat(e.target.value) });
                     handleParamChange();
                   }}
-                  className="w-full h-1.5 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                  className="w-full h-1.5 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                 />
               </div>
 
               <div>
-                <div className="flex justify-between text-zinc-300 mb-1">
+                <div className="flex justify-between text-ink-dim mb-1">
                   <span>Resonance Feedback</span>
-                  <span className="font-mono text-cyan-400 font-bold">{Math.round(flangerParams.feedback * 100)}%</span>
+                  <span className="font-mono text-accent font-bold">{Math.round(flangerParams.feedback * 100)}%</span>
                 </div>
                 <input
                   type="range"
@@ -798,13 +798,13 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                     setFlangerParams({ ...flangerParams, feedback: parseFloat(e.target.value) });
                     handleParamChange();
                   }}
-                  className="w-full h-1.5 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                  className="w-full h-1.5 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                 />
               </div>
 
-              <div className="flex justify-between items-center pt-1 text-zinc-400">
+              <div className="flex justify-between items-center pt-1 text-ink-dim">
                 <span>Flanger Dry/Wet:</span>
-                <span className="text-cyan-400 font-bold font-mono">{Math.round(flangerParams.dryWet * 100)}%</span>
+                <span className="text-accent font-bold font-mono">{Math.round(flangerParams.dryWet * 100)}%</span>
               </div>
             </div>
           )}
@@ -813,9 +813,9 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           {activeType === 'phaser' && (
             <div className="space-y-3">
               <div>
-                <div className="flex justify-between text-zinc-300 mb-1">
+                <div className="flex justify-between text-ink-dim mb-1">
                   <span>Sweep Rate</span>
-                  <span className="font-mono text-cyan-400 font-bold">{phaserParams.rateHz} Hz</span>
+                  <span className="font-mono text-accent font-bold">{phaserParams.rateHz} Hz</span>
                 </div>
                 <input
                   type="range"
@@ -827,14 +827,14 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                     setPhaserParams({ ...phaserParams, rateHz: parseFloat(e.target.value) });
                     handleParamChange();
                   }}
-                  className="w-full h-1.5 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                  className="w-full h-1.5 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                 />
               </div>
 
               <div>
-                <div className="flex justify-between text-zinc-300 mb-1">
+                <div className="flex justify-between text-ink-dim mb-1">
                   <span>Poles / Stages</span>
-                  <span className="font-mono text-cyan-400 font-bold">{phaserParams.stages} Stages</span>
+                  <span className="font-mono text-accent font-bold">{phaserParams.stages} Stages</span>
                 </div>
                 <input
                   type="range"
@@ -846,13 +846,13 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                     setPhaserParams({ ...phaserParams, stages: parseInt(e.target.value, 10) });
                     handleParamChange();
                   }}
-                  className="w-full h-1.5 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                  className="w-full h-1.5 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                 />
               </div>
 
-              <div className="flex justify-between items-center pt-1 text-zinc-400">
+              <div className="flex justify-between items-center pt-1 text-ink-dim">
                 <span>Phaser Dry/Wet:</span>
-                <span className="text-cyan-400 font-bold font-mono">{Math.round(phaserParams.dryWet * 100)}%</span>
+                <span className="text-accent font-bold font-mono">{Math.round(phaserParams.dryWet * 100)}%</span>
               </div>
             </div>
           )}
@@ -861,9 +861,9 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           {activeType === 'reverb' && (
             <div className="space-y-3">
               <div>
-                <div className="flex justify-between text-zinc-300 mb-1">
+                <div className="flex justify-between text-ink-dim mb-1">
                   <span>Decay Time</span>
-                  <span className="font-mono text-cyan-400 font-bold">{reverbParams.decayTimeSec} s</span>
+                  <span className="font-mono text-accent font-bold">{reverbParams.decayTimeSec} s</span>
                 </div>
                 <input
                   type="range"
@@ -875,15 +875,15 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                     setReverbParams({ ...reverbParams, decayTimeSec: parseFloat(e.target.value) });
                     handleParamChange();
                   }}
-                  className="w-full h-1.5 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                  className="w-full h-1.5 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                 />
               </div>
 
               <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-1 text-[10px]">
+                  <div className="flex justify-between text-ink-dim mb-1 text-[10px]">
                     <span>Pre-Delay</span>
-                    <span className="font-mono text-cyan-400">{reverbParams.preDelayMs} ms</span>
+                    <span className="font-mono text-accent">{reverbParams.preDelayMs} ms</span>
                   </div>
                   <input
                     type="range"
@@ -895,13 +895,13 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                       setReverbParams({ ...reverbParams, preDelayMs: parseInt(e.target.value, 10) });
                       handleParamChange();
                     }}
-                    className="w-full h-1 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                   />
                 </div>
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-1 text-[10px]">
+                  <div className="flex justify-between text-ink-dim mb-1 text-[10px]">
                     <span>Dry/Wet</span>
-                    <span className="font-mono text-cyan-400">{Math.round(reverbParams.dryWet * 100)}%</span>
+                    <span className="font-mono text-accent">{Math.round(reverbParams.dryWet * 100)}%</span>
                   </div>
                   <input
                     type="range"
@@ -913,7 +913,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                       setReverbParams({ ...reverbParams, dryWet: parseFloat(e.target.value) });
                       handleParamChange();
                     }}
-                    className="w-full h-1 bg-zinc-800 rounded-xs accent-cyan-400 cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded-xs accent-accent cursor-pointer"
                   />
                 </div>
               </div>
@@ -921,10 +921,10 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           )}
 
           {/* Real-time Before/After Audition Deck */}
-          <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 space-y-2">
+          <div className="p-3 rounded-xl bg-surface-1 border border-line space-y-2">
             <div className="flex items-center justify-between text-[11px]">
-              <div className="flex items-center gap-1.5 font-bold text-zinc-200">
-                <Headphones className="w-3.5 h-3.5 text-cyan-400" />
+              <div className="flex items-center gap-1.5 font-bold text-ink">
+                <Headphones className="w-3.5 h-3.5 text-accent" />
                 <span>Real-Time Audition (A/B)</span>
               </div>
 
@@ -933,7 +933,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                   type="button"
                   onClick={() => setIsLooping(!isLooping)}
                   className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                    isLooping ? 'bg-cyan-500/30 text-cyan-300' : 'text-zinc-500 hover:text-zinc-300'
+                    isLooping ? 'bg-accent-soft text-accent' : 'text-ink-faint hover:text-ink-dim'
                   }`}
                 >
                   <Repeat className="w-3 h-3" />
@@ -948,8 +948,8 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                 onClick={() => (previewState === 'original' ? stopPreview() : startPreview('original'))}
                 className={`flex-1 py-1.5 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   previewState === 'original'
-                    ? 'bg-amber-500 text-black font-bold'
-                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                    ? 'bg-warn text-black font-bold'
+                    : 'bg-surface-2 text-ink-dim hover:bg-surface-3'
                 }`}
               >
                 {previewState === 'original' ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5" />}
@@ -961,8 +961,8 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
                 onClick={() => (previewState === 'processed' ? stopPreview() : startPreview('processed'))}
                 className={`flex-1 py-1.5 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   previewState === 'processed'
-                    ? 'bg-cyan-400 text-black font-bold shadow-[0_0_12px_rgba(0,240,255,0.4)]'
-                    : 'bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-700/60'
+                    ? 'bg-accent text-black font-bold'
+                    : 'bg-accent/80 hover:bg-accent text-accent border border-accent/60'
                 }`}
               >
                 {previewState === 'processed' ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
@@ -984,14 +984,14 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
         )}
 
         {/* Footer */}
-        <div className="px-5 py-3.5 border-t border-zinc-800 bg-[#161622] flex items-center justify-between">
+        <div className="px-5 py-3.5 border-t border-line bg-surface-2 flex items-center justify-between">
           <button
             onClick={() => {
               stopPreview();
               onClose();
             }}
             disabled={isProcessing}
-            className="px-3 py-1.5 rounded text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+            className="px-3 py-1.5 rounded text-xs text-ink-dim hover:text-ink transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -999,7 +999,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           <button
             onClick={handleApply}
             disabled={isProcessing || !currentClip}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xs shadow-[0_0_12px_rgba(0,240,255,0.3)] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-accent hover:bg-accent text-black font-bold text-xs transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isProcessing ? (
               <span>{progress !== null ? `Rendering ${Math.round(progress * 100)}%` : 'Rendering effect tail...'}</span>

@@ -360,12 +360,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
   if (!user) {
     return (
-      <div className="fixed inset-0 z-50 bg-[#08080A] flex flex-col items-center justify-center p-6 text-center">
-        <h2 className="text-xl font-bold text-white mb-2">Not Signed In</h2>
-        <p className="text-sm text-zinc-400 mb-6">Please sign in with Google to access your User Dashboard.</p>
+      <div className="fixed inset-0 z-50 bg-surface-0 flex flex-col items-center justify-center p-6 text-center">
+        <h2 className="text-xl font-bold text-ink mb-2">Not Signed In</h2>
+        <p className="text-sm text-ink-dim mb-6">Please sign in with Google to access your User Dashboard.</p>
         <button
           onClick={onBackToStudio}
-          className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold"
+          className="px-4 py-2 rounded-control bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold"
         >
           Back to Studio
         </button>
@@ -374,27 +374,27 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#09090C] text-zinc-100 flex flex-col antialiased select-none font-sans overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-surface-0 text-ink flex flex-col antialiased select-none font-sans overflow-hidden">
       {/* Top Header */}
-      <header className="h-16 px-6 border-b border-zinc-800 bg-[#0E0E12] flex items-center justify-between shrink-0">
+      <header className="h-16 px-6 border-b border-line bg-surface-1 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
           <button
             onClick={onBackToStudio}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-control bg-surface-2/80 hover:bg-surface-3 text-ink-dim hover:text-ink text-xs font-semibold transition-colors cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Back to Studio</span>
           </button>
-          <div className="h-4 w-px bg-zinc-700/80" />
+          <div className="h-4 w-px bg-surface-3/80" />
           <div className="flex items-center gap-2">
-            <span className="font-bold text-white text-base">User Dashboard</span>
-            <span className="text-[11px] text-zinc-500 font-mono">({user.email})</span>
+            <span className="font-bold text-ink text-base">User Dashboard</span>
+            <span className="text-[11px] text-ink-faint font-mono">({user.email})</span>
           </div>
         </div>
 
         <button
           onClick={signOut}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800/60 hover:bg-rose-950/40 text-zinc-400 hover:text-rose-300 border border-zinc-700/60 text-xs font-medium transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-control bg-surface-2/60 hover:bg-danger/40 text-ink-dim hover:text-danger border border-line-strong/60 text-xs font-medium transition-colors cursor-pointer"
         >
           <LogOut className="w-3.5 h-3.5" />
           <span>Sign Out</span>
@@ -404,13 +404,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Navigation Tabs Sidebar */}
-        <nav className="w-60 border-r border-zinc-800 bg-[#0C0C10] p-4 flex flex-col gap-1 shrink-0 overflow-y-auto">
-          <div className="px-2.5 py-1 text-[10px] uppercase font-bold tracking-widest text-zinc-500">Settings</div>
+        <nav className="w-60 border-r border-line bg-surface-1 p-4 flex flex-col gap-1 shrink-0 overflow-y-auto">
+          <div className="px-2.5 py-1 text-[10px] uppercase font-bold tracking-widest text-ink-faint">Settings</div>
 
           <button
             onClick={() => setActiveTab('account')}
-            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-              activeTab === 'account' ? 'bg-cyan-500/15 text-cyan-300 font-semibold border border-cyan-500/30' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-control text-xs font-medium transition-colors text-left cursor-pointer ${
+              activeTab === 'account' ? 'bg-accent-soft text-accent font-semibold border border-accent/30' : 'text-ink-dim hover:text-ink hover:bg-surface-2/50'
             }`}
           >
             <User className="w-4 h-4 shrink-0" />
@@ -419,8 +419,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
           <button
             onClick={() => setActiveTab('preferences')}
-            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-              activeTab === 'preferences' ? 'bg-cyan-500/15 text-cyan-300 font-semibold border border-cyan-500/30' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-control text-xs font-medium transition-colors text-left cursor-pointer ${
+              activeTab === 'preferences' ? 'bg-accent-soft text-accent font-semibold border border-accent/30' : 'text-ink-dim hover:text-ink hover:bg-surface-2/50'
             }`}
           >
             <Sliders className="w-4 h-4 shrink-0" />
@@ -429,8 +429,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
           <button
             onClick={() => setActiveTab('connections')}
-            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-              activeTab === 'connections' ? 'bg-cyan-500/15 text-cyan-300 font-semibold border border-cyan-500/30' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-control text-xs font-medium transition-colors text-left cursor-pointer ${
+              activeTab === 'connections' ? 'bg-accent-soft text-accent font-semibold border border-accent/30' : 'text-ink-dim hover:text-ink hover:bg-surface-2/50'
             }`}
           >
             <LinkIcon className="w-4 h-4 shrink-0" />
@@ -439,8 +439,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
           <button
             onClick={() => setActiveTab('usage')}
-            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-              activeTab === 'usage' ? 'bg-cyan-500/15 text-cyan-300 font-semibold border border-cyan-500/30' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-control text-xs font-medium transition-colors text-left cursor-pointer ${
+              activeTab === 'usage' ? 'bg-accent-soft text-accent font-semibold border border-accent/30' : 'text-ink-dim hover:text-ink hover:bg-surface-2/50'
             }`}
           >
             <BarChart3 className="w-4 h-4 shrink-0" />
@@ -449,19 +449,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
           <button
             onClick={() => setActiveTab('projects')}
-            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-              activeTab === 'projects' ? 'bg-cyan-500/15 text-cyan-300 font-semibold border border-cyan-500/30' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-control text-xs font-medium transition-colors text-left cursor-pointer ${
+              activeTab === 'projects' ? 'bg-accent-soft text-accent font-semibold border border-accent/30' : 'text-ink-dim hover:text-ink hover:bg-surface-2/50'
             }`}
           >
             <FolderKanban className="w-4 h-4 shrink-0" />
             <span>Projects</span>
           </button>
 
-          <div className="pt-4 mt-auto border-t border-zinc-800/80 space-y-1">
+          <div className="pt-4 mt-auto border-t border-line/80 space-y-1">
           <button
             onClick={() => setActiveTab('support')}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-              activeTab === 'support' ? 'bg-cyan-500/15 text-cyan-300 font-semibold border border-cyan-500/30' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-control text-xs font-medium transition-colors text-left cursor-pointer ${
+              activeTab === 'support' ? 'bg-accent-soft text-accent font-semibold border border-accent/30' : 'text-ink-dim hover:text-ink hover:bg-surface-2/50'
             }`}
           >
             <div className="flex items-center gap-2.5">
@@ -469,14 +469,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
               <span>Support</span>
             </div>
             {tickets.some((t) => t.has_unread_admin_reply) && (
-              <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(0,240,255,0.8)]" />
+              <span className="w-2 h-2 rounded-full bg-accent " />
             )}
           </button>
 
             <button
               onClick={() => setActiveTab('privacy')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-                activeTab === 'privacy' ? 'bg-rose-500/15 text-rose-300 font-semibold border border-rose-500/30' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-control text-xs font-medium transition-colors text-left cursor-pointer ${
+                activeTab === 'privacy' ? 'bg-danger/15 text-danger font-semibold border border-danger/30' : 'text-ink-dim hover:text-ink hover:bg-surface-2/50'
               }`}
             >
               <ShieldAlert className="w-4 h-4 shrink-0" />
@@ -486,40 +486,40 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
         </nav>
 
         {/* Viewport Detail Content */}
-        <main className="flex-1 bg-[#101014] p-8 overflow-y-auto">
+        <main className="flex-1 bg-surface-1 p-8 overflow-y-auto">
           {/* TAB 1: Account */}
           {activeTab === 'account' && (
             <div className="max-w-2xl space-y-6">
               <div>
-                <h2 className="text-xl font-bold text-white tracking-tight">Account Details</h2>
-                <p className="text-xs text-zinc-400 mt-1">Manage your identity and profile within Uuda Studio.</p>
+                <h2 className="text-xl font-bold text-ink tracking-tight">Account Details</h2>
+                <p className="text-xs text-ink-dim mt-1">Manage your identity and profile within Uuda Studio.</p>
               </div>
 
               {accountSuccessMsg && (
-                <div className="p-3 bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs rounded-lg flex items-center gap-2">
+                <div className="p-3 bg-ok/40 border border-ok/40 text-ok text-xs rounded-control flex items-center gap-2">
                   <Check className="w-4 h-4" />
                   <span>{accountSuccessMsg}</span>
                 </div>
               )}
               {accountErrorMsg && (
-                <div className="p-3 bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs rounded-lg flex items-center gap-2">
+                <div className="p-3 bg-danger/40 border border-danger/40 text-danger text-xs rounded-control flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4" />
                   <span>{accountErrorMsg}</span>
                 </div>
               )}
 
-              <div className="bg-[#15151B] border border-zinc-800 rounded-xl p-6 space-y-5">
+              <div className="bg-surface-2 border border-line rounded-card p-6 space-y-5">
                 {/* Photo & Basic Info */}
-                <div className="flex items-center gap-4 pb-5 border-b border-zinc-800/80">
+                <div className="flex items-center gap-4 pb-5 border-b border-line/80">
                   <img
                     src={user.photo_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${user.email}`}
                     alt={user.display_name}
-                    className="w-16 h-16 rounded-full object-cover border-2 border-zinc-700 shrink-0"
+                    className="w-16 h-16 rounded-full object-cover border-2 border-line-strong shrink-0"
                   />
                   <div>
-                    <h3 className="text-sm font-bold text-white">{user.display_name}</h3>
-                    <p className="text-xs text-zinc-400 font-mono">{user.email}</p>
-                    <span className="inline-block mt-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-zinc-800 text-cyan-400 border border-zinc-700">
+                    <h3 className="text-sm font-bold text-ink">{user.display_name}</h3>
+                    <p className="text-xs text-ink-dim font-mono">{user.email}</p>
+                    <span className="inline-block mt-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-surface-2 text-accent border border-line-strong">
                       {user.role}
                     </span>
                   </div>
@@ -527,42 +527,42 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
                 {/* Editable Display Name */}
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1">Display Name</label>
+                  <label className="block text-xs font-semibold text-ink-dim mb-1">Display Name</label>
                   <input
                     type="text"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     minLength={2}
                     maxLength={50}
-                    className="w-full px-3.5 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-hidden focus:border-cyan-500"
+                    className="w-full px-3.5 py-2.5 bg-surface-1 border border-line-strong rounded-control text-xs text-ink focus:outline-hidden focus:border-accent"
                   />
-                  <p className="text-[11px] text-zinc-500 mt-1">2 to 50 characters.</p>
+                  <p className="text-[11px] text-ink-faint mt-1">2 to 50 characters.</p>
                 </div>
 
                 {/* Permanent Email (Read-Only with Lock Icon) */}
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1">Google Email (Permanent)</label>
+                  <label className="block text-xs font-semibold text-ink-dim mb-1">Google Email (Permanent)</label>
                   <div className="relative">
                     <input
                       type="text"
                       readOnly
                       value={user.email}
-                      className="w-full px-3.5 py-2.5 bg-[#0C0C10] border border-zinc-800 rounded-lg text-xs text-zinc-400 font-mono cursor-not-allowed pr-10"
+                      className="w-full px-3.5 py-2.5 bg-surface-1 border border-line rounded-control text-xs text-ink-dim font-mono cursor-not-allowed pr-10"
                     />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500">
-                      <Lock className="w-4 h-4 text-zinc-500" />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint">
+                      <Lock className="w-4 h-4 text-ink-faint" />
                     </div>
                   </div>
-                  <p className="text-[11px] text-cyan-400/80 mt-1.5 flex items-center gap-1.5">
+                  <p className="text-[11px] text-accent/80 mt-1.5 flex items-center gap-1.5">
                     <Lock className="w-3 h-3" />
                     <span>Your Google account email is permanent for this account.</span>
                   </p>
                 </div>
 
                 {/* Member Since Date */}
-                <div className="text-xs text-zinc-500 pt-2 border-t border-zinc-800/80 flex items-center justify-between">
+                <div className="text-xs text-ink-faint pt-2 border-t border-line/80 flex items-center justify-between">
                   <span>Member Since:</span>
-                  <span className="font-mono text-zinc-400">{new Date(user.created_at).toLocaleDateString()}</span>
+                  <span className="font-mono text-ink-dim">{new Date(user.created_at).toLocaleDateString()}</span>
                 </div>
 
                 {/* Action Save */}
@@ -571,7 +571,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                     type="button"
                     onClick={handleSaveAccount}
                     disabled={isSavingAccount || displayName.trim().length < 2}
-                    className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-4 py-2 rounded-control bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     <Save className="w-3.5 h-3.5" />
                     <span>{isSavingAccount ? 'Saving...' : 'Save Account Changes'}</span>
@@ -585,25 +585,25 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
           {activeTab === 'preferences' && (
             <div className="max-w-2xl space-y-6">
               <div>
-                <h2 className="text-xl font-bold text-white tracking-tight">Studio Preferences</h2>
-                <p className="text-xs text-zinc-400 mt-1">Configure your default voiceover synthesis and editor behavior.</p>
+                <h2 className="text-xl font-bold text-ink tracking-tight">Studio Preferences</h2>
+                <p className="text-xs text-ink-dim mt-1">Configure your default voiceover synthesis and editor behavior.</p>
               </div>
 
               {prefsSuccessMsg && (
-                <div className="p-3 bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs rounded-lg flex items-center gap-2">
+                <div className="p-3 bg-ok/40 border border-ok/40 text-ok text-xs rounded-control flex items-center gap-2">
                   <Check className="w-4 h-4" />
                   <span>{prefsSuccessMsg}</span>
                 </div>
               )}
 
-              <div className="bg-[#15151B] border border-zinc-800 rounded-xl p-6 space-y-5">
+              <div className="bg-surface-2 border border-line rounded-card p-6 space-y-5">
                 {/* Default Voice */}
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1">Default Prebuilt Voice</label>
+                  <label className="block text-xs font-semibold text-ink-dim mb-1">Default Prebuilt Voice</label>
                   <select
                     value={defaultVoice}
                     onChange={(e) => setDefaultVoice(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-hidden focus:border-cyan-500"
+                    className="w-full px-3.5 py-2.5 bg-surface-1 border border-line-strong rounded-control text-xs text-ink focus:outline-hidden focus:border-accent"
                   >
                     <optgroup label="Female Voices">
                       <option value="Zephyr">Zephyr (Bright, upbeat & clear)</option>
@@ -624,11 +624,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
                 {/* Default Model */}
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1">Default Synthesis Model</label>
+                  <label className="block text-xs font-semibold text-ink-dim mb-1">Default Synthesis Model</label>
                   <select
                     value={defaultModel}
                     onChange={(e) => setDefaultModel(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-hidden focus:border-cyan-500"
+                    className="w-full px-3.5 py-2.5 bg-surface-1 border border-line-strong rounded-control text-xs text-ink focus:outline-hidden focus:border-accent"
                   >
                     <option value="gemini-3.8-flash-tts">Flagship (gemini-3.8-flash-tts)</option>
                     <option value="gemini-3.8-flash-lite-tts">Fast Low-Latency (gemini-3.8-flash-lite-tts)</option>
@@ -637,30 +637,30 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
                 {/* Default Delivery Instruction */}
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1">Default Delivery & Style Directive</label>
+                  <label className="block text-xs font-semibold text-ink-dim mb-1">Default Delivery & Style Directive</label>
                   <input
                     type="text"
                     value={defaultDelivery}
                     onChange={(e) => setDefaultDelivery(e.target.value)}
                     placeholder="e.g. Confident commercial reading, energetic punch"
-                    className="w-full px-3.5 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-hidden focus:border-cyan-500"
+                    className="w-full px-3.5 py-2.5 bg-surface-1 border border-line-strong rounded-control text-xs text-ink focus:outline-hidden focus:border-accent"
                   />
-                  <p className="text-[11px] text-zinc-500 mt-1">
+                  <p className="text-[11px] text-ink-faint mt-1">
                     Pre-populates new scripts with this delivery direction.
                   </p>
                 </div>
 
                 {/* Auto Refresh Toggle */}
-                <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between">
+                <div className="pt-2 border-t border-line/80 flex items-center justify-between">
                   <div>
-                    <span className="text-xs font-semibold text-zinc-300 block">Immediate Timeline Repaint</span>
-                    <span className="text-[11px] text-zinc-500">Repaint canvas immediately on every trim, cut, or move.</span>
+                    <span className="text-xs font-semibold text-ink-dim block">Immediate Timeline Repaint</span>
+                    <span className="text-[11px] text-ink-faint">Repaint canvas immediately on every trim, cut, or move.</span>
                   </div>
                   <input
                     type="checkbox"
                     checked={autoRefresh}
                     onChange={(e) => setAutoRefresh(e.target.checked)}
-                    className="w-4 h-4 rounded-sm bg-zinc-900 border-zinc-700 text-cyan-500 focus:ring-0 cursor-pointer"
+                    className="w-4 h-4 rounded-sm bg-surface-1 border-line-strong text-accent focus:ring-0 cursor-pointer"
                   />
                 </div>
 
@@ -669,7 +669,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                     type="button"
                     onClick={handleSavePreferences}
                     disabled={isSavingPrefs}
-                    className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+                    className="px-4 py-2 rounded-control bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5" />
                     <span>{isSavingPrefs ? 'Saving...' : 'Save Preferences'}</span>
@@ -683,40 +683,40 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
           {activeTab === 'connections' && (
             <div className="max-w-2xl space-y-6">
               <div>
-                <h2 className="text-xl font-bold text-white tracking-tight">API & Service Connections</h2>
-                <p className="text-xs text-zinc-400 mt-1">Manage external provider keys and sound libraries.</p>
+                <h2 className="text-xl font-bold text-ink tracking-tight">API & Service Connections</h2>
+                <p className="text-xs text-ink-dim mt-1">Manage external provider keys and sound libraries.</p>
               </div>
 
               {keySavedMsg && (
-                <div className="p-3 bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs rounded-lg flex items-center gap-2">
+                <div className="p-3 bg-ok/40 border border-ok/40 text-ok text-xs rounded-control flex items-center gap-2">
                   <Check className="w-4 h-4" />
                   <span>{keySavedMsg}</span>
                 </div>
               )}
 
               {/* Own Gemini API Key */}
-              <div className="bg-[#15151B] border border-zinc-800 rounded-xl p-6 space-y-4">
+              <div className="bg-surface-2 border border-line rounded-card p-6 space-y-4">
                 <div className="flex items-center gap-2">
-                  <Key className="w-4 h-4 text-cyan-400" />
-                  <h3 className="text-sm font-bold text-white">Own Gemini API Key (Optional)</h3>
+                  <Key className="w-4 h-4 text-accent" />
+                  <h3 className="text-sm font-bold text-ink">Own Gemini API Key (Optional)</h3>
                 </div>
-                <p className="text-xs text-zinc-400 leading-relaxed">
+                <p className="text-xs text-ink-dim leading-relaxed">
                   By default, signed-in users share Google's standard free-tier quotas. You can optionally paste your own Google Gemini API key to use your own personal quota.
                 </p>
 
-                <div className="p-3 rounded-lg bg-[#0C0C10] border border-zinc-800/80 text-[11px] text-zinc-400">
-                  <strong className="text-zinc-300 font-semibold">Security Policy: </strong>
-                  Your personal API key is stored <span className="text-cyan-300 font-medium">strictly in this browser</span>. It is sent per request over HTTPS and is never logged or stored on the server.
+                <div className="p-3 rounded-control bg-surface-1 border border-line/80 text-[11px] text-ink-dim">
+                  <strong className="text-ink-dim font-semibold">Security Policy: </strong>
+                  Your personal API key is stored <span className="text-accent font-medium">strictly in this browser</span>. It is sent per request over HTTPS and is never logged or stored on the server.
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1">Gemini API Key</label>
+                  <label className="block text-xs font-semibold text-ink-dim mb-1">Gemini API Key</label>
                   <input
                     type="password"
                     placeholder="AIzaSy..."
                     value={ownKey}
                     onChange={(e) => setOwnKey(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white font-mono focus:outline-hidden focus:border-cyan-500"
+                    className="w-full px-3.5 py-2.5 bg-surface-1 border border-line-strong rounded-control text-xs text-ink font-mono focus:outline-hidden focus:border-accent"
                   />
                 </div>
 
@@ -725,7 +725,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                     type="button"
                     onClick={handleSaveOwnKey}
                     disabled={!ownKey.trim()}
-                    className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-4 py-2 rounded-control bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
                   >
                     Save Key to Browser
                   </button>
@@ -733,7 +733,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                     <button
                       type="button"
                       onClick={handleRemoveOwnKey}
-                      className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-rose-950/40 text-zinc-300 hover:text-rose-300 text-xs font-medium transition-colors cursor-pointer"
+                      className="px-3 py-2 rounded-control bg-surface-2 hover:bg-danger/40 text-ink-dim hover:text-danger text-xs font-medium transition-colors cursor-pointer"
                     >
                       Remove Key
                     </button>
@@ -743,15 +743,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
               {/* Freesound Connection (Shown only when flag is ON) */}
               {freesoundEnabled && (
-                <div className="bg-[#15151B] border border-zinc-800 rounded-xl p-6 space-y-4">
+                <div className="bg-surface-2 border border-line rounded-card p-6 space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-bold text-white">Freesound CC0 Library</h3>
-                      <p className="text-xs text-zinc-400 mt-0.5">
+                      <h3 className="text-sm font-bold text-ink">Freesound CC0 Library</h3>
+                      <p className="text-xs text-ink-dim mt-0.5">
                         Access over 600,000 Creative Commons sound effects and music loops.
                       </p>
                     </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-950 text-emerald-400 border border-emerald-800">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-ok text-ok border border-ok">
                       Active
                     </span>
                   </div>
@@ -764,42 +764,42 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
           {activeTab === 'usage' && (
             <div className="max-w-2xl space-y-6">
               <div>
-                <h2 className="text-xl font-bold text-white tracking-tight">Voiceover Usage</h2>
-                <p className="text-xs text-zinc-400 mt-1">
+                <h2 className="text-xl font-bold text-ink tracking-tight">Voiceover Usage</h2>
+                <p className="text-xs text-ink-dim mt-1">
                   Track your speech synthesis activity. Usage metrics are purely informational.
                 </p>
               </div>
 
               {isLoadingUsage ? (
-                <div className="p-8 text-center text-xs text-zinc-500 font-mono">Loading usage statistics...</div>
+                <div className="p-8 text-center text-xs text-ink-faint font-mono">Loading usage statistics...</div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-[#15151B] border border-zinc-800 rounded-xl p-5">
-                    <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-500">This Month</span>
-                    <div className="mt-2 text-2xl font-black text-cyan-400 font-mono">
+                  <div className="bg-surface-2 border border-line rounded-card p-5">
+                    <span className="text-[10px] uppercase font-bold tracking-widest text-ink-faint">This Month</span>
+                    <div className="mt-2 text-2xl font-black text-accent font-mono">
                       {usage?.thisMonthGenerations ?? 0}
                     </div>
-                    <span className="text-xs text-zinc-400 mt-1 block">Voice generations</span>
-                    <span className="text-[11px] text-zinc-500 font-mono">
+                    <span className="text-xs text-ink-dim mt-1 block">Voice generations</span>
+                    <span className="text-[11px] text-ink-faint font-mono">
                       {usage?.thisMonthCharacters?.toLocaleString() ?? 0} characters
                     </span>
                   </div>
 
-                  <div className="bg-[#15151B] border border-zinc-800 rounded-xl p-5">
-                    <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-500">All-Time Total</span>
-                    <div className="mt-2 text-2xl font-black text-white font-mono">
+                  <div className="bg-surface-2 border border-line rounded-card p-5">
+                    <span className="text-[10px] uppercase font-bold tracking-widest text-ink-faint">All-Time Total</span>
+                    <div className="mt-2 text-2xl font-black text-ink font-mono">
                       {usage?.totalGenerations ?? 0}
                     </div>
-                    <span className="text-xs text-zinc-400 mt-1 block">Total productions</span>
-                    <span className="text-[11px] text-zinc-500 font-mono">
+                    <span className="text-xs text-ink-dim mt-1 block">Total productions</span>
+                    <span className="text-[11px] text-ink-faint font-mono">
                       {usage?.totalCharacters?.toLocaleString() ?? 0} characters
                     </span>
                   </div>
                 </div>
               )}
 
-              <div className="p-4 rounded-xl bg-[#15151B] border border-zinc-800/80 text-xs text-zinc-400 leading-relaxed">
-                <strong className="text-white">Fair Use Policy: </strong>
+              <div className="p-4 rounded-card bg-surface-2 border border-line/80 text-xs text-ink-dim leading-relaxed">
+                <strong className="text-ink">Fair Use Policy: </strong>
                 All signed-in accounts receive access to Google's standard free tier for Gemini speech synthesis. A gentle anti-abuse burst limit (10 requests per minute) prevents server flooding.
               </div>
             </div>
@@ -810,23 +810,23 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
             <div className="max-w-3xl space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-white tracking-tight">Your Projects</h2>
-                  <p className="text-xs text-zinc-400 mt-1">Multi-track sessions and productions saved to the cloud.</p>
+                  <h2 className="text-xl font-bold text-ink tracking-tight">Your Projects</h2>
+                  <p className="text-xs text-ink-dim mt-1">Multi-track sessions and productions saved to the cloud.</p>
                 </div>
               </div>
 
               {isLoadingProjects ? (
-                <div className="p-8 text-center text-xs text-zinc-500 font-mono">Loading projects...</div>
+                <div className="p-8 text-center text-xs text-ink-faint font-mono">Loading projects...</div>
               ) : projects.length === 0 ? (
-                <div className="bg-[#15151B] border border-zinc-800 rounded-xl p-8 text-center">
-                  <FolderKanban className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
-                  <h3 className="text-sm font-semibold text-zinc-300">No cloud projects yet</h3>
-                  <p className="text-xs text-zinc-500 mt-1">
+                <div className="bg-surface-2 border border-line rounded-card p-8 text-center">
+                  <FolderKanban className="w-8 h-8 text-ink-faint mx-auto mb-2" />
+                  <h3 className="text-sm font-semibold text-ink-dim">No cloud projects yet</h3>
+                  <p className="text-xs text-ink-faint mt-1">
                     Your local timeline sessions are autosaved in your browser. Save projects to the cloud from the studio.
                   </p>
                 </div>
               ) : (
-                <div className="bg-[#15151B] border border-zinc-800 rounded-xl divide-y divide-zinc-800/80 overflow-hidden">
+                <div className="bg-surface-2 border border-line rounded-card divide-y divide-line/80 overflow-hidden">
                   {projects.map((proj) => (
                     <div key={proj.id} className="p-4 flex items-center justify-between gap-4">
                       <div className="min-w-0 flex-1">
@@ -836,26 +836,26 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                               type="text"
                               value={renamingTitle}
                               onChange={(e) => setRenamingTitle(e.target.value)}
-                              className="px-2 py-1 text-xs bg-zinc-900 border border-zinc-700 rounded text-white"
+                              className="px-2 py-1 text-xs bg-surface-1 border border-line-strong rounded text-ink"
                               autoFocus
                             />
                             <button
                               onClick={() => handleSaveRename(proj.id)}
-                              className="px-2 py-1 bg-cyan-600 text-white text-[11px] rounded"
+                              className="px-2 py-1 bg-accent text-surface-0 text-[11px] rounded"
                             >
                               Save
                             </button>
                             <button
                               onClick={() => setRenamingId(null)}
-                              className="px-2 py-1 bg-zinc-800 text-zinc-300 text-[11px] rounded"
+                              className="px-2 py-1 bg-surface-2 text-ink-dim text-[11px] rounded"
                             >
                               Cancel
                             </button>
                           </div>
                         ) : (
-                          <h4 className="text-xs font-bold text-white truncate">{proj.name}</h4>
+                          <h4 className="text-xs font-bold text-ink truncate">{proj.name}</h4>
                         )}
-                        <div className="flex items-center gap-3 text-[11px] text-zinc-500 mt-1">
+                        <div className="flex items-center gap-3 text-[11px] text-ink-faint mt-1">
                           <span>Updated: {new Date(proj.updated_at).toLocaleDateString()}</span>
                           <span>•</span>
                           <span>{(proj.size_bytes / 1024).toFixed(1)} KB</span>
@@ -869,7 +869,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                               onOpenProject(proj.id);
                               onBackToStudio();
                             }}
-                            className="px-2.5 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition-colors"
+                            className="px-2.5 py-1.5 rounded bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold transition-colors"
                           >
                             Open
                           </button>
@@ -879,21 +879,21 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                             setRenamingId(proj.id);
                             setRenamingTitle(proj.name);
                           }}
-                          className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+                          className="p-1.5 rounded hover:bg-surface-2 text-ink-dim hover:text-ink transition-colors"
                           title="Rename"
                         >
                           <Sliders className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDuplicateProject(proj.id)}
-                          className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+                          className="p-1.5 rounded hover:bg-surface-2 text-ink-dim hover:text-ink transition-colors"
                           title="Duplicate"
                         >
                           <Copy className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDeleteProject(proj.id)}
-                          className="p-1.5 rounded hover:bg-rose-950/40 text-zinc-400 hover:text-rose-400 transition-colors"
+                          className="p-1.5 rounded hover:bg-danger/40 text-ink-dim hover:text-danger transition-colors"
                           title="Delete"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -911,13 +911,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
             <div className="max-w-3xl space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-white tracking-tight">Support Desk</h2>
-                  <p className="text-xs text-zinc-400 mt-1">Open support tickets and converse directly with studio admins.</p>
+                  <h2 className="text-xl font-bold text-ink tracking-tight">Support Desk</h2>
+                  <p className="text-xs text-ink-dim mt-1">Open support tickets and converse directly with studio admins.</p>
                 </div>
                 {!activeTicket && (
                   <button
                     onClick={() => setIsNewTicketOpen(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition-colors cursor-pointer"
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-control bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold transition-colors cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
                     <span>Create Ticket</span>
@@ -927,37 +927,37 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
               {/* Active Ticket Thread View */}
               {activeTicket ? (
-                <div className="bg-[#15151B] border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-[520px]">
+                <div className="bg-surface-2 border border-line rounded-card overflow-hidden flex flex-col h-[520px]">
                   {/* Thread Header */}
-                  <div className="p-4 border-b border-zinc-800 bg-[#121216] flex items-center justify-between shrink-0">
+                  <div className="p-4 border-b border-line bg-surface-2 flex items-center justify-between shrink-0">
                     <div>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setActiveTicket(null)}
-                          className="text-xs text-zinc-400 hover:text-white flex items-center gap-1 mr-2"
+                          className="text-xs text-ink-dim hover:text-ink flex items-center gap-1 mr-2"
                         >
                           <ArrowLeft className="w-3.5 h-3.5" />
                           <span>Back</span>
                         </button>
-                        <h3 className="text-xs font-bold text-white truncate max-w-sm">{activeTicket.title}</h3>
+                        <h3 className="text-xs font-bold text-ink truncate max-w-sm">{activeTicket.title}</h3>
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
                             activeTicket.status === 'Open'
-                              ? 'bg-cyan-950 text-cyan-300 border border-cyan-800'
+                              ? 'bg-accent text-accent border border-accent'
                               : activeTicket.status === 'Resolved'
-                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                              : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                              ? 'bg-ok text-ok border border-ok'
+                              : 'bg-surface-2 text-ink-dim border border-line-strong'
                           }`}
                         >
                           {activeTicket.status}
                         </span>
                       </div>
-                      <span className="text-[11px] text-zinc-500 mt-0.5 block">Category: {activeTicket.type}</span>
+                      <span className="text-[11px] text-ink-faint mt-0.5 block">Category: {activeTicket.type}</span>
                     </div>
                   </div>
 
                   {/* Thread Message Scroll */}
-                  <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-[#0E0E12]">
+                  <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-surface-1">
                     {activeTicket.messages.map((msg) => {
                       const isAdminMsg = msg.sender === 'admin';
                       return (
@@ -967,14 +967,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                             isAdminMsg ? 'mr-auto items-start' : 'ml-auto items-end'
                           }`}
                         >
-                          <span className="text-[10px] text-zinc-500 font-medium mb-1 px-1">
+                          <span className="text-[10px] text-ink-faint font-medium mb-1 px-1">
                             {isAdminMsg ? '🛡️ Admin Support' : 'You'} • {new Date(msg.created_at).toLocaleTimeString()}
                           </span>
                           <div
-                            className={`p-3 rounded-xl text-xs leading-relaxed whitespace-pre-wrap ${
+                            className={`p-3 rounded-card text-xs leading-relaxed whitespace-pre-wrap ${
                               isAdminMsg
-                                ? 'bg-zinc-800/90 text-zinc-100 border border-zinc-700'
-                                : 'bg-cyan-600 text-white'
+                                ? 'bg-surface-2/90 text-ink border border-line-strong'
+                                : 'bg-accent text-surface-0'
                             }`}
                           >
                             {msg.content}
@@ -985,9 +985,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                   </div>
 
                   {/* Thread Reply Bar (Disabled if Closed) */}
-                  <div className="p-3 border-t border-zinc-800 bg-[#121216] shrink-0">
+                  <div className="p-3 border-t border-line bg-surface-2 shrink-0">
                     {activeTicket.status === 'Closed' || activeTicket.status === 'Archived' ? (
-                      <div className="text-center text-xs text-zinc-500 py-1 flex items-center justify-center gap-1.5">
+                      <div className="text-center text-xs text-ink-faint py-1 flex items-center justify-center gap-1.5">
                         <Lock className="w-3.5 h-3.5" />
                         <span>This ticket is closed and read-only.</span>
                       </div>
@@ -999,13 +999,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                           value={replyContent}
                           onChange={(e) => setReplyContent(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleSendReply()}
-                          className="flex-1 px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-hidden focus:border-cyan-500"
+                          className="flex-1 px-3 py-2 bg-surface-1 border border-line-strong rounded-control text-xs text-ink focus:outline-hidden focus:border-accent"
                         />
                         <button
                           type="button"
                           onClick={handleSendReply}
                           disabled={isReplying || !replyContent.trim()}
-                          className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                          className="px-4 py-2 rounded-control bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                         >
                           <Send className="w-3.5 h-3.5" />
                           <span>{isReplying ? 'Sending...' : 'Send'}</span>
@@ -1016,14 +1016,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                 </div>
               ) : (
                 /* Ticket List */
-                <div className="bg-[#15151B] border border-zinc-800 rounded-xl divide-y divide-zinc-800/80 overflow-hidden">
+                <div className="bg-surface-2 border border-line rounded-card divide-y divide-line/80 overflow-hidden">
                   {isLoadingTickets ? (
-                    <div className="p-8 text-center text-xs text-zinc-500 font-mono">Loading support tickets...</div>
+                    <div className="p-8 text-center text-xs text-ink-faint font-mono">Loading support tickets...</div>
                   ) : tickets.length === 0 ? (
                     <div className="p-8 text-center">
-                      <MessageSquare className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
-                      <h3 className="text-sm font-semibold text-zinc-300">No support tickets</h3>
-                      <p className="text-xs text-zinc-500 mt-1">
+                      <MessageSquare className="w-8 h-8 text-ink-faint mx-auto mb-2" />
+                      <h3 className="text-sm font-semibold text-ink-dim">No support tickets</h3>
+                      <p className="text-xs text-ink-faint mt-1">
                         Have a question or run into an issue? Create a support ticket above.
                       </p>
                     </div>
@@ -1032,18 +1032,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                       <div
                         key={t.id}
                         onClick={() => handleOpenTicketThread(t)}
-                        className="p-4 flex items-center justify-between gap-4 hover:bg-zinc-800/40 cursor-pointer transition-colors"
+                        className="p-4 flex items-center justify-between gap-4 hover:bg-surface-2/40 cursor-pointer transition-colors"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <h4 className="text-xs font-bold text-white truncate">{t.title}</h4>
+                            <h4 className="text-xs font-bold text-ink truncate">{t.title}</h4>
                             {t.has_unread_admin_reply && (
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-cyan-500 text-black uppercase tracking-wider">
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-accent text-black uppercase tracking-wider">
                                 New Reply
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-3 text-[11px] text-zinc-500 mt-1">
+                          <div className="flex items-center gap-3 text-[11px] text-ink-faint mt-1">
                             <span>{t.type}</span>
                             <span>•</span>
                             <span>{t.messages.length} messages</span>
@@ -1055,10 +1055,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider shrink-0 ${
                             t.status === 'Open'
-                              ? 'bg-cyan-950 text-cyan-300 border border-cyan-800'
+                              ? 'bg-accent text-accent border border-accent'
                               : t.status === 'Resolved'
-                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                              : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                              ? 'bg-ok text-ok border border-ok'
+                              : 'bg-surface-2 text-ink-dim border border-line-strong'
                           }`}
                         >
                           {t.status}
@@ -1075,24 +1075,24 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
           {activeTab === 'privacy' && (
             <div className="max-w-2xl space-y-6">
               <div>
-                <h2 className="text-xl font-bold text-white tracking-tight">Data & Privacy</h2>
-                <p className="text-xs text-zinc-400 mt-1">Control your personal data, exports, and account deletion.</p>
+                <h2 className="text-xl font-bold text-ink tracking-tight">Data & Privacy</h2>
+                <p className="text-xs text-ink-dim mt-1">Control your personal data, exports, and account deletion.</p>
               </div>
 
               {/* Download Data Section */}
-              <div className="bg-[#15151B] border border-zinc-800 rounded-xl p-6 space-y-3">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Download className="w-4 h-4 text-cyan-400" />
+              <div className="bg-surface-2 border border-line rounded-card p-6 space-y-3">
+                <h3 className="text-sm font-bold text-ink flex items-center gap-2">
+                  <Download className="w-4 h-4 text-accent" />
                   <span>Download My Data (JSON)</span>
                 </h3>
-                <p className="text-xs text-zinc-400 leading-relaxed">
+                <p className="text-xs text-ink-dim leading-relaxed">
                   Export a comprehensive JSON package containing your account details, voice synthesis generation history, support tickets, and saved cloud project files.
                 </p>
                 <div className="pt-1">
                   <button
                     type="button"
                     onClick={handleDownloadData}
-                    className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+                    className="px-4 py-2 rounded-control bg-surface-2 hover:bg-surface-3 text-ink text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Download JSON Archive</span>
@@ -1101,34 +1101,34 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
               </div>
 
               {/* Permanent Account Deletion */}
-              <div className="bg-[#181113] border border-rose-900/60 rounded-xl p-6 space-y-4">
-                <h3 className="text-sm font-bold text-rose-300 flex items-center gap-2">
-                  <Trash2 className="w-4 h-4 text-rose-400" />
+              <div className="bg-surface-2 border border-danger/60 rounded-card p-6 space-y-4">
+                <h3 className="text-sm font-bold text-danger flex items-center gap-2">
+                  <Trash2 className="w-4 h-4 text-danger" />
                   <span>Delete My Account</span>
                 </h3>
-                <p className="text-xs text-zinc-400 leading-relaxed">
+                <p className="text-xs text-ink-dim leading-relaxed">
                   Permanently deletes your account record, cloud projects, audio assets, support tickets, and studio preferences from our servers.
                 </p>
 
-                <div className="p-3 bg-rose-950/30 border border-rose-900/50 rounded-lg text-[11px] text-rose-300">
+                <div className="p-3 bg-danger/30 border border-danger/50 rounded-control text-[11px] text-danger">
                   <strong>Notice: </strong>
                   This action is irreversible. Signing in with this Google account again in the future will create a completely fresh, empty account.
                 </div>
 
                 {deleteErrorMsg && (
-                  <div className="text-xs text-rose-400 font-semibold">{deleteErrorMsg}</div>
+                  <div className="text-xs text-danger font-semibold">{deleteErrorMsg}</div>
                 )}
 
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                    To confirm, please type <span className="text-rose-400 font-mono">DELETE</span> below:
+                  <label className="block text-xs font-semibold text-ink-dim mb-1">
+                    To confirm, please type <span className="text-danger font-mono">DELETE</span> below:
                   </label>
                   <input
                     type="text"
                     value={deleteConfirmInput}
                     onChange={(e) => setDeleteConfirmInput(e.target.value)}
                     placeholder="DELETE"
-                    className="w-full px-3.5 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white font-mono focus:outline-hidden focus:border-rose-500"
+                    className="w-full px-3.5 py-2.5 bg-surface-1 border border-line-strong rounded-control text-xs text-ink font-mono focus:outline-hidden focus:border-danger"
                   />
                 </div>
 
@@ -1137,7 +1137,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                     type="button"
                     onClick={handleDeleteAccountConfirm}
                     disabled={isDeletingAccount || deleteConfirmInput !== 'DELETE'}
-                    className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-4 py-2 rounded-control bg-danger hover:bg-danger text-ink text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {isDeletingAccount ? 'Deleting Account...' : 'Permanently Delete Account'}
                   </button>
@@ -1151,29 +1151,29 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
       {/* New Support Ticket Modal */}
       {isNewTicketOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-[#14141A] border border-zinc-800 rounded-xl p-6 shadow-2xl animate-in zoom-in-95">
-            <h3 className="text-base font-bold text-white mb-1">Create Support Ticket</h3>
-            <p className="text-xs text-zinc-400 mb-4">Submit a technical inquiry or issue report to studio administrators.</p>
+          <div className="w-full max-w-lg bg-surface-2 border border-line rounded-card p-6 shadow-2xl animate-in zoom-in-95">
+            <h3 className="text-base font-bold text-ink mb-1">Create Support Ticket</h3>
+            <p className="text-xs text-ink-dim mb-4">Submit a technical inquiry or issue report to studio administrators.</p>
 
             <form onSubmit={handleCreateTicket} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">Ticket Title</label>
+                <label className="block text-xs font-semibold text-ink-dim mb-1">Ticket Title</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Issue with voice synthesis pace"
                   value={newTicketTitle}
                   onChange={(e) => setNewTicketTitle(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-hidden focus:border-cyan-500"
+                  className="w-full px-3 py-2 bg-surface-1 border border-line-strong rounded-control text-xs text-ink focus:outline-hidden focus:border-accent"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">Category Type</label>
+                <label className="block text-xs font-semibold text-ink-dim mb-1">Category Type</label>
                 <select
                   value={newTicketType}
                   onChange={(e) => setNewTicketType(e.target.value as SupportTicket['type'])}
-                  className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-hidden focus:border-cyan-500"
+                  className="w-full px-3 py-2 bg-surface-1 border border-line-strong rounded-control text-xs text-ink focus:outline-hidden focus:border-accent"
                 >
                   <option value="AI generation issue">AI generation issue</option>
                   <option value="Account issue">Account issue</option>
@@ -1184,14 +1184,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">Message Details</label>
+                <label className="block text-xs font-semibold text-ink-dim mb-1">Message Details</label>
                 <textarea
                   required
                   rows={4}
                   placeholder="Describe what occurred, any error messages shown, and steps to reproduce..."
                   value={newTicketMessage}
                   onChange={(e) => setNewTicketMessage(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-hidden focus:border-cyan-500 leading-relaxed"
+                  className="w-full px-3 py-2 bg-surface-1 border border-line-strong rounded-control text-xs text-ink focus:outline-hidden focus:border-accent leading-relaxed"
                 />
               </div>
 
@@ -1199,14 +1199,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                 <button
                   type="button"
                   onClick={() => setIsNewTicketOpen(false)}
-                  className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-xs font-semibold hover:bg-zinc-700"
+                  className="px-4 py-2 rounded-control bg-surface-2 text-ink-dim text-xs font-semibold hover:bg-surface-3"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isCreatingTicket || !newTicketTitle.trim() || !newTicketMessage.trim()}
-                  className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold disabled:opacity-50"
+                  className="px-4 py-2 rounded-control bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold disabled:opacity-50"
                 >
                   {isCreatingTicket ? 'Submitting...' : 'Submit Ticket'}
                 </button>

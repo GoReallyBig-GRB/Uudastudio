@@ -7,6 +7,7 @@
  * The total input length must be known up front (it is: the clip's length).
  */
 import { HighRestorer, HighpassStream } from './highRestore';
+import { AntiAliasFilter, antiAliasCorner } from './antiAlias';
 import { StretchParams, chooseOffset, edgeGuardLength, edgeGuardWeight, pitchStretchParams, resampleChannel, speedStretchParams, wsolaTimeStretch } from './wsola';
 
 export interface Stage {
@@ -32,7 +33,11 @@ export class HermiteResampler implements Stage {
   private readonly outLength: number;
   private readonly maxIdx: number;
 
+  private readonly antiAlias: AntiAliasFilter | null;
+
   constructor(private readonly totalIn: number, private readonly ratio: number) {
+    const corner = antiAliasCorner(ratio);
+    this.antiAlias = corner === null ? null : new AntiAliasFilter(corner);
     this.outLength = Math.max(1, Math.round(totalIn / ratio));
     this.maxIdx = totalIn - 1;
   }
@@ -72,6 +77,7 @@ export class HermiteResampler implements Stage {
   }
 
   push(chunk: Float32Array): Float32Array {
+    if (this.antiAlias) chunk = this.antiAlias.process(chunk);
     const merged = new Float32Array(this.buf.length + chunk.length);
     merged.set(this.buf);
     merged.set(chunk, this.buf.length);

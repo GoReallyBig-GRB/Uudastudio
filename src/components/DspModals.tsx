@@ -298,16 +298,16 @@ export const DspModals: React.FC<DspModalsProps> = ({
 
   // Reusable Preview Audition Bar Component
   const renderPreviewAuditionBar = () => (
-    <div className="p-3 rounded bg-zinc-900 border border-cyan-500/30 space-y-2 mt-3">
+    <div className="p-3 rounded bg-surface-1 border border-accent/30 space-y-2 mt-3">
       <div className="flex items-center justify-between text-[11px]">
-        <div className="flex items-center gap-1.5 font-semibold text-zinc-200">
-          <Headphones className="w-3.5 h-3.5 text-cyan-400" />
+        <div className="flex items-center gap-1.5 font-semibold text-ink">
+          <Headphones className="w-3.5 h-3.5 text-accent" />
           <span>Real-time Audio Preview</span>
         </div>
         <div className="flex items-center gap-2">
           {previewState !== 'none' && (
-            <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-400 animate-pulse">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span className="flex items-center gap-1 text-[10px] font-mono text-ok animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-ok" />
               Playing {previewState === 'after' ? (activeModal === 'denoise' && noisePrint && hearRemoved ? 'Removed noise only' : 'Processed (B)') : 'Original (A)'}
             </span>
           )}
@@ -317,8 +317,8 @@ export const DspModals: React.FC<DspModalsProps> = ({
             title={isLooping ? 'Looping enabled' : 'Click to enable loop'}
             className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono transition-colors cursor-pointer border ${
               isLooping
-                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
-                : 'bg-zinc-800 text-zinc-400 border-zinc-700/60 hover:text-zinc-200'
+                ? 'bg-accent-soft text-accent border-accent/50'
+                : 'bg-surface-2 text-ink-dim border-line-strong/60 hover:text-ink'
             }`}
           >
             <Repeat className="w-3 h-3" />
@@ -333,8 +333,8 @@ export const DspModals: React.FC<DspModalsProps> = ({
           onClick={() => handleTogglePreview('before')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded font-medium text-[11px] transition-all cursor-pointer ${
             previewState === 'before'
-              ? 'bg-amber-500 text-black font-bold shadow-[0_0_10px_rgba(245,158,11,0.4)]'
-              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+              ? 'bg-warn text-black font-bold shadow-[0_0_10px_rgba(245,158,11,0.4)]'
+              : 'bg-surface-2 hover:bg-surface-3 text-ink'
           }`}
         >
           {previewState === 'before' ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3" />}
@@ -346,8 +346,8 @@ export const DspModals: React.FC<DspModalsProps> = ({
           onClick={() => handleTogglePreview('after')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded font-medium text-[11px] transition-all cursor-pointer ${
             previewState === 'after'
-              ? 'bg-cyan-400 text-black font-bold shadow-[0_0_12px_rgba(0,240,255,0.4)]'
-              : 'bg-cyan-950/80 hover:bg-cyan-900/90 text-cyan-300 border border-cyan-600/50'
+              ? 'bg-accent text-black font-bold'
+              : 'bg-accent/80 hover:bg-accent/90 text-accent border border-accent/50'
           }`}
         >
           {previewState === 'after' ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
@@ -359,7 +359,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
             type="button"
             onClick={stopPreview}
             title="Stop Preview"
-            className="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 cursor-pointer"
+            className="px-2.5 py-1.5 rounded bg-surface-2 hover:bg-surface-3 text-ink-dim cursor-pointer"
           >
             <Square className="w-3 h-3 fill-current" />
           </button>
@@ -482,16 +482,16 @@ export const DspModals: React.FC<DspModalsProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-2 sm:p-4">
-      <div className="w-full max-w-lg max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] bg-[#0e0e14] border border-cyan-500/30 rounded-xl shadow-2xl overflow-hidden flex flex-col text-xs text-zinc-200 animate-in fade-in zoom-in-95 duration-150">
+      <div className="w-full max-w-lg max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] bg-[#0e0e14] border border-accent/30 rounded-xl shadow-2xl overflow-hidden flex flex-col text-xs text-ink animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 bg-[#161622]">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-line bg-surface-2">
           <div className="flex items-center gap-2">
-            {activeModal === 'amplify' && <Volume2 className="w-4 h-4 text-cyan-400" />}
-            {activeModal === 'compress' && <Sliders className="w-4 h-4 text-cyan-400" />}
-            {activeModal === 'denoise' && <AudioWaveform className="w-4 h-4 text-cyan-400" />}
-            {activeModal === 'pitch' && <Music className="w-4 h-4 text-cyan-400" />}
-            {activeModal === 'speed' && <Gauge className="w-4 h-4 text-cyan-400" />}
-            <h2 className="font-bold text-sm tracking-wide text-zinc-100 uppercase">
+            {activeModal === 'amplify' && <Volume2 className="w-4 h-4 text-accent" />}
+            {activeModal === 'compress' && <Sliders className="w-4 h-4 text-accent" />}
+            {activeModal === 'denoise' && <AudioWaveform className="w-4 h-4 text-accent" />}
+            {activeModal === 'pitch' && <Music className="w-4 h-4 text-accent" />}
+            {activeModal === 'speed' && <Gauge className="w-4 h-4 text-accent" />}
+            <h2 className="font-bold text-sm tracking-wide text-ink uppercase">
               {activeModal === 'amplify' && 'Amplify / Gain Adjustment'}
               {activeModal === 'compress' && 'Dynamics Compressor'}
               {activeModal === 'denoise' && 'Speech Enhancement & Denoise'}
@@ -505,7 +505,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
               onClose();
             }}
             disabled={isProcessing}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+            className="p-1 rounded hover:bg-surface-2 text-ink-dim hover:text-white transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -513,8 +513,8 @@ export const DspModals: React.FC<DspModalsProps> = ({
 
         {/* Error message */}
         {processError && (
-          <div className="px-5 py-2.5 bg-red-950/80 border-b border-red-800 text-red-200 text-xs flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+          <div className="px-5 py-2.5 bg-danger/80 border-b border-danger text-danger text-xs flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-danger shrink-0" />
             <span>{processError}</span>
           </div>
         )}
@@ -522,9 +522,9 @@ export const DspModals: React.FC<DspModalsProps> = ({
         {/* Body */}
         <div className="p-3 sm:p-5 space-y-4 min-h-0 flex-1 overflow-y-auto">
           {/* Target clip banner */}
-          <div className="flex items-center justify-between px-3 py-1.5 rounded bg-zinc-900/80 border border-zinc-800 text-[11px] text-zinc-400">
+          <div className="flex items-center justify-between px-3 py-1.5 rounded bg-surface-1/80 border border-line text-[11px] text-ink-dim">
             <span>
-              Target: <strong className="text-zinc-200">{clip?.name || 'Selected Clip'}</strong>
+              Target: <strong className="text-ink">{clip?.name || 'Selected Clip'}</strong>
             </span>
             <span className="mono-nums">Duration: {clip?.durationSeconds.toFixed(2)}s</span>
           </div>
@@ -532,9 +532,9 @@ export const DspModals: React.FC<DspModalsProps> = ({
           {/* 1. AMPLIFY MODAL */}
           {activeModal === 'amplify' && (
             <div className="space-y-3.5">
-              <div className="flex justify-between text-zinc-300 font-medium">
+              <div className="flex justify-between text-ink-dim font-medium">
                 <span>Amplification Gain</span>
-                <span className={`mono-nums font-bold ${gainDb > 0 ? 'text-cyan-400' : 'text-zinc-400'}`}>
+                <span className={`mono-nums font-bold ${gainDb > 0 ? 'text-accent' : 'text-ink-dim'}`}>
                   {gainDb > 0 ? `+${gainDb.toFixed(1)}` : gainDb.toFixed(1)} dB
                 </span>
               </div>
@@ -545,24 +545,24 @@ export const DspModals: React.FC<DspModalsProps> = ({
                 step="0.5"
                 value={gainDb}
                 onChange={(e) => setGainDb(parseFloat(e.target.value))}
-                className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
               />
 
               {/* Peak meters and clip warnings */}
-              <div className="p-3 rounded bg-zinc-900 border border-zinc-800 space-y-2">
-                <div className="flex justify-between text-[11px] text-zinc-400">
+              <div className="p-3 rounded bg-surface-1 border border-line space-y-2">
+                <div className="flex justify-between text-[11px] text-ink-dim">
                   <span>Current Clip Peak:</span>
-                  <span className="mono-nums text-zinc-200">{formatVolumeDb(currentPeak)}</span>
+                  <span className="mono-nums text-ink">{formatVolumeDb(currentPeak)}</span>
                 </div>
-                <div className="flex justify-between text-[11px] text-zinc-400">
+                <div className="flex justify-between text-[11px] text-ink-dim">
                   <span>New Projected Peak:</span>
-                  <span className={`mono-nums font-bold ${willClip ? 'text-red-400' : 'text-emerald-400'}`}>
+                  <span className={`mono-nums font-bold ${willClip ? 'text-danger' : 'text-ok'}`}>
                     {formatVolumeDb(amplifiedPeak)}
                   </span>
                 </div>
 
                 {willClip && (
-                  <div className="flex items-center gap-2 pt-1 text-red-400 text-[11px]">
+                  <div className="flex items-center gap-2 pt-1 text-danger text-[11px]">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     <span>Warning: Will clip by ~+{clipExcessDb} dB! Reduce gain or allow limiter.</span>
                   </div>
@@ -579,14 +579,14 @@ export const DspModals: React.FC<DspModalsProps> = ({
                       setGainDb(Math.round(targetGain * 10) / 10);
                     }
                   }}
-                  className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] text-zinc-300 transition-colors"
+                  className="px-2.5 py-1 rounded bg-surface-2 hover:bg-surface-3 text-[11px] text-ink-dim transition-colors"
                 >
                   Peak to -1 dBFS (Broadcast Safe)
                 </button>
                 <button
                   type="button"
                   onClick={() => setGainDb(0)}
-                  className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] text-zinc-300 transition-colors"
+                  className="px-2.5 py-1 rounded bg-surface-2 hover:bg-surface-3 text-[11px] text-ink-dim transition-colors"
                 >
                   Reset (0 dB)
                 </button>
@@ -598,9 +598,9 @@ export const DspModals: React.FC<DspModalsProps> = ({
                   type="checkbox"
                   checked={bakeAmplify}
                   onChange={(e) => setBakeAmplify(e.target.checked)}
-                  className="rounded border-zinc-700 bg-zinc-900 text-cyan-500 focus:ring-0"
+                  className="rounded border-line-strong bg-surface-1 text-accent focus:ring-0"
                 />
-                <span className="text-zinc-300">
+                <span className="text-ink-dim">
                   Bake directly into audio buffer (Offline render; irreversible in buffer)
                 </span>
               </label>
@@ -618,15 +618,15 @@ export const DspModals: React.FC<DspModalsProps> = ({
                   ref={compCanvasRef}
                   width={340}
                   height={130}
-                  className="rounded border border-zinc-800 shadow-inner bg-[#0b0b10]"
+                  className="rounded border border-line shadow-inner bg-[#0b0b10]"
                 />
               </div>
 
               <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 text-[11px]">
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-0.5">
+                  <div className="flex justify-between text-ink-dim mb-0.5">
                     <span>Threshold</span>
-                    <span className="mono-nums text-cyan-400 font-semibold">{compParams.thresholdDb} dB</span>
+                    <span className="mono-nums text-accent font-semibold">{compParams.thresholdDb} dB</span>
                   </div>
                   <input
                     type="range"
@@ -635,14 +635,14 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     step="1"
                     value={compParams.thresholdDb}
                     onChange={(e) => setCompParams({ ...compParams, thresholdDb: parseInt(e.target.value) })}
-                    className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                   />
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-0.5">
+                  <div className="flex justify-between text-ink-dim mb-0.5">
                     <span>Ratio</span>
-                    <span className="mono-nums text-cyan-400 font-semibold">{compParams.ratio}:1</span>
+                    <span className="mono-nums text-accent font-semibold">{compParams.ratio}:1</span>
                   </div>
                   <input
                     type="range"
@@ -651,14 +651,14 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     step="0.5"
                     value={compParams.ratio}
                     onChange={(e) => setCompParams({ ...compParams, ratio: parseFloat(e.target.value) })}
-                    className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                   />
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-0.5">
+                  <div className="flex justify-between text-ink-dim mb-0.5">
                     <span>Attack</span>
-                    <span className="mono-nums text-cyan-400 font-semibold">{compParams.attackMs} ms</span>
+                    <span className="mono-nums text-accent font-semibold">{compParams.attackMs} ms</span>
                   </div>
                   <input
                     type="range"
@@ -667,14 +667,14 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     step="1"
                     value={compParams.attackMs}
                     onChange={(e) => setCompParams({ ...compParams, attackMs: parseInt(e.target.value) })}
-                    className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                   />
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-0.5">
+                  <div className="flex justify-between text-ink-dim mb-0.5">
                     <span>Release</span>
-                    <span className="mono-nums text-cyan-400 font-semibold">{compParams.releaseMs} ms</span>
+                    <span className="mono-nums text-accent font-semibold">{compParams.releaseMs} ms</span>
                   </div>
                   <input
                     type="range"
@@ -683,14 +683,14 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     step="10"
                     value={compParams.releaseMs}
                     onChange={(e) => setCompParams({ ...compParams, releaseMs: parseInt(e.target.value) })}
-                    className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                   />
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-0.5">
+                  <div className="flex justify-between text-ink-dim mb-0.5">
                     <span>Knee</span>
-                    <span className="mono-nums text-cyan-400 font-semibold">{compParams.kneeDb} dB</span>
+                    <span className="mono-nums text-accent font-semibold">{compParams.kneeDb} dB</span>
                   </div>
                   <input
                     type="range"
@@ -699,14 +699,14 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     step="1"
                     value={compParams.kneeDb}
                     onChange={(e) => setCompParams({ ...compParams, kneeDb: parseInt(e.target.value) })}
-                    className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                   />
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-zinc-400 mb-0.5">
+                  <div className="flex justify-between text-ink-dim mb-0.5">
                     <span>Makeup Gain</span>
-                    <span className="mono-nums text-cyan-400 font-semibold">+{compParams.makeupGainDb} dB</span>
+                    <span className="mono-nums text-accent font-semibold">+{compParams.makeupGainDb} dB</span>
                   </div>
                   <input
                     type="range"
@@ -715,12 +715,12 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     step="0.5"
                     value={compParams.makeupGainDb}
                     onChange={(e) => setCompParams({ ...compParams, makeupGainDb: parseFloat(e.target.value) })}
-                    className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                    className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                   />
                 </div>
               </div>
 
-              <div className="text-[10px] text-zinc-500 font-mono pt-1">
+              <div className="text-[10px] text-ink-faint font-mono pt-1">
                 Render method: OfflineAudioContext &rarr; high-precision dynamic buffer replacement.
               </div>
 
@@ -732,13 +732,13 @@ export const DspModals: React.FC<DspModalsProps> = ({
           {/* 3. SPEECH ENHANCEMENT & DENOISE MODAL */}
           {activeModal === 'denoise' && (
             <div className="space-y-3.5">
-              <div className="p-2.5 rounded bg-cyan-950/40 border border-cyan-500/40 text-[11px] text-cyan-200 leading-relaxed">
-                <div className="font-semibold text-cyan-100 flex items-center justify-between gap-1.5 mb-1">
+              <div className="p-2.5 rounded bg-accent/40 border border-accent/40 text-[11px] text-accent leading-relaxed">
+                <div className="font-semibold text-accent flex items-center justify-between gap-1.5 mb-1">
                   <div className="flex items-center gap-1.5">
-                    <AudioWaveform className="w-3.5 h-3.5 text-cyan-400" />
+                    <AudioWaveform className="w-3.5 h-3.5 text-accent" />
                     High-Precision Speech Enhancement & Suppression
                   </div>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-900/60 text-cyan-300 border border-cyan-700/50">
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/60 text-accent border border-accent/50">
                     DSP Engine
                   </span>
                 </div>
@@ -748,10 +748,10 @@ export const DspModals: React.FC<DspModalsProps> = ({
               </div>
 
               {/* Noise print */}
-              <div className="p-3 rounded bg-zinc-900/90 border border-zinc-800 space-y-2">
+              <div className="p-3 rounded bg-surface-1/90 border border-line space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-zinc-200 font-medium text-[11px]">
-                    <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                  <div className="flex items-center gap-1.5 text-ink font-medium text-[11px]">
+                    <Activity className="w-3.5 h-3.5 text-accent" />
                     <span>Noise sample</span>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -759,7 +759,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                       <button
                         type="button"
                         onClick={() => onSetNoisePrint?.(null)}
-                        className="px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-[10px] cursor-pointer"
+                        className="px-2 py-1 rounded border border-line-strong text-ink-dim hover:bg-surface-2 text-[10px] cursor-pointer"
                       >
                         Clear
                       </button>
@@ -769,7 +769,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                       onClick={handleFindQuietPart}
                       disabled={!asset?.buffer}
                       title={asset?.buffer ? 'Use the quietest second of this clip as the noise sample' : 'Only for audio held in memory. For a long track, highlight a quiet stretch and press Noise sample.'}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-black font-bold text-[10px] transition-colors cursor-pointer disabled:opacity-40"
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-accent hover:bg-accent text-black font-bold text-[10px] transition-colors cursor-pointer disabled:opacity-40"
                     >
                       <RefreshCw className="w-3 h-3" />
                       <span>{noisePrint ? 'Use quietest second instead' : 'Find quiet part'}</span>
@@ -779,12 +779,12 @@ export const DspModals: React.FC<DspModalsProps> = ({
 
                 {noisePrint ? (
                   <div className="space-y-1.5 pt-1">
-                    <div className="flex justify-between text-[10px] text-zinc-400">
+                    <div className="flex justify-between text-[10px] text-ink-dim">
                       <span>Learned from</span>
-                      <span className="mono-nums text-emerald-400 font-mono">{noisePrint.label} ({noisePrint.seconds.toFixed(1)} s)</span>
+                      <span className="mono-nums text-ok font-mono">{noisePrint.label} ({noisePrint.seconds.toFixed(1)} s)</span>
                     </div>
                     {/* What the noise looks like: average level in 24 bands from low to high */}
-                    <div className="flex items-end gap-px h-8 pt-1 px-1 bg-black/60 rounded border border-zinc-800">
+                    <div className="flex items-end gap-px h-8 pt-1 px-1 bg-black/60 rounded border border-line">
                       {(() => {
                         const bands = 24;
                         const edges = Array.from({ length: bands + 1 }, (_, i) => Math.round(Math.pow(noisePrint.power.length - 1, i / bands)));
@@ -797,25 +797,25 @@ export const DspModals: React.FC<DspModalsProps> = ({
                         const top = Math.max(...levels), bottom = top - 50;
                         return levels.map((v, i) => (
                           <div key={i} className="flex-1 h-full flex items-end">
-                            <div style={{ height: `${Math.max(6, Math.min(100, ((v - bottom) / 50) * 100))}%` }} className="w-full bg-cyan-500/70 rounded-t-xs" />
+                            <div style={{ height: `${Math.max(6, Math.min(100, ((v - bottom) / 50) * 100))}%` }} className="w-full bg-accent/70 rounded-t-xs" />
                           </div>
                         ));
                       })()}
                     </div>
-                    <div className="flex justify-between text-[9px] text-zinc-500 font-mono">
+                    <div className="flex justify-between text-[9px] text-ink-faint font-mono">
                       <span>low</span>
                       <span>frequency</span>
                       <span>high</span>
                     </div>
                     {noisePrint.loudnessSpreadDb > 6 && (
-                      <div className="text-[10px] text-amber-300">
+                      <div className="text-[10px] text-warn">
                         This sample has loud moments in it. Speech or other sound in the sample is treated as noise; a stretch with only background noise works best.
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="text-[10px] text-zinc-400 leading-relaxed">
-                    <span className="text-zinc-200">Best:</span> close this, highlight a few seconds with no speech (Range tool, X), press <span className="text-zinc-200">Noise sample</span> in Quick Actions or the toolbar, then open Denoise again. Or press &ldquo;Find quiet part&rdquo; to pick the quietest second of this clip. With no sample, a basic noise gate is used.
+                  <div className="text-[10px] text-ink-dim leading-relaxed">
+                    <span className="text-ink">Best:</span> close this, highlight a few seconds with no speech (Range tool, X), press <span className="text-ink">Noise sample</span> in Quick Actions or the toolbar, then open Denoise again. Or press &ldquo;Find quiet part&rdquo; to pick the quietest second of this clip. With no sample, a basic noise gate is used.
                   </div>
                 )}
               </div>
@@ -825,58 +825,58 @@ export const DspModals: React.FC<DspModalsProps> = ({
                 {noisePrint ? (
                   <>
                     <div>
-                      <div className="flex justify-between text-zinc-300 mb-1">
+                      <div className="flex justify-between text-ink-dim mb-1">
                         <span>Reduction</span>
-                        <span className="mono-nums text-cyan-400 font-semibold">-{denoiseParams.reductionDb} dB</span>
+                        <span className="mono-nums text-accent font-semibold">-{denoiseParams.reductionDb} dB</span>
                       </div>
                       <input
                         type="range" min="3" max="30" step="1"
                         value={denoiseParams.reductionDb}
                         onChange={(e) => setDenoiseParams({ ...denoiseParams, reductionDb: parseInt(e.target.value) })}
-                        className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                        className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
                       />
-                      <div className="text-[10px] text-zinc-500 mt-0.5">How far the noise is turned down</div>
+                      <div className="text-[10px] text-ink-faint mt-0.5">How far the noise is turned down</div>
                     </div>
                     <div>
-                      <div className="flex justify-between text-zinc-300 mb-1">
+                      <div className="flex justify-between text-ink-dim mb-1">
                         <span>Sensitivity</span>
-                        <span className="mono-nums text-cyan-400 font-semibold">{noiseSensitivity.toFixed(1)}</span>
+                        <span className="mono-nums text-accent font-semibold">{noiseSensitivity.toFixed(1)}</span>
                       </div>
                       <input
                         type="range" min="1" max="4" step="0.1"
                         value={noiseSensitivity}
                         onChange={(e) => setNoiseSensitivity(parseFloat(e.target.value))}
-                        className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                        className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
                       />
-                      <div className="text-[10px] text-zinc-500 mt-0.5">Higher also removes noise a little louder than the sample, but too high makes the voice thin</div>
+                      <div className="text-[10px] text-ink-faint mt-0.5">Higher also removes noise a little louder than the sample, but too high makes the voice thin</div>
                     </div>
                     <div>
-                      <div className="flex justify-between text-zinc-300 mb-1">
+                      <div className="flex justify-between text-ink-dim mb-1">
                         <span>Voice protection</span>
-                        <span className="mono-nums text-cyan-400 font-semibold">{Math.round(voiceProtection * 100)}%</span>
+                        <span className="mono-nums text-accent font-semibold">{Math.round(voiceProtection * 100)}%</span>
                       </div>
                       <input
                         type="range" min="0" max="1" step="0.05"
                         value={voiceProtection}
                         onChange={(e) => setVoiceProtection(parseFloat(e.target.value))}
-                        className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                        className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
                       />
-                      <div className="text-[10px] text-zinc-500 mt-0.5">Higher lets the voice through faster and eases the cut where it is unclear whether it is voice or noise</div>
+                      <div className="text-[10px] text-ink-faint mt-0.5">Higher lets the voice through faster and eases the cut where it is unclear whether it is voice or noise</div>
                     </div>
-                    <label className="flex items-start gap-2 text-[11px] text-zinc-300 cursor-pointer">
+                    <label className="flex items-start gap-2 text-[11px] text-ink-dim cursor-pointer">
                       <input type="checkbox" checked={hearRemoved} onChange={(e) => setHearRemoved(e.target.checked)} className="mt-0.5" />
                       <span>
                         Hear only what is being removed
-                        <span className="block text-[10px] text-zinc-500">If you can hear the voice in it, lower Reduction or Sensitivity, or raise Voice protection. Aim for hearing only noise.</span>
+                        <span className="block text-[10px] text-ink-faint">If you can hear the voice in it, lower Reduction or Sensitivity, or raise Voice protection. Aim for hearing only noise.</span>
                       </span>
                     </label>
                   </>
                 ) : (
                   <>
                 <div>
-                  <div className="flex justify-between text-zinc-300 mb-1">
+                  <div className="flex justify-between text-ink-dim mb-1">
                     <span>High-Pass Rumble Cut (24dB/oct)</span>
-                    <span className="mono-nums text-cyan-400 font-semibold">{denoiseParams.highPassFreq} Hz</span>
+                    <span className="mono-nums text-accent font-semibold">{denoiseParams.highPassFreq} Hz</span>
                   </div>
                   <input
                     type="range"
@@ -885,15 +885,15 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     step="5"
                     value={denoiseParams.highPassFreq}
                     onChange={(e) => setDenoiseParams({ ...denoiseParams, highPassFreq: parseInt(e.target.value) })}
-                    className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                    className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
                   />
-                  <div className="text-[10px] text-zinc-500 mt-0.5">Strips air conditioning rumble and mechanical mic vibrations</div>
+                  <div className="text-[10px] text-ink-faint mt-0.5">Strips air conditioning rumble and mechanical mic vibrations</div>
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-zinc-300 mb-1">
+                  <div className="flex justify-between text-ink-dim mb-1">
                     <span>Noise Floor Threshold</span>
-                    <span className="mono-nums text-cyan-400 font-semibold">{denoiseParams.noiseFloorThresholdDb} dB</span>
+                    <span className="mono-nums text-accent font-semibold">{denoiseParams.noiseFloorThresholdDb} dB</span>
                   </div>
                   <input
                     type="range"
@@ -902,15 +902,15 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     step="1"
                     value={denoiseParams.noiseFloorThresholdDb}
                     onChange={(e) => setDenoiseParams({ ...denoiseParams, noiseFloorThresholdDb: parseInt(e.target.value) })}
-                    className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                    className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
                   />
-                  <div className="text-[10px] text-zinc-500 mt-0.5">Signals below this energy will be smoothly attenuated</div>
+                  <div className="text-[10px] text-ink-faint mt-0.5">Signals below this energy will be smoothly attenuated</div>
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-zinc-300 mb-1">
+                  <div className="flex justify-between text-ink-dim mb-1">
                     <span>Reduction Depth</span>
-                    <span className="mono-nums text-cyan-400 font-semibold">-{denoiseParams.reductionDb} dB</span>
+                    <span className="mono-nums text-accent font-semibold">-{denoiseParams.reductionDb} dB</span>
                   </div>
                   <input
                     type="range"
@@ -919,16 +919,16 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     step="1"
                     value={denoiseParams.reductionDb}
                     onChange={(e) => setDenoiseParams({ ...denoiseParams, reductionDb: parseInt(e.target.value) })}
-                    className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                    className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
                   />
-                  <div className="text-[10px] text-zinc-500 mt-0.5">Amount of background attenuation applied between words</div>
+                  <div className="text-[10px] text-ink-faint mt-0.5">Amount of background attenuation applied between words</div>
                 </div>
 
                 <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 pt-1">
                   <div>
-                    <div className="flex justify-between text-zinc-400 mb-0.5 text-[10px]">
+                    <div className="flex justify-between text-ink-dim mb-0.5 text-[10px]">
                       <span>Attack Speed</span>
-                      <span className="mono-nums text-cyan-400">{denoiseParams.attackMs ?? 8} ms</span>
+                      <span className="mono-nums text-accent">{denoiseParams.attackMs ?? 8} ms</span>
                     </div>
                     <input
                       type="range"
@@ -937,13 +937,13 @@ export const DspModals: React.FC<DspModalsProps> = ({
                       step="1"
                       value={denoiseParams.attackMs ?? 8}
                       onChange={(e) => setDenoiseParams({ ...denoiseParams, attackMs: parseInt(e.target.value) })}
-                      className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                      className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                     />
                   </div>
                   <div>
-                    <div className="flex justify-between text-zinc-400 mb-0.5 text-[10px]">
+                    <div className="flex justify-between text-ink-dim mb-0.5 text-[10px]">
                       <span>Release Smoothing</span>
-                      <span className="mono-nums text-cyan-400">{denoiseParams.releaseMs ?? 90} ms</span>
+                      <span className="mono-nums text-accent">{denoiseParams.releaseMs ?? 90} ms</span>
                     </div>
                     <input
                       type="range"
@@ -952,7 +952,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                       step="5"
                       value={denoiseParams.releaseMs ?? 90}
                       onChange={(e) => setDenoiseParams({ ...denoiseParams, releaseMs: parseInt(e.target.value) })}
-                      className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
+                      className="w-full h-1 bg-surface-2 rounded appearance-none cursor-pointer"
                     />
                   </div>
                 </div>
@@ -976,17 +976,17 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     onClick={() => setPitchSemitones(p.semitones)}
                     className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${
                       presetFor(pitchSemitones)?.id === p.id
-                        ? 'bg-cyan-500 border-cyan-400 text-black'
-                        : 'bg-zinc-900 border-zinc-700 hover:bg-zinc-800 text-zinc-300'
+                        ? 'bg-accent border-accent text-black'
+                        : 'bg-surface-1 border-line-strong hover:bg-surface-2 text-ink-dim'
                     }`}
                   >
                     {p.label}
                   </button>
                 ))}
               </div>
-              <div className="flex justify-between text-zinc-300 font-medium">
+              <div className="flex justify-between text-ink-dim font-medium">
                 <span>{presetFor(pitchSemitones)?.label ?? 'Pitch Shift'}</span>
-                <span className={`mono-nums font-bold ${pitchSemitones > 0 ? 'text-cyan-400' : 'text-zinc-400'}`}>
+                <span className={`mono-nums font-bold ${pitchSemitones > 0 ? 'text-accent' : 'text-ink-dim'}`}>
                   {pitchSemitones > 0 ? `+${pitchSemitones}` : pitchSemitones} semitones
                 </span>
               </div>
@@ -997,7 +997,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                 step="0.5"
                 value={pitchSemitones}
                 onChange={(e) => setPitchSemitones(parseFloat(e.target.value))}
-                className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
               />
 
               <div className="flex flex-wrap gap-1.5 pt-1">
@@ -1007,8 +1007,8 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     onClick={() => setPitchSemitones(st)}
                     className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${
                       pitchSemitones === st
-                        ? 'bg-cyan-500 text-black font-bold'
-                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                        ? 'bg-accent text-black font-bold'
+                        : 'bg-surface-2 hover:bg-surface-3 text-ink-dim'
                     }`}
                   >
                     {st > 0 ? `+${st}` : st}
@@ -1016,7 +1016,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                 ))}
               </div>
 
-              <div className="p-2.5 rounded bg-zinc-900/60 border border-zinc-800 text-[10px] text-zinc-400 leading-relaxed">
+              <div className="p-2.5 rounded bg-surface-1/60 border border-line text-[10px] text-ink-dim leading-relaxed">
                 <strong>Algorithm:</strong> WSOLA (Waveform Similarity Overlap-Add) combined with cubic Hermite resampling. The pitch lands on the target (checked to within a few cents), the duration and timing stay exact, and the edges of a range join the audio around it cleanly. Presets move the whole voice, character included.
               </div>
 
@@ -1028,9 +1028,9 @@ export const DspModals: React.FC<DspModalsProps> = ({
           {/* 5. CHANGE SPEED MODAL */}
           {activeModal === 'speed' && (
             <div className="space-y-3.5">
-              <div className="flex justify-between text-zinc-300 font-medium">
+              <div className="flex justify-between text-ink-dim font-medium">
                 <span>Playback Speed</span>
-                <span className="mono-nums text-cyan-400 font-bold text-sm">
+                <span className="mono-nums text-accent font-bold text-sm">
                   {speedRatio.toFixed(2)}x ({speedRatio < 1 ? `Slower (-${Math.round((1 - speedRatio) * 100)}%)` : speedRatio > 1 ? `Faster (+${Math.round((speedRatio - 1) * 100)}%)` : 'Original'})
                 </span>
               </div>
@@ -1041,7 +1041,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                 step="0.05"
                 value={speedRatio}
                 onChange={(e) => setSpeedRatio(parseFloat(e.target.value))}
-                className="w-full h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
+                className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
               />
 
               {/* Speed preset buttons */}
@@ -1052,8 +1052,8 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     onClick={() => setSpeedRatio(r)}
                     className={`px-2.5 py-1 rounded text-[10px] font-mono transition-colors ${
                       Math.abs(speedRatio - r) < 0.01
-                        ? 'bg-cyan-500 text-black font-bold'
-                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                        ? 'bg-accent text-black font-bold'
+                        : 'bg-surface-2 hover:bg-surface-3 text-ink-dim'
                     }`}
                   >
                     {r.toFixed(2)}x
@@ -1061,7 +1061,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                 ))}
               </div>
 
-              <div className="p-2.5 rounded bg-zinc-900/60 border border-zinc-800 text-[10px] text-zinc-400 leading-relaxed">
+              <div className="p-2.5 rounded bg-surface-1/60 border border-line text-[10px] text-ink-dim leading-relaxed">
                 <strong>Algorithm:</strong> WSOLA (Waveform Similarity Overlap-Add). Stretches or compresses timing while preserving exact pitch (no chipmunk effect).
               </div>
 
@@ -1072,7 +1072,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
         </div>
 
         {previewIsExcerpt && !progress && (
-          <div className="px-5 py-2 border-t border-zinc-800 bg-[#12121a] text-[11px] text-zinc-400">
+          <div className="px-5 py-2 border-t border-line bg-[#12121a] text-[11px] text-ink-dim">
             Long clip: the preview plays a short excerpt. Apply processes the whole clip in blocks.
           </div>
         )}
@@ -1088,7 +1088,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
         )}
 
         {/* Footer */}
-        <div className="px-5 py-3.5 border-t border-zinc-800 bg-[#161622] flex items-center justify-between">
+        <div className="px-5 py-3.5 border-t border-line bg-surface-2 flex items-center justify-between">
           <button
             onClick={() => {
               // While a long render runs this button stops it (between blocks); otherwise it closes the dialog
@@ -1100,7 +1100,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
               onClose();
             }}
             disabled={isProcessing && !onStopProcessing}
-            className="px-3 py-1.5 rounded text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            className="px-3 py-1.5 rounded text-xs text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isProcessing && onStopProcessing ? 'Stop' : 'Cancel'}
           </button>
@@ -1120,7 +1120,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                 handleAction(() => onApplySpeed({ speedRatio }));
               }
             }}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xs shadow-[0_0_12px_rgba(0,240,255,0.3)] transition-all disabled:opacity-50 cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-accent hover:bg-accent text-black font-bold text-xs transition-all disabled:opacity-50 cursor-pointer"
           >
             {isProcessing ? (
               <span>Processing...</span>

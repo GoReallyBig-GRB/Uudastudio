@@ -53,3 +53,25 @@ describe('planDragMove', () => {
     expect(r.dt).toBeCloseTo(6); // b ends at 14, wall at 20; a goes with it
   });
 });
+
+describe('selectionForPointerDown', () => {
+  const mk = (id: string, start: number, dur: number, extra: Partial<Clip> = {}): Clip => ({ ...clip(id, 'T1', start, dur), ...extra }) as Clip;
+  it('a click on any piece of an edited clip picks every piece, so a drag takes the whole clip', async () => {
+    const { selectionForPointerDown } = await import('./clipDragPlan');
+    const t = [track('T1', [mk('a', 0, 5, { spliceId: 's' }), mk('b', 5, 3, { spliceId: 's' }), mk('c', 8, 2, { spliceId: 's' }), mk('z', 20, 2)])];
+    expect([...selectionForPointerDown(t, new Set(), 'b', false)].sort()).toEqual(['a', 'b', 'c']);
+    expect([...selectionForPointerDown(t, new Set(), 'z', false)]).toEqual(['z']);
+  });
+  it('shift-click adds a whole edited clip, and shift-click on a picked one removes the whole of it', async () => {
+    const { selectionForPointerDown } = await import('./clipDragPlan');
+    const t = [track('T1', [mk('a', 0, 5, { spliceId: 's' }), mk('b', 5, 3, { spliceId: 's' }), mk('z', 20, 2)])];
+    const added = selectionForPointerDown(t, new Set(['z']), 'a', true);
+    expect([...added].sort()).toEqual(['a', 'b', 'z']);
+    expect([...selectionForPointerDown(t, added, 'b', true)]).toEqual(['z']);
+  });
+  it('grouped clips come together, with their joined pieces', async () => {
+    const { selectionForPointerDown } = await import('./clipDragPlan');
+    const t = [track('T1', [mk('a', 0, 5, { groupId: 'g' }), mk('b', 10, 3, { groupId: 'g', spliceId: 's' }), mk('c', 13, 2, { groupId: 'g', spliceId: 's' }), mk('z', 30, 2)])];
+    expect([...selectionForPointerDown(t, new Set(), 'a', false)].sort()).toEqual(['a', 'b', 'c']);
+  });
+});

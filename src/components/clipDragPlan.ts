@@ -6,6 +6,7 @@
  * Pure and framework-free so it can be unit-tested.
  */
 import type { Track } from '../types';
+import { chainIds, expandChains } from './spliceChains';
 
 export interface DragItem {
   id: string;
@@ -75,4 +76,24 @@ export function planDragMove(tracks: readonly Track[], items: readonly DragItem[
   }
   if (dtMin > dtMax + EPS) return { dt: 0, drow: 0, ok: false };
   return { dt: Math.max(dtMin, Math.min(dtMax, requestedDt)), drow, ok: true };
+}
+
+/**
+ * The clips a pointer-down on `clickedId` selects (and then drags). Whatever is picked, the whole of every edited clip
+ * (all its joined pieces) and every grouped clip comes with it. Before, a click on an unselected piece picked only that piece,
+ * so dragging left the other pieces behind.
+ */
+export function selectionForPointerDown(tracks: readonly Track[], selected: ReadonlySet<string>, clickedId: string, shift: boolean): Set<string> {
+  let picked = new Set(selected);
+  if (shift) {
+    if (picked.has(clickedId)) for (const id of chainIds(tracks, clickedId)) picked.delete(id);
+    else picked.add(clickedId);
+  } else if (!picked.has(clickedId)) {
+    picked = new Set([clickedId]);
+  }
+  const groups = new Set<string>();
+  for (const t of tracks) for (const c of t.clips) if (picked.has(c.id) && c.groupId) groups.add(c.groupId);
+  if (groups.size > 0) for (const t of tracks) for (const c of t.clips) if (c.groupId && groups.has(c.groupId)) picked.add(c.id);
+  // Grouped clips can themselves be edited clips: bring in their joined pieces too
+  return expandChains(tracks, picked);
 }

@@ -52,8 +52,8 @@ const Slider: React.FC<{
 }> = ({ label, value, min, max, step, unit, display, onChange }) => (
   <label className="block">
     <span className="mb-1.5 flex items-baseline justify-between text-xs">
-      <span className="text-zinc-400">{label}</span>
-      <span className="mono-nums text-zinc-100">{display ?? value}<span className="ml-1 text-zinc-500">{unit}</span></span>
+      <span className="text-ink-dim">{label}</span>
+      <span className="mono-nums text-ink">{display ?? value}<span className="ml-1 text-ink-faint">{unit}</span></span>
     </span>
     <input
       type="range" min={min} max={max} step={step} value={value}
@@ -74,24 +74,24 @@ const LoudnessScale: React.FC<{ mixLufs?: number; target: number; gainDb?: numbe
   const clampLabel = (p: number) => Math.min(86, Math.max(14, p));
   return (
     <div className="px-1 pb-1 pt-7" aria-hidden="true">
-      <div className="relative h-1.5 rounded-full bg-zinc-800">
+      <div className="relative h-1.5 rounded-full bg-surface-2">
         {from !== null && active && (
           <div
-            className="absolute inset-y-0 rounded-full bg-gradient-to-r from-cyan-400/20 to-cyan-300 transition-all duration-500 ease-out motion-reduce:transition-none"
+            className="absolute inset-y-0 rounded-full bg-gradient-to-r from-accent/20 to-accent transition-all duration-500 ease-out motion-reduce:transition-none"
             style={{ left: `${Math.min(from, to)}%`, width: `${Math.abs(to - from)}%` }}
           />
         )}
-        {busy && <div className="absolute inset-0 animate-pulse rounded-full bg-zinc-700/60 motion-reduce:animate-none" />}
+        {busy && <div className="absolute inset-0 animate-pulse rounded-full bg-surface-3/60 motion-reduce:animate-none" />}
         {from !== null && (
           <>
-            <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-zinc-400 bg-[#101015]" style={{ left: `${from}%` }} />
-            <span className="mono-nums absolute -top-6 -translate-x-1/2 whitespace-nowrap text-[11px] text-zinc-400" style={{ left: `${clampLabel(from)}%` }}>
+            <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-line-strong bg-surface-1" style={{ left: `${from}%` }} />
+            <span className="mono-nums absolute -top-6 -translate-x-1/2 whitespace-nowrap text-[11px] text-ink-dim" style={{ left: `${clampLabel(from)}%` }}>
               Mix {lufsText(mixLufs!)}
             </span>
           </>
         )}
         <span
-          className={`absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-all duration-300 motion-reduce:transition-none ${active ? 'border-cyan-300 bg-cyan-300 shadow-[0_0_14px_rgba(0,240,255,0.55)]' : 'border-zinc-600 bg-zinc-700'}`}
+          className={`absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-all duration-300 motion-reduce:transition-none ${active ? 'border-accent bg-accent' : 'border-line-strong bg-surface-3'}`}
           style={{ left: `${to}%` }}
         />
         {typeof live === 'number' && live > SCALE_MIN - 5 && (
@@ -99,12 +99,12 @@ const LoudnessScale: React.FC<{ mixLufs?: number; target: number; gainDb?: numbe
         )}
       </div>
       <div className="relative mt-3 h-4 text-[11px]">
-        <span className={`mono-nums absolute -translate-x-1/2 whitespace-nowrap ${active ? 'text-cyan-200' : 'text-zinc-500'}`} style={{ left: `${clampLabel(to)}%` }}>
+        <span className={`mono-nums absolute -translate-x-1/2 whitespace-nowrap ${active ? 'text-accent' : 'text-ink-faint'}`} style={{ left: `${clampLabel(to)}%` }}>
           Target {lufsText(target)}
         </span>
       </div>
       {hasMix && gainDb !== undefined && active && (
-        <p className="mono-nums mt-1 text-center text-[11px] text-zinc-500">{neg(gainDb)} dB make-up gain</p>
+        <p className="mono-nums mt-1 text-center text-[11px] text-ink-faint">{neg(gainDb)} dB make-up gain</p>
       )}
     </div>
   );
@@ -154,7 +154,7 @@ export const MasteringPanel: React.FC<MasteringPanelProps> = ({
   })();
 
   return (
-    <div className="@container flex h-full min-h-0 flex-col bg-[#101015]">
+    <div className="@container flex h-full min-h-0 flex-col bg-surface-1">
       <div className="flex-1 space-y-7 overflow-y-auto px-5 pb-6 pt-5">
         {/* Compare */}
         <section aria-label="Compare">
@@ -162,39 +162,39 @@ export const MasteringPanel: React.FC<MasteringPanelProps> = ({
             <button
               type="button" onClick={onTogglePlay} disabled={!hasAudio}
               aria-label={isPlaying ? 'Pause' : 'Play'}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-zinc-100 transition-colors hover:border-zinc-500 hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 disabled:opacity-40"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface-1 text-ink transition-colors hover:border-line-strong hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
             >
               {isPlaying ? <Pause className="h-4 w-4" fill="currentColor" /> : <Play className="ml-0.5 h-4 w-4" fill="currentColor" />}
             </button>
             <div
               role="group" aria-label="Original or mastered"
-              className={`relative grid h-11 flex-1 grid-cols-2 rounded-full border border-zinc-800 bg-[#0a0a0e] p-1 ${hasAudio ? '' : 'opacity-50'}`}
+              className={`relative grid h-11 flex-1 grid-cols-2 rounded-full border border-line bg-surface-0 p-1 ${hasAudio ? '' : 'opacity-50'}`}
             >
               <span
                 aria-hidden="true"
-                className={`absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-full transition-all duration-300 ease-out motion-reduce:transition-none ${settings.active ? 'translate-x-full bg-cyan-300 shadow-[0_0_18px_rgba(0,240,255,0.35)]' : 'bg-zinc-700'}`}
+                className={`absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-full transition-all duration-300 ease-out motion-reduce:transition-none ${settings.active ? 'translate-x-full bg-accent' : 'bg-surface-3'}`}
               />
               <button
                 type="button" aria-pressed={!settings.active} disabled={!hasAudio} onClick={() => onChange({ active: false })}
-                className={`relative z-10 rounded-full text-sm font-semibold transition-colors ${!settings.active ? 'text-zinc-50' : 'text-zinc-500 hover:text-zinc-300'}`}
+                className={`relative z-10 rounded-full text-sm font-semibold transition-colors ${!settings.active ? 'text-ink' : 'text-ink-faint hover:text-ink-dim'}`}
               >
                 Original
               </button>
               <button
                 type="button" aria-pressed={settings.active} disabled={!hasAudio} onClick={() => onChange({ active: true })}
-                className={`relative z-10 rounded-full text-sm font-semibold transition-colors ${settings.active ? 'text-zinc-950' : 'text-zinc-500 hover:text-zinc-300'}`}
+                className={`relative z-10 rounded-full text-sm font-semibold transition-colors ${settings.active ? 'text-surface-0' : 'text-ink-faint hover:text-ink-dim'}`}
               >
                 Mastered
               </button>
             </div>
           </div>
-          <p className="mt-3 text-center text-xs text-zinc-500" aria-live="polite">{caption}</p>
+          <p className="mt-3 text-center text-xs text-ink-faint" aria-live="polite">{caption}</p>
         </section>
 
         {/* Loudness */}
         <section aria-label="Loudness">
-          <div className="rounded-2xl border border-zinc-800 bg-[#0e0e13] px-4 pb-4 pt-3">
-            <h3 className="text-xs font-semibold text-zinc-300">Loudness</h3>
+          <div className="rounded-2xl border border-line bg-surface-1 px-4 pb-4 pt-3">
+            <h3 className="text-xs font-semibold text-ink-dim">Loudness</h3>
             <LoudnessScale
               mixLufs={analysis?.mixLufs}
               target={settings.targetLufs}
@@ -204,16 +204,16 @@ export const MasteringPanel: React.FC<MasteringPanelProps> = ({
               busy={measuring}
             />
             {statusLine && (
-              <div className="mt-3 flex items-center justify-between gap-3 border-t border-zinc-800/80 pt-3 text-xs" role="status">
-                <span className={`flex items-center gap-2 ${statusLine.tone === 'error' ? 'text-rose-300' : 'text-zinc-400'}`}>
-                  {statusLine.tone === 'busy' && <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-300 motion-reduce:animate-none" />}
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-line/80 pt-3 text-xs" role="status">
+                <span className={`flex items-center gap-2 ${statusLine.tone === 'error' ? 'text-danger' : 'text-ink-dim'}`}>
+                  {statusLine.tone === 'busy' && <Loader2 className="h-3.5 w-3.5 animate-spin text-accent motion-reduce:animate-none" />}
                   {statusLine.text}
                 </span>
                 {statusLine.action && (
                   <button
                     type="button"
                     onClick={statusLine.action === 'Cancel' ? () => masteringController.cancel() : onMeasureNow}
-                    className="shrink-0 font-semibold text-cyan-300 hover:text-cyan-100"
+                    className="shrink-0 font-semibold text-accent hover:text-accent"
                   >
                     {statusLine.action}
                   </button>
@@ -221,8 +221,8 @@ export const MasteringPanel: React.FC<MasteringPanelProps> = ({
               </div>
             )}
             {status.state === 'analyzing' && settings.active && (
-              <div className="mt-2.5 h-0.5 overflow-hidden rounded-full bg-zinc-800">
-                <div className="h-full rounded-full bg-cyan-300 transition-[width] duration-300" style={{ width: `${status.percent}%` }} />
+              <div className="mt-2.5 h-0.5 overflow-hidden rounded-full bg-surface-2">
+                <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${status.percent}%` }} />
               </div>
             )}
           </div>
@@ -230,7 +230,7 @@ export const MasteringPanel: React.FC<MasteringPanelProps> = ({
 
         {/* Preset */}
         <section aria-label="Preset">
-          <h3 className="mb-3 text-sm font-semibold text-zinc-100">Preset</h3>
+          <h3 className="mb-3 text-sm font-semibold text-ink">Preset</h3>
           <div role="radiogroup" aria-label="Preset" className="grid grid-cols-2 gap-2.5">
             {PRESETS.map((p) => {
               const selected = typeKey === p.type;
@@ -238,13 +238,13 @@ export const MasteringPanel: React.FC<MasteringPanelProps> = ({
               return (
                 <button
                   key={p.type} type="button" role="radio" aria-checked={selected} onClick={() => choosePreset(p.type)}
-                  className={`rounded-xl border px-3.5 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 ${selected ? 'border-cyan-300/70 bg-cyan-300/[0.06]' : 'border-zinc-800 bg-[#0e0e13] hover:border-zinc-600'}`}
+                  className={`rounded-xl border px-3.5 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${selected ? 'border-accent/70 bg-accent/[0.06]' : 'border-line bg-surface-1 hover:border-line-strong'}`}
                 >
                   <span className="flex items-baseline justify-between gap-2">
-                    <span className={`text-sm font-semibold ${selected ? 'text-zinc-50' : 'text-zinc-200'}`}>{p.name}</span>
-                    {p.type !== 'custom' && <span className="mono-nums text-[11px] text-zinc-500">{lufsText(target)}</span>}
+                    <span className={`text-sm font-semibold ${selected ? 'text-ink' : 'text-ink'}`}>{p.name}</span>
+                    {p.type !== 'custom' && <span className="mono-nums text-[11px] text-ink-faint">{lufsText(target)}</span>}
                   </span>
-                  <span className="mt-1 block text-[11px] leading-snug text-zinc-500">{p.blurb}</span>
+                  <span className="mt-1 block text-[11px] leading-snug text-ink-faint">{p.blurb}</span>
                 </button>
               );
             })}
@@ -254,14 +254,14 @@ export const MasteringPanel: React.FC<MasteringPanelProps> = ({
             aria-hidden={typeKey !== 'broadcast'}
           >
             <div className="overflow-hidden">
-              <div role="radiogroup" aria-label="Broadcast standard" className="grid grid-cols-3 gap-1.5 rounded-xl border border-zinc-800 bg-[#0a0a0e] p-1">
+              <div role="radiogroup" aria-label="Broadcast standard" className="grid grid-cols-3 gap-1.5 rounded-xl border border-line bg-surface-0 p-1">
                 {(Object.keys(BROADCAST_PRESETS) as BroadcastPreset[]).map((key) => {
                   const on = settings.broadcastPreset === key;
                   return (
                     <button
                       key={key} type="button" role="radio" aria-checked={on} tabIndex={typeKey === 'broadcast' ? 0 : -1}
                       onClick={() => chooseStandard(key)} title={BROADCAST_PRESETS[key].standard}
-                      className={`rounded-lg px-2 py-2 text-center transition-colors ${on ? 'bg-zinc-700/80 text-zinc-50' : 'text-zinc-500 hover:text-zinc-200'}`}
+                      className={`rounded-lg px-2 py-2 text-center transition-colors ${on ? 'bg-surface-3/80 text-ink' : 'text-ink-faint hover:text-ink'}`}
                     >
                       <span className="block text-xs font-semibold">{BROADCAST_PRESETS[key].label.replace(/ \(.*/, '').replace('Commercial Spot Hot', 'Hot spot')}</span>
                       <span className="mono-nums block text-[10px] opacity-70">{lufsText(BROADCAST_PRESETS[key].targetLufs)}</span>
@@ -277,13 +277,13 @@ export const MasteringPanel: React.FC<MasteringPanelProps> = ({
         <section aria-label="Fine-tune">
           <button
             type="button" onClick={() => setFineTuneOpen((o) => !o)} aria-expanded={fineTuneOpen}
-            className="flex w-full items-center justify-between text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"
+            className="flex w-full items-center justify-between text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
           >
-            <span className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <span className="flex items-center gap-2 text-sm font-semibold text-ink">
               Fine-tune
-              {modified && <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-[11px] font-medium text-amber-300">Adjusted</span>}
+              {modified && <span className="rounded-full bg-warn/15 px-2 py-0.5 text-[11px] font-medium text-warn">Adjusted</span>}
             </span>
-            <ChevronDown className={`h-4 w-4 text-zinc-500 transition-transform duration-300 motion-reduce:transition-none ${fineTuneOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`h-4 w-4 text-ink-faint transition-transform duration-300 motion-reduce:transition-none ${fineTuneOpen ? 'rotate-180' : ''}`} />
           </button>
           <div className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${fineTuneOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
             <div className="overflow-hidden">
@@ -296,7 +296,7 @@ export const MasteringPanel: React.FC<MasteringPanelProps> = ({
                 <Slider label="Release" value={settings.releaseMs} min={20} max={500} step={5} unit="ms" onChange={(v) => onChange({ releaseMs: v })} />
               </div>
               {modified && (
-                <button type="button" onClick={() => choosePreset(settings.type)} className="mt-5 flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-100">
+                <button type="button" onClick={() => choosePreset(settings.type)} className="mt-5 flex items-center gap-1.5 text-xs font-medium text-ink-dim hover:text-ink">
                   <RotateCcw className="h-3.5 w-3.5" /> Reset to preset
                 </button>
               )}
@@ -306,14 +306,14 @@ export const MasteringPanel: React.FC<MasteringPanelProps> = ({
       </div>
 
       {/* Hand-off to Export */}
-      <div className="flex shrink-0 items-center justify-between gap-4 border-t border-zinc-800 bg-[#0c0c10] px-5 py-3.5">
+      <div className="flex shrink-0 items-center justify-between gap-4 border-t border-line bg-[#0c0c10] px-5 py-3.5">
         <div className="min-w-0 text-xs leading-snug">
-          <div className="truncate font-semibold text-zinc-200">{settings.active ? `${PRESET_LABEL[typeKey]}${modified ? ' (adjusted)' : ''}` : 'Mastering off'}</div>
-          <div className="truncate text-zinc-500">{settings.active ? `${lufsText(settings.targetLufs)} LUFS` : 'Exports your original mix'}</div>
+          <div className="truncate font-semibold text-ink">{settings.active ? `${PRESET_LABEL[typeKey]}${modified ? ' (adjusted)' : ''}` : 'Mastering off'}</div>
+          <div className="truncate text-ink-faint">{settings.active ? `${lufsText(settings.targetLufs)} LUFS` : 'Exports your original mix'}</div>
         </div>
         <button
           type="button" onClick={onExport} disabled={!hasAudio}
-          className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-zinc-50 px-5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:opacity-40"
+          className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-surface-3 px-5 text-sm font-semibold text-ink-faint transition-colors hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
         >
           Continue to export <ArrowRight className="h-4 w-4" />
         </button>
