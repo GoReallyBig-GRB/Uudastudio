@@ -5,6 +5,10 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { PresetBar } from './PresetBar';
+import { COMPRESS_PRESETS, DENOISE_PRESETS, type DenoisePreset } from './dspPresets';
+import { loadCustomPresets, removeCustomPreset, saveCustomPreset } from './customPresets';
+import { DEFAULT_GAP_CLEANUP_DB } from '../audio/dsp/denoiseStream';
 import {
   Volume2,
   Sliders,
@@ -63,6 +67,20 @@ interface DspModalsProps {
   onSetNoisePrint?: (print: NoisePrint | null) => void;
 }
 
+const DEFAULT_COMP: CompressorParams = COMPRESS_PRESETS[0].params;
+const podcast = DENOISE_PRESETS[1];
+const DEFAULT_DENOISE: DenoiseParams = {
+  highPassFreq: podcast.highPassFreq,
+  noiseFloorThresholdDb: podcast.noiseFloorThresholdDb,
+  reductionDb: podcast.reductionDb,
+  attackMs: 8,
+  releaseMs: 90,
+  gapCleanupDb: podcast.gapCleanupDb,
+};
+const DEFAULT_NOISE_SENSITIVITY = podcast.sensitivity;
+const DEFAULT_VOICE_PROTECTION = podcast.voiceProtection;
+type DenoiseSetting = Pick<DenoisePreset, 'reductionDb' | 'sensitivity' | 'voiceProtection' | 'gapCleanupDb' | 'highPassFreq' | 'noiseFloorThresholdDb'>;
+
 export const DspModals: React.FC<DspModalsProps> = ({
   activeModal,
   clip,
@@ -90,6 +108,18 @@ export const DspModals: React.FC<DspModalsProps> = ({
   useEffect(() => {
     setProcessError(null);
     stopPreview();
+    // Every opening starts from the defaults, so the last job's settings never carry over to a new track
+    if (activeModal) {
+      setGainDb(3.0);
+      setBakeAmplify(false);
+      setCompParams(DEFAULT_COMP);
+      setDenoiseParams(DEFAULT_DENOISE);
+      setNoiseSensitivity(DEFAULT_NOISE_SENSITIVITY);
+      setVoiceProtection(DEFAULT_VOICE_PROTECTION);
+      setHearRemoved(false);
+      setPitchSemitones(3);
+      setSpeedRatio(0.8);
+    }
   }, [activeModal]);
 
   // Amplify State
@@ -97,26 +127,31 @@ export const DspModals: React.FC<DspModalsProps> = ({
   const [bakeAmplify, setBakeAmplify] = useState<boolean>(false);
 
   // Compressor State
-  const [compParams, setCompParams] = useState<CompressorParams>({
-    thresholdDb: -20,
-    kneeDb: 8,
-    ratio: 4,
-    attackMs: 15,
-    releaseMs: 180,
-    makeupGainDb: 3,
-  });
+  const [compParams, setCompParams] = useState<CompressorParams>(DEFAULT_COMP);
+  const [customComp, setCustomComp] = useState(() => loadCustomPresets<CompressorParams>('compress'));
 
   // Denoise State
-  const [denoiseParams, setDenoiseParams] = useState<DenoiseParams>({
-    highPassFreq: 80,
-    noiseFloorThresholdDb: -38,
-    reductionDb: 14,
-    attackMs: 8,
-    releaseMs: 90,
-  });
+  const [denoiseParams, setDenoiseParams] = useState<DenoiseParams>(DEFAULT_DENOISE);
 
-  const [noiseSensitivity, setNoiseSensitivity] = useState<number>(1.5);
-  const [voiceProtection, setVoiceProtection] = useState<number>(0.5);
+  const [noiseSensitivity, setNoiseSensitivity] = useState<number>(DEFAULT_NOISE_SENSITIVITY);
+  const [voiceProtection, setVoiceProtection] = useState<number>(DEFAULT_VOICE_PROTECTION);
+  const [customDenoise, setCustomDenoise] = useState(() => loadCustomPresets<DenoiseSetting>('denoise'));
+  const denoiseSetting = (): DenoiseSetting => ({
+    reductionDb: denoiseParams.reductionDb,
+    sensitivity: noiseSensitivity,
+    voiceProtection,
+    gapCleanupDb: denoiseParams.gapCleanupDb ?? DEFAULT_GAP_CLEANUP_DB,
+    highPassFreq: denoiseParams.highPassFreq,
+    noiseFloorThresholdDb: denoiseParams.noiseFloorThresholdDb,
+  });
+  const applyDenoiseSetting = (v: DenoiseSetting) => {
+    setDenoiseParams({ ...denoiseParams, reductionDb: v.reductionDb, gapCleanupDb: v.gapCleanupDb, highPassFreq: v.highPassFreq, noiseFloorThresholdDb: v.noiseFloorThresholdDb });
+    setNoiseSensitivity(v.sensitivity);
+    setVoiceProtection(v.voiceProtection);
+  };
+  const sameDenoise = (a: DenoiseSetting, b: DenoiseSetting) =>
+    a.reductionDb === b.reductionDb && a.highPassFreq === b.highPassFreq && a.noiseFloorThresholdDb === b.noiseFloorThresholdDb &&
+    (!noisePrint || (a.sensitivity === b.sensitivity && a.voiceProtection === b.voiceProtection && a.gapCleanupDb === b.gapCleanupDb));
   /** Audition only what is being removed, to check that no voice is in it */
   const [hearRemoved, setHearRemoved] = useState<boolean>(false);
   /** What Denoise runs with: the noise print when there is one, else the basic gate */
@@ -613,6 +648,16 @@ export const DspModals: React.FC<DspModalsProps> = ({
           {/* 2. COMPRESSOR MODAL */}
           {activeModal === 'compress' && (
             <div className="space-y-3.5">
+              <PresetBar
+                presets={COMPRESS_PRESETS}
+                activeIndex={COMPRESS_PRESETS.findIndex((p) => JSON.stringify(p.params) === JSON.stringify(compParams))}
+                onPick={(i) => setCompParams(COMPRESS_PRESETS[i].params)}
+                custom={customComp}
+                activeCustomIndex={customComp.findIndex((p) => JSON.stringify(p.value) === JSON.stringify(compParams))}
+                onPickCustom={(i) => setCompParams(customComp[i].value)}
+                onRemoveCustom={(n) => setCustomComp(removeCustomPreset<CompressorParams>('compress', n))}
+                onSave={(n) => setCustomComp(saveCustomPreset('compress', n, compParams))}
+              />
               <div className="flex justify-center">
                 <canvas
                   ref={compCanvasRef}
@@ -743,9 +788,20 @@ export const DspModals: React.FC<DspModalsProps> = ({
                   </span>
                 </div>
                 <span>
-                  Remove steady background noise (hiss, hum, air conditioning) without touching the voice. Teach it the noise first, from a stretch with no speech, and it takes out only that noise from the whole track.
+                  Remove steady background noise (hiss, hum, air conditioning) without touching the voice. Teach it the noise first, from a stretch with no speech, and it takes out only that noise from the whole track. Passing sounds (a street noise, a mic pump) are not steady: Quiet-gap cleanup below closes the pauses to remove them.
                 </span>
               </div>
+
+              <PresetBar
+                presets={DENOISE_PRESETS}
+                activeIndex={DENOISE_PRESETS.findIndex((p) => sameDenoise(p, denoiseSetting()))}
+                onPick={(i) => applyDenoiseSetting(DENOISE_PRESETS[i])}
+                custom={customDenoise}
+                activeCustomIndex={customDenoise.findIndex((p) => sameDenoise(p.value, denoiseSetting()))}
+                onPickCustom={(i) => applyDenoiseSetting(customDenoise[i].value)}
+                onRemoveCustom={(n) => setCustomDenoise(removeCustomPreset<DenoiseSetting>('denoise', n))}
+                onSave={(n) => setCustomDenoise(saveCustomPreset('denoise', n, denoiseSetting()))}
+              />
 
               {/* Noise print */}
               <div className="p-3 rounded bg-surface-1/90 border border-line space-y-2">
@@ -862,6 +918,19 @@ export const DspModals: React.FC<DspModalsProps> = ({
                         className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
                       />
                       <div className="text-[10px] text-ink-faint mt-0.5">Higher lets the voice through faster and eases the cut where it is unclear whether it is voice or noise</div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-ink-dim mb-1">
+                        <span>Quiet-gap cleanup</span>
+                        <span className="mono-nums text-accent font-semibold">{(denoiseParams.gapCleanupDb ?? DEFAULT_GAP_CLEANUP_DB) === 0 ? 'Off' : `${denoiseParams.gapCleanupDb ?? DEFAULT_GAP_CLEANUP_DB} dB`}</span>
+                      </div>
+                      <input
+                        type="range" min="0" max="40" step="1"
+                        value={denoiseParams.gapCleanupDb ?? DEFAULT_GAP_CLEANUP_DB}
+                        onChange={(e) => setDenoiseParams({ ...denoiseParams, gapCleanupDb: parseInt(e.target.value) })}
+                        className="w-full h-1.5 bg-surface-2 rounded appearance-none cursor-pointer"
+                      />
+                      <div className="text-[10px] text-ink-faint mt-0.5">The noise sample only removes steady noise. This also closes the pauses between phrases: anything less than this many dB above the sampled noise is turned down, which takes out a passing street sound, a mic pump or a breath. Speech is far above that level. Raise it until you hear the sound go; lower it if word endings are cut.</div>
                     </div>
                     <label className="flex items-start gap-2 text-[11px] text-ink-dim cursor-pointer">
                       <input type="checkbox" checked={hearRemoved} onChange={(e) => setHearRemoved(e.target.checked)} className="mt-0.5" />
