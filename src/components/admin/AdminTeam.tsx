@@ -95,7 +95,7 @@ export const AdminTeam: React.FC = () => {
         </p>
       </div>
 
-      {error && <div className="p-2.5 rounded-control bg-danger/60 border border-danger text-xs text-danger">{error}</div>}
+      {error && <div className="p-2.5 rounded-control bg-danger/10 border border-danger text-xs text-danger">{error}</div>}
 
       <div className="rounded-card border border-line divide-y divide-line">
         {admins.map((a) => (

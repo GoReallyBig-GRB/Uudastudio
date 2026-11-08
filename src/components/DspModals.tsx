@@ -368,7 +368,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
           onClick={() => handleTogglePreview('before')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded font-medium text-[11px] transition-all cursor-pointer ${
             previewState === 'before'
-              ? 'bg-warn text-black font-bold shadow-[0_0_10px_rgba(245,158,11,0.4)]'
+              ? 'bg-warn text-surface-0 font-bold'
               : 'bg-surface-2 hover:bg-surface-3 text-ink'
           }`}
         >
@@ -381,8 +381,8 @@ export const DspModals: React.FC<DspModalsProps> = ({
           onClick={() => handleTogglePreview('after')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded font-medium text-[11px] transition-all cursor-pointer ${
             previewState === 'after'
-              ? 'bg-accent text-black font-bold'
-              : 'bg-accent/80 hover:bg-accent/90 text-accent border border-accent/50'
+              ? 'bg-accent text-surface-0 font-bold'
+              : 'bg-accent/10 hover:bg-accent/20 text-accent border border-accent/50'
           }`}
         >
           {previewState === 'after' ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
@@ -548,7 +548,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
 
         {/* Error message */}
         {processError && (
-          <div className="px-5 py-2.5 bg-danger/80 border-b border-danger text-danger text-xs flex items-center gap-2">
+          <div className="px-5 py-2.5 bg-danger/10 border-b border-danger text-danger text-xs flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-danger shrink-0" />
             <span>{processError}</span>
           </div>
@@ -777,13 +777,13 @@ export const DspModals: React.FC<DspModalsProps> = ({
           {/* 3. SPEECH ENHANCEMENT & DENOISE MODAL */}
           {activeModal === 'denoise' && (
             <div className="space-y-3.5">
-              <div className="p-2.5 rounded bg-accent/40 border border-accent/40 text-[11px] text-accent leading-relaxed">
+              <div className="p-2.5 rounded bg-accent/10 border border-accent/40 text-[11px] text-accent leading-relaxed">
                 <div className="font-semibold text-accent flex items-center justify-between gap-1.5 mb-1">
                   <div className="flex items-center gap-1.5">
                     <AudioWaveform className="w-3.5 h-3.5 text-accent" />
                     High-Precision Speech Enhancement & Suppression
                   </div>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/60 text-accent border border-accent/50">
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/50">
                     DSP Engine
                   </span>
                 </div>
@@ -1076,7 +1076,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     onClick={() => setPitchSemitones(st)}
                     className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${
                       pitchSemitones === st
-                        ? 'bg-accent text-black font-bold'
+                        ? 'bg-accent text-surface-0 font-bold'
                         : 'bg-surface-2 hover:bg-surface-3 text-ink-dim'
                     }`}
                   >
@@ -1121,7 +1121,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                     onClick={() => setSpeedRatio(r)}
                     className={`px-2.5 py-1 rounded text-[10px] font-mono transition-colors ${
                       Math.abs(speedRatio - r) < 0.01
-                        ? 'bg-accent text-black font-bold'
+                        ? 'bg-accent text-surface-0 font-bold'
                         : 'bg-surface-2 hover:bg-surface-3 text-ink-dim'
                     }`}
                   >

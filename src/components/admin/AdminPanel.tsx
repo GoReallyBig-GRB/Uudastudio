@@ -213,7 +213,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
   if (!isAdmin) {
     return (
       <div className="fixed inset-0 z-50 bg-surface-0 flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-12 h-12 rounded-card bg-danger/60 border border-danger text-danger flex items-center justify-center mb-4">
+        <div className="w-12 h-12 rounded-card bg-danger/10 border border-danger text-danger flex items-center justify-center mb-4">
           <AlertOctagon className="w-6 h-6" />
         </div>
         <h2 className="text-xl font-bold text-ink mb-2">403 Forbidden</h2>
@@ -251,7 +251,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
           </p>
 
           {activeCodePreview && (
-            <div className="mb-4 p-3 bg-accent/40 border border-accent/60 rounded-control flex items-center justify-between text-xs text-accent">
+            <div className="mb-4 p-3 bg-accent/10 border border-accent/60 rounded-control flex items-center justify-between text-xs text-accent">
               <span>Connection Code:</span>
               <span className="font-mono text-base font-bold tracking-widest text-accent">
                 {activeCodePreview}
@@ -260,7 +260,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
           )}
 
           {codeError && (
-            <div className="mb-4 p-3 bg-danger/40 border border-danger/60 rounded-control text-danger text-xs flex items-center gap-2">
+            <div className="mb-4 p-3 bg-danger/10 border border-danger/60 rounded-control text-danger text-xs flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{codeError}</span>
             </div>
@@ -551,7 +551,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
                                 <div className="font-bold text-ink flex items-center gap-1.5">
                                   <span>{u.display_name}</span>
                                   {u.blocked && (
-                                    <span className="px-1 py-0.2 rounded text-[9px] font-bold bg-danger text-danger border border-danger">
+                                    <span className="px-1 py-0.2 rounded text-[9px] font-bold bg-danger text-ink border border-danger">
                                       Blocked
                                     </span>
                                   )}
@@ -564,7 +564,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
                                 u.role === 'admin'
-                                  ? 'bg-warn text-warn border border-warn'
+                                  ? 'bg-warn text-surface-0 border border-warn'
                                   : 'bg-surface-2 text-ink-dim border border-line-strong'
                               }`}
                             >
@@ -588,8 +588,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
                               disabled={blockingUserId === u.id || u.role === 'admin'}
                               className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors cursor-pointer ${
                                 u.blocked
-                                  ? 'bg-ok/60 hover:bg-ok text-ok border border-ok'
-                                  : 'bg-danger/60 hover:bg-danger text-danger border border-danger'
+                                  ? 'bg-ok/10 hover:bg-ok/20 text-ok border border-ok'
+                                  : 'bg-danger/10 hover:bg-danger/20 text-danger border border-danger'
                               } disabled:opacity-40`}
                             >
                               {u.blocked ? 'Unblock' : 'Block'}
@@ -744,9 +744,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider shrink-0 ${
                             t.status === 'Open'
-                              ? 'bg-warn text-warn border border-warn'
+                              ? 'bg-warn text-surface-0 border border-warn'
                               : t.status === 'Resolved'
-                              ? 'bg-ok text-ok border border-ok'
+                              ? 'bg-ok text-surface-0 border border-ok'
                               : 'bg-surface-2 text-ink-dim border border-line-strong'
                           }`}
                         >
