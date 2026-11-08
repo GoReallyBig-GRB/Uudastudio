@@ -109,6 +109,8 @@ import { undoLeftProcessingInPlace } from './history/historyLimits';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
 import { calculateMinimumTimelineZoom } from './components/timelineZoom';
 import { ProgressIndicator } from './components/ui';
+import { RootProjectPicker } from './components/RootProjectPicker';
+import { blockedPickerMessage, isEmbeddedFrame, isPickerBlockedError, isPickerCancelled } from './storage/fsAccess';
 
 
 interface ProjectFileWritable {
@@ -470,7 +472,11 @@ const MainStudio: React.FC = () => {
       setProjectRootDirectoryName(directory.name);
       addToast({ type: 'success', title: 'Project Folder Selected', message: `Project files will use “${directory.name}” as the default folder. Existing saved file handles still take priority until Save As or a folder save.` });
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (isPickerCancelled(err)) return;
+      if (isPickerBlockedError(err)) {
+        addToast({ type: 'warning', title: 'Folder access is blocked here', message: blockedPickerMessage(isEmbeddedFrame()) });
+        return;
+      }
       addToast({ type: 'error', title: 'Folder Selection Failed', message: err instanceof Error ? err.message : 'Could not select a project folder.' });
     }
   }, [addToast]);
@@ -1126,10 +1132,16 @@ const MainStudio: React.FC = () => {
 
       // If a root folder is configured, create/update the project's .uuda file there
       // before falling back to the single-file Save As picker.
+      let pickerBlocked = false;
       if (!fileHandle && !forceSaveAs && projectRootDirectoryRef.current) {
         const directory = projectRootDirectoryRef.current;
-        if (await ensureProjectDirectoryPermission(directory)) {
-          fileHandle = await directory.getFileHandle(fileName, { create: true }) as unknown as ProjectFileHandle;
+        try {
+          if (await ensureProjectDirectoryPermission(directory)) {
+            fileHandle = await directory.getFileHandle(fileName, { create: true }) as unknown as ProjectFileHandle;
+          }
+        } catch (err) {
+          if (!isPickerBlockedError(err)) throw err;
+          pickerBlocked = true;
         }
       }
 
@@ -1140,8 +1152,9 @@ const MainStudio: React.FC = () => {
             types: [{ description: 'Uuda Studio project', accept: { 'application/vnd.uuda.project': ['.uuda'] } }],
           });
         } catch (err) {
-          if (err instanceof DOMException && err.name === 'AbortError') return false;
-          throw err;
+          if (isPickerCancelled(err)) return false;
+          if (!isPickerBlockedError(err)) throw err;
+          pickerBlocked = true;
         }
       }
 
@@ -1177,7 +1190,9 @@ const MainStudio: React.FC = () => {
         addToast({
           type: 'success',
           title: 'Project Saved to Computer',
-          message: `Downloaded self-contained project "${fileName}".`,
+          message: pickerBlocked
+            ? `Downloaded "${fileName}". ${blockedPickerMessage(isEmbeddedFrame())}`
+            : `Downloaded self-contained project "${fileName}".`,
         });
       }
       savedProjectRef.current = project;
@@ -1422,6 +1437,8 @@ const MainStudio: React.FC = () => {
   }, [isPlaying, addToast, project, updateHistoryFlags]);
 
 
+  const [rootPicker, setRootPicker] = useState<{ folderName: string; handles: ProjectDirectoryFileHandle[] } | null>(null);
+
   const handleOpenProjectFromRoot = useCallback(async () => {
     try {
       let directory = projectRootDirectoryRef.current;
@@ -1443,23 +1460,30 @@ const MainStudio: React.FC = () => {
         addToast({ type: 'info', title: 'No Uuda Projects Found', message: `No .uuda files were found in “${directory.name}”.` });
         return;
       }
-      const listing = candidates.map((entry, index) => `${index + 1}. ${entry.name}`).join('\n');
-      const choice = window.prompt(`Open a project from “${directory.name}” by number:\n\n${listing}\n\nEnter a number (Cancel to keep the current project):`);
-      if (choice === null) return;
-      const index = Number.parseInt(choice, 10) - 1;
-      if (!Number.isInteger(index) || index < 0 || index >= candidates.length) {
-        addToast({ type: 'error', title: 'Invalid Project Selection', message: 'Enter one of the project numbers shown.' });
+      setRootPicker({ folderName: directory.name, handles: candidates });
+    } catch (err) {
+      if (isPickerCancelled(err)) return;
+      if (isPickerBlockedError(err)) {
+        addToast({ type: 'warning', title: 'Folder access is blocked here', message: blockedPickerMessage(isEmbeddedFrame()) });
         return;
       }
-      const handle = candidates[index];
+      addToast({ type: 'error', title: 'Could Not Open From Folder', message: err instanceof Error ? err.message : 'Could not read a project from the selected folder.' });
+    }
+  }, [addToast]);
+
+  const handlePickRootProject = useCallback(async (index: number) => {
+    const handle = rootPicker?.handles[index];
+    setRootPicker(null);
+    if (!handle) return;
+    try {
       const file = await handle.getFile();
       const opened = await handleOpenProjectFromFile(file);
       if (opened) projectFileHandleRef.current = handle as unknown as ProjectFileHandle;
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return;
-      addToast({ type: 'error', title: 'Could Not Open From Folder', message: err instanceof Error ? err.message : 'Could not read a project from the selected folder.' });
+      addToast({ type: 'error', title: 'Could Not Open From Folder', message: err instanceof Error ? err.message : 'Could not read the project file.' });
     }
-  }, [addToast, handleOpenProjectFromFile]);
+  }, [rootPicker, addToast, handleOpenProjectFromFile]);
+
   // Project shortcuts follow the PRD: Ctrl/Cmd+S saves, Shift adds Save As, and O opens.
   useEffect(() => {
     const handleProjectShortcuts = (event: KeyboardEvent) => {
@@ -3954,6 +3978,13 @@ const MainStudio: React.FC = () => {
 
         {/* Center Workspace: Either Multi-Track Waveform Timeline OR Dedicated Editing & Mixing Desk */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-[#0A0A0C]">
+      <RootProjectPicker
+        open={rootPicker !== null}
+        folderName={rootPicker?.folderName ?? ''}
+        choices={rootPicker?.handles ?? []}
+        onPick={(index) => void handlePickRootProject(index)}
+        onClose={() => setRootPicker(null)}
+      />
       {trackImportProgress && !isTrackImportIndicatorDismissed && (
         <ProgressIndicator
           variant="floating"
