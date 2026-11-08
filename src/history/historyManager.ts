@@ -28,6 +28,8 @@ export class HistoryManager {
   private present: Project;
   private future: Project[] = [];
   private maxDepth: number = 60;
+  /** Key of the drag that made the last step; further steps of the same drag fold into that one step */
+  private lastGesture: string | null = null;
 
   private policy: HistoryAssetPolicy | null = null;
   /**
@@ -89,6 +91,7 @@ export class HistoryManager {
   }
 
   public reset(project: Project): void {
+    this.lastGesture = null;
     this.past = [];
     this.pastLabels = [];
     this.futureLabels = [];
@@ -100,12 +103,20 @@ export class HistoryManager {
     this.enforce(false);
   }
 
-  public pushState(nextProject: Project, label = ''): void {
+  public pushState(nextProject: Project, label = '', gesture?: string): void {
     // Only push if there's an actual state change
     const nextSerialized = JSON.stringify(nextProject);
     const currSerialized = JSON.stringify(this.present);
     if (nextSerialized === currSerialized) return;
 
+    // One drag (volume line, fade, trim) is ONE undo step however many small moves it made
+    if (gesture && gesture === this.lastGesture && this.past.length > 0) {
+      this.present = JSON.parse(nextSerialized);
+      this.future = [];
+      this.futureLabels = [];
+      return;
+    }
+    this.lastGesture = gesture ?? null;
     this.past.push(this.present);
     this.pastLabels.push(label);
     if (this.past.length > this.maxDepth) {
@@ -119,6 +130,7 @@ export class HistoryManager {
   }
 
   public undo(): Project | null {
+    this.lastGesture = null;
     if (this.past.length === 0) {
       // Out of steps: the last Undo returns to the state the history began with, if one was kept
       if (this.anchor && this.present !== this.anchor) {
@@ -139,6 +151,7 @@ export class HistoryManager {
   }
 
   public redo(): Project | null {
+    this.lastGesture = null;
     if (this.future.length === 0) return null;
     const next = this.future.shift()!;
     this.lastStepLabel = this.futureLabels.shift() ?? '';

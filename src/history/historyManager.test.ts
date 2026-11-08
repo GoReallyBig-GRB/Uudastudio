@@ -167,3 +167,32 @@ describe('HistoryManager step labels', () => {
     h.undo(); expect(h.lastStepLabel).toBe('paste');
   });
 });
+
+describe('one drag is one undo step', () => {
+  const make = (gain: number): Project => ({ ...proj('a', gain), name: `g${gain}` });
+  it('folds moves with the same gesture key into one step', () => {
+    const h = new HistoryManager(make(0));
+    h.pushState(make(1), 'gain', 'gain:1');
+    h.pushState(make(2), 'gain', 'gain:1');
+    h.pushState(make(3), 'gain', 'gain:1');
+    expect(h.getPresent().name).toBe('g3');
+    expect(h.undo()?.name).toBe('g0');
+    expect(h.undo()).toBeNull();
+  });
+  it('a new gesture is a new step', () => {
+    const h = new HistoryManager(make(0));
+    h.pushState(make(1), 'gain', 'gain:1');
+    h.pushState(make(2), 'gain', 'gain:2');
+    expect(h.undo()?.name).toBe('g1');
+    expect(h.undo()?.name).toBe('g0');
+  });
+  it('a step without a key never folds, and undo ends a gesture', () => {
+    const h = new HistoryManager(make(0));
+    h.pushState(make(1), 'gain', 'gain:1');
+    h.pushState(make(2), 'other');
+    h.pushState(make(3), 'gain', 'gain:1');
+    expect(h.undo()?.name).toBe('g2');
+    expect(h.undo()?.name).toBe('g1');
+    expect(h.undo()?.name).toBe('g0');
+  });
+});

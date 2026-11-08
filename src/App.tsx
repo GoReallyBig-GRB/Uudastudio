@@ -496,7 +496,7 @@ const MainStudio: React.FC = () => {
     try { return fn(); } finally { stepHintRef.current = outer; }
   };
   const setProjectWithHistory = useCallback(
-    (newProjectOrFn: Project | ((prev: Project) => Project), skipHistory = false, label?: string) => {
+    (newProjectOrFn: Project | ((prev: Project) => Project), skipHistory = false, label?: string, gesture?: string) => {
       const hint = label ?? stepHintRef.current;
       setProject((prev) => {
         const made = typeof newProjectOrFn === 'function' ? newProjectOrFn(prev) : newProjectOrFn;
@@ -513,7 +513,7 @@ const MainStudio: React.FC = () => {
         const healed = healSeams(made.tracks);
         const next = healed === made.tracks ? made : { ...made, tracks: healed };
         if (!skipHistory) {
-          historyManagerRef.current.pushState(next, hint ?? describeChange(prev, next));
+          historyManagerRef.current.pushState(next, hint ?? describeChange(prev, next), gesture);
         }
         return next;
       });
@@ -2639,7 +2639,7 @@ const MainStudio: React.FC = () => {
     });
   };
 
-  const handleUpdateClip = (clipId: string, updates: Partial<Clip>) => {
+  const handleUpdateClip = (clipId: string, updates: Partial<Clip>, gesture?: string) => {
     setProjectWithHistory((prev) => {
       // A spliced clip is one clip: level, mute and curve reach every piece, a fade-in the first piece, a fade-out the last
       const spread = spreadUpdate(prev.tracks, clipId, updates);
@@ -2650,7 +2650,7 @@ const MainStudio: React.FC = () => {
           clips: track.clips.map((c) => (spread.has(c.id) ? { ...c, ...spread.get(c.id) } : c)),
         })),
       };
-    });
+    }, false, undefined, gesture);
   };
 
   /** The same change to several clips as ONE undo step */
