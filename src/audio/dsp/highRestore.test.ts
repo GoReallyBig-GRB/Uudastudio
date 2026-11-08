@@ -47,3 +47,13 @@ describe('stretching keeps the highs', () => {
     expect(maxDiff).toBeLessThan(1e-4);
   });
 });
+
+describe('the restore never causes clipping', () => {
+  it('loud noise-like audio near full scale stays within full scale after a stretch', () => {
+    const loud = Float32Array.from({ length: SR * 4 }, () => 1.9 * rnd()); // peaks about 0.95
+    const y = wsolaTimeStretch(loud, 1.5, speedStretchParams(SR));
+    let peak = 0;
+    for (const v of y) peak = Math.max(peak, Math.abs(v));
+    expect(peak).toBeLessThanOrEqual(1);
+  });
+});

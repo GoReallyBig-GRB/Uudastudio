@@ -33,7 +33,7 @@ import { pruneEmptiedTracks, getTrackLabel } from '../utils/tracks';
 import { formatTimecode } from '../utils/formatters';
 import { gainToY, yToGain } from './clipGainLine';
 import { chainIds, healSeams, seamFlags, selectionUnitCount } from './spliceChains';
-import { planDragMove } from './clipDragPlan';
+import { planDragMove, selectionForPointerDown } from './clipDragPlan';
 
 interface TimelineProps {
   project: Project;
@@ -1173,24 +1173,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       }
 
       // 3. Handle clip selection & floating drag
-      let newSelected = new Set(selectedClipIds);
-      if (e.shiftKey) {
-        if (newSelected.has(clickedClip.id)) {
-          for (const cid of chainIds(project.tracks, clickedClip.id)) newSelected.delete(cid);
-        } else {
-          newSelected.add(clickedClip.id);
-        }
-      } else {
-        if (!newSelected.has(clickedClip.id)) {
-          newSelected = new Set([clickedClip.id]);
-        }
-      }
-      // Clips in a group are picked as one unit.
-      const groupIds = new Set<string>();
-      for (const t of project.tracks) for (const c of t.clips) if (newSelected.has(c.id) && c.groupId) groupIds.add(c.groupId);
-      if (groupIds.size > 0) {
-        for (const t of project.tracks) for (const c of t.clips) if (c.groupId && groupIds.has(c.groupId)) newSelected.add(c.id);
-      }
+      const newSelected = selectionForPointerDown(project.tracks, selectedClipIds, clickedClip.id, e.shiftKey);
       onSelectClips(newSelected);
       onSelectTrack(track.id);
 
