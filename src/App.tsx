@@ -23,7 +23,7 @@ import {
 } from './types';
 import { audioEngine } from './audio/engine';
 import { playbackSignature } from './audio/playbackSignature';
-import { toggleMarkerAt } from './audio/markers';
+import { toggleMarkerAt, neighbourMarker } from './audio/markers';
 import { importStreamedFile, shouldStreamImport } from './assets/streamImport';
 import { deleteStreamedAssetWithRetry } from './assets/streamedStore';
 import { HistoryManager } from './history/historyManager';
@@ -2638,6 +2638,16 @@ const MainStudio: React.FC = () => {
     addToast({ type: 'info', title: added ? 'Marker added' : 'Marker removed', message: formatTimecode(t) });
   };
 
+  /** [ and ]: jump the playhead to the previous / next marker */
+  const handleJumpMarker = (dir: 1 | -1) => {
+    const m = neighbourMarker(project, playheadSecondsRef.current, dir);
+    if (!m) {
+      addToast({ type: 'info', title: dir === 1 ? 'No marker ahead' : 'No marker behind', message: 'Press M to add one at the playhead' });
+      return;
+    }
+    handleSeek(m.timeSeconds);
+  };
+
   const handleUpdateClips = (clipIds: string[], updates: Partial<Clip>) => {
     const ids = new Set(clipIds);
     setProjectWithHistory((prev) => ({
@@ -3558,6 +3568,12 @@ const MainStudio: React.FC = () => {
       if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         handleToggleMarker();
+      }
+
+      // [ / ]: previous / next marker
+      if ((e.key === '[' || e.key === ']') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        handleJumpMarker(e.key === ']' ? 1 : -1);
       }
 
       // F: single-track view on / off (the selected clip's track, else the selected track, else the first)

@@ -316,6 +316,10 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                   <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">Ctrl + Wheel</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-ink-dim">Marker: add / jump</span>
+                  <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">M / [ ]</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-ink-dim">Quick Actions</span>
                   <span className="font-num bg-surface-3 px-1.5 py-0.2 rounded text-ink">Q / Double Click Clip</span>
                 </div>
