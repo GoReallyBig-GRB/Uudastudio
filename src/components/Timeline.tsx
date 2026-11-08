@@ -11,7 +11,7 @@
 
 import { isClipLocked } from './clipLock';
 import { getPlayhead, subscribePlayhead, usePlayhead } from '../playback/playheadStore';
-import { markerColor, markersOf, recolorMarker, removeMarker } from '../audio/markers';
+import { MARKER_NAME_MAX, markerColor, markersOf, recolorMarker, removeMarker, renameMarker } from '../audio/markers';
 import { colorFromHex, groupColor, summarizeGroups, withAlpha } from '../audio/groupInfo';
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { CanvasWindow, canvasWindowFor, needsRecentre } from './canvasWindow';
@@ -184,7 +184,14 @@ const MarkerOverlay: React.FC<{
   onUpdateProject: (p: Project) => void;
 }> = ({ project, headerWidth, pixelsPerSecond, scrollLeft, timelineWidth, onSeek, onUpdateProject }) => {
   const list = markersOf(project);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
   if (list.length === 0) return null;
+  const commit = (id: string) => {
+    const current = list.find((m) => m.id === id)?.name ?? '';
+    if (draft.trim() !== current) onUpdateProject(renameMarker(project, id, draft));
+    setEditingId(null);
+  };
   return (
     <>
       {list.map((m) => {
@@ -196,12 +203,17 @@ const MarkerOverlay: React.FC<{
             <button
               type="button"
               aria-label={`Marker at ${formatTimecode(m.timeSeconds)}`}
-              title={`Marker ${formatTimecode(m.timeSeconds)}. Click: go here. Shift+click: change colour. Right-click: remove.`}
+              title={`${m.name ? `${m.name}, ` : 'Marker '}${formatTimecode(m.timeSeconds)}${m.clipId ? ', moves with its clip' : ''}. Click: go here. Double-click: name it. Shift+click: change colour. Right-click: remove.`}
               className="pointer-events-auto absolute top-0 -translate-x-1/2 cursor-pointer focus-visible:outline-none"
               onClick={(e) => {
                 e.stopPropagation();
                 if (e.shiftKey) onUpdateProject(recolorMarker(project, m.id));
                 else onSeek(m.timeSeconds);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setDraft(m.name ?? '');
+                setEditingId(m.id);
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -213,7 +225,26 @@ const MarkerOverlay: React.FC<{
                 <path d="M1 0H13L7 11Z" fill={color} />
               </svg>
             </button>
-            <div className="absolute top-[11px] bottom-0 w-px -translate-x-1/2 opacity-40" style={{ background: color }} />
+            {editingId === m.id ? (
+              <input
+                autoFocus
+                value={draft}
+                maxLength={MARKER_NAME_MAX}
+                placeholder="Marker name"
+                aria-label="Marker name"
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={() => commit(m.id)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === 'Enter') commit(m.id);
+                  if (e.key === 'Escape') setEditingId(null);
+                }}
+                className="pointer-events-auto absolute left-2 top-0 h-4 w-28 rounded border border-line-strong bg-surface-1 px-1.5 text-[10px] text-ink outline-none focus:border-accent"
+              />
+            ) : m.name ? (
+              <span className="absolute left-2 top-0 max-w-[9rem] truncate rounded bg-surface-0/80 px-1.5 text-[10px] leading-4 text-ink" style={{ borderLeft: `2px solid ${color}` }}>{m.name}</span>
+            ) : null}
+            <div className="absolute top-[11px] bottom-0 w-px -translate-x-1/2" style={{ background: color, opacity: m.clipId ? 0.55 : 0.3 }} />
           </div>
         );
       })}

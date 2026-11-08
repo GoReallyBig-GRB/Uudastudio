@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Clip, Track } from '../types';
-import { healSeams, breakChainAt, chainHead, chainIds, chainsOnTrack, expandChains, remapSpliceIds, seamFlags, selectionUnitCount, spreadUpdate } from './spliceChains';
+import { healSeams, breakChainAt, chainHead, chainIds, chainsOnTrack, expandChains, remapSpliceIds, seamFlags, rejoinPlan, applyRejoin, selectionUnitCount, spreadUpdate } from './spliceChains';
 
 const clip = (id: string, start: number, dur: number, extra: Partial<Clip> = {}): Clip => ({
   id, trackId: 't1', assetId: 'a', name: id, startSeconds: start, offsetSeconds: 0, durationSeconds: dur,
@@ -90,5 +90,49 @@ describe('clipUnitCount', () => {
   it('pieces with a gap between them are two clips', async () => {
     const { clipUnitCount } = await import('./spliceChains');
     expect(clipUnitCount([piece('a', 0, 5, 's'), piece('b', 6, 3, 's')])).toBe(2);
+  });
+});
+
+describe('rejoin torn pieces', () => {
+  const two = (clips1: Clip[], clips2: Clip[] = []): Track[] => [
+    { id: 't1', clips: clips1 } as unknown as Track,
+    { id: 't2', clips: clips2 } as unknown as Track,
+  ];
+  const on2 = (id: string, start: number, dur: number, extra: Partial<Clip> = {}) => clip(id, start, dur, { trackId: 't2', ...extra });
+
+  it('pieces torn apart on one track are laid back to back from the earliest start', () => {
+    const t = two([clip('a', 2, 4, { spliceId: 's' }), clip('b', 20, 3, { spliceId: 's' })]);
+    const plan = rejoinPlan(t, 'b');
+    expect(plan).toEqual({ ok: true, trackId: 't1', moves: [{ clipId: 'a', startSeconds: 2 }, { clipId: 'b', startSeconds: 6 }] });
+    const out = applyRejoin(t, plan as any);
+    expect(chainsOnTrack(out[0].clips).map((c) => c.map((p) => p.id))).toEqual([['a', 'b']]);
+  });
+
+  it('a piece on another track comes over to the selected piece\'s track', () => {
+    const t = two([clip('a', 0, 4, { spliceId: 's' })], [on2('b', 9, 3, { spliceId: 's' })]);
+    const plan = rejoinPlan(t, 'a');
+    expect(plan.ok && plan.trackId).toBe('t1');
+    const out = applyRejoin(t, plan as any);
+    expect(out[1].clips).toHaveLength(0);
+    expect(out[0].clips.map((c) => [c.id, c.trackId, c.startSeconds])).toEqual([['a', 't1', 0], ['b', 't1', 4]]);
+  });
+
+  it('keeps the order they sit in, three pieces, other clips untouched', () => {
+    const t = two([clip('c', 30, 2, { spliceId: 's' }), clip('a', 1, 3, { spliceId: 's' }), clip('b', 10, 2, { spliceId: 's' }), clip('z', 50, 5)]);
+    const plan = rejoinPlan(t, 'c') as any;
+    expect(plan.moves.map((m: any) => [m.clipId, m.startSeconds])).toEqual([['a', 1], ['b', 4], ['c', 6]]);
+    expect(applyRejoin(t, plan)[0].clips.find((c) => c.id === 'z')!.startSeconds).toBe(50);
+  });
+
+  it('says why when there is nothing to do', () => {
+    expect(rejoinPlan(two([clip('a', 0, 4)]), 'a')).toEqual({ ok: false, reason: 'none' });
+    expect(rejoinPlan(two([clip('a', 0, 4, { spliceId: 's' })]), 'a')).toEqual({ ok: false, reason: 'none' });
+    expect(rejoinPlan(two([clip('a', 0, 4, { spliceId: 's' }), clip('b', 4, 3, { spliceId: 's' })]), 'a')).toEqual({ ok: false, reason: 'already' });
+    expect(rejoinPlan(two([clip('a', 0, 4, { spliceId: 's', locked: true }), clip('b', 9, 3, { spliceId: 's' })]), 'b')).toEqual({ ok: false, reason: 'locked' });
+  });
+
+  it('refuses when another clip is in the way', () => {
+    const t = two([clip('a', 0, 4, { spliceId: 's' }), clip('x', 5, 3), clip('b', 20, 3, { spliceId: 's' })]);
+    expect(rejoinPlan(t, 'a')).toEqual({ ok: false, reason: 'no-room' });
   });
 });

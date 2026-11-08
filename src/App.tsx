@@ -23,7 +23,7 @@ import {
 } from './types';
 import { audioEngine } from './audio/engine';
 import { playbackSignature } from './audio/playbackSignature';
-import { toggleMarkerAt, neighbourMarker } from './audio/markers';
+import { toggleMarkerAt, neighbourMarker, followClips, markerLabel } from './audio/markers';
 import { importStreamedFile, shouldStreamImport } from './assets/streamImport';
 import { deleteStreamedAssetWithRetry } from './assets/streamedStore';
 import { HistoryManager } from './history/historyManager';
@@ -54,7 +54,7 @@ import { copyClipSet, pasteClipSet, type ClipSetClipboard } from './components/c
 import { isolateRangeInTracks } from './components/rangeIsolate';
 import { processEffectChunked } from './audio/effects/chunkedEffect';
 import { rippleInsert, joinTouching, shiftLaterClips } from './components/rippleInsert';
-import { breakChainAt, chainHead, chainIds, expandChains, healSeams, remapSpliceIds, selectionUnitCount, spreadUpdate } from './components/spliceChains';
+import { breakChainAt, chainHead, chainIds, expandChains, healSeams, remapSpliceIds, selectionUnitCount, spreadUpdate, rejoinPlan, applyRejoin } from './components/spliceChains';
 import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
@@ -511,7 +511,9 @@ const MainStudio: React.FC = () => {
         }
         // One rule for every edit: rounding in processed audio never breaks a clip into separate clips (see healSeams)
         const healed = healSeams(made.tracks);
-        const next = healed === made.tracks ? made : { ...made, tracks: healed };
+        const settled = healed === made.tracks ? made : { ...made, tracks: healed };
+        // Markers attached to a clip travel with it
+        const next = followClips(prev, settled);
         if (!skipHistory) {
           historyManagerRef.current.pushState(next, hint ?? describeChange(prev, next), gesture);
         }
@@ -2654,12 +2656,34 @@ const MainStudio: React.FC = () => {
   };
 
   /** The same change to several clips as ONE undo step */
+  /** Rejoin: bring the pieces of the selected edited clip back together (see rejoinPlan) */
+  const rejoinTargetId = selectedClip?.id ?? null;
+  const rejoinState = useMemo(() => (rejoinTargetId ? rejoinPlan(project.tracks, rejoinTargetId) : null), [project.tracks, rejoinTargetId]);
+  const canRejoin = rejoinState?.ok === true;
+  const handleRejoin = () => {
+    if (!rejoinTargetId) return;
+    const plan = rejoinPlan(project.tracks, rejoinTargetId);
+    if (!plan.ok) {
+      const why = { none: 'This clip was not edited in pieces, so there is nothing to rejoin.', already: 'The pieces are already joined as one clip.', locked: 'A piece is locked. Unlock it first.', 'no-room': 'Another clip is in the way. Move it, or make room, then try again.' }[plan.reason];
+      addToast({ type: 'info', title: 'Nothing rejoined', message: why });
+      return;
+    }
+    setProjectWithHistory({ ...project, tracks: applyRejoin(project.tracks, plan) }, false, 'rejoin');
+    addToast({ type: 'success', title: 'Clip rejoined', message: `${plan.moves.length} pieces are one clip again. Undo puts them back.` });
+  };
+
   /** M: a marker at the playhead, or remove the one already there */
   const handleToggleMarker = () => {
     const t = playheadSecondsRef.current;
-    const { project: next, added } = toggleMarkerAt(project, t, () => `mk-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    // A marker added while a clip is selected, with the playhead inside it, is attached to that clip and moves with it
+    let attachTo: string | undefined;
+    for (const id of selectedClipIds) {
+      const c = project.tracks.flatMap((tr) => tr.clips).find((x) => x.id === id);
+      if (c && t >= c.startSeconds - 1e-6 && t <= c.startSeconds + c.durationSeconds + 1e-6) { attachTo = chainHead(project.tracks, c.id)?.id ?? c.id; break; }
+    }
+    const { project: next, added } = toggleMarkerAt(project, t, () => `mk-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, attachTo);
     setProjectWithHistory(next, false, added ? 'marker' : 'marker removal');
-    addToast({ type: 'info', title: added ? 'Marker added' : 'Marker removed', message: formatTimecode(t) });
+    addToast({ type: 'info', title: added ? (attachTo ? 'Marker added to this clip' : 'Marker added') : 'Marker removed', message: attachTo && added ? `${formatTimecode(t)}. It moves with the clip.` : formatTimecode(t) });
   };
 
   /** [ and ]: jump the playhead to the previous / next marker */
@@ -2670,6 +2694,7 @@ const MainStudio: React.FC = () => {
       return;
     }
     handleSeek(m.timeSeconds);
+    addToast({ type: 'info', title: m.name ? `Marker: ${m.name}` : 'Marker', message: markerLabel({ ...m, name: undefined }, formatTimecode(m.timeSeconds)) });
   };
 
   const handleUpdateClips = (clipIds: string[], updates: Partial<Clip>) => {
@@ -3927,6 +3952,8 @@ const MainStudio: React.FC = () => {
         onDeleteRange={handleDeleteAny}
         canDelete={!!rangeSelection || selectedClipIds.size > 0}
         onToggleMarker={handleToggleMarker}
+        onRejoin={handleRejoin}
+        canRejoin={canRejoin}
         markerCount={project.markers?.length ?? 0}
         isControllerCollapsed={isTimelineControlsCollapsed}
         onToggleController={handleToggleTimelineControls}
