@@ -89,21 +89,21 @@ export const AdminTeam: React.FC = () => {
   return (
     <div className="max-w-4xl space-y-6">
       <div>
-        <h2 className="text-lg font-bold text-white">Admin team</h2>
-        <p className="text-xs text-zinc-500 mt-0.5">
+        <h2 className="text-lg font-bold text-ink">Admin team</h2>
+        <p className="text-xs text-ink-faint mt-0.5">
           Administrators must confirm each sign-in with an emailed code. Only the super admin can change this list.
         </p>
       </div>
 
-      {error && <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-800 text-xs text-rose-200">{error}</div>}
+      {error && <div className="p-2.5 rounded-control bg-danger/60 border border-danger text-xs text-danger">{error}</div>}
 
-      <div className="rounded-xl border border-zinc-800 divide-y divide-zinc-800">
+      <div className="rounded-card border border-line divide-y divide-line">
         {admins.map((a) => (
           <div key={a.email} className="flex items-center justify-between px-4 py-2.5 text-xs">
             <div className="flex items-center gap-2 min-w-0">
-              {a.super && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-              <span className="text-zinc-200 truncate">{a.email}</span>
-              <span className="text-[10px] text-zinc-500">
+              {a.super && <Crown className="w-3.5 h-3.5 text-warn shrink-0" />}
+              <span className="text-ink truncate">{a.email}</span>
+              <span className="text-[10px] text-ink-faint">
                 {a.super ? 'super admin' : a.source === 'configured' ? 'set in server settings' : `added by ${a.added_by}`}
               </span>
             </div>
@@ -111,7 +111,7 @@ export const AdminTeam: React.FC = () => {
               <button
                 type="button"
                 onClick={() => remove(a.email)}
-                className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-rose-300 cursor-pointer"
+                className="p-1.5 rounded hover:bg-surface-2 text-ink-dim hover:text-danger cursor-pointer"
                 title="Remove admin access"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -119,7 +119,7 @@ export const AdminTeam: React.FC = () => {
             )}
           </div>
         ))}
-        {admins.length === 0 && <div className="px-4 py-3 text-xs text-zinc-500">No administrators found.</div>}
+        {admins.length === 0 && <div className="px-4 py-3 text-xs text-ink-faint">No administrators found.</div>}
       </div>
 
       {canManage && (
@@ -130,12 +130,12 @@ export const AdminTeam: React.FC = () => {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Google account email to make an administrator"
-            className="flex-1 bg-[#09090D] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+            className="flex-1 bg-surface-2 border border-line-strong rounded-control px-3 py-2 text-xs text-ink focus:outline-none focus:border-warn"
           />
           <button
             type="submit"
             disabled={busy || !email.trim()}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-control bg-warn hover:bg-warn text-ink text-xs font-bold disabled:opacity-50 cursor-pointer"
           >
             <UserPlus className="w-3.5 h-3.5" />
             <span>Add admin</span>
@@ -144,21 +144,21 @@ export const AdminTeam: React.FC = () => {
       )}
 
       <div>
-        <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-zinc-200">
-          <History className="w-4 h-4 text-zinc-400" />
+        <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-ink">
+          <History className="w-4 h-4 text-ink-dim" />
           <span>Recent admin activity</span>
         </div>
-        <div className="rounded-xl border border-zinc-800 max-h-80 overflow-y-auto divide-y divide-zinc-800/70">
+        <div className="rounded-card border border-line max-h-80 overflow-y-auto divide-y divide-line/70">
           {audit.map((r) => (
-            <div key={r.id} className="px-4 py-2 text-[11px] text-zinc-400 flex flex-wrap gap-x-2">
-              <span className="text-zinc-500">{new Date(r.at).toLocaleString()}</span>
-              <span className="text-zinc-200">{r.actor_email}</span>
-              <span className="text-amber-300">{r.action}</span>
+            <div key={r.id} className="px-4 py-2 text-[11px] text-ink-dim flex flex-wrap gap-x-2">
+              <span className="text-ink-faint">{new Date(r.at).toLocaleString()}</span>
+              <span className="text-ink">{r.actor_email}</span>
+              <span className="text-warn">{r.action}</span>
               <span>{r.target}</span>
-              {r.detail && <span className="text-zinc-500">({r.detail})</span>}
+              {r.detail && <span className="text-ink-faint">({r.detail})</span>}
             </div>
           ))}
-          {audit.length === 0 && <div className="px-4 py-3 text-xs text-zinc-500">Nothing recorded yet.</div>}
+          {audit.length === 0 && <div className="px-4 py-3 text-xs text-ink-faint">Nothing recorded yet.</div>}
         </div>
       </div>
     </div>
