@@ -54,7 +54,7 @@ import { copyClipSet, pasteClipSet, type ClipSetClipboard } from './components/c
 import { isolateRangeInTracks } from './components/rangeIsolate';
 import { processEffectChunked } from './audio/effects/chunkedEffect';
 import { rippleInsert, joinTouching, shiftLaterClips } from './components/rippleInsert';
-import { breakChainAt, chainHead, chainIds, expandChains, healSeams, remapSpliceIds, selectionUnitCount, spreadUpdate, rejoinPlan, applyRejoin } from './components/spliceChains';
+import { breakChainAt, chainHead, chainIds, expandChains, healSeams, remapSpliceIds, selectionUnitCount, spreadUpdate, rejoinPlan, applyRejoin, joinPlan } from './components/spliceChains';
 import { deleteRangeFromTracks, rangeTrackIds, type RangeSelection, type TimelineTool } from './components/rangeDelete';
 import { getTrackLabel } from './utils/tracks';
 import { ClipToolbar } from './components/ClipToolbar';
@@ -2656,20 +2656,36 @@ const MainStudio: React.FC = () => {
   };
 
   /** The same change to several clips as ONE undo step */
-  /** Rejoin: bring the pieces of the selected edited clip back together (see rejoinPlan) */
+  /**
+   * Rejoin, two cases. (1) Edited pieces of one clip that were pulled apart: laid back together (rejoinPlan).
+   * (2) Clips divided by Split that still continue from each other in the same audio: joined into one clip (joinPlan).
+   */
   const rejoinTargetId = selectedClip?.id ?? null;
-  const rejoinState = useMemo(() => (rejoinTargetId ? rejoinPlan(project.tracks, rejoinTargetId) : null), [project.tracks, rejoinTargetId]);
-  const canRejoin = rejoinState?.ok === true;
+  const rejoinState = useMemo(() => {
+    const torn = rejoinTargetId ? rejoinPlan(project.tracks, rejoinTargetId) : null;
+    if (torn?.ok) return 'torn' as const;
+    return joinPlan(project.tracks, selectedClipIds, () => 'probe').ok ? ('split' as const) : null;
+  }, [project.tracks, rejoinTargetId, selectedClipIds]);
+  const canRejoin = rejoinState !== null;
   const handleRejoin = () => {
-    if (!rejoinTargetId) return;
-    const plan = rejoinPlan(project.tracks, rejoinTargetId);
-    if (!plan.ok) {
-      const why = { none: 'This clip was not edited in pieces, so there is nothing to rejoin.', already: 'The pieces are already joined as one clip.', locked: 'A piece is locked. Unlock it first.', 'no-room': 'Another clip is in the way. Move it, or make room, then try again.' }[plan.reason];
-      addToast({ type: 'info', title: 'Nothing rejoined', message: why });
+    const torn = rejoinTargetId ? rejoinPlan(project.tracks, rejoinTargetId) : null;
+    if (torn?.ok) {
+      setProjectWithHistory({ ...project, tracks: applyRejoin(project.tracks, torn) }, false, 'rejoin');
+      addToast({ type: 'success', title: 'Clip rejoined', message: `${torn.moves.length} pieces are one clip again. Undo puts them back.` });
       return;
     }
-    setProjectWithHistory({ ...project, tracks: applyRejoin(project.tracks, plan) }, false, 'rejoin');
-    addToast({ type: 'success', title: 'Clip rejoined', message: `${plan.moves.length} pieces are one clip again. Undo puts them back.` });
+    const join = joinPlan(project.tracks, selectedClipIds, () => `sp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    if (join.ok) {
+      const ids = new Set(join.ids);
+      setProjectWithHistory({ ...project, tracks: project.tracks.map((t) => ({ ...t, clips: t.clips.map((c) => (ids.has(c.id) ? { ...c, spliceId: join.spliceId } : c)) })) }, false, 'rejoin');
+      addToast({ type: 'success', title: 'Clips joined', message: `${join.ids.length} clips are one clip again. Undo puts them back.` });
+      return;
+    }
+    const why = join.reason === 'locked' ? 'A piece is locked. Unlock it first.'
+      : torn && !torn.ok && torn.reason === 'no-room' ? 'Another clip is in the way. Move it, or make room, then try again.'
+      : torn && !torn.ok && torn.reason === 'locked' ? 'A piece is locked. Unlock it first.'
+      : 'Select a clip that was cut with Split, or edited in pieces. Pieces must touch and come from the same audio.';
+    addToast({ type: 'info', title: 'Nothing to rejoin', message: why });
   };
 
   /** M: a marker at the playhead, or remove the one already there */

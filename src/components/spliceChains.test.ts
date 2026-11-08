@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Clip, Track } from '../types';
-import { healSeams, breakChainAt, chainHead, chainIds, chainsOnTrack, expandChains, remapSpliceIds, seamFlags, rejoinPlan, applyRejoin, selectionUnitCount, spreadUpdate } from './spliceChains';
+import { healSeams, breakChainAt, chainHead, chainIds, chainsOnTrack, expandChains, remapSpliceIds, seamFlags, rejoinPlan, applyRejoin, joinPlan, selectionUnitCount, spreadUpdate } from './spliceChains';
 
 const clip = (id: string, start: number, dur: number, extra: Partial<Clip> = {}): Clip => ({
   id, trackId: 't1', assetId: 'a', name: id, startSeconds: start, offsetSeconds: 0, durationSeconds: dur,
@@ -134,5 +134,39 @@ describe('rejoin torn pieces', () => {
   it('refuses when another clip is in the way', () => {
     const t = two([clip('a', 0, 4, { spliceId: 's' }), clip('x', 5, 3), clip('b', 20, 3, { spliceId: 's' })]);
     expect(rejoinPlan(t, 'a')).toEqual({ ok: false, reason: 'no-room' });
+  });
+});
+
+describe('join clips divided by Split', () => {
+  const tr = (clips: Clip[]): Track[] => [{ id: 't1', clips } as unknown as Track];
+  let n = 0;
+  const mk = () => `j${++n}`;
+  // one source cut in three places: starts 0, 4, 9 and 15, source offsets continue
+  const split = () => [clip('a', 0, 4, { offsetSeconds: 0 }), clip('b', 4, 5, { offsetSeconds: 4 }), clip('c', 9, 6, { offsetSeconds: 9 }), clip('d', 15, 2, { offsetSeconds: 15 })];
+
+  it('selecting one piece joins every touching, continuing piece, both ways', () => {
+    const plan = joinPlan(tr(split()), new Set(['b']), mk);
+    expect(plan.ok && plan.ids.sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
+  it('stops where the source stops continuing, or the clips stop touching', () => {
+    const cs = split(); cs[2] = clip('c', 9, 6, { offsetSeconds: 30 });
+    expect(joinPlan(tr(cs), new Set(['a']), mk)).toMatchObject({ ok: true, ids: expect.arrayContaining(['a', 'b']) });
+    expect((joinPlan(tr(cs), new Set(['a']), mk) as any).ids).not.toContain('c');
+    const gap = split(); gap[1] = clip('b', 5, 5, { offsetSeconds: 4 });
+    expect(joinPlan(tr(gap), new Set(['a']), mk)).toEqual({ ok: false, reason: 'none' });
+  });
+  it('different audio files are never joined', () => {
+    const cs = split(); cs[1] = clip('b', 4, 5, { offsetSeconds: 4, assetId: 'other' });
+    expect(joinPlan(tr(cs), new Set(['a']), mk)).toEqual({ ok: false, reason: 'none' });
+  });
+  it('already joined, locked, or a lone clip: nothing to do', () => {
+    const joined = [clip('a', 0, 4, { spliceId: 's' }), clip('b', 4, 5, { spliceId: 's', offsetSeconds: 4 })];
+    expect(joinPlan(tr(joined), new Set(['a']), mk)).toEqual({ ok: false, reason: 'none' });
+    expect(joinPlan(tr(split().map((c, i) => (i === 2 ? { ...c, locked: true } : c))), new Set(['a']), mk)).toEqual({ ok: false, reason: 'locked' });
+    expect(joinPlan(tr([clip('a', 0, 4)]), new Set(['a']), mk)).toEqual({ ok: false, reason: 'none' });
+  });
+  it('reuses an existing splice id when one piece already has it', () => {
+    const cs = split(); cs[0] = { ...cs[0], spliceId: 'keep' };
+    expect((joinPlan(tr(cs), new Set(['b']), mk) as any).spliceId).toBe('keep');
   });
 });

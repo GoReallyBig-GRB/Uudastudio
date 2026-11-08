@@ -552,7 +552,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               <span className="max-[1150px]:hidden">Silence</span>
             </CapsuleButton>
             <CapsuleButton
-              title={canRejoin ? 'Rejoin: bring the pieces of this edited clip back together as one clip, on this track' : 'Rejoin is available when the selected clip was edited in pieces that have been pulled apart'}
+              title={canRejoin ? 'Rejoin: make the selected clip and its neighbours one clip again (pieces cut with Split, or edited pieces pulled apart)' : 'Rejoin: select a clip that was cut with Split, or edited in pieces. Pieces must touch and come from the same audio'}
               disabled={!canRejoin || !onRejoin}
               onClick={onRejoin}
               icon={<Link2 className="h-3 w-3" />}

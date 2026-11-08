@@ -174,7 +174,7 @@ const FULL_HEADER_WIDTH = 272;
 const COLLAPSED_HEADER_WIDTH = 32;
 
 /** Marker arrowheads on the ruler (pointing down at their time) with a faint line through the tracks. Click seeks, Shift+click changes the colour, right-click removes. */
-const MarkerOverlay: React.FC<{
+export const MarkerOverlay: React.FC<{
   project: Project;
   headerWidth: number;
   pixelsPerSecond: number;
@@ -203,12 +203,14 @@ const MarkerOverlay: React.FC<{
             <button
               type="button"
               aria-label={`Marker at ${formatTimecode(m.timeSeconds)}`}
-              title={`${m.name ? `${m.name}, ` : 'Marker '}${formatTimecode(m.timeSeconds)}${m.clipId ? ', moves with its clip' : ''}. Click: go here. Double-click: name it. Shift+click: change colour. Right-click: remove.`}
+              title={`${m.name ? `${m.name}, ` : 'Marker '}${formatTimecode(m.timeSeconds)}${m.clipId ? ', moves with its clip' : ''}. Click: go here. Click again: name it. Shift+click: change colour. Right-click: remove.`}
               className="pointer-events-auto absolute top-0 -translate-x-1/2 cursor-pointer focus-visible:outline-none"
               onClick={(e) => {
                 e.stopPropagation();
-                if (e.shiftKey) onUpdateProject(recolorMarker(project, m.id));
-                else onSeek(m.timeSeconds);
+                if (e.shiftKey) { onUpdateProject(recolorMarker(project, m.id)); return; }
+                // A second click, with the playhead already on the marker, opens the name box (no double-click needed)
+                if (Math.abs(getPlayhead() - m.timeSeconds) < 0.02) { setDraft(m.name ?? ''); setEditingId(m.id); return; }
+                onSeek(m.timeSeconds);
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -244,7 +246,11 @@ const MarkerOverlay: React.FC<{
             ) : m.name ? (
               <span className="absolute left-2 top-0 max-w-[9rem] truncate rounded bg-surface-0/80 px-1.5 text-[10px] leading-4 text-ink" style={{ borderLeft: `2px solid ${color}` }}>{m.name}</span>
             ) : null}
-            <div className="absolute top-[11px] bottom-0 w-px -translate-x-1/2" style={{ background: color, opacity: m.clipId ? 0.55 : 0.3 }} />
+            {/* Perforated line: dashes of the marker's colour. Stronger when the marker is attached to a clip and moves with it. */}
+            <div
+              className="absolute top-[11px] bottom-0 w-px -translate-x-1/2"
+              style={{ backgroundImage: `repeating-linear-gradient(to bottom, ${color} 0 4px, transparent 4px 8px)`, opacity: m.clipId ? 0.85 : 0.5 }}
+            />
           </div>
         );
       })}

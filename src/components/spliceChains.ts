@@ -251,3 +251,37 @@ export const applyRejoin = (tracks: readonly Track[], plan: Extract<RejoinPlan, 
   }));
   return stripped.map((t) => (t.id === plan.trackId ? { ...t, clips: [...t.clips, ...moved].sort((a, b) => a.startSeconds - b.startSeconds) } : t));
 };
+
+export type JoinPlan =
+  | { ok: true; ids: string[]; spliceId: string }
+  | { ok: false; reason: 'none' | 'locked' };
+
+/**
+ * Join clips that were divided by Split: neighbours on one track that touch end to end AND carry on from each other in the
+ * same source audio (same asset, the next piece starts in the source exactly where the previous one stopped). They become
+ * one clip again, the same way edited pieces are: they get one shared splice id. Looks from every selected clip, both ways.
+ * Nothing to join when no such neighbour exists; refuses when a piece is locked.
+ */
+export const joinPlan = (tracks: readonly Track[], selected: ReadonlySet<string>, makeId: () => string): JoinPlan => {
+  const EPS = 1e-4;
+  const members = new Set<string>();
+  for (const t of tracks) {
+    const clips = [...t.clips].sort(byStart);
+    const continues = (a: Clip, b: Clip) =>
+      a.assetId === b.assetId && Math.abs(a.startSeconds + a.durationSeconds - b.startSeconds) <= EPS && Math.abs(a.offsetSeconds + a.durationSeconds - b.offsetSeconds) <= EPS;
+    clips.forEach((c, i) => {
+      if (!selected.has(c.id)) return;
+      let j = i;
+      while (j + 1 < clips.length && continues(clips[j], clips[j + 1])) { members.add(clips[j].id); members.add(clips[j + 1].id); j++; }
+      j = i;
+      while (j > 0 && continues(clips[j - 1], clips[j])) { members.add(clips[j].id); members.add(clips[j - 1].id); j--; }
+    });
+  }
+  if (members.size < 2) return { ok: false, reason: 'none' };
+  const all = tracks.flatMap((t) => t.clips).filter((c) => members.has(c.id));
+  // Already one chain? (every member shares a splice id and they all touch)
+  const first = all[0].spliceId;
+  if (first && all.every((c) => c.spliceId === first)) return { ok: false, reason: 'none' };
+  if (all.some((c) => c.locked)) return { ok: false, reason: 'locked' };
+  return { ok: true, ids: [...members], spliceId: first ?? all.find((c) => c.spliceId)?.spliceId ?? makeId() };
+};
