@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Plus } from 'lucide-react';
-import { Button, CapsuleButton, SegmentedControl } from './ui';
+import { Button, CapsuleButton } from './ui';
 import { MAX_SILENCE_SECONDS, type SilenceScope } from './insertSilence';
 import { formatTimecode } from '../utils/formatters';
 import { getPlayhead } from '../playback/playheadStore';
@@ -14,12 +14,11 @@ interface Props {
   onInsert: (lengthSeconds: number, scope: SilenceScope) => void;
 }
 
-/** The small arrow beside Silence: "Insert silence" with a length and whether other tracks move too. */
+/** The small arrow beside Silence: "Insert silence" with a length, on the track you are working on. */
 export const InsertSilenceMenu: React.FC<Props> = ({ disabled, rangeSeconds, rangeStartSeconds, onInsert }) => {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ left: 0, top: 0 });
   const [text, setText] = useState('1');
-  const [scope, setScope] = useState<SilenceScope>('track');
   const [at, setAt] = useState(0);
   const anchor = useRef<HTMLSpanElement>(null);
 
@@ -46,7 +45,7 @@ export const InsertSilenceMenu: React.FC<Props> = ({ disabled, rangeSeconds, ran
 
   const length = Math.min(MAX_SILENCE_SECONDS, parseFloat(text.replace(',', '.')));
   const valid = Number.isFinite(length) && length > 0;
-  const go = () => { if (valid) { onInsert(length, scope); setOpen(false); } };
+  const go = () => { if (valid) { onInsert(length, 'track'); setOpen(false); } };
 
   return (
     <>
@@ -71,19 +70,7 @@ export const InsertSilenceMenu: React.FC<Props> = ({ disabled, rangeSeconds, ran
               className="h-7 w-24 rounded-control border border-line-strong bg-surface-1 px-2 text-right font-num text-[12px] text-ink outline-none focus:border-accent"
             />
           </label>
-          <div>
-            <div className="mb-1 text-[10px] text-ink-dim">What moves later</div>
-            <SegmentedControl
-              size="sm"
-              value={scope}
-              onChange={(v) => setScope(v)}
-              options={[{ value: 'track', label: 'This track' }, { value: 'all', label: 'All tracks' }] as const}
-              label="What moves later"
-            />
-            <div className="mt-1 text-[10px] text-ink-faint">
-              {scope === 'track' ? 'Only this track moves. Other tracks stay where they are, so they may no longer line up.' : 'Every track opens the same gap, so music, dialogue and effects stay in sync.'}
-            </div>
-          </div>
+          <div className="text-[10px] text-ink-faint">Only this track moves. Other tracks stay where they are; adjust them yourself if you need them to line up.</div>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
             <Button size="sm" variant="primary" onClick={go} disabled={!valid} leftIcon={<Plus className="h-3 w-3" />}>Insert</Button>
