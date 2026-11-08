@@ -42,6 +42,7 @@ import {
   Redo2,
   Upload,
   Link2,
+  Merge,
 } from 'lucide-react';
 import { Clip } from '../types';
 import { formatVolumeDb } from '../utils/formatters';
@@ -106,6 +107,9 @@ interface ClipToolbarProps {
   onInsertSilence?: (lengthSeconds: number, scope: 'track' | 'all') => void;
   rangeStartSeconds?: number | null;
   onRejoin?: () => void;
+  /** Start Join mode: pick clips in order, preview, then join them into one clip on a new track */
+  onStartJoin?: () => void;
+  joinActive?: boolean;
   /** True when the selected clip has pieces that are torn apart (so Rejoin has something to do) */
   canRejoin?: boolean;
   markerCount?: number;
@@ -247,6 +251,8 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onDeleteRange,
   onToggleMarker,
   onRejoin,
+  onStartJoin,
+  joinActive = false,
   onInsertSilence,
   rangeStartSeconds = null,
   canRejoin = false,
@@ -432,7 +438,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
 
       {/* Row 2, nearest the tracks: what is done to the audio, the everyday edits, then the clip's own state, position and fades */}
       <div className="flex items-center justify-between gap-3 min-w-0">
-        <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-px scrollbar-none max-[1100px]:gap-1">
+        <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-px scrollbar-none max-[1300px]:gap-1 max-[1100px]:gap-0.5">
           {/* Noise removal: learn the noise, then remove it. One cluster, in the order it is used. */}
           <Capsule label="Clean up" size="sm">
             <CapsuleButton
@@ -557,6 +563,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
               <span className="max-[1150px]:hidden">Silence</span>
             </CapsuleButton>
             {onInsertSilence && <InsertSilenceMenu rangeSeconds={rangeSeconds ?? null} rangeStartSeconds={rangeStartSeconds} onInsert={onInsertSilence} />}
+            {(canRejoin || !onStartJoin) && (
             <CapsuleButton
               title={canRejoin ? 'Rejoin: make the selected clip and its neighbours one clip again (pieces cut with Split, or edited pieces pulled apart)' : 'Rejoin: select a clip that was cut with Split, or edited in pieces. Pieces must touch and come from the same audio'}
               disabled={!canRejoin || !onRejoin}
@@ -565,6 +572,17 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
             >
               <span className="max-[1500px]:hidden">Rejoin</span>
             </CapsuleButton>
+            )}
+            {onStartJoin && (
+              <CapsuleButton
+                title="Join: click clips in the order you want, preview, then join them into one clip on a new track. Your originals do not move"
+                disabled={joinActive}
+                onClick={onStartJoin}
+                icon={<Merge className="h-3 w-3" />}
+              >
+                <span className="max-[1500px]:hidden">Join</span>
+              </CapsuleButton>
+            )}
           </Capsule>
         </div>
 

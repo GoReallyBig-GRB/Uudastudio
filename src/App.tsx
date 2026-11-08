@@ -23,6 +23,8 @@ import {
 } from './types';
 import { audioEngine } from './audio/engine';
 import { playbackSignature } from './audio/playbackSignature';
+import { joinInOrder, previewWindow, cropTrackWindow } from './components/joinInOrder';
+import { JoinBar } from './components/JoinBar';
 import { insertSilenceInTracks, shiftMarkersForInsert, silenceAssetId, SILENCE_ASSET_SECONDS, type SilenceScope } from './components/insertSilence';
 import { toggleMarkerAt, neighbourMarker, followClips, markerLabel } from './audio/markers';
 import { importStreamedFile, shouldStreamImport } from './assets/streamImport';
@@ -2812,6 +2814,76 @@ const MainStudio: React.FC = () => {
     addToast({ type: 'success', title: 'Silence inserted', message: `${lengthSeconds.toFixed(2)} s at ${formatTimecode(at)}${scope === 'all' ? ' on all tracks' : ''}. Undo removes it.` });
   };
 
+  // ---- Join clips in the order picked (Join button): numbered badges, preview, then join ----
+  const [joinOrder, setJoinOrder] = useState<string[] | null>(null);
+  const [joinSeam, setJoinSeam] = useState(0);
+  const [joinPreviewing, setJoinPreviewing] = useState(false);
+  const probeId = () => `probe-${Math.random().toString(36).slice(2, 9)}`;
+  const joinOrderPlan = useMemo(() => (joinOrder ? joinInOrder(project.tracks, joinOrder, () => 'probe') : null), [project.tracks, joinOrder]);
+  const joinBadges = useMemo(() => {
+    if (!joinOrder) return undefined;
+    const m = new Map<string, number>();
+    let n = 0;
+    const counted = new Set<string>();
+    for (const id of joinOrder) {
+      const ids = chainIds(project.tracks, id);
+      if (ids.some((x) => counted.has(x))) continue;
+      ids.forEach((x) => counted.add(x));
+      n += 1;
+      const head = chainHead(project.tracks, id);
+      m.set(head?.id ?? id, n);
+    }
+    return m;
+  }, [project.tracks, joinOrder]);
+  useEffect(() => {
+    const sync = () => setJoinPreviewing(audioEngine.getPreviewTarget() !== null);
+    window.addEventListener('uuda:preview-changed', sync);
+    return () => window.removeEventListener('uuda:preview-changed', sync);
+  }, []);
+  const endJoinMode = () => {
+    audioEngine.stopPreview();
+    setJoinOrder(null);
+    setJoinSeam(0);
+  };
+  const handleStartJoin = () => {
+    setRangeSelection(null);
+    setJoinSeam(0);
+    setJoinOrder(Array.from(selectedClipIds).length > 1 ? Array.from(selectedClipIds) : []);
+    addToast({ type: 'info', title: 'Join clips', message: 'Click the clips in the order you want them. Click a numbered clip again to remove it.' });
+  };
+  const handleJoinPick = (clipId: string) => {
+    setJoinOrder((prev) => {
+      if (!prev) return prev;
+      const ids = new Set(chainIds(project.tracks, clipId));
+      const present = prev.some((x) => ids.has(x));
+      return present ? prev.filter((x) => !ids.has(x)) : [...prev, clipId];
+    });
+  };
+  const joinProblem = (plan: ReturnType<typeof joinInOrder> | null): string | null => {
+    if (!plan || plan.ok) return null;
+    return plan.reason === 'few' ? 'Pick at least 2 clips.' : 'A picked clip no longer exists.';
+  };
+  const handleJoinPreview = async () => {
+    const plan = joinOrder ? joinInOrder(project.tracks, joinOrder, probeId) : null;
+    if (!plan || !plan.ok) return;
+    const w = previewWindow(plan, joinSeam, 20);
+    const target = plan.tracks.find((t) => t.id === plan.trackId)!;
+    const preview: Project = { ...project, tracks: plan.tracks.map((t) => (t.id === plan.trackId ? cropTrackWindow(target, w.from, w.to) : { ...t, clips: [] })) };
+    const r = await audioEngine.startPreview(preview, plan.trackId);
+    if (!r.ok) addToast({ type: 'warning', title: 'Cannot preview', message: r.reason ?? 'Audio could not be started.' });
+  };
+  const handleApplyJoin = () => {
+    if (!joinOrder) return;
+    const plan = joinInOrder(project.tracks, joinOrder, () => `sp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    if (!plan.ok) { addToast({ type: 'info', title: 'Cannot join', message: joinProblem(plan) ?? 'Nothing was joined.' }); return; }
+    audioEngine.stopPreview();
+    setProjectWithHistory({ ...project, tracks: plan.tracks }, false, 'join');
+    setJoinOrder(null);
+    setJoinSeam(0);
+    setSelectedClipIds(new Set(plan.tracks.find((t) => t.id === plan.trackId)!.clips.map((c) => c.id)));
+    addToast({ type: 'success', title: 'Clips joined', message: `${plan.clipCount} clips are one clip on a new track called Joined. The originals did not move.` });
+  };
+
   const handleSilence = () => {
     if (rangeSelection) {
       const done = editRange(() => ({ muted: true }), true);
@@ -4002,6 +4074,8 @@ const MainStudio: React.FC = () => {
         canDelete={!!rangeSelection || selectedClipIds.size > 0}
         onToggleMarker={handleToggleMarker}
         onRejoin={handleRejoin}
+        onStartJoin={handleStartJoin}
+        joinActive={joinOrder !== null}
         onInsertSilence={handleInsertSilence}
         rangeStartSeconds={rangeSelection ? rangeSelection.startSeconds : null}
         canRejoin={canRejoin}
@@ -4161,6 +4235,8 @@ const MainStudio: React.FC = () => {
                 setIsRecordModalOpen(true);
               }}
               onUpdateProject={(p) => setProjectWithHistory(p)}
+              joinBadges={joinBadges}
+              onJoinPick={joinOrder ? handleJoinPick : undefined}
               onTracksAutoRemoved={handleTracksAutoRemoved}
               onSeek={handleSeek}
               onSplitClip={splitAny}
@@ -4249,6 +4325,20 @@ const MainStudio: React.FC = () => {
         <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => { setIsExportOpen(false); setTempClipLevels({}); }} selectedClipIds={exportClipIds} startWithSelection={exportSelectionFirst} tempClipLevels={tempClipLevels} onResetTempLevels={handleResetTempLevels} />
       )}
 
+      {joinOrder && (
+        <JoinBar
+          picked={joinBadges?.size ?? 0}
+          result={joinOrderPlan && joinOrderPlan.ok ? { seconds: joinOrderPlan.end - joinOrderPlan.start, joins: joinOrderPlan.seams.length } : null}
+          problem={(joinBadges?.size ?? 0) > 0 ? joinProblem(joinOrderPlan) : null}
+          previewing={joinPreviewing}
+          seamIndex={Math.min(joinSeam, Math.max(0, (joinOrderPlan && joinOrderPlan.ok ? joinOrderPlan.seams.length : 1) - 1))}
+          onStep={(d) => setJoinSeam((v) => Math.max(0, Math.min((joinOrderPlan && joinOrderPlan.ok ? joinOrderPlan.seams.length : 1) - 1, v + d)))}
+          onPreview={() => void handleJoinPreview()}
+          onStopPreview={() => audioEngine.stopPreview()}
+          onApply={handleApplyJoin}
+          onCancel={endJoinMode}
+        />
+      )}
       {/* Bottom Status Bar */}
       <PerfHud />
       <StatusBar
