@@ -34,8 +34,10 @@ describe('room check', () => {
     expect(m.snrDb).toBeGreaterThan(30);
   });
   it('flags a noisy room', () => expect(ids(checkRoom(take({ noiseDb: -40, speechDb: -22 }), SR))).toContain('noise'));
-  it('a very quiet but clean voice is a warning, a very quiet noisy one is a problem', () => {
-    expect(checkRoom(take({ speechDb: -44, noiseDb: -75 }), SR).findings.find((f) => f.id === 'quiet')?.level).toBe('warn');
+  it('a quiet but clean voice is not a fault until it is very quiet; a quiet noisy one is a problem', () => {
+    expect(ids(checkRoom(take({ speechDb: -38, noiseDb: -75 }), SR))).not.toContain('quiet');
+    expect(ids(checkRoom(take({ speechDb: -32, noiseDb: -75 }), SR))).not.toContain('quiet');
+    expect(checkRoom(take({ speechDb: -54, noiseDb: -90 }), SR).findings.find((f) => f.id === 'quiet')?.level).toBe('warn');
     expect(checkRoom(take({ speechDb: -44, noiseDb: -60 }), SR).findings.find((f) => f.id === 'quiet')?.level).toBe('problem');
   });
   it('flags clipping as a problem', () => {

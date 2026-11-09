@@ -119,9 +119,10 @@ export const assess = (m: RoomMetrics | null): RoomReport => {
   if (m.leadInSeconds < 1) f.push({ id: 'lead', level: 'warn', text: 'There was no quiet moment before you spoke. Stay silent for about 3 seconds first so the room can be measured.' });
   if (m.leadInSeconds >= 1 && m.noiseMaxDb - m.noiseDb >= 10) f.push({ id: 'event', level: 'warn', text: 'Something made a noise during the quiet part (a cough, a bump, a car). Try again and keep still and silent.' });
   if (m.clippedSamples >= 3 || m.peakDb > -1) f.push({ id: 'loud', level: m.clippedSamples >= 3 ? 'problem' : 'warn', text: m.clippedSamples >= 3 ? 'The sound is clipping (too loud, and the damage cannot be repaired). Move back from the microphone or turn its gain down.' : 'The loudest sounds reach the limit. Move a little further from the microphone or lower its gain.' });
-  if (m.speechDb < -36 && m.snrDb < 28) f.push({ id: 'quiet', level: 'problem', text: 'Your voice is very quiet. Move closer to the microphone (a hand-width away) or turn its gain up.' });
-  else if (m.speechDb < -36) f.push({ id: 'quiet', level: 'warn', text: 'Your voice is very quiet, but the recording is clean, so the producer can bring the level up. A hand-width closer or more gain is still better.' });
-  else if (m.speechDb < -30) f.push({ id: 'quiet', level: 'warn', text: 'Your voice is on the quiet side. A little closer to the microphone, or more gain, will help.' });
+  // A quiet voice is only a fault when the room noise is close behind it. A clean quiet take is fine: the producer raises the level
+  // and nothing is lost, and a mic with its auto-gain off always records lower than a phone's own recorder app.
+  if (m.speechDb < -36 && m.snrDb < 28) f.push({ id: 'quiet', level: 'problem', text: 'Your voice is quiet and the room is close behind it. Move closer to the microphone (a hand-width away) or turn its input level up in the device settings.' });
+  else if (m.speechDb < -42) f.push({ id: 'quiet', level: 'warn', text: 'Your voice is quiet. The recording is clean, so the producer can raise it, but a hand-width closer to the microphone is still better.' });
   if (m.snrDb < 24) f.push({ id: 'noise', level: 'problem', text: 'There is a lot of background noise compared with your voice. Close windows and doors, switch off fans and screens, or move to a smaller, softer room.' });
   else if (m.snrDb < 30) f.push({ id: 'noise', level: 'warn', text: 'Some background noise is audible. A quieter spot or a closer microphone will give a cleaner take.' });
   if (m.lowShare > 0.58) f.push({ id: 'boomy', level: 'warn', text: 'The sound is heavy in the low end (boomy). Speak across the microphone instead of straight into it, or move a few centimetres back.' });
