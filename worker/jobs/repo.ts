@@ -10,6 +10,8 @@ export interface JobRow {
   script: string;
   notes: string;
   producer: string;
+  /** Who will record it, if the producer said (shown to them, so they are never asked for their name) */
+  talent?: string;
   targetSeconds: number | null;
   createdAt: number;
   referenceAtt: string | null;
@@ -81,6 +83,8 @@ export class SqlRepo implements JobRepo {
   ensure() {
     const q = (s: string) => this.sql.exec(s);
     q('CREATE TABLE IF NOT EXISTS job (id INTEGER PRIMARY KEY CHECK (id = 1), title TEXT, script TEXT, notes TEXT, producer TEXT, target INTEGER, created INTEGER, reference_att TEXT)');
+    // Jobs made before talent names existed lack this column; adding it twice throws, which is fine
+    try { q('ALTER TABLE job ADD COLUMN talent TEXT'); } catch { /* already there */ }
     q('CREATE TABLE IF NOT EXISTS keys (role TEXT PRIMARY KEY, key TEXT, revoked INTEGER)');
     q('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, thread TEXT, role TEXT, name TEXT, text TEXT, att TEXT)');
     q('CREATE TABLE IF NOT EXISTS atts (id TEXT PRIMARY KEY, name TEXT, mime TEXT, bytes INTEGER, ts INTEGER)');
@@ -89,9 +93,9 @@ export class SqlRepo implements JobRepo {
   getJob(): JobRow | null {
     const r = this.sql.exec('SELECT * FROM job WHERE id = 1').toArray()[0];
     if (!r) return null;
-    return { title: String(r.title), script: String(r.script), notes: String(r.notes), producer: String(r.producer), targetSeconds: r.target == null ? null : Number(r.target), createdAt: Number(r.created), referenceAtt: r.reference_att == null ? null : String(r.reference_att) };
+    return { title: String(r.title), script: String(r.script), notes: String(r.notes), producer: String(r.producer), ...(r.talent ? { talent: String(r.talent) } : {}), targetSeconds: r.target == null ? null : Number(r.target), createdAt: Number(r.created), referenceAtt: r.reference_att == null ? null : String(r.reference_att) };
   }
-  putJob(j: JobRow) { this.sql.exec('INSERT OR REPLACE INTO job (id, title, script, notes, producer, target, created, reference_att) VALUES (1, ?, ?, ?, ?, ?, ?, ?)', j.title, j.script, j.notes, j.producer, j.targetSeconds, j.createdAt, j.referenceAtt); }
+  putJob(j: JobRow) { this.sql.exec('INSERT OR REPLACE INTO job (id, title, script, notes, producer, talent, target, created, reference_att) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)', j.title, j.script, j.notes, j.producer, j.talent ?? null, j.targetSeconds, j.createdAt, j.referenceAtt); }
   setReference(attId: string | null) { this.sql.exec('UPDATE job SET reference_att = ? WHERE id = 1', attId); }
   getKeys(): KeyRow[] { return this.sql.exec('SELECT role, key, revoked FROM keys').toArray().map((r) => ({ role: r.role as Role, key: String(r.key), revoked: Number(r.revoked) === 1 })); }
   setKey(role: Role, key: string) { this.sql.exec('INSERT OR REPLACE INTO keys (role, key, revoked) VALUES (?, ?, 0)', role, key); }

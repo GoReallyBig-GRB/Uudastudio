@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Mic, RotateCcw, Send, Share2, Square, Trash2, Minus, Plus } from 'lucide-react';
+import { Download, Mic, RotateCcw, Send, Share2, Square, Trash2, Minus, Plus, ChevronDown } from 'lucide-react';
 import { Button, Input } from '../components/ui';
 import { MicCapture } from './capture';
 import { MODE_TEXT } from './channels';
 import { checkRoom, type RoomReport } from './roomCheck';
-import { Findings, SetupPanel, int16ToFloat, type SetupInfo } from './SetupPanel';
+import { Findings, MicSheet, int16ToFloat, type SetupInfo } from './SetupPanel';
+import { useMics } from './useMics';
 import { checkRecording } from './env';
 import { countWords, estimateSeconds, formatClock, jobFromHash, parseScript, type GuestJob } from './job';
 import { beginSession, deleteSession, findSaved, finishSession, loadSession, saveChunk, type SavedSession } from './takeStore';
@@ -33,6 +34,7 @@ interface Take {
 const NAME_KEY = 'uuda-guest-name';
 const SIZE_KEY = 'uuda-guest-text-size';
 const MIC_KEY = 'uuda-guest-mic';
+const SEEN_KEY = 'uuda-guest-mic-seen';
 const SIZES = [16, 18, 20, 24, 28, 34];
 /** Seconds of quiet at the start of a real take; the room noise heard here is what the producer's cleaner learns from */
 const LEAD_IN = 3;
@@ -65,6 +67,7 @@ const Script: React.FC<{ job: GuestJob; size: number }> = ({ job, size }) => {
 
 /** What the page shows about the job, wherever it came from (the link itself, or the server) */
 interface View {
+  talent: string;
   title: string;
   script: string;
   notes: string;
@@ -100,8 +103,8 @@ export const GuestPage: React.FC = () => {
   usePolling(loadThread, 6000, !!remote);
 
   const view: View | null = remote
-    ? thread ? { title: thread.job.title, script: thread.job.script, notes: thread.job.notes, producer: thread.job.producer, targetSeconds: thread.job.targetSeconds ?? undefined, referenceId: thread.job.reference?.id } : null
-    : offlineJob ? { title: offlineJob.title, script: offlineJob.script, notes: '', producer: offlineJob.producer ?? '', targetSeconds: offlineJob.targetSeconds } : null;
+    ? thread ? { title: thread.job.title, script: thread.job.script, notes: thread.job.notes, producer: thread.job.producer, talent: thread.job.talent ?? '', targetSeconds: thread.job.targetSeconds ?? undefined, referenceId: thread.job.reference?.id } : null
+    : offlineJob ? { title: offlineJob.title, script: offlineJob.script, notes: '', producer: offlineJob.producer ?? '', talent: offlineJob.talent ?? '', targetSeconds: offlineJob.targetSeconds } : null;
 
   const [name, setName] = useState(() => readStore(NAME_KEY));
   const [sizeIdx, setSizeIdx] = useState(() => { const i = Number(readStore(SIZE_KEY)); return Number.isInteger(i) && i >= 0 && i < SIZES.length ? i : 2; });
@@ -120,10 +123,16 @@ export const GuestPage: React.FC = () => {
   const [sendNote, setSendNote] = useState('');
   const [tab, setTab] = useState<'script' | 'messages'>('script');
   const [autoScroll, setAutoScroll] = useState(false);
-  const [scrollSpeed, setScrollSpeed] = useState(1);
+  const [scrollSpeed, setScrollSpeed] = useState(0.75);
   const readerRef = useRef<HTMLDivElement | null>(null);
   const [micId, setMicId] = useState(() => readStore(MIC_KEY));
-  const [setupOpen, setSetupOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [micLevel, setMicLevel] = useState<'' | 'ok' | 'warn' | 'problem'>('');
+  const { mics, fresh, clearFresh, refresh } = useMics();
+  const heldRef = useRef(false);
+  const [held, setHeld] = useState(false);
+  const [seen, setSeen] = useState(0);
+  const who = () => (view?.talent || name).trim();
   const infoRef = useRef<SetupInfo | null>(null);
   const capRef = useRef<MicCapture | null>(null);
   const chunksRef = useRef<Int16Array[]>([]);
@@ -177,11 +186,10 @@ export const GuestPage: React.FC = () => {
 
   const start = async (practice: boolean) => {
     setError(''); setNotice('');
-    if (!practice && !name.trim()) { setError('Type your name first, so the producer knows whose take this is.'); return; }
+    setTab('script');
     // Recording over an unsent take deletes it, so ask first
     if (take && !take.practice && !confirmReplace) { setConfirmReplace(true); return; }
     setConfirmReplace(false);
-    if (!practice) writeStore(NAME_KEY, name.trim());
     const c = new MicCapture();
     chunksRef.current = []; samplesRef.current = 0; setElapsed(0);
     practiceRef.current = practice;
@@ -226,7 +234,8 @@ export const GuestPage: React.FC = () => {
     const tick = (now: number) => {
       const dt = (now - last) / 1000; last = now;
       if (Math.abs(el.scrollTop - pos) > 3) pos = el.scrollTop; // the talent scrolled by hand
-      if (samplesRef.current / (capRef.current?.sampleRate || 48000) >= LEAD_IN) {
+      if (heldRef.current) { pos = el.scrollTop; }
+      else if (samplesRef.current / (capRef.current?.sampleRate || 48000) >= LEAD_IN) {
         const room = el.scrollHeight - el.clientHeight;
         const seconds = Math.max(20, targetRef.current || 60);
         pos = Math.min(room, pos + (room / seconds) * scrollSpeed * dt);
@@ -236,11 +245,21 @@ export const GuestPage: React.FC = () => {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [phase, autoScroll, scrollSpeed]);
+  }, [phase, autoScroll, scrollSpeed, tab]);
+
+  // A finger (or mouse button) held on the script pauses auto-scroll; letting go lets it carry on
+  const hold = (on: boolean) => { heldRef.current = on; setHeld(on); };
+
+  // Open the microphone sheet the first time on this device, and whenever a new microphone is plugged in
+  useEffect(() => { if (view && cap.ok && !readStore(SEEN_KEY)) { writeStore(SEEN_KEY, '1'); setSheetOpen(true); } }, [!!view]);
+  useEffect(() => { if (fresh && phase === 'ready') setSheetOpen(true); }, [fresh, phase]);
+  // A chosen microphone that has been unplugged falls back to the default
+  useEffect(() => { if (micId && mics.some((m) => m.id) && !mics.some((m) => m.id === micId)) { setMicId(''); writeStore(MIC_KEY, ''); } }, [mics, micId]);
+  useEffect(() => { if (tab === 'messages') setSeen(messages.length); }, [tab, messages.length]);
 
   // Space starts and stops a take on a keyboard. Stopping keeps the two-press guard.
   const spaceRef = useRef<() => void>(() => undefined);
-  spaceRef.current = () => { if (phase === 'recording') stopPressed(); else if (cap.ok && sending === null && !take) void start(false); };
+  spaceRef.current = () => { if (phase === 'recording') stopPressed(); else if (cap.ok && sending === null && !take && tab === 'script' && !sheetOpen) void start(false); };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== 'Space' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -262,22 +281,22 @@ export const GuestPage: React.FC = () => {
   };
   const forget = async () => { if (saved) await deleteSession(saved.id); setSaved(null); };
 
-  const fileFor = (t: Take) => takeFileName(view?.title ?? '', name, t.n);
+  const fileFor = (t: Take) => takeFileName(view?.title ?? '', who(), t.n);
   const download = (t: Take) => { const a = document.createElement('a'); a.href = t.url; a.download = fileFor(t); document.body.appendChild(a); a.click(); a.remove(); };
   const share = async (t: Take) => {
     const file = new File([t.blob], fileFor(t), { type: 'audio/wav' });
-    try { await navigator.share({ files: [file], title: view?.title ?? 'Recording', text: `Recording from ${name.trim() || 'the talent'}` }); } catch { /* cancelled */ }
+    try { await navigator.share({ files: [file], title: view?.title ?? 'Recording', text: `Recording from ${who() || 'the talent'}` }); } catch { /* cancelled */ }
   };
   const canShare = (t: Take) => { try { return typeof navigator.canShare === 'function' && navigator.canShare({ files: [new File([t.blob], fileFor(t), { type: 'audio/wav' })] }); } catch { return false; } };
 
   /** Sends the take into the thread. The take is only removed from the device after the server says it has it. */
   const send = async () => {
     if (!remote || !take || take.practice) return;
-    if (!name.trim()) { setError('Type your name first, so the producer knows whose take this is.'); return; }
-    writeStore(NAME_KEY, name.trim());
+    if (!who()) { setError('Type your name above the Send button, so the producer knows whose take this is.'); return; }
+    if (!view?.talent) writeStore(NAME_KEY, name.trim());
     setError(''); setSending(0);
     try {
-      await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: name.trim(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n') }, (f) => setSending(f));
+      await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: who(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n') }, (f) => setSending(f));
       await dropTake();
       setSendNote(''); setSentCount((n) => n + 1); setNotice('Sent. The producer can hear it now. You can reply below or record another take.');
       await loadThread();
@@ -313,24 +332,68 @@ export const GuestPage: React.FC = () => {
   const words = countWords(view.script);
   const busySending = sending !== null;
 
+  const micName = micId ? (mics.find((m) => m.id === micId)?.label ?? 'Chosen microphone') : 'Default microphone';
+  const recording = phase === 'recording';
+  const unread = Math.max(0, messages.length - seen);
+  const tabs = remote ? (['script', 'messages'] as const) : (['script'] as const);
+  const ring = micLevel === 'problem' ? 'bg-danger' : micLevel === 'warn' ? 'bg-warn' : micLevel === 'ok' ? 'bg-ok' : 'bg-ink-faint';
+
   return (
-    <main className="flex h-dvh flex-col overflow-hidden bg-surface-0 text-ink lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_minmax(0,1fr)]" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <header className="shrink-0 border-b border-line px-4 py-2.5 lg:col-span-2 lg:pb-3 lg:pt-4">
-        <div className="hidden text-[11px] font-semibold uppercase tracking-wider text-accent lg:block">Voice recording</div>
-        <h1 className="truncate text-lg font-semibold leading-tight lg:text-xl">{view.title}</h1>
-        {view.producer && <div className="truncate text-xs text-ink-dim lg:text-sm">Voice recording · from {view.producer}</div>}
+    <main className="flex h-dvh flex-col overflow-hidden bg-surface-0 text-ink" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <header className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-2 lg:py-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-base font-semibold leading-tight lg:text-xl">{view.title}</h1>
+          <div className="truncate text-xs text-ink-dim">Voice recording{view.producer ? ` · from ${view.producer}` : ''}{view.talent ? ` · for ${view.talent}` : ''}</div>
+        </div>
+        <button type="button" disabled={recording} onClick={() => setSheetOpen(true)} aria-label={`Microphone: ${micName}. Change or test`} className="flex h-11 max-w-[46%] shrink-0 items-center gap-2 rounded-full border border-line-strong bg-surface-2 pl-3 pr-2 text-sm text-ink hover:bg-surface-3 disabled:opacity-50 lg:max-w-xs">
+          <span className={`h-2 w-2 shrink-0 rounded-full ${ring}`} aria-hidden />
+          <Mic className="h-4 w-4 shrink-0 text-ink-dim" aria-hidden />
+          <span className="min-w-0 truncate">{micName}</span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-ink-dim" aria-hidden />
+        </button>
       </header>
-      {remote && (
-        <div role="tablist" aria-label="Page sections" className="grid shrink-0 grid-cols-2 border-b border-line bg-surface-1 lg:hidden">
-          {(['script', 'messages'] as const).map((t) => (
-            <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`h-11 text-sm font-semibold ${tab === t ? 'border-b-2 border-accent text-ink' : 'text-ink-dim'}`}>
-              {t === 'script' ? 'Script' : `Messages${messages.length ? ` (${messages.length})` : ''}`}
+      {tabs.length > 1 && (
+        <div role="tablist" aria-label="Page sections" className="grid shrink-0 grid-cols-2 border-b border-line bg-surface-1">
+          {tabs.map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={tab === t} disabled={recording && t === 'messages'} onClick={() => setTab(t)} className={`relative h-11 text-sm font-semibold disabled:opacity-40 ${tab === t ? 'border-b-2 border-accent text-ink' : 'text-ink-dim'}`}>
+              {t === 'script' ? 'Script' : 'Messages'}
+              {t === 'messages' && unread > 0 && tab !== 'messages' && <span className="ml-1.5 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-accent-ink">{unread}</span>}
             </button>
           ))}
         </div>
       )}
+      <MicSheet
+        open={sheetOpen}
+        onClose={() => { setSheetOpen(false); clearFresh(); }}
+        mics={mics}
+        micId={micId}
+        onMicId={(id) => { setMicId(id); writeStore(MIC_KEY, id); setMicLevel(''); }}
+        fresh={fresh}
+        onAllow={async () => { try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach((t) => t.stop()); } catch { /* shown by the test */ } await refresh(); }}
+        disabled={!cap.ok || busySending}
+        onResult={(i, r) => { infoRef.current = i; setMicLevel(r.overall); }}
+      />
 
-      <div ref={readerRef} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain lg:col-start-1 lg:row-start-2">
+      {tab === 'messages' && remote ? (
+        <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 py-3">
+          <ThreadView
+            fill
+            messages={messages}
+            self="talent"
+            audioSrc={(a) => audioUrl(remote.jobId, a.id, remote.key)}
+            onSend={async (text) => { await postMessage(remote.jobId, remote.key, who() || 'Talent', text); await loadThread(); }}
+            placeholder="Write to the producer"
+          />
+        </div>
+      ) : (
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      <div
+        ref={readerRef}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
+        onTouchStart={() => hold(true)} onTouchEnd={() => hold(false)} onTouchCancel={() => hold(false)}
+        onMouseDown={() => hold(true)} onMouseUp={() => hold(false)} onMouseLeave={() => hold(false)}
+      >
       {!cap.ok && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{cap.problem}</div>}
 
       {saved && !take && phase === 'ready' && (
@@ -341,7 +404,7 @@ export const GuestPage: React.FC = () => {
         </div>
       )}
 
-      <section className={`px-4 py-4 ${remote && tab !== 'script' ? 'hidden lg:block' : ''}`} aria-label="Script">
+      <section className="px-4 py-4 lg:mx-auto lg:w-full lg:max-w-3xl" aria-label="Script">
         {remote && thread?.job.reference && (
           <div className="mb-4 rounded-card border border-line bg-surface-2 p-3">
             <div className="mb-1.5 text-xs font-medium text-ink-dim">Reference: listen to how it should sound</div>
@@ -359,7 +422,7 @@ export const GuestPage: React.FC = () => {
           <div className="flex items-center gap-1" role="group" aria-label="Reading aids">
             <button type="button" aria-pressed={autoScroll} onClick={() => setAutoScroll((a) => !a)} className={`h-11 rounded-full border px-3 text-xs font-semibold ${autoScroll ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-surface-1 text-ink'}`}>Auto-scroll</button>
             {autoScroll && (<>
-              <button type="button" aria-label="Scroll slower" disabled={scrollSpeed <= 0.5} onClick={() => setScrollSpeed((v) => Math.max(0.5, v - 0.25))} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface-1 text-ink disabled:opacity-40"><Minus className="h-4 w-4" /></button>
+              <button type="button" aria-label="Scroll slower" disabled={scrollSpeed <= 0.25} onClick={() => setScrollSpeed((v) => Math.max(0.25, v - 0.25))} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface-1 text-ink disabled:opacity-40"><Minus className="h-4 w-4" /></button>
               <span className="w-9 text-center font-num text-[11px] text-ink">{scrollSpeed}x</span>
               <button type="button" aria-label="Scroll faster" disabled={scrollSpeed >= 2} onClick={() => setScrollSpeed((v) => Math.min(2, v + 0.25))} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface-1 text-ink disabled:opacity-40"><Plus className="h-4 w-4" /></button>
             </>)}
@@ -372,22 +435,12 @@ export const GuestPage: React.FC = () => {
         <Script job={{ v: 1, title: view.title, script: view.script }} size={SIZES[sizeIdx]} />
       </section>
 
-      {remote && (
-        <section className={`flex-1 px-4 py-4 lg:border-t lg:border-line ${tab !== 'messages' ? 'hidden lg:block' : ''}`} aria-label="Messages with the producer">
-          <h2 className="mb-2 text-sm font-semibold">Messages</h2>
-          <ThreadView
-            messages={messages}
-            self="talent"
-            audioSrc={(a) => audioUrl(remote.jobId, a.id, remote.key)}
-            onSend={async (text) => { await postMessage(remote.jobId, remote.key, name.trim() || 'Talent', text); await loadThread(); }}
-            placeholder="Write to the producer"
-          />
-        </section>
-      )}
-      {!remote && <div className="flex-1" />}
+      <div className="h-24 shrink-0" aria-hidden />
+      </div>
+      {recording && autoScroll && held && <div role="status" className="pointer-events-none absolute inset-x-0 top-2 mx-auto w-fit rounded-full bg-surface-1/95 px-3 py-1 text-xs font-semibold text-ink shadow">Paused while you hold the screen</div>}
       </div>
 
-      <section className="max-h-[58dvh] shrink-0 overflow-y-auto border-t border-line-strong bg-surface-1 px-4 py-3 lg:col-start-2 lg:row-start-2 lg:max-h-none lg:border-l lg:border-t-0" aria-label="Recording controls">
+      <section className="max-h-[58dvh] shrink-0 overflow-y-auto border-t border-line-strong bg-surface-1 px-4 py-3 lg:max-h-none lg:w-[400px] lg:border-l lg:border-t-0" aria-label="Recording controls">
         {error && <div role="alert" className="mb-3 rounded-card border border-danger/40 bg-danger/10 p-3 text-sm text-ink">{error}</div>}
         {notice && <div role="status" className="mb-3 rounded-card border border-line-strong bg-surface-2 p-3 text-sm text-ink">{notice}</div>}
 
@@ -413,11 +466,6 @@ export const GuestPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            <div>
-              <button type="button" aria-expanded={setupOpen} onClick={() => setSetupOpen((o) => !o)} className="mb-2 text-xs font-medium text-accent hover:underline">{setupOpen ? 'Hide microphone setup' : 'Microphone and room check'}</button>
-              {setupOpen && <SetupPanel micId={micId} onMicId={(id) => { setMicId(id); writeStore(MIC_KEY, id); }} disabled={!cap.ok || busySending} onInfo={(i) => { infoRef.current = i; }} />}
-            </div>
-            <Input label="Your name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="So the producer knows whose take this is" />
             {take && (
               <div className="rounded-card border border-line bg-surface-2 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2 text-xs text-ink-dim">
@@ -426,6 +474,9 @@ export const GuestPage: React.FC = () => {
                 </div>
                 {take.report && take.report.overall !== 'ok' && !sentCount && (
                   <div className="mb-3 rounded-card border border-line bg-surface-1 p-2"><div className="mb-1.5 text-xs font-semibold text-ink-dim">Before you send</div><Findings report={take.report} /></div>
+                )}
+                {!take.practice && !view.talent && (
+                  <Input label="Your name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="So the producer knows whose take this is" className="mb-3" />
                 )}
                 <audio key={take.url} src={take.url} controls className="mb-3 w-full" aria-label={take.practice ? 'Play rehearsal' : 'Play your take'} />
                 {take.practice ? (
@@ -463,6 +514,8 @@ export const GuestPage: React.FC = () => {
           </div>
         )}
       </section>
+      </div>
+      )}
     </main>
   );
 };

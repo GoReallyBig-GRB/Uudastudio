@@ -12,6 +12,7 @@ interface Props {
 /** Producer side: write the script and notes, get one link to send to the voice talent. Nothing is uploaded; the job is inside the link. */
 export const InviteGuestModal: React.FC<Props> = ({ open, onClose, defaultTitle }) => {
   const [title, setTitle] = useState('');
+  const [talent, setTalent] = useState('');
   const [producer, setProducer] = useState(() => { try { return localStorage.getItem('uuda-producer-name') ?? ''; } catch { return ''; } });
   const [script, setScript] = useState('');
   const [targetText, setTargetText] = useState('');
@@ -20,8 +21,8 @@ export const InviteGuestModal: React.FC<Props> = ({ open, onClose, defaultTitle 
   const targetMin = Number(targetText);
   const targetSeconds = targetText.trim() && Number.isFinite(targetMin) && targetMin > 0 ? targetMin * 60 : undefined;
   const link = useMemo(
-    () => jobLink({ v: 1, title: title.trim() || defaultTitle || 'Voice recording', script, targetSeconds, producer: producer.trim() || undefined }, window.location.origin + window.location.pathname),
-    [title, defaultTitle, script, targetSeconds, producer],
+    () => jobLink({ v: 1, title: title.trim() || defaultTitle || 'Voice recording', script, targetSeconds, producer: producer.trim() || undefined, talent: talent.trim() || undefined }, window.location.origin + window.location.pathname),
+    [title, defaultTitle, script, targetSeconds, producer, talent],
   );
   const words = countWords(script);
   const tooLong = link.length > LINK_WARN_LENGTH;
@@ -49,6 +50,7 @@ export const InviteGuestModal: React.FC<Props> = ({ open, onClose, defaultTitle 
         <div className="grid gap-3 sm:grid-cols-2">
           <Input label="Job name" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={defaultTitle || 'Voice recording'} />
           <Input label="Your name (shown to the talent)" value={producer} onChange={(e) => setProducer(e.target.value)} />
+          <Input label="Talent name (optional)" value={talent} onChange={(e) => setTalent(e.target.value)} />
         </div>
         <div>
           <label htmlFor="guest-script" className="mb-1.5 block text-xs font-medium text-ink-dim">Script</label>

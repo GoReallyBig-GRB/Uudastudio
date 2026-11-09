@@ -38,6 +38,7 @@ export const JobRows: React.FC<{ jobs: StoredJob[]; summaries: Record<string, Jo
 export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCreated: (j: Omit<StoredJob, 'lastRead'>) => void }> = ({ needsCode, onCancel, onCreated }) => {
   const [title, setTitle] = useState('');
   const [producer, setProducer] = useState(() => lsGet('uuda-producer-name'));
+  const [talent, setTalent] = useState('');
   const [script, setScript] = useState('');
   const [notes, setNotes] = useState('');
   const [minutes, setMinutes] = useState('');
@@ -54,7 +55,7 @@ export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCre
     let made: Awaited<ReturnType<typeof createJob>> | null = null;
     try {
       setBusy('Creating the job...');
-      made = await createJob({ title: title.trim(), producer: producer.trim(), script, notes, targetSeconds: minutes.trim() && m > 0 ? m * 60 : undefined }, needsCode ? code.trim() : undefined);
+      made = await createJob({ title: title.trim(), producer: producer.trim(), talent: talent.trim(), script, notes, targetSeconds: minutes.trim() && m > 0 ? m * 60 : undefined }, needsCode ? code.trim() : undefined);
       lsSet('uuda-producer-name', producer.trim());
       if (needsCode) lsSet(CODE_KEY, code.trim());
       if (reference) {
@@ -81,6 +82,7 @@ export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCre
       <div className="grid gap-3 sm:grid-cols-2">
         <Input label="Job name" value={title} onChange={(e) => setTitle(e.target.value)} />
         <Input label="Your name (shown to the talent)" value={producer} onChange={(e) => setProducer(e.target.value)} />
+        <Input label="Talent name (optional)" value={talent} onChange={(e) => setTalent(e.target.value)} hint="Their takes are labelled with it and they are never asked for a name." />
       </div>
       <div>
         <label htmlFor="job-script" className="mb-1.5 block text-xs font-medium text-ink-dim">Script</label>
