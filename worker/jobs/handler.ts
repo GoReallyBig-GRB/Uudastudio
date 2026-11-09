@@ -9,6 +9,7 @@ export const LIMITS = {
   script: 20000,
   notes: 6000,
   producer: 60,
+  talent: 60,
   name: 60,
   text: 4000,
   /** One audio file */
@@ -76,7 +77,7 @@ const roleOf = (req: Request, repo: JobRepo): Role | null => {
 const publicJob = (j: JobRow, repo: JobRepo) => {
   const ref = j.referenceAtt ? repo.getAtt(j.referenceAtt) : null;
   return {
-    title: j.title, script: j.script, notes: j.notes, producer: j.producer, targetSeconds: j.targetSeconds, createdAt: j.createdAt,
+    title: j.title, script: j.script, notes: j.notes, producer: j.producer, talent: j.talent ?? '', targetSeconds: j.targetSeconds, createdAt: j.createdAt,
     reference: ref ? { id: ref.id, name: ref.name, mime: ref.mime, bytes: ref.bytes } : null,
   };
 };
@@ -172,7 +173,7 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     const target = Number(b.targetSeconds);
     repo.putJob({
       title: clip(b.title, LIMITS.title).trim() || 'Voice recording', script: clip(b.script, LIMITS.script), notes: clip(b.notes, LIMITS.notes),
-      producer: clip(b.producer, LIMITS.producer).trim(), targetSeconds: Number.isFinite(target) && target > 0 ? Math.min(Math.round(target), 6 * 3600) : null,
+      producer: clip(b.producer, LIMITS.producer).trim(), talent: clip(b.talent, LIMITS.talent).trim(), targetSeconds: Number.isFinite(target) && target > 0 ? Math.min(Math.round(target), 6 * 3600) : null,
       createdAt: now(), referenceAtt: null,
     });
     const producerKey = env.newKey(), talentKey = env.newKey();

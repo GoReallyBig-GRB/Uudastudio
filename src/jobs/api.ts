@@ -2,9 +2,9 @@
 
 export interface Attachment { id: string; name: string; mime: string; bytes: number }
 export interface ThreadMessage { id: number; ts: number; role: 'producer' | 'talent'; name: string; text: string; attachment: Attachment | null }
-export interface JobInfo { title: string; script: string; notes: string; producer: string; targetSeconds: number | null; createdAt: number; reference: Attachment | null }
+export interface JobInfo { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds: number | null; createdAt: number; reference: Attachment | null }
 export interface ThreadResponse { role: 'producer' | 'talent'; job: JobInfo; messages: ThreadMessage[]; lastId: number; keys?: { talent?: string } }
-export interface NewJob { title: string; script: string; notes: string; producer: string; targetSeconds?: number }
+export interface NewJob { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds?: number }
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }

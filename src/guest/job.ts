@@ -14,6 +14,8 @@ export interface GuestJob {
   targetSeconds?: number;
   /** Who is asking, shown to the talent */
   producer?: string;
+  /** Who will record it, so the page never asks for a name */
+  talent?: string;
 }
 
 export const MAX_TITLE = 80;
@@ -75,6 +77,7 @@ export const cleanJob = (job: Partial<GuestJob>): GuestJob => {
     script: (job.script ?? '').slice(0, MAX_SCRIPT),
     ...(target ? { targetSeconds: target } : {}),
     ...(producer ? { producer } : {}),
+    ...((job.talent ?? '').trim() ? { talent: (job.talent ?? '').trim().slice(0, MAX_PRODUCER) } : {}),
   };
 };
 
