@@ -5,10 +5,13 @@
  */
 
 import React from 'react';
-import { Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Plug, Settings } from 'lucide-react';
+import { Briefcase, Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Plug, Settings } from 'lucide-react';
 import { TrackListPanel } from './TrackListPanel';
 import { VoicePanel } from './VoicePanel';
 import { SoundLibraryPanel } from './SoundLibraryPanel';
+import { JobsPanel } from '../jobs/JobsPanel';
+import type { JobsState } from '../jobs/useJobs';
+import type { JobsTarget } from '../jobs/JobsModal';
 import { Track, Asset, VoiceMetadata, UserRecord } from '../types';
 
 // Rail buttons: neutral, with cyan only on the open tab.
@@ -16,7 +19,7 @@ const RAIL_LAYOUT = 'flex h-9 w-9 shrink-0 cursor-pointer items-center justify-c
 const RAIL_IDLE = 'border-transparent text-ink-faint hover:bg-white/5 hover:text-ink';
 const RAIL_ON = 'border-accent/40 bg-accent-soft text-accent';
 
-export type SidebarTab = 'tracks' | 'voice' | 'library';
+export type SidebarTab = 'tracks' | 'voice' | 'library' | 'jobs';
 
 interface LeftSidebarProps {
   activeTab: SidebarTab;
@@ -50,6 +53,9 @@ interface LeftSidebarProps {
   existingVoiceMetadata?: VoiceMetadata | null;
   // SoundLibraryPanel props
   onAddLibraryTrack: (asset: Asset) => void;
+  // Jobs panel (voice-talent jobs)
+  jobsState?: JobsState;
+  onOpenJobsWindow?: (target: JobsTarget) => void;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -78,6 +84,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onAddVoiceTrack,
   existingVoiceMetadata,
   onAddLibraryTrack,
+  jobsState,
+  onOpenJobsWindow,
 }) => {
   const handleTabClick = (tab: SidebarTab) => {
     window.dispatchEvent(new CustomEvent('xpro:close-popups'));
@@ -121,6 +129,19 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           >
             <Music className="w-4 h-4" />
           </button>
+
+          {jobsState && onOpenJobsWindow && (
+            <button
+              type="button"
+              onClick={() => handleTabClick('jobs')}
+              title={(jobsState?.unread ?? 0) > 0 ? `Jobs: voice-talent scripts and takes (${jobsState?.unread} unread)` : 'Jobs: send scripts to voice talent and receive takes'}
+              aria-label={(jobsState?.unread ?? 0) > 0 ? `Jobs, ${jobsState?.unread} unread` : 'Jobs'}
+              className={`relative ${RAIL_LAYOUT} ${activeTab === 'jobs' && !isCollapsed ? RAIL_ON : RAIL_IDLE}`}
+            >
+              <Briefcase className="w-4 h-4" />
+              {(jobsState?.unread ?? 0) > 0 && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-surface-0 bg-accent" />}
+            </button>
+          )}
 
           {/* Modular Audio Plugins Rack button */}
           {onOpenPlugins && (
@@ -231,6 +252,10 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               existingMetadata={existingVoiceMetadata}
               onClose={onToggleCollapse}
             />
+          )}
+
+          {activeTab === 'jobs' && jobsState && onOpenJobsWindow && (
+            <JobsPanel jobs={jobsState} onClose={onToggleCollapse} onOpenWindow={onOpenJobsWindow} />
           )}
 
           {activeTab === 'library' && (

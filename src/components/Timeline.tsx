@@ -36,6 +36,9 @@ import { chainIds, healSeams, seamFlags, selectionUnitCount } from './spliceChai
 import { planDragMove, selectionForPointerDown } from './clipDragPlan';
 
 interface TimelineProps {
+  /** Join mode: the order in which clips were picked (clip id -> 1, 2, 3...). While onJoinPick is set, clicking a clip picks it instead of selecting or dragging. */
+  joinBadges?: Map<string, number>;
+  onJoinPick?: (clipId: string) => void;
   project: Project;
   pixelsPerSecond: number;
   onViewportWidthChange?: (width: number) => void;
@@ -305,6 +308,8 @@ const PlayheadOverlay: React.FC<{
 };
 
 export const Timeline: React.FC<TimelineProps> = ({
+  joinBadges,
+  onJoinPick,
   project,
   pixelsPerSecond,
   onViewportWidthChange,
@@ -1089,6 +1094,14 @@ export const Timeline: React.FC<TimelineProps> = ({
     if (e.button === 2) return; // ignore right click for drag (let context menu handle)
     hideTitleTip();
 
+    // Join mode: a click picks (or un-picks) the clip under the pointer; nothing is selected, moved or trimmed
+    if (onJoinPick) {
+      const x = (e.clientX - e.currentTarget.getBoundingClientRect().left) / pixelsPerSecond;
+      const hit = track.clips.find((c) => x >= c.startSeconds && x <= c.startSeconds + c.durationSeconds);
+      if (hit) onJoinPick(hit.id);
+      return;
+    }
+
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
@@ -1701,6 +1714,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 onLanePointerLeave={hideTitleTip}
                 onLaneDoubleClick={handleLaneDoubleClick}
                 onLaneContextMenu={handleLaneContextMenu}
+                joinBadges={joinBadges}
               />
               );
             })}
@@ -1866,6 +1880,7 @@ interface TrackRowContainerProps {
   onLanePointerLeave: () => void;
   onLaneDoubleClick: (e: React.MouseEvent<HTMLDivElement>, track: Track) => void;
   onLaneContextMenu: (e: React.MouseEvent<HTMLDivElement>, track: Track) => void;
+  joinBadges?: Map<string, number>;
   rowHeight: number;
 }
 
@@ -1893,6 +1908,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
   onLanePointerLeave,
   onLaneDoubleClick,
   onLaneContextMenu,
+  joinBadges,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -1950,6 +1966,16 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
           }}
           className="block pointer-events-none"
         />
+        {joinBadges && track.clips.filter((c) => joinBadges.has(c.id)).map((c) => (
+          <span
+            key={`join-${c.id}`}
+            aria-label={`Join order ${joinBadges.get(c.id)}`}
+            className="pointer-events-none absolute z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[11px] font-bold text-surface-0 shadow-float"
+            style={{ left: `${c.startSeconds * pixelsPerSecond + 6}px`, top: 6 }}
+          >
+            {joinBadges.get(c.id)}
+          </span>
+        ))}
         {rangeHighlight && (
           <div
             aria-hidden="true"

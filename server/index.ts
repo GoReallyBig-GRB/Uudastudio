@@ -4,6 +4,7 @@
  * Handles Vite middleware mounting in development mode and static serving in production.
  */
 
+import { jobsRouter } from './jobsRoutes';
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
@@ -102,6 +103,8 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
 });
 
 // Saved project documents can be large; everything else is small JSON
+// Voice-talent jobs read their own request bodies (audio streams), so they come before the JSON parser.
+app.use(jobsRouter);
 app.use('/api/projects', express.json({ limit: '15mb' }));
 app.use(express.json({ limit: '2mb' }));
 app.use(requireSameOrigin);

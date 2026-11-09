@@ -2,6 +2,8 @@ import {lazy, Suspense, useEffect, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { isJoinHash } from './guest/job';
+import { isTalentHash } from './jobs/links';
 import './index.css';
 
 // Dev-only design-system preview, loaded lazily so the normal app never fetches it. Open it with:
@@ -10,6 +12,10 @@ import './index.css';
 const Gallery = lazy(() => import('./components/ui/Gallery'));
 const galleryOnly =
   new URLSearchParams(window.location.search).has('uigallery') || window.location.hash === '#uigallery';
+
+// A voice talent's recording link (#/join/...) opens only the small recording page: no editor code, no sign-in.
+const GuestPage = lazy(() => import('./guest/GuestPage'));
+const guestOnly = isJoinHash(window.location.hash) || isTalentHash(window.location.hash);
 
 const Root = () => {
   const [overlayOpen, setOverlayOpen] = useState(false);
@@ -26,6 +32,14 @@ const Root = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  if (guestOnly) {
+    return (
+      <Suspense fallback={null}>
+        <GuestPage />
+      </Suspense>
+    );
+  }
 
   if (galleryOnly) {
     return (

@@ -110,6 +110,8 @@ interface HeaderProps {
   /** Send the playhead to the end of the audio */
   onGoToEnd?: () => void;
   onNewProject?: () => void;
+  /** File > Invite Voice Talent: opens the guest recording invite */
+  onInviteGuest?: () => void;
   onSaveAndNewProject?: () => void;
   onOpenNewProjectInTab?: () => void;
   onOpenProjectFromFile?: (file: File) => void;
@@ -182,6 +184,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSkip,
   onGoToEnd,
   onNewProject,
+  onInviteGuest,
   onSaveAndNewProject,
   onOpenNewProjectInTab,
   onOpenProjectFromFile,
@@ -349,6 +352,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {/* Bring audio in */}
               <FileMenuItem icon={<UploadCloud className="w-4 h-4" />} label="Import Audio Files..." onClick={() => fileInputRef.current?.click()} />
+              {onInviteGuest && <FileMenuItem icon={<Mic className="w-4 h-4" />} label="Quick Invite (link only)..." title="A script link that needs no server. The talent records and sends you a WAV file by email or WhatsApp. For messages and automatic delivery use Jobs in the sidebar" onClick={onInviteGuest} />}
 
               <div className="h-px bg-line my-1" />
 
