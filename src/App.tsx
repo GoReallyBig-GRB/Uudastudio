@@ -25,6 +25,7 @@ import { audioEngine } from './audio/engine';
 import { playbackSignature } from './audio/playbackSignature';
 import { joinInOrder, previewWindow, cropTrackWindow } from './components/joinInOrder';
 import { JoinBar } from './components/JoinBar';
+import { InviteGuestModal } from './guest/InviteGuestModal';
 import { insertSilenceInTracks, shiftMarkersForInsert, silenceAssetId, SILENCE_ASSET_SECONDS, type SilenceScope } from './components/insertSilence';
 import { toggleMarkerAt, neighbourMarker, followClips, markerLabel } from './audio/markers';
 import { importStreamedFile, shouldStreamImport } from './assets/streamImport';
@@ -2814,7 +2815,16 @@ const MainStudio: React.FC = () => {
     addToast({ type: 'success', title: 'Silence inserted', message: `${lengthSeconds.toFixed(2)} s at ${formatTimecode(at)}${scope === 'all' ? ' on all tracks' : ''}. Undo removes it.` });
   };
 
+  // A take received through a voice-talent job: brought in like any imported audio file
+  const handleImportJobFile = async (file: File) => {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    await handleImportFiles(dt.files);
+  };
+
   // ---- Join clips in the order picked (Join button): numbered badges, preview, then join ----
+  const [isInviteGuestOpen, setIsInviteGuestOpen] = useState(false);
+  const [jobsUnread, setJobsUnread] = useState(0);
   const [joinOrder, setJoinOrder] = useState<string[] | null>(null);
   const [joinSeam, setJoinSeam] = useState(0);
   const [joinPreviewing, setJoinPreviewing] = useState(false);
@@ -3978,6 +3988,7 @@ const MainStudio: React.FC = () => {
         onSaveProjectAs={() => { void handleSaveProjectToFile(true); }}
         onChooseProjectRoot={() => void handleChooseProjectRoot()}
         onOpenProjectFromRoot={() => void handleOpenProjectFromRoot()}
+        onInviteGuest={() => setIsInviteGuestOpen(true)}
         projectRootDirectoryName={projectRootDirectoryName}
         onOpenProjectFromFile={handleOpenProjectFromFile}
         onOpenRecord={() => setIsRecordModalOpen(true)}
@@ -4111,6 +4122,9 @@ const MainStudio: React.FC = () => {
           selectedClipIds={selectedClipIds}
           onAddVoiceTrack={handleAddVoiceTrack}
           onAddLibraryTrack={handleAddLibraryTrack}
+          onImportJobFile={handleImportJobFile}
+          jobsUnread={jobsUnread}
+          onJobsUnread={setJobsUnread}
           groupsFooter={
             <GroupListPanel
               groups={groups}
@@ -4325,6 +4339,7 @@ const MainStudio: React.FC = () => {
         <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => { setIsExportOpen(false); setTempClipLevels({}); }} selectedClipIds={exportClipIds} startWithSelection={exportSelectionFirst} tempClipLevels={tempClipLevels} onResetTempLevels={handleResetTempLevels} />
       )}
 
+      <InviteGuestModal open={isInviteGuestOpen} onClose={() => setIsInviteGuestOpen(false)} defaultTitle={project.name ?? ''} />
       {joinOrder && (
         <JoinBar
           picked={joinBadges?.size ?? 0}
