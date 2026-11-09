@@ -14,7 +14,7 @@ export const toMicInfo = (d: { deviceId: string; label: string }, index: number)
 export const listMics = async (): Promise<MicInfo[]> => {
   try {
     const all = await navigator.mediaDevices.enumerateDevices();
-    // "default" and "communications" are aliases of a real device; showing them as well makes the list confusing
-    return all.filter((d) => d.kind === 'audioinput' && d.deviceId !== 'communications').map(toMicInfo);
+    // "default" and "communications" are aliases of a real device; showing them as well makes the list confusing. Before the microphone is allowed the browser gives entries with no id, which cannot be chosen, so they are left out.
+    return all.filter((d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'communications' && d.deviceId !== 'default').map(toMicInfo);
   } catch { return []; }
 };
