@@ -47,9 +47,9 @@ export const JoinBar: React.FC<JoinBarProps> = ({ picked, result, problem, previ
       <div className="flex items-center gap-1.5">
         {result && result.joins > 1 && (
           <div className="flex items-center gap-0.5 text-[10px] text-ink-dim">
-            <button type="button" aria-label="Previous join" onClick={() => onStep(-1)} className="rounded-full p-1 hover:bg-surface-3 cursor-pointer"><ChevronLeft className="h-3.5 w-3.5" /></button>
-            <span className="font-num text-ink">Join {seamIndex + 1}/{result.joins}</span>
-            <button type="button" aria-label="Next join" onClick={() => onStep(1)} className="rounded-full p-1 hover:bg-surface-3 cursor-pointer"><ChevronRight className="h-3.5 w-3.5" /></button>
+            <button type="button" aria-label="Previous join point" onClick={() => onStep(-1)} className="rounded-full p-1 hover:bg-surface-3 cursor-pointer"><ChevronLeft className="h-3.5 w-3.5" /></button>
+            <span className="font-num text-ink">Join point {seamIndex + 1} of {result.joins}</span>
+            <button type="button" aria-label="Next join point" onClick={() => onStep(1)} className="rounded-full p-1 hover:bg-surface-3 cursor-pointer"><ChevronRight className="h-3.5 w-3.5" /></button>
           </div>
         )}
         {previewing ? (

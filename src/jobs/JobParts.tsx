@@ -1,5 +1,5 @@
 /** The parts of the Jobs workspace: the new-job form, the status list and one job with its thread. */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Check, Copy, Link2Off, Trash2 } from 'lucide-react';
 import { Button, Input } from '../components/ui';
 import { ApiError, audioUrl, createJob, deleteJob, getThread, postMessage, revokeTalentLink, sendReference, type Attachment, type ThreadResponse } from './api';
@@ -148,12 +148,17 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImp
       await onImportFile(new File([await r.blob()], a.name, { type: a.mime }));
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not add the file.'); } finally { setImporting(''); }
   };
+  // Browser pop-up questions are blocked inside some embedded previews, so the buttons ask by changing their own label
+  const [armed, setArmed] = useState<'' | 'revoke' | 'delete'>('');
+  useEffect(() => { if (!armed) return; const t = window.setTimeout(() => setArmed(''), 4000); return () => window.clearTimeout(t); }, [armed]);
   const revoke = async () => {
-    if (!window.confirm('Stop the current talent link and make a new one? Anyone using the old link is locked out.')) return;
+    if (armed !== 'revoke') { setArmed('revoke'); return; }
+    setArmed(''); setError('');
     try { const r = await revokeTalentLink(job.id, job.producerKey); setTalentKey(r.talentKey); flash('new'); } catch (e) { setError(e instanceof Error ? e.message : 'Could not change the link.'); }
   };
   const remove = async () => {
-    if (!window.confirm(`Delete "${job.title}" for good? The thread and all its audio are removed from the server.`)) return;
+    if (armed !== 'delete') { setArmed('delete'); return; }
+    setArmed('');
     try { await deleteJob(job.id, job.producerKey); onRemoved(); } catch (e) {
       if (e instanceof ApiError && e.status === 404) { onRemoved(); return; }
       setError(e instanceof Error ? e.message : 'Could not delete the job.');
@@ -171,8 +176,8 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImp
           <div className="text-xs text-ink-dim">{STATUS_TEXT[status]}{j?.producer ? ` · from ${j.producer}` : ''}</div>
         </div>
         <div className="flex shrink-0 gap-1.5">
-          <Button size="sm" variant="ghost" onClick={() => void revoke()} leftIcon={<Link2Off className="h-3.5 w-3.5" />}>{copied === 'new' ? 'New link made' : 'New talent link'}</Button>
-          <Button size="sm" variant="ghost" onClick={() => void remove()} leftIcon={<Trash2 className="h-3.5 w-3.5" />}>Delete job</Button>
+          <Button size="sm" variant="ghost" onClick={() => void revoke()} leftIcon={<Link2Off className="h-3.5 w-3.5" />}>{copied === 'new' ? 'New link made' : armed === 'revoke' ? 'Tap again: old link stops working' : 'New talent link'}</Button>
+          <Button size="sm" variant="ghost" onClick={() => void remove()} leftIcon={<Trash2 className="h-3.5 w-3.5" />}>{armed === 'delete' ? 'Tap again: delete job and audio' : 'Delete job'}</Button>
         </div>
       </div>
       {error && <div role="alert" className="mx-6 mt-3 rounded-card border border-danger/40 bg-danger/10 p-2 text-xs text-ink">{error}</div>}

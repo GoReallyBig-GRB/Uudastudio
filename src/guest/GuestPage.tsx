@@ -118,6 +118,10 @@ export const GuestPage: React.FC = () => {
   const [sentCount, setSentCount] = useState(0);
   const [sending, setSending] = useState<number | null>(null);
   const [sendNote, setSendNote] = useState('');
+  const [tab, setTab] = useState<'script' | 'messages'>('script');
+  const [autoScroll, setAutoScroll] = useState(false);
+  const [scrollSpeed, setScrollSpeed] = useState(1);
+  const readerRef = useRef<HTMLDivElement | null>(null);
   const [micId, setMicId] = useState(() => readStore(MIC_KEY));
   const [setupOpen, setSetupOpen] = useState(false);
   const infoRef = useRef<SetupInfo | null>(null);
@@ -211,6 +215,29 @@ export const GuestPage: React.FC = () => {
 
   const stopPressed = () => { if (!confirmStop) { setConfirmStop(true); return; } void finish(false); };
 
+  // Reading aid: while recording (after the quiet lead-in) the script drifts upward so the talent never has to touch the screen.
+  // The pace is the script length spread over the target time; the talent can nudge it faster or slower, or scroll by hand at any time.
+  const targetRef = useRef(0);
+  useEffect(() => {
+    if (phase !== 'recording' || !autoScroll) return;
+    const el = readerRef.current;
+    if (!el) return;
+    let raf = 0, last = performance.now(), pos = el.scrollTop;
+    const tick = (now: number) => {
+      const dt = (now - last) / 1000; last = now;
+      if (Math.abs(el.scrollTop - pos) > 3) pos = el.scrollTop; // the talent scrolled by hand
+      if (samplesRef.current / (capRef.current?.sampleRate || 48000) >= LEAD_IN) {
+        const room = el.scrollHeight - el.clientHeight;
+        const seconds = Math.max(20, targetRef.current || 60);
+        pos = Math.min(room, pos + (room / seconds) * scrollSpeed * dt);
+        el.scrollTop = pos;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [phase, autoScroll, scrollSpeed]);
+
   // Space starts and stops a take on a keyboard. Stopping keeps the two-press guard.
   const spaceRef = useRef<() => void>(() => undefined);
   spaceRef.current = () => { if (phase === 'recording') stopPressed(); else if (cap.ok && sending === null && !take) void start(false); };
@@ -281,19 +308,29 @@ export const GuestPage: React.FC = () => {
   }
 
   const target = view.targetSeconds ?? (view.script.trim() ? estimateSeconds(view.script) : 0);
+  targetRef.current = target;
   const remaining = target - elapsed;
   const words = countWords(view.script);
   const busySending = sending !== null;
 
   return (
-    <main className="flex min-h-screen flex-col bg-surface-0 text-ink lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_1fr]" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <header className="border-b border-line px-4 pb-3 pt-4 lg:col-span-2">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-accent">Voice recording</div>
-        <h1 className="text-xl font-semibold leading-tight">{view.title}</h1>
-        {view.producer && <div className="text-sm text-ink-dim">from {view.producer}</div>}
+    <main className="flex h-dvh flex-col overflow-hidden bg-surface-0 text-ink lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_minmax(0,1fr)]" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <header className="shrink-0 border-b border-line px-4 py-2.5 lg:col-span-2 lg:pb-3 lg:pt-4">
+        <div className="hidden text-[11px] font-semibold uppercase tracking-wider text-accent lg:block">Voice recording</div>
+        <h1 className="truncate text-lg font-semibold leading-tight lg:text-xl">{view.title}</h1>
+        {view.producer && <div className="truncate text-xs text-ink-dim lg:text-sm">Voice recording · from {view.producer}</div>}
       </header>
+      {remote && (
+        <div role="tablist" aria-label="Page sections" className="grid shrink-0 grid-cols-2 border-b border-line bg-surface-1 lg:hidden">
+          {(['script', 'messages'] as const).map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`h-11 text-sm font-semibold ${tab === t ? 'border-b-2 border-accent text-ink' : 'text-ink-dim'}`}>
+              {t === 'script' ? 'Script' : `Messages${messages.length ? ` (${messages.length})` : ''}`}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <div className="flex min-w-0 flex-1 flex-col lg:col-start-1 lg:row-start-2">
+      <div ref={readerRef} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain lg:col-start-1 lg:row-start-2">
       {!cap.ok && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{cap.problem}</div>}
 
       {saved && !take && phase === 'ready' && (
@@ -304,7 +341,7 @@ export const GuestPage: React.FC = () => {
         </div>
       )}
 
-      <section className="px-4 py-4" aria-label="Script">
+      <section className={`px-4 py-4 ${remote && tab !== 'script' ? 'hidden lg:block' : ''}`} aria-label="Script">
         {remote && thread?.job.reference && (
           <div className="mb-4 rounded-card border border-line bg-surface-2 p-3">
             <div className="mb-1.5 text-xs font-medium text-ink-dim">Reference: listen to how it should sound</div>
@@ -317,18 +354,26 @@ export const GuestPage: React.FC = () => {
             <p className="whitespace-pre-wrap text-sm text-ink">{view.notes}</p>
           </div>
         )}
-        <div className="mb-3 flex items-center justify-between gap-2 text-xs text-ink-dim">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-ink-dim">
           <span>{words > 0 ? `${words} words to read` : 'No script'}</span>
+          <div className="flex items-center gap-1" role="group" aria-label="Reading aids">
+            <button type="button" aria-pressed={autoScroll} onClick={() => setAutoScroll((a) => !a)} className={`h-11 rounded-full border px-3 text-xs font-semibold ${autoScroll ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-surface-1 text-ink'}`}>Auto-scroll</button>
+            {autoScroll && (<>
+              <button type="button" aria-label="Scroll slower" disabled={scrollSpeed <= 0.5} onClick={() => setScrollSpeed((v) => Math.max(0.5, v - 0.25))} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface-1 text-ink disabled:opacity-40"><Minus className="h-4 w-4" /></button>
+              <span className="w-9 text-center font-num text-[11px] text-ink">{scrollSpeed}x</span>
+              <button type="button" aria-label="Scroll faster" disabled={scrollSpeed >= 2} onClick={() => setScrollSpeed((v) => Math.min(2, v + 0.25))} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface-1 text-ink disabled:opacity-40"><Plus className="h-4 w-4" /></button>
+            </>)}
+          </div>
           <div className="flex items-center gap-1" role="group" aria-label="Text size">
-            <button type="button" aria-label="Smaller text" disabled={sizeIdx === 0} onClick={() => { setSizeIdx(sizeIdx - 1); writeStore(SIZE_KEY, String(sizeIdx - 1)); }} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface-1 text-ink hover:bg-surface-3 disabled:opacity-40"><Minus className="h-4 w-4" /></button>
-            <button type="button" aria-label="Larger text" disabled={sizeIdx === SIZES.length - 1} onClick={() => { setSizeIdx(sizeIdx + 1); writeStore(SIZE_KEY, String(sizeIdx + 1)); }} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface-1 text-ink hover:bg-surface-3 disabled:opacity-40"><Plus className="h-4 w-4" /></button>
+            <button type="button" aria-label="Smaller text" disabled={sizeIdx === 0} onClick={() => { setSizeIdx(sizeIdx - 1); writeStore(SIZE_KEY, String(sizeIdx - 1)); }} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface-1 text-ink hover:bg-surface-3 disabled:opacity-40"><span className="text-xs font-bold" aria-hidden>A-</span></button>
+            <button type="button" aria-label="Larger text" disabled={sizeIdx === SIZES.length - 1} onClick={() => { setSizeIdx(sizeIdx + 1); writeStore(SIZE_KEY, String(sizeIdx + 1)); }} className="grid h-11 w-11 place-items-center rounded-full border border-line bg-surface-1 text-ink hover:bg-surface-3 disabled:opacity-40"><span className="text-base font-bold" aria-hidden>A+</span></button>
           </div>
         </div>
         <Script job={{ v: 1, title: view.title, script: view.script }} size={SIZES[sizeIdx]} />
       </section>
 
       {remote && (
-        <section className="flex-1 border-t border-line px-4 py-4" aria-label="Messages with the producer">
+        <section className={`flex-1 px-4 py-4 lg:border-t lg:border-line ${tab !== 'messages' ? 'hidden lg:block' : ''}`} aria-label="Messages with the producer">
           <h2 className="mb-2 text-sm font-semibold">Messages</h2>
           <ThreadView
             messages={messages}
@@ -342,7 +387,7 @@ export const GuestPage: React.FC = () => {
       {!remote && <div className="flex-1" />}
       </div>
 
-      <section className={`${take && phase !== 'recording' ? '' : 'sticky bottom-0 '}border-t border-line-strong bg-surface-1 px-4 py-3 lg:sticky lg:bottom-auto lg:top-0 lg:col-start-2 lg:row-start-2 lg:max-h-screen lg:self-start lg:overflow-y-auto lg:border-l lg:border-t-0`} aria-label="Recording controls">
+      <section className="max-h-[58dvh] shrink-0 overflow-y-auto border-t border-line-strong bg-surface-1 px-4 py-3 lg:col-start-2 lg:row-start-2 lg:max-h-none lg:border-l lg:border-t-0" aria-label="Recording controls">
         {error && <div role="alert" className="mb-3 rounded-card border border-danger/40 bg-danger/10 p-3 text-sm text-ink">{error}</div>}
         {notice && <div role="status" className="mb-3 rounded-card border border-line-strong bg-surface-2 p-3 text-sm text-ink">{notice}</div>}
 
