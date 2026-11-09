@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Clip, Track } from '../types';
-import { JOIN_FADE_SECONDS, cropTrackWindow, joinInOrder, previewWindow } from './joinInOrder';
+import { JOIN_FADE_SECONDS, cropTrackWindow, joinInOrder, previewWindow, stepClip } from './joinInOrder';
 import { chainsOnTrack } from './spliceChains';
 
 let n = 0;
@@ -78,5 +78,19 @@ describe('preview window', () => {
     const w = previewWindow(plan, 0, 20);
     const cropped = cropTrackWindow(plan.tracks.find((t) => t.id === plan.trackId)!, w.from, w.to);
     expect(cropped.clips.map((c) => [c.name, c.startSeconds, c.offsetSeconds, c.durationSeconds])).toEqual([['a', 26, 26, 4], ['b', 30, 0, 16]]);
+  });
+});
+
+describe('stepping between clips', () => {
+  const starts = [0, 10, 25];
+  it('next goes to the start of the next clip, and stays on the last', () => {
+    expect(stepClip(starts, 3, 1)).toBe(10);
+    expect(stepClip(starts, 10, 1)).toBe(25);
+    expect(stepClip(starts, 30, 1)).toBe(25);
+  });
+  it('previous goes to the start of this clip, or the one before when already at its start', () => {
+    expect(stepClip(starts, 14, -1)).toBe(10);
+    expect(stepClip(starts, 10.5, -1)).toBe(0);
+    expect(stepClip(starts, 0.4, -1)).toBe(0);
   });
 });

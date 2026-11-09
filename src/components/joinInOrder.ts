@@ -120,3 +120,16 @@ export const previewWindow = (plan: Extract<JoinOrderPlan, { ok: true }>, index:
   const from = Math.max(plan.start, seam - lead);
   return { from, to: Math.min(plan.end, from + length) };
 };
+
+/**
+ * The preview position after pressing the previous / next arrow: the start of a clip in the joined result.
+ * `starts` are where each clip begins (seconds from the start of the result), `pos` the current position.
+ * Previous goes to the start of the current clip, or of the one before it when already within 1.5 s of that start.
+ */
+export const stepClip = (starts: readonly number[], pos: number, dir: 1 | -1): number => {
+  if (starts.length === 0) return 0;
+  let idx = 0;
+  for (let i = 0; i < starts.length; i++) if (starts[i] <= pos + 0.05) idx = i;
+  if (dir === 1) return starts[Math.min(starts.length - 1, idx + 1)];
+  return pos - starts[idx] > 1.5 ? starts[idx] : starts[Math.max(0, idx - 1)];
+};

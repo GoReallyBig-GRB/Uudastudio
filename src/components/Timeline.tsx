@@ -18,7 +18,7 @@ import { CanvasWindow, canvasWindowFor, needsRecentre } from './canvasWindow';
 import { perfCount, perfEnd, perfStart, perfTime } from '../perf/perfProbe';
 import { calculateZoomScrollLeft } from './timelineZoom';
 import { getVisibleClipPixelRange } from './timelineViewport';
-import { ClipboardPaste, Clock, ChevronUp, ChevronDown } from 'lucide-react';
+import { ClipboardPaste, Clock, ChevronUp, ChevronDown, Plus } from 'lucide-react';
 import { Project, Track, Clip, Asset, GroupSettings } from '../types';
 import { TrackControls } from './TrackControls';
 import { rangeTrackIds, type RangeSelection, type TimelineTool } from './rangeDelete';
@@ -36,6 +36,8 @@ import { chainIds, healSeams, seamFlags, selectionUnitCount } from './spliceChai
 import { planDragMove, selectionForPointerDown } from './clipDragPlan';
 
 interface TimelineProps {
+  /** Adds an empty track under the last one */
+  onAddTrack?: () => void;
   /** Join mode: the order in which clips were picked (clip id -> 1, 2, 3...). While onJoinPick is set, clicking a clip picks it instead of selecting or dragging. */
   joinBadges?: Map<string, number>;
   onJoinPick?: (clipId: string) => void;
@@ -309,6 +311,7 @@ const PlayheadOverlay: React.FC<{
 
 export const Timeline: React.FC<TimelineProps> = ({
   joinBadges,
+  onAddTrack,
   onJoinPick,
   project,
   pixelsPerSecond,
@@ -1718,6 +1721,19 @@ export const Timeline: React.FC<TimelineProps> = ({
               />
               );
             })}
+            {!focused && onAddTrack && (
+              <div className="sticky left-0 z-20 flex h-9 items-center border-b border-line bg-surface-1 px-1.5" style={{ width: `${currentHeaderWidth}px` }}>
+                <button
+                  type="button"
+                  onClick={onAddTrack}
+                  title="Add a track below"
+                  aria-label="Add a track below"
+                  className="flex h-6 w-6 items-center justify-center rounded-control border border-line-strong bg-surface-2 text-ink-dim hover:border-accent hover:text-accent cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
