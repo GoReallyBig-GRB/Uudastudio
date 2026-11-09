@@ -1347,7 +1347,7 @@ export class AudioEngine {
    * A track target is heard alone (even if muted or not soloed); MASTER_TRACK_ID plays the whole mix.
    * The timeline playhead and transport are left alone and restored afterwards.
    */
-  public async startPreview(project: Project, targetId: string): Promise<{ ok: boolean; reason?: string }> {
+  public async startPreview(project: Project, targetId: string, maxSeconds: number = PREVIEW_MAX_SECONDS): Promise<{ ok: boolean; reason?: string }> {
     const groupTarget = isGroupChainId(targetId) ? groupIdOfChain(targetId) : null;
     const tracks = targetId === MASTER_TRACK_ID || groupTarget ? project.tracks : project.tracks.filter(t => t.id === targetId);
     let start = Infinity;
@@ -1380,7 +1380,7 @@ export class AudioEngine {
     this.previewSaved = { playhead: this.playheadSeconds, end: this.projectEndSeconds };
     this.previewTargetId = targetId;
     this.previewProject = project;
-    this.previewRange = { start: from, end: Math.min(end, from + PREVIEW_MAX_SECONDS) };
+    this.previewRange = { start: from, end: Math.min(end, from + maxSeconds) };
     this.emitPreviewChanged();
     try {
       await this.playInternal(project, from);

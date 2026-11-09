@@ -23,7 +23,7 @@ import {
 } from './types';
 import { audioEngine } from './audio/engine';
 import { playbackSignature } from './audio/playbackSignature';
-import { joinInOrder, previewWindow, cropTrackWindow } from './components/joinInOrder';
+import { joinInOrder, cropTrackWindow, stepClip } from './components/joinInOrder';
 import { JoinBar } from './components/JoinBar';
 import { InviteGuestModal } from './guest/InviteGuestModal';
 import { JobsModal, type JobsTarget } from './jobs/JobsModal';
@@ -2829,7 +2829,8 @@ const MainStudio: React.FC = () => {
   const jobsState = useJobs();
   const [jobsWindow, setJobsWindow] = useState<{ open: boolean; target: JobsTarget }>({ open: false, target: null });
   const [joinOrder, setJoinOrder] = useState<string[] | null>(null);
-  const [joinSeam, setJoinSeam] = useState(0);
+  // Where the Join preview plays from / is up to, in timeline seconds (null: from the start)
+  const [joinPos, setJoinPos] = useState<number | null>(null);
   const [joinPreviewing, setJoinPreviewing] = useState(false);
   const probeId = () => `probe-${Math.random().toString(36).slice(2, 9)}`;
   const joinOrderPlan = useMemo(() => (joinOrder ? joinInOrder(project.tracks, joinOrder, () => 'probe') : null), [project.tracks, joinOrder]);
@@ -2853,10 +2854,18 @@ const MainStudio: React.FC = () => {
     window.addEventListener('uuda:preview-changed', sync);
     return () => window.removeEventListener('uuda:preview-changed', sync);
   }, []);
+  // While the preview plays, follow its position so the progress bar moves
+  useEffect(() => {
+    if (!joinPreviewing) return;
+    let raf = 0;
+    const tick = () => { setJoinPos(audioEngine.getCurrentTime()); raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [joinPreviewing]);
   const endJoinMode = () => {
     audioEngine.stopPreview();
     setJoinOrder(null);
-    setJoinSeam(0);
+    setJoinPos(null);
   };
   const handleStartJoin = () => {
     setRangeSelection(null);
@@ -2876,13 +2885,15 @@ const MainStudio: React.FC = () => {
     if (!plan || plan.ok) return null;
     return plan.reason === 'few' ? 'Pick at least 2 clips.' : 'A picked clip no longer exists.';
   };
-  const handleJoinPreview = async (seam: number = joinSeam) => {
+  const handleJoinPreview = async (at?: number) => {
     const plan = joinOrder ? joinInOrder(project.tracks, joinOrder, probeId) : null;
     if (!plan || !plan.ok) return;
-    const w = previewWindow(plan, Math.max(0, Math.min(plan.seams.length - 1, seam)), 20);
+    let from = Math.max(plan.start, Math.min(plan.end, at ?? joinPos ?? plan.start));
+    if (from >= plan.end - 0.2) from = plan.start; // at the end: play again from the top
     const target = plan.tracks.find((t) => t.id === plan.trackId)!;
-    const preview: Project = { ...project, tracks: plan.tracks.map((t) => (t.id === plan.trackId ? cropTrackWindow(target, w.from, w.to) : { ...t, clips: [] })) };
-    const r = await audioEngine.startPreview(preview, plan.trackId);
+    const preview: Project = { ...project, tracks: plan.tracks.map((t) => (t.id === plan.trackId ? cropTrackWindow(target, from, plan.end) : { ...t, clips: [] })) };
+    setJoinPos(from);
+    const r = await audioEngine.startPreview(preview, plan.trackId, 6 * 3600);
     if (!r.ok) addToast({ type: 'warning', title: 'Cannot preview', message: r.reason ?? 'Audio could not be started.' });
   };
   const handleApplyJoin = () => {
@@ -2892,7 +2903,7 @@ const MainStudio: React.FC = () => {
     audioEngine.stopPreview();
     setProjectWithHistory({ ...project, tracks: plan.tracks }, false, 'join');
     setJoinOrder(null);
-    setJoinSeam(0);
+    setJoinPos(null);
     setSelectedClipIds(new Set(plan.tracks.find((t) => t.id === plan.trackId)!.clips.map((c) => c.id)));
     addToast({ type: 'success', title: 'Clips joined', message: `${plan.clipCount} clips are one clip on a new track called Joined. The originals did not move.` });
   };
@@ -4227,6 +4238,7 @@ const MainStudio: React.FC = () => {
             </div>
           ) : (
             <Timeline
+              onAddTrack={handleAddEmptyTrack}
               project={project}
               pixelsPerSecond={pixelsPerSecond}
               onViewportWidthChange={setTimelineViewportWidth}
@@ -4346,16 +4358,15 @@ const MainStudio: React.FC = () => {
       {joinOrder && (
         <JoinBar
           picked={joinBadges?.size ?? 0}
-          result={joinOrderPlan && joinOrderPlan.ok ? { seconds: joinOrderPlan.end - joinOrderPlan.start, joins: joinOrderPlan.seams.length } : null}
+          result={joinOrderPlan && joinOrderPlan.ok ? { seconds: joinOrderPlan.end - joinOrderPlan.start, clips: joinOrderPlan.clipCount, clipStarts: [joinOrderPlan.start, ...joinOrderPlan.seams].map((t) => t - joinOrderPlan.start) } : null}
           problem={(joinBadges?.size ?? 0) > 0 ? joinProblem(joinOrderPlan) : null}
           previewing={joinPreviewing}
-          seamIndex={Math.min(joinSeam, Math.max(0, (joinOrderPlan && joinOrderPlan.ok ? joinOrderPlan.seams.length : 1) - 1))}
-          onStep={(d) => {
-            const last = (joinOrderPlan && joinOrderPlan.ok ? joinOrderPlan.seams.length : 1) - 1;
-            const next = Math.max(0, Math.min(last, joinSeam + d));
-            setJoinSeam(next);
-            // Stepping while a preview plays jumps straight to the next join point
-            if (joinPreviewing && next !== joinSeam) void handleJoinPreview(next);
+          position={joinOrderPlan && joinOrderPlan.ok ? Math.max(0, Math.min(joinOrderPlan.end, joinPos ?? joinOrderPlan.start) - joinOrderPlan.start) : 0}
+          onSeek={(seconds) => {
+            if (!joinOrderPlan || !joinOrderPlan.ok) return;
+            const at = joinOrderPlan.start + seconds;
+            setJoinPos(at);
+            if (joinPreviewing) void handleJoinPreview(at);
           }}
           onPreview={() => void handleJoinPreview()}
           onStopPreview={() => audioEngine.stopPreview()}
