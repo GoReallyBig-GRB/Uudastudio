@@ -10,6 +10,8 @@ import { TrackListPanel } from './TrackListPanel';
 import { VoicePanel } from './VoicePanel';
 import { SoundLibraryPanel } from './SoundLibraryPanel';
 import { JobsPanel } from '../jobs/JobsPanel';
+import type { JobsState } from '../jobs/useJobs';
+import type { JobsTarget } from '../jobs/JobsModal';
 import { Track, Asset, VoiceMetadata, UserRecord } from '../types';
 
 // Rail buttons: neutral, with cyan only on the open tab.
@@ -52,9 +54,8 @@ interface LeftSidebarProps {
   // SoundLibraryPanel props
   onAddLibraryTrack: (asset: Asset) => void;
   // Jobs panel (voice-talent jobs)
-  onImportJobFile?: (file: File) => Promise<void> | void;
-  jobsUnread?: number;
-  onJobsUnread?: (count: number) => void;
+  jobsState?: JobsState;
+  onOpenJobsWindow?: (target: JobsTarget) => void;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -83,9 +84,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onAddVoiceTrack,
   existingVoiceMetadata,
   onAddLibraryTrack,
-  onImportJobFile,
-  jobsUnread = 0,
-  onJobsUnread,
+  jobsState,
+  onOpenJobsWindow,
 }) => {
   const handleTabClick = (tab: SidebarTab) => {
     window.dispatchEvent(new CustomEvent('xpro:close-popups'));
@@ -130,16 +130,16 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             <Music className="w-4 h-4" />
           </button>
 
-          {onImportJobFile && (
+          {jobsState && onOpenJobsWindow && (
             <button
               type="button"
               onClick={() => handleTabClick('jobs')}
-              title={jobsUnread > 0 ? `Jobs: voice-talent scripts and takes (${jobsUnread} unread)` : 'Jobs: send scripts to voice talent and receive takes'}
-              aria-label={jobsUnread > 0 ? `Jobs, ${jobsUnread} unread` : 'Jobs'}
+              title={(jobsState?.unread ?? 0) > 0 ? `Jobs: voice-talent scripts and takes (${jobsState?.unread} unread)` : 'Jobs: send scripts to voice talent and receive takes'}
+              aria-label={(jobsState?.unread ?? 0) > 0 ? `Jobs, ${jobsState?.unread} unread` : 'Jobs'}
               className={`relative ${RAIL_LAYOUT} ${activeTab === 'jobs' && !isCollapsed ? RAIL_ON : RAIL_IDLE}`}
             >
               <Briefcase className="w-4 h-4" />
-              {jobsUnread > 0 && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-surface-0 bg-accent" />}
+              {(jobsState?.unread ?? 0) > 0 && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-surface-0 bg-accent" />}
             </button>
           )}
 
@@ -254,8 +254,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             />
           )}
 
-          {activeTab === 'jobs' && onImportJobFile && (
-            <JobsPanel onClose={onToggleCollapse} onImportFile={onImportJobFile} onUnread={onJobsUnread} />
+          {activeTab === 'jobs' && jobsState && onOpenJobsWindow && (
+            <JobsPanel jobs={jobsState} onClose={onToggleCollapse} onOpenWindow={onOpenJobsWindow} />
           )}
 
           {activeTab === 'library' && (
