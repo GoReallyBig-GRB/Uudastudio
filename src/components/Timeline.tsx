@@ -1722,15 +1722,15 @@ export const Timeline: React.FC<TimelineProps> = ({
               );
             })}
             {!focused && onAddTrack && (
-              <div className="sticky left-0 z-20 flex h-9 items-center border-b border-line bg-surface-1 px-1.5" style={{ width: `${currentHeaderWidth}px` }}>
+              <div className="sticky left-0 z-20 flex h-9 items-center justify-center bg-surface-1" style={{ width: `${currentHeaderWidth}px` }}>
                 <button
                   type="button"
                   onClick={onAddTrack}
                   title="Add a track below"
                   aria-label="Add a track below"
-                  className="flex h-6 w-6 items-center justify-center rounded-control border border-line-strong bg-surface-2 text-ink-dim hover:border-accent hover:text-accent cursor-pointer"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-ink-dim hover:bg-white/5 hover:text-accent cursor-pointer"
                 >
-                  <Plus className="h-3.5 w-3.5" />
+                  <Plus className="h-4 w-4" />
                 </button>
               </div>
             )}

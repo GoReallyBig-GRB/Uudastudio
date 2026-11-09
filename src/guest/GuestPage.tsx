@@ -340,10 +340,11 @@ export const GuestPage: React.FC = () => {
 
   return (
     <main className="flex h-dvh flex-col overflow-hidden bg-surface-0 text-ink" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <header className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-2 lg:py-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-base font-semibold leading-tight lg:text-xl">{view.title}</h1>
-          <div className="truncate text-xs text-ink-dim">Voice recording{view.producer ? ` · from ${view.producer}` : ''}{view.talent ? ` · for ${view.talent}` : ''}</div>
+      <header className="shrink-0 border-b border-line px-4 pb-2 pt-2 lg:pb-3">
+      <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-gold-soft text-sm font-bold text-gold">U</span>
+          <span className="truncate text-sm font-bold tracking-tight text-ink">UUDA <span className="font-semibold text-gold">STUDIO</span></span>
         </div>
         <button type="button" disabled={recording} onClick={() => setSheetOpen(true)} aria-label={`Microphone: ${micName}. Change or test`} className="flex h-11 max-w-[46%] shrink-0 items-center gap-2 rounded-full border border-line-strong bg-surface-2 pl-3 pr-2 text-sm text-ink hover:bg-surface-3 disabled:opacity-50 lg:max-w-xs">
           <span className={`h-2 w-2 shrink-0 rounded-full ${ring}`} aria-hidden />
@@ -351,6 +352,11 @@ export const GuestPage: React.FC = () => {
           <span className="min-w-0 truncate">{micName}</span>
           <ChevronDown className="h-4 w-4 shrink-0 text-ink-dim" aria-hidden />
         </button>
+      </div>
+      <div className="mt-1.5 min-w-0">
+        <h1 className="truncate text-base font-semibold leading-tight lg:text-xl">{view.title}</h1>
+        <div className="truncate text-xs text-ink-dim">Voice recording{view.producer ? ` · from ${view.producer}` : ''}{view.talent ? ` · for ${view.talent}` : ''}</div>
+      </div>
       </header>
       {tabs.length > 1 && (
         <div role="tablist" aria-label="Page sections" className="grid shrink-0 grid-cols-2 border-b border-line bg-surface-1">
@@ -375,7 +381,7 @@ export const GuestPage: React.FC = () => {
       />
 
       {tab === 'messages' && remote ? (
-        <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 py-3">
+        <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col lg:px-4 lg:py-3">
           <ThreadView
             fill
             messages={messages}

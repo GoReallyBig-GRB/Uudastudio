@@ -62,6 +62,10 @@ export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onM
   const capRef = useRef<MicCapture | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
+  const askedRef = useRef(false);
+  const named0 = mics.some((m) => m.label && !/^Microphone \d+$/.test(m.label));
+  // Device names only appear once the microphone is allowed, so ask as the sheet opens instead of hiding the list behind a button
+  useEffect(() => { if (!open) { askedRef.current = false; return; } if (!named0 && !askedRef.current) { askedRef.current = true; void onAllow(); } }, [open, named0, onAllow]);
   useEffect(() => { if (open) closeRef.current?.focus(); else { void capRef.current?.stop(); capRef.current = null; setPhase('idle'); } }, [open]);
   useEffect(() => {
     if (!open) return;
@@ -155,7 +159,7 @@ export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onM
               </div>
             )}
             <ul role="radiogroup" aria-label="Microphones" className="space-y-2">
-              {card('', 'Default (what this device chooses)', 'builtin', 'Often the built-in microphone, even when a USB mic is plugged in')}
+              {card('', 'Default microphone', 'builtin')}
               {mics.map((m) => card(m.id, m.label, kindOf(m)))}
             </ul>
           </div>
