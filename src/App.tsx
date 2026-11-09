@@ -2815,8 +2815,16 @@ const MainStudio: React.FC = () => {
     addToast({ type: 'success', title: 'Silence inserted', message: `${lengthSeconds.toFixed(2)} s at ${formatTimecode(at)}${scope === 'all' ? ' on all tracks' : ''}. Undo removes it.` });
   };
 
+  // A take received through a voice-talent job: brought in like any imported audio file
+  const handleImportJobFile = async (file: File) => {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    await handleImportFiles(dt.files);
+  };
+
   // ---- Join clips in the order picked (Join button): numbered badges, preview, then join ----
   const [isInviteGuestOpen, setIsInviteGuestOpen] = useState(false);
+  const [jobsUnread, setJobsUnread] = useState(0);
   const [joinOrder, setJoinOrder] = useState<string[] | null>(null);
   const [joinSeam, setJoinSeam] = useState(0);
   const [joinPreviewing, setJoinPreviewing] = useState(false);
@@ -4114,6 +4122,9 @@ const MainStudio: React.FC = () => {
           selectedClipIds={selectedClipIds}
           onAddVoiceTrack={handleAddVoiceTrack}
           onAddLibraryTrack={handleAddLibraryTrack}
+          onImportJobFile={handleImportJobFile}
+          jobsUnread={jobsUnread}
+          onJobsUnread={setJobsUnread}
           groupsFooter={
             <GroupListPanel
               groups={groups}

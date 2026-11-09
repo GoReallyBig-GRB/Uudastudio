@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { isJoinHash } from './guest/job';
+import { isTalentHash } from './jobs/links';
 import './index.css';
 
 // Dev-only design-system preview, loaded lazily so the normal app never fetches it. Open it with:
@@ -14,7 +15,7 @@ const galleryOnly =
 
 // A voice talent's recording link (#/join/...) opens only the small recording page: no editor code, no sign-in.
 const GuestPage = lazy(() => import('./guest/GuestPage'));
-const guestOnly = isJoinHash(window.location.hash);
+const guestOnly = isJoinHash(window.location.hash) || isTalentHash(window.location.hash);
 
 const Root = () => {
   const [overlayOpen, setOverlayOpen] = useState(false);
