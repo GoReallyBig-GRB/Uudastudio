@@ -2869,7 +2869,7 @@ const MainStudio: React.FC = () => {
   };
   const handleStartJoin = () => {
     setRangeSelection(null);
-    setJoinSeam(0);
+    setJoinPos(null);
     setJoinOrder(Array.from(selectedClipIds).length > 1 ? Array.from(selectedClipIds) : []);
     addToast({ type: 'info', title: 'Join clips', message: 'Click the clips in the order you want them. Click a numbered clip again to remove it.' });
   };
