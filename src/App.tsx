@@ -26,6 +26,8 @@ import { playbackSignature } from './audio/playbackSignature';
 import { joinInOrder, previewWindow, cropTrackWindow } from './components/joinInOrder';
 import { JoinBar } from './components/JoinBar';
 import { InviteGuestModal } from './guest/InviteGuestModal';
+import { JobsModal, type JobsTarget } from './jobs/JobsModal';
+import { useJobs } from './jobs/useJobs';
 import { insertSilenceInTracks, shiftMarkersForInsert, silenceAssetId, SILENCE_ASSET_SECONDS, type SilenceScope } from './components/insertSilence';
 import { toggleMarkerAt, neighbourMarker, followClips, markerLabel } from './audio/markers';
 import { importStreamedFile, shouldStreamImport } from './assets/streamImport';
@@ -2824,7 +2826,8 @@ const MainStudio: React.FC = () => {
 
   // ---- Join clips in the order picked (Join button): numbered badges, preview, then join ----
   const [isInviteGuestOpen, setIsInviteGuestOpen] = useState(false);
-  const [jobsUnread, setJobsUnread] = useState(0);
+  const jobsState = useJobs();
+  const [jobsWindow, setJobsWindow] = useState<{ open: boolean; target: JobsTarget }>({ open: false, target: null });
   const [joinOrder, setJoinOrder] = useState<string[] | null>(null);
   const [joinSeam, setJoinSeam] = useState(0);
   const [joinPreviewing, setJoinPreviewing] = useState(false);
@@ -4122,9 +4125,8 @@ const MainStudio: React.FC = () => {
           selectedClipIds={selectedClipIds}
           onAddVoiceTrack={handleAddVoiceTrack}
           onAddLibraryTrack={handleAddLibraryTrack}
-          onImportJobFile={handleImportJobFile}
-          jobsUnread={jobsUnread}
-          onJobsUnread={setJobsUnread}
+          jobsState={jobsState}
+          onOpenJobsWindow={(target) => setJobsWindow({ open: true, target })}
           groupsFooter={
             <GroupListPanel
               groups={groups}
@@ -4339,6 +4341,7 @@ const MainStudio: React.FC = () => {
         <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => { setIsExportOpen(false); setTempClipLevels({}); }} selectedClipIds={exportClipIds} startWithSelection={exportSelectionFirst} tempClipLevels={tempClipLevels} onResetTempLevels={handleResetTempLevels} />
       )}
 
+      <JobsModal open={jobsWindow.open} onClose={() => setJobsWindow((w) => ({ ...w, open: false }))} jobs={jobsState} target={jobsWindow.target} onImportFile={handleImportJobFile} />
       <InviteGuestModal open={isInviteGuestOpen} onClose={() => setIsInviteGuestOpen(false)} defaultTitle={project.name ?? ''} />
       {joinOrder && (
         <JoinBar

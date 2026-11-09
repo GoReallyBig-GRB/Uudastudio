@@ -16,10 +16,12 @@ interface Props {
   placeholder?: string;
   /** Extra controls next to Send (for example a take to attach) */
   disabled?: boolean;
+  /** Fill the height of the parent: the messages scroll and the box stays at the bottom */
+  fill?: boolean;
 }
 
 /** The message thread under a job: messages and audio on top, a box to write at the bottom. The same on both sides. */
-export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, onImport, onSend, placeholder, disabled }) => {
+export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, onImport, onSend, placeholder, disabled, fill }) => {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -34,8 +36,8 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, onImport
   };
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
-      <ul className="flex flex-col gap-2" aria-label="Messages" aria-live="polite">
+    <div className={`flex min-h-0 flex-col gap-3 ${fill ? 'h-full' : ''}`}>
+      <ul className={`flex flex-col gap-2 ${fill ? 'min-h-0 flex-1 overflow-y-auto pr-1' : ''}`} aria-label="Messages" aria-live="polite">
         {messages.length === 0 && <li className="rounded-card border border-dashed border-line px-3 py-4 text-center text-xs text-ink-faint">No messages yet.</li>}
         {messages.map((m) => {
           const mine = m.role === self;

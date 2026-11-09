@@ -352,7 +352,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {/* Bring audio in */}
               <FileMenuItem icon={<UploadCloud className="w-4 h-4" />} label="Import Audio Files..." onClick={() => fileInputRef.current?.click()} />
-              {onInviteGuest && <FileMenuItem icon={<Mic className="w-4 h-4" />} label="Invite Voice Talent..." title="Write a script and get a link a voice talent can record from, at home, in their browser" onClick={onInviteGuest} />}
+              {onInviteGuest && <FileMenuItem icon={<Mic className="w-4 h-4" />} label="Quick Invite (link only)..." title="A script link that needs no server. The talent records and sends you a WAV file by email or WhatsApp. For messages and automatic delivery use Jobs in the sidebar" onClick={onInviteGuest} />}
 
               <div className="h-px bg-line my-1" />
 
