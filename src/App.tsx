@@ -2876,10 +2876,10 @@ const MainStudio: React.FC = () => {
     if (!plan || plan.ok) return null;
     return plan.reason === 'few' ? 'Pick at least 2 clips.' : 'A picked clip no longer exists.';
   };
-  const handleJoinPreview = async () => {
+  const handleJoinPreview = async (seam: number = joinSeam) => {
     const plan = joinOrder ? joinInOrder(project.tracks, joinOrder, probeId) : null;
     if (!plan || !plan.ok) return;
-    const w = previewWindow(plan, joinSeam, 20);
+    const w = previewWindow(plan, Math.max(0, Math.min(plan.seams.length - 1, seam)), 20);
     const target = plan.tracks.find((t) => t.id === plan.trackId)!;
     const preview: Project = { ...project, tracks: plan.tracks.map((t) => (t.id === plan.trackId ? cropTrackWindow(target, w.from, w.to) : { ...t, clips: [] })) };
     const r = await audioEngine.startPreview(preview, plan.trackId);
@@ -4350,7 +4350,13 @@ const MainStudio: React.FC = () => {
           problem={(joinBadges?.size ?? 0) > 0 ? joinProblem(joinOrderPlan) : null}
           previewing={joinPreviewing}
           seamIndex={Math.min(joinSeam, Math.max(0, (joinOrderPlan && joinOrderPlan.ok ? joinOrderPlan.seams.length : 1) - 1))}
-          onStep={(d) => setJoinSeam((v) => Math.max(0, Math.min((joinOrderPlan && joinOrderPlan.ok ? joinOrderPlan.seams.length : 1) - 1, v + d)))}
+          onStep={(d) => {
+            const last = (joinOrderPlan && joinOrderPlan.ok ? joinOrderPlan.seams.length : 1) - 1;
+            const next = Math.max(0, Math.min(last, joinSeam + d));
+            setJoinSeam(next);
+            // Stepping while a preview plays jumps straight to the next join point
+            if (joinPreviewing && next !== joinSeam) void handleJoinPreview(next);
+          }}
           onPreview={() => void handleJoinPreview()}
           onStopPreview={() => audioEngine.stopPreview()}
           onApply={handleApplyJoin}
