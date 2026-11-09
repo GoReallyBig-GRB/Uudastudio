@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, Mic, RotateCcw, Send, Share2, Square, Trash2, Minus, Plus } from 'lucide-react';
 import { Button, Input } from '../components/ui';
 import { MicCapture } from './capture';
+import { MODE_TEXT } from './channels';
+import { checkRoom, type RoomReport } from './roomCheck';
+import { Findings, SetupPanel, int16ToFloat, type SetupInfo } from './SetupPanel';
 import { checkRecording } from './env';
 import { countWords, estimateSeconds, formatClock, jobFromHash, parseScript, type GuestJob } from './job';
 import { beginSession, deleteSession, findSaved, finishSession, loadSession, saveChunk, type SavedSession } from './takeStore';
@@ -21,11 +24,18 @@ interface Take {
   url: string;
   /** A rehearsal: never saved to the device, never sent */
   practice: boolean;
+  /** What was heard in the quiet lead-in and the speech (real takes only) */
+  report?: RoomReport;
+  /** One line about the microphone, added to the Send message */
+  capture?: string;
 }
 
 const NAME_KEY = 'uuda-guest-name';
 const SIZE_KEY = 'uuda-guest-text-size';
+const MIC_KEY = 'uuda-guest-mic';
 const SIZES = [16, 18, 20, 24, 28, 34];
+/** Seconds of quiet at the start of a real take; the room noise heard here is what the producer's cleaner learns from */
+const LEAD_IN = 3;
 
 const readStore = (k: string): string => { try { return localStorage.getItem(k) ?? ''; } catch { return ''; } };
 const writeStore = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* not saved */ } };
@@ -108,6 +118,9 @@ export const GuestPage: React.FC = () => {
   const [sentCount, setSentCount] = useState(0);
   const [sending, setSending] = useState<number | null>(null);
   const [sendNote, setSendNote] = useState('');
+  const [micId, setMicId] = useState(() => readStore(MIC_KEY));
+  const [setupOpen, setSetupOpen] = useState(false);
+  const infoRef = useRef<SetupInfo | null>(null);
   const capRef = useRef<MicCapture | null>(null);
   const chunksRef = useRef<Int16Array[]>([]);
   const sessionRef = useRef('');
@@ -149,7 +162,12 @@ export const GuestPage: React.FC = () => {
     const practice = practiceRef.current;
     if (totalSamples(chunks) === 0) { if (!practice) void deleteSession(sessionRef.current); return; }
     if (!practice) await finishSession(sessionRef.current);
-    setTake(makeTake(1, practice ? '' : sessionRef.current, chunks, c.sampleRate, practice));
+    const t = makeTake(1, practice ? '' : sessionRef.current, chunks, c.sampleRate, practice);
+    if (!practice) {
+      t.report = checkRoom(int16ToFloat(chunks), c.sampleRate);
+      t.capture = `Recorded on: ${c.label || 'microphone'}, ${Math.round(c.sampleRate / 100) / 10} kHz, ${MODE_TEXT[c.channelMode]}`;
+    }
+    setTake(t);
     if (lost) setNotice('The microphone stopped. What was recorded so far is kept as your take.');
   }, []);
 
@@ -174,11 +192,11 @@ export const GuestPage: React.FC = () => {
         },
         onLevel: (p) => setLevel(p),
         onLost: () => void finish(true),
-      });
+      }, micId || undefined);
     } catch (e) {
       await c.stop();
       const denied = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
-      setError(denied ? 'The microphone is blocked. Allow it for this page in the browser (the lock or settings icon next to the address), then press Record again.' : e instanceof DOMException && e.name === 'NotFoundError' ? 'No microphone was found. Plug one in or check your device.' : 'The microphone could not be started. Close other apps that use it and try again.');
+      setError(denied ? 'The microphone is blocked. Allow it for this page in the browser (the lock or settings icon next to the address), then press Record again.' : e instanceof DOMException && (e.name === 'OverconstrainedError' || e.name === 'NotReadableError') && micId ? 'The chosen microphone is not available. Pick another one in Your microphone, or plug it back in.' : e instanceof DOMException && e.name === 'NotFoundError' ? 'No microphone was found. Plug one in or check your device.' : 'The microphone could not be started. Close other apps that use it and try again.');
       return;
     }
     await dropTake();
@@ -192,6 +210,22 @@ export const GuestPage: React.FC = () => {
   };
 
   const stopPressed = () => { if (!confirmStop) { setConfirmStop(true); return; } void finish(false); };
+
+  // Space starts and stops a take on a keyboard. Stopping keeps the two-press guard.
+  const spaceRef = useRef<() => void>(() => undefined);
+  spaceRef.current = () => { if (phase === 'recording') stopPressed(); else if (cap.ok && sending === null && !take) void start(false); };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA|SELECT|BUTTON|AUDIO|A)$/.test(el.tagName)) return;
+      if (el?.isContentEditable) return;
+      e.preventDefault();
+      spaceRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const recover = async () => {
     if (!saved) return;
@@ -216,7 +250,7 @@ export const GuestPage: React.FC = () => {
     writeStore(NAME_KEY, name.trim());
     setError(''); setSending(0);
     try {
-      await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: name.trim(), text: sendNote.trim() }, (f) => setSending(f));
+      await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: name.trim(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n') }, (f) => setSending(f));
       await dropTake();
       setSendNote(''); setSentCount((n) => n + 1); setNotice('Sent. The producer can hear it now. You can reply below or record another take.');
       await loadThread();
@@ -252,13 +286,14 @@ export const GuestPage: React.FC = () => {
   const busySending = sending !== null;
 
   return (
-    <main className="flex min-h-screen flex-col bg-surface-0 text-ink" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <header className="border-b border-line px-4 pb-3 pt-4">
+    <main className="flex min-h-screen flex-col bg-surface-0 text-ink lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_1fr]" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <header className="border-b border-line px-4 pb-3 pt-4 lg:col-span-2">
         <div className="text-[11px] font-semibold uppercase tracking-wider text-accent">Voice recording</div>
         <h1 className="text-xl font-semibold leading-tight">{view.title}</h1>
         {view.producer && <div className="text-sm text-ink-dim">from {view.producer}</div>}
       </header>
 
+      <div className="flex min-w-0 flex-1 flex-col lg:col-start-1 lg:row-start-2">
       {!cap.ok && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{cap.problem}</div>}
 
       {saved && !take && phase === 'ready' && (
@@ -305,8 +340,9 @@ export const GuestPage: React.FC = () => {
         </section>
       )}
       {!remote && <div className="flex-1" />}
+      </div>
 
-      <section className={`${take && phase !== 'recording' ? '' : 'sticky bottom-0 '}border-t border-line-strong bg-surface-1 px-4 py-3`} aria-label="Recording controls">
+      <section className={`${take && phase !== 'recording' ? '' : 'sticky bottom-0 '}border-t border-line-strong bg-surface-1 px-4 py-3 lg:sticky lg:bottom-auto lg:top-0 lg:col-start-2 lg:row-start-2 lg:max-h-screen lg:self-start lg:overflow-y-auto lg:border-l lg:border-t-0`} aria-label="Recording controls">
         {error && <div role="alert" className="mb-3 rounded-card border border-danger/40 bg-danger/10 p-3 text-sm text-ink">{error}</div>}
         {notice && <div role="status" className="mb-3 rounded-card border border-line-strong bg-surface-2 p-3 text-sm text-ink">{notice}</div>}
 
@@ -317,6 +353,11 @@ export const GuestPage: React.FC = () => {
               <div className="font-num text-2xl text-ink" aria-label="Time recorded">{formatClock(elapsed)}</div>
               {target > 0 && <div className={`font-num text-xs ${remaining < 0 ? 'text-warn' : 'text-ink-dim'}`}>{remaining >= 0 ? `${formatClock(remaining)} left` : `${formatClock(-remaining)} over`}</div>}
             </div>
+            {!practiceRef.current && (
+              <div role="status" className={`mb-3 rounded-card border p-2 text-center text-sm font-semibold ${elapsed < LEAD_IN ? 'border-warn/40 bg-warn/10 text-ink' : 'border-ok/40 bg-ok/10 text-ink'}`}>
+                {elapsed < LEAD_IN ? `Stay quiet for ${Math.ceil(LEAD_IN - elapsed)}...` : 'Read now'}
+              </div>
+            )}
             <div className="mb-3 h-2 overflow-hidden rounded-full bg-surface-3" role="meter" aria-label="Input level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Number(level.toFixed(2))}>
               <div className={`h-full rounded-full ${level > 0.95 ? 'bg-danger' : level > 0.7 ? 'bg-warn' : 'bg-ok'}`} style={{ width: `${Math.min(100, level * 100)}%`, transition: 'width 60ms linear' }} />
             </div>
@@ -327,6 +368,10 @@ export const GuestPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-3">
+            <div>
+              <button type="button" aria-expanded={setupOpen} onClick={() => setSetupOpen((o) => !o)} className="mb-2 text-xs font-medium text-accent hover:underline">{setupOpen ? 'Hide microphone setup' : 'Microphone and room check'}</button>
+              {setupOpen && <SetupPanel micId={micId} onMicId={(id) => { setMicId(id); writeStore(MIC_KEY, id); }} disabled={!cap.ok || busySending} onInfo={(i) => { infoRef.current = i; }} />}
+            </div>
             <Input label="Your name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="So the producer knows whose take this is" />
             {take && (
               <div className="rounded-card border border-line bg-surface-2 p-3">
@@ -334,6 +379,9 @@ export const GuestPage: React.FC = () => {
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${take.practice ? 'border border-line bg-surface-1 text-ink-dim' : 'bg-accent text-accent-ink'}`}>{take.practice ? 'Rehearsal' : 'Your take'}</span>
                   <span className="font-num">{formatClock(take.seconds)} · {(wavBytes(take.seconds, take.sampleRate) / 1048576).toFixed(1)} MB</span>
                 </div>
+                {take.report && take.report.overall !== 'ok' && !sentCount && (
+                  <div className="mb-3 rounded-card border border-line bg-surface-1 p-2"><div className="mb-1.5 text-xs font-semibold text-ink-dim">Before you send</div><Findings report={take.report} /></div>
+                )}
                 <audio key={take.url} src={take.url} controls className="mb-3 w-full" aria-label={take.practice ? 'Play rehearsal' : 'Play your take'} />
                 {take.practice ? (
                   <p className="text-xs text-ink-dim">A rehearsal is never saved or sent. When you are ready, press Record.</p>
