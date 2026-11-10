@@ -20,6 +20,8 @@ export interface SavedSession {
   /** Which job the recording belongs to */
   jobKey: string;
   sampleRate: number;
+  /** 16 when missing (takes saved before 24-bit existed) */
+  bits?: 16 | 24;
   startedAt: number;
   chunkCount: number;
   /** True once Stop was pressed; false means the take was interrupted */
@@ -37,7 +39,7 @@ export const beginSession = async (s: Omit<SavedSession, 'chunkCount' | 'finishe
   } catch { /* recovery unavailable */ }
 };
 
-export const saveChunk = async (id: string, index: number, pcm: Int16Array): Promise<void> => {
+export const saveChunk = async (id: string, index: number, pcm: Int16Array | Int32Array): Promise<void> => {
   try {
     const db = await open();
     const tx = db.transaction(['chunks', 'sessions'], 'readwrite');
@@ -59,12 +61,12 @@ export const finishSession = async (id: string): Promise<void> => {
   } catch { /* recovery unavailable */ }
 };
 
-export const loadSession = async (id: string): Promise<Int16Array[]> => {
+export const loadSession = async (id: string): Promise<(Int16Array | Int32Array)[]> => {
   try {
     const db = await open();
     const tx = db.transaction('chunks', 'readonly');
     const range = IDBKeyRange.bound(`${id}:`, `${id}:￿`);
-    return (await req(tx.objectStore('chunks').getAll(range))) as Int16Array[];
+    return (await req(tx.objectStore('chunks').getAll(range))) as (Int16Array | Int32Array)[];
   } catch { return []; }
 };
 

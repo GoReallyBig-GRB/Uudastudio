@@ -227,6 +227,59 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     return json({ id, attachment: { id: attId, name, bytes: stored.bytes } }, 201);
   }
 
+  if (route === 'uploads') {
+    const bad = (e: string, s = 400) => fail(s, e);
+    if (req.method === 'POST' && !rest[1]) {
+      let b: Record<string, unknown>;
+      try { b = (await req.json()) as Record<string, unknown>; } catch { return bad('Bad request.'); }
+      const kind = b.kind === 'reference' ? 'reference' : 'attachment';
+      if (kind === 'reference' && role !== 'producer') return bad('Only the producer can add a reference.', 403);
+      if (repo.messageCount() >= LIMITS.messages) return bad('This thread is full.', 429);
+      const size = Math.floor(Number(b.size));
+      if (!Number.isFinite(size) || size <= 0) return bad('The file is empty.');
+      if (size > LIMITS.attachmentBytes) return bad(`That file is too large. The limit is ${LIMITS.attachmentBytes / 1048576} MB.`, 413);
+      if (size > LIMITS.jobBytes - repo.totalBytes()) return bad('This job has no room left for more audio.', 413);
+      const id = env.newKey();
+      repo.putUpload({ id, kind, name: safeName(clip(b.name, 120) || 'audio'), mime: safeMime(clip(b.mime, 60) || 'audio/wav'), who: clip(b.who, LIMITS.name).trim(), text: clip(b.text, LIMITS.text).trim(), thread: threadFor(role, new URL(`http://x/?thread=${b.thread === 'client' ? 'client' : 'talent'}`)), role, size, ts: now() });
+      return json({ uploadId: id, chunkSize: CHUNK, chunks: Math.ceil(size / CHUNK) }, 201);
+    }
+    const up = rest[1] ? repo.getUpload(rest[1]) : null;
+    if (!up || up.role !== role) return bad('That upload was not found. Send the file again.', 404);
+    const count = Math.ceil(up.size / CHUNK);
+    if (req.method === 'GET' && !rest[2]) return json({ received: repo.chunkIndexes(up.id), chunks: count });
+    if (req.method === 'PUT' && rest[2] !== undefined && rest[2] !== 'complete') {
+      const idx = Number(rest[2]);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= count) return bad('Bad piece number.');
+      const data = new Uint8Array(await req.arrayBuffer());
+      const want = idx === count - 1 ? up.size - idx * CHUNK : CHUNK;
+      if (data.length !== want) return bad('That piece is the wrong size. Send it again.', 422);
+      const sum = (req.headers.get('x-chunk-sha256') || '').toLowerCase();
+      const got = [...new Uint8Array(await crypto.subtle.digest('SHA-256', data))].map((x) => x.toString(16).padStart(2, '0')).join('');
+      if (sum !== got) return bad('That piece was damaged on the way. Send it again.', 422);
+      repo.putChunk(up.id, idx, data);
+      return json({ ok: true, idx });
+    }
+    if (req.method === 'POST' && rest[2] === 'complete') {
+      const have = repo.chunkIndexes(up.id);
+      if (have.length !== count || have.some((v, i) => v !== i)) return json({ error: 'Some of the file did not arrive. Send it again.', received: have }, 409);
+      const first = repo.getChunk(up.id, 0);
+      if (!first || !looksLikeAudio(first)) { repo.deleteAtt(up.id); repo.deleteUpload(up.id); return bad('That does not look like an audio file.', 415); }
+      repo.addAtt({ id: up.id, name: up.name, mime: up.mime, bytes: up.size, ts: now() });
+      repo.deleteUpload(up.id);
+      const att = { id: up.id, name: up.name, bytes: up.size };
+      if (up.kind === 'reference') {
+        if (job.referenceAtt) repo.deleteAtt(job.referenceAtt);
+        repo.setReference(up.id);
+        env.touch?.();
+        return json({ attachment: att }, 201);
+      }
+      const id = repo.addMessage({ ts: now(), thread: up.thread, role, name: up.who || (role === 'producer' ? job.producer || 'Producer' : 'Talent'), text: up.text, att: up.id });
+      env.touch?.();
+      return json({ id, attachment: att }, 201);
+    }
+    return bad('Not found.', 404);
+  }
+
   if (route === 'audio' && (req.method === 'GET' || req.method === 'HEAD') && rest[1]) return serveAudio(req, repo, rest[1]);
 
   if (route === 'revoke' && req.method === 'POST') {

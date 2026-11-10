@@ -38,29 +38,59 @@ export const getThread = (jobId: string, key: string, after = 0) =>
 export const postMessage = (jobId: string, key: string, name: string, text: string) =>
   net(fetch(`${BASE}/${jobId}/messages`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ name, text }) }).then(read));
 
-/** Uploads a file with progress (fetch cannot report upload progress, so this uses XMLHttpRequest) */
-const put = (url: string, key: string, blob: Blob, onProgress?: (fraction: number) => void): Promise<{ id?: number }> =>
-  new Promise((resolve, reject) => {
-    const x = new XMLHttpRequest();
-    x.open('PUT', url);
-    x.setRequestHeader('x-job-key', key);
-    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
-    x.onerror = () => reject(new ApiError(0, 'No connection. Check the internet and try again.'));
-    x.onabort = () => reject(new ApiError(0, 'The upload was cancelled.'));
-    x.onload = () => {
-      let b: { error?: string; id?: number } = {};
-      try { b = JSON.parse(x.responseText); } catch { /* not JSON */ }
-      if (x.status >= 200 && x.status < 300) resolve(b);
-      else reject(new ApiError(x.status, b.error ?? 'The file could not be sent. Try again.'));
-    };
-    x.send(blob);
-  });
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const hex = async (d: ArrayBuffer) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', d))].map((x) => x.toString(16).padStart(2, '0')).join('');
+
+/** Uploads begun in this page, so a retry of the same file carries on from the pieces already stored */
+const begun = new WeakMap<Blob, string>();
+
+/**
+ * Sends a file in pieces. Each piece carries its SHA-256 so the server can refuse one damaged in transit, and a piece that
+ * fails is retried; sending the same file again continues from the pieces the server already holds.
+ */
+const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'attachment' | 'reference'; name: string; mime: string; who?: string; text?: string; thread?: string }, onProgress?: (f: number) => void): Promise<{ id?: number; attachment?: Attachment }> => {
+  const h = { 'x-job-key': key };
+  let uploadId = begun.get(blob);
+  let chunkSize = 0, chunks = 0, have = new Set<number>();
+  if (uploadId) {
+    try {
+      const st = (await net(fetch(`${BASE}/${jobId}/uploads/${uploadId}`, { headers: h, cache: 'no-store' }).then(read))) as { received: number[]; chunks: number };
+      have = new Set(st.received); chunks = st.chunks;
+    } catch (e) { if (e instanceof ApiError && e.status === 404) uploadId = undefined; else throw e; }
+  }
+  if (!uploadId) {
+    const r = (await net(fetch(`${BASE}/${jobId}/uploads`, { method: 'POST', headers: { ...h, 'content-type': 'application/json' }, body: JSON.stringify({ ...init, size: blob.size }) }).then(read))) as { uploadId: string; chunkSize: number; chunks: number };
+    uploadId = r.uploadId; chunkSize = r.chunkSize; chunks = r.chunks; have = new Set();
+    begun.set(blob, uploadId);
+  }
+  if (!chunkSize) chunkSize = 1024 * 1024; // resuming: the server always cuts at 1 MB
+  onProgress?.(have.size / chunks);
+  for (let i = 0; i < chunks; i++) {
+    if (have.has(i)) continue;
+    const data = await blob.slice(i * chunkSize, Math.min(blob.size, (i + 1) * chunkSize)).arrayBuffer();
+    const sum = await hex(data);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await net(fetch(`${BASE}/${jobId}/uploads/${uploadId}/${i}`, { method: 'PUT', headers: { ...h, 'x-chunk-sha256': sum }, body: data }).then(read));
+        break;
+      } catch (e) {
+        const retryable = !(e instanceof ApiError) || e.status === 0 || e.status === 422 || e.status >= 500;
+        if (!retryable || attempt >= 4) throw e;
+        await sleep(600 * 2 ** attempt);
+      }
+    }
+    onProgress?.((i + 1) / chunks);
+  }
+  const done = (await net(fetch(`${BASE}/${jobId}/uploads/${uploadId}/complete`, { method: 'POST', headers: h }).then(read))) as { id?: number; attachment?: Attachment };
+  begun.delete(blob);
+  return done;
+};
 
 export const sendAudio = (jobId: string, key: string, blob: Blob, o: { name: string; who: string; text?: string }, onProgress?: (f: number) => void) =>
-  put(`${BASE}/${jobId}/attachments?name=${encodeURIComponent(o.name)}&mime=${encodeURIComponent(blob.type || 'audio/wav')}&who=${encodeURIComponent(o.who)}&text=${encodeURIComponent(o.text ?? '')}`, key, blob, onProgress);
+  upload(jobId, key, blob, { kind: 'attachment', name: o.name, mime: blob.type || 'audio/wav', who: o.who, text: o.text ?? '' }, onProgress);
 
 export const sendReference = (jobId: string, key: string, file: File, onProgress?: (f: number) => void) =>
-  put(`${BASE}/${jobId}/reference?name=${encodeURIComponent(file.name)}&mime=${encodeURIComponent(file.type || 'audio/wav')}`, key, file, onProgress);
+  upload(jobId, key, file, { kind: 'reference', name: file.name, mime: file.type || 'audio/wav' }, onProgress);
 
 export const audioUrl = (jobId: string, attId: string, key: string): string => `${BASE}/${jobId}/audio/${attId}?k=${key}`;
 

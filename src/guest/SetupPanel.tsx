@@ -5,17 +5,11 @@ import { MicCapture } from './capture';
 import { MODE_TEXT, type ChannelMode } from './channels';
 import type { MicInfo } from './devices';
 import { checkRoom, type Level, type RoomReport } from './roomCheck';
+import { describeSettings, processingOn } from './captureSettings';
+import { pcmToFloat, type Bits, type Pcm } from './wavWriter';
 
 const QUIET_SECONDS = 4;
 const TEST_SECONDS = 10;
-
-export const int16ToFloat = (chunks: readonly Int16Array[]): Float32Array => {
-  const n = chunks.reduce((s, c) => s + c.length, 0);
-  const out = new Float32Array(n);
-  let o = 0;
-  for (const c of chunks) for (let i = 0; i < c.length; i++) out[o++] = c[i] / 32768;
-  return out;
-};
 
 export const LEVEL_STYLE: Record<Level, { icon: React.ReactNode; cls: string }> = {
   ok: { icon: <CheckCircle2 className="h-4 w-4 shrink-0 text-ok" aria-hidden />, cls: 'text-ink' },
@@ -31,7 +25,7 @@ export const Findings: React.FC<{ report: RoomReport }> = ({ report }) => (
   </ul>
 );
 
-export interface SetupInfo { micLabel: string; sampleRate: number; channelMode: ChannelMode }
+export interface SetupInfo { micLabel: string; sampleRate: number; channelMode: ChannelMode; detail: string; processing: string[] }
 
 interface SheetProps {
   open: boolean;
@@ -43,6 +37,9 @@ interface SheetProps {
   fresh: MicInfo | null;
   /** Ask the browser for the microphone (labels only appear after that) and re-list */
   onAllow: () => Promise<void>;
+  /** Sample size of what is recorded */
+  bits: Bits;
+  onBits: (b: Bits) => void;
   disabled: boolean;
   onResult: (info: SetupInfo, report: RoomReport) => void;
 }
@@ -53,7 +50,7 @@ const kindOf = (m: MicInfo) => (m.bluetooth ? 'bluetooth' : /usb|samson|rode|rø
  * The microphone sheet: a bottom sheet on a phone, a dialog on a computer. Pick the microphone from clear cards, then listen to the
  * room for ten seconds. Nothing from the test is kept or sent.
  */
-export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onMicId, fresh, onAllow, disabled, onResult }) => {
+export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onMicId, fresh, onAllow, bits, onBits, disabled, onResult }) => {
   const [phase, setPhase] = useState<'idle' | 'quiet' | 'read'>('idle');
   const [level, setLevel] = useState(0);
   const [report, setReport] = useState<RoomReport | null>(null);
@@ -83,16 +80,18 @@ export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onM
   const test = async () => {
     setError(''); setReport(null); setInfo(null);
     const c = new MicCapture();
-    const chunks: Int16Array[] = [];
+    const chunks: Pcm[] = [];
     let samples = 0, finished = false;
     const done = async () => {
       if (finished) return;
       finished = true; capRef.current = null;
-      const sr = c.sampleRate, label = c.label, mode = c.channelMode;
+      const sr = c.sampleRate, label = c.label, mode = c.channelMode, settings = c.settings;
       await c.stop();
       setPhase('idle'); setLevel(0);
-      const r = checkRoom(int16ToFloat(chunks), sr);
-      const i = { micLabel: label, sampleRate: sr, channelMode: mode };
+      const r = checkRoom(pcmToFloat(chunks, bits), sr);
+      const on = processingOn(settings);
+      if (on.length) r.findings.push({ id: 'processing', level: 'warn', text: `Your browser is still applying ${on.join(' and ')}, which can thin or pump the voice. Try Chrome or Edge, or turn it off in the device's sound settings.` });
+      const i = { micLabel: label, sampleRate: sr, channelMode: mode, detail: describeSettings(settings, sr), processing: on };
       setReport(r); setInfo(i); onResult(i, r);
       void onAllow();
     };
@@ -106,7 +105,7 @@ export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onM
         },
         onLevel: (p) => setLevel(p),
         onLost: () => { if (!finished) { finished = true; capRef.current = null; setPhase('idle'); setError('The microphone stopped during the test. Check it is plugged in and try again.'); } },
-      }, micId || undefined);
+      }, micId || undefined, bits);
       capRef.current = c;
       setPhase('quiet');
     } catch (e) {
@@ -164,6 +163,16 @@ export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onM
             </ul>
           </div>
           <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">Recording quality</div>
+            <div role="radiogroup" aria-label="Recording quality" className="grid grid-cols-2 gap-2">
+              {([[16, '16-bit', 'Standard. Smaller files.'], [24, '24-bit', 'More room for quiet mics. Files 1.5x bigger.']] as const).map(([b, name, note]) => (
+                <button key={b} type="button" role="radio" aria-checked={bits === b} disabled={testing || disabled} onClick={() => onBits(b)} className={`rounded-card border px-3 py-2 text-left disabled:opacity-60 ${bits === b ? 'border-accent bg-accent/10' : 'border-line bg-surface-2 hover:bg-surface-3'}`}>
+                  <span className="block text-sm font-medium text-ink">{name}</span><span className="block text-[11px] text-ink-dim">{note}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
             <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">2 · Listen to the room</div>
             {testing ? (
               <div role="status" className="rounded-card border border-line-strong bg-surface-2 p-4 text-center">
@@ -178,7 +187,7 @@ export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onM
             {report && !testing && (
               <div className="mt-3 rounded-card border border-line bg-surface-2 p-3">
                 <Findings report={report} />
-                {info && <p className="mt-2 text-[11px] text-ink-faint">Heard through: {info.micLabel || 'microphone'} · {Math.round(info.sampleRate / 100) / 10} kHz · {MODE_TEXT[info.channelMode]}. Nothing from this test is saved or sent.</p>}
+                {info && <p className="mt-2 text-[11px] text-ink-faint">Heard through: {info.micLabel || 'microphone'} · {info.detail} · {MODE_TEXT[info.channelMode]}. Nothing from this test is saved or sent.</p>}
               </div>
             )}
           </div>

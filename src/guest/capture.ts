@@ -2,7 +2,8 @@
  * Records the microphone to 16-bit mono PCM blocks. Each block is handed out as it arrives, so the page can save it to disk and a
  * reload or crash does not lose the take. No effects: no echo cancellation, noise suppression or auto gain, so the producer gets raw audio.
  */
-import { floatToInt16, peakOf } from './wavWriter';
+import { floatToPcm, peakOf, type Bits, type Pcm } from './wavWriter';
+import { readSettings, type CaptureSettings } from './captureSettings';
 import { mixBlock, newMixState, type ChannelMode } from './channels';
 
 const WORKLET = `
@@ -23,7 +24,7 @@ registerProcessor('uuda-cap', Cap);`;
 
 export interface CaptureHandlers {
   /** A block of audio, ready to store */
-  onBlock: (pcm: Int16Array, index: number) => void;
+  onBlock: (pcm: Pcm, index: number) => void;
   /** Peak level 0..1 of the latest block, for the meter */
   onLevel: (peak: number) => void;
   /** The microphone stopped by itself (unplugged, or taken by another app) */
@@ -38,16 +39,23 @@ export class MicCapture {
   private index = 0;
   private running = false;
   sampleRate = 0;
+  /** What the browser actually gave us (it may ignore what was asked) */
+  settings: CaptureSettings = {};
+  /** Sample size of what is recorded */
+  bits: Bits = 16;
   /** Name of the microphone the browser gave us */
   label = '';
   /** How the channels were combined (updates as the take goes) */
   channelMode: ChannelMode = 'mono';
   private mix = newMixState();
 
-  async start(h: CaptureHandlers, deviceId?: string): Promise<void> {
+  async start(h: CaptureHandlers, deviceId?: string, bits: Bits = 16): Promise<void> {
+    this.bits = bits;
     // Two channels are asked for so a USB or lavalier mic that is stereo is seen as it is; they are mixed to one below
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), channelCount: { ideal: 2 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-    this.label = this.stream.getAudioTracks()[0]?.label ?? '';
+    const track = this.stream.getAudioTracks()[0];
+    this.label = track?.label ?? '';
+    this.settings = track ? readSettings(track) : {};
     this.mix = newMixState();
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.ctx = new Ctx();
@@ -61,7 +69,7 @@ export class MicCapture {
       const m = mixBlock(left, right, this.mix);
       this.channelMode = m.mode;
       h.onLevel(peakOf(m.out));
-      h.onBlock(floatToInt16(m.out), this.index++);
+      h.onBlock(floatToPcm(m.out, this.bits), this.index++);
     };
     try {
       const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));

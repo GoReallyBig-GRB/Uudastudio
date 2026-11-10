@@ -132,3 +132,53 @@ describe('revoke and delete', () => {
     expect(wiped).toBe(true);
   });
 });
+
+const sha = async (d: Uint8Array) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', d))].map((x) => x.toString(16).padStart(2, '0')).join('');
+describe('resumable uploads', () => {
+  const begin = async (env: HandlerEnv, key: string, size: number, extra: object = {}) =>
+    (await (await call(env, 'POST', 'uploads', { key, body: JSON.stringify({ kind: 'attachment', name: 'take.wav', mime: 'audio/wav', who: 'Tolu', text: 'take 1', size, ...extra }) })).json()) as any;
+  const sendPiece = async (env: HandlerEnv, key: string, id: string, idx: number, data: Uint8Array, sum?: string) =>
+    call(env, 'PUT', `uploads/${id}/${idx}`, { key, body: data, headers: { 'x-chunk-sha256': sum ?? (await sha(data)) } });
+
+  it('stores pieces, resumes from what arrived, and finishes as a message with audio', async () => {
+    const env = mk(); const k = await create(env);
+    const file = wav(CHUNK * 2 + 500);
+    const u = await begin(env, k.talentKey, file.length);
+    expect(u.chunks).toBe(3);
+    expect((await sendPiece(env, k.talentKey, u.uploadId, 0, file.slice(0, CHUNK))).status).toBe(200);
+    expect((await sendPiece(env, k.talentKey, u.uploadId, 2, file.slice(2 * CHUNK))).status).toBe(200);
+    const st = await (await call(env, 'GET', `uploads/${u.uploadId}`, { key: k.talentKey })).json() as any;
+    expect(st.received).toEqual([0, 2]);
+    expect((await call(env, 'POST', `uploads/${u.uploadId}/complete`, { key: k.talentKey })).status).toBe(409);
+    expect((await sendPiece(env, k.talentKey, u.uploadId, 1, file.slice(CHUNK, 2 * CHUNK))).status).toBe(200);
+    const done = await call(env, 'POST', `uploads/${u.uploadId}/complete`, { key: k.talentKey });
+    expect(done.status).toBe(201);
+    const t = await (await call(env, 'GET', 'thread', { key: k.producerKey })).json() as any;
+    expect(t.messages[0].attachment.bytes).toBe(file.length); expect(t.messages[0].name).toBe('Tolu');
+    const got = new Uint8Array(await (await call(env, 'GET', `audio/${u.uploadId}`, { key: k.producerKey })).arrayBuffer());
+    expect(await sha(got)).toBe(await sha(file));
+  });
+  it('rejects a damaged piece, a wrong-size piece, other roles, and non-audio', async () => {
+    const env = mk(); const k = await create(env);
+    const file = wav(1000);
+    const u = await begin(env, k.talentKey, file.length);
+    expect((await sendPiece(env, k.talentKey, u.uploadId, 0, file, 'f'.repeat(64))).status).toBe(422);
+    expect((await sendPiece(env, k.talentKey, u.uploadId, 0, file.slice(0, 999))).status).toBe(422);
+    expect((await call(env, 'GET', `uploads/${u.uploadId}`, { key: k.producerKey })).status).toBe(404);
+    const junk = new Uint8Array(1000).fill(7);
+    const v = await begin(env, k.talentKey, junk.length);
+    await sendPiece(env, k.talentKey, v.uploadId, 0, junk);
+    expect((await call(env, 'POST', `uploads/${v.uploadId}/complete`, { key: k.talentKey })).status).toBe(415);
+  });
+  it('limits size and lets only the producer set a reference', async () => {
+    const env = mk(); const k = await create(env);
+    expect((await call(env, 'POST', 'uploads', { key: k.talentKey, body: JSON.stringify({ size: LIMITS.attachmentBytes + 1 }) })).status).toBe(413);
+    expect((await call(env, 'POST', 'uploads', { key: k.talentKey, body: JSON.stringify({ kind: 'reference', size: 100 }) })).status).toBe(403);
+    const file = wav(800);
+    const u = await begin(env, k.producerKey, 800, { kind: 'reference' });
+    await sendPiece(env, k.producerKey, u.uploadId, 0, file);
+    expect((await call(env, 'POST', `uploads/${u.uploadId}/complete`, { key: k.producerKey })).status).toBe(201);
+    const t = await (await call(env, 'GET', 'thread', { key: k.talentKey })).json() as any;
+    expect(t.job.reference.id).toBe(u.uploadId); expect(t.messages.length).toBe(0);
+  });
+});
