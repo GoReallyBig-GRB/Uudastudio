@@ -27,6 +27,8 @@ import { joinInOrder, cropTrackWindow, stepClip } from './components/joinInOrder
 import { JoinBar } from './components/JoinBar';
 import { InviteGuestModal } from './guest/InviteGuestModal';
 import { JobsModal, type JobsTarget } from './jobs/JobsModal';
+import { AudioDevicesSheet } from './components/AudioDevicesSheet';
+import { useAudioDevices } from './audio/useAudioDevices';
 import { useJobs } from './jobs/useJobs';
 import { insertSilenceInTracks, shiftMarkersForInsert, silenceAssetId, SILENCE_ASSET_SECONDS, type SilenceScope } from './components/insertSilence';
 import { toggleMarkerAt, neighbourMarker, followClips, markerLabel } from './audio/markers';
@@ -2826,6 +2828,7 @@ const MainStudio: React.FC = () => {
 
   // ---- Join clips in the order picked (Join button): numbered badges, preview, then join ----
   const [isInviteGuestOpen, setIsInviteGuestOpen] = useState(false);
+  const audioDevices = useAudioDevices();
   const jobsState = useJobs();
   const [jobsWindow, setJobsWindow] = useState<{ open: boolean; target: JobsTarget }>({ open: false, target: null });
   const [joinOrder, setJoinOrder] = useState<string[] | null>(null);
@@ -4353,6 +4356,7 @@ const MainStudio: React.FC = () => {
         <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => { setIsExportOpen(false); setTempClipLevels({}); }} selectedClipIds={exportClipIds} startWithSelection={exportSelectionFirst} tempClipLevels={tempClipLevels} onResetTempLevels={handleResetTempLevels} />
       )}
 
+      <AudioDevicesSheet {...audioDevices} onClose={audioDevices.close} />
       <JobsModal open={jobsWindow.open} onClose={() => setJobsWindow((w) => ({ ...w, open: false }))} jobs={jobsState} target={jobsWindow.target} onImportFile={handleImportJobFile} />
       <InviteGuestModal open={isInviteGuestOpen} onClose={() => setIsInviteGuestOpen(false)} defaultTitle={project.name ?? ''} />
       {joinOrder && (
