@@ -85,7 +85,8 @@ import { ChunkedCancelled, createVirtualSource, processedUndoLimit } from './aud
 import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJob';
 import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
 import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
-import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
+import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, studioSubfolder, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
+import { saveOrDownload } from './jobs/studioFolder';
 import { formatTimecode, formatVolumeDb } from './utils/formatters';
 import { masteringController } from './audio/masteringController';
 import { selectionScope } from './audio/exportScope';
@@ -131,6 +132,7 @@ interface ProjectFileHandle {
   createWritable(): Promise<ProjectFileWritable>;
 }
 interface WindowWithProjectFilePicker extends Window {
+  showDirectoryPicker?: unknown;
   showSaveFilePicker?: (options: {
     suggestedName: string;
     types: Array<{ description: string; accept: Record<string, string[]> }>;
@@ -478,14 +480,14 @@ const MainStudio: React.FC = () => {
       projectRootDirectoryRef.current = directory;
       projectFileHandleRef.current = null;
       setProjectRootDirectoryName(directory.name);
-      addToast({ type: 'success', title: 'Project Folder Selected', message: `Project files will use “${directory.name}” as the default folder. Existing saved file handles still take priority until Save As or a folder save.` });
+      addToast({ type: 'success', title: 'Uuda Studio Folder Ready', message: `Projects, exports, templates and job files now save into “${directory.name}”, in tidy sub-folders (Projects, Exports, Templates, Jobs).` });
     } catch (err) {
       if (isPickerCancelled(err)) return;
       if (isPickerBlockedError(err)) {
         addToast({ type: 'warning', title: 'Folder access is blocked here', message: blockedPickerMessage(isEmbeddedFrame()) });
         return;
       }
-      addToast({ type: 'error', title: 'Folder Selection Failed', message: err instanceof Error ? err.message : 'Could not select a project folder.' });
+      addToast({ type: 'error', title: 'Folder Selection Failed', message: err instanceof Error ? err.message : 'Could not select the Uuda Studio folder.' });
     }
   }, [addToast]);
 
@@ -1143,13 +1145,21 @@ const MainStudio: React.FC = () => {
       // If a root folder is configured, create/update the project's .uuda file there
       // before falling back to the single-file Save As picker.
       let pickerBlocked = false;
-      if (!fileHandle && !forceSaveAs && projectRootDirectoryRef.current) {
-        const directory = projectRootDirectoryRef.current;
+      if (!fileHandle && !forceSaveAs) {
         try {
-          if (await ensureProjectDirectoryPermission(directory)) {
-            fileHandle = await directory.getFileHandle(fileName, { create: true }) as unknown as ProjectFileHandle;
+          // First save with no Uuda Studio folder yet: ask once where it should live
+          if (!projectRootDirectoryRef.current && pickerWindow.showDirectoryPicker) {
+            const chosen = await chooseProjectRootDirectory();
+            projectRootDirectoryRef.current = chosen;
+            setProjectRootDirectoryName(chosen.name);
+          }
+          const directory = projectRootDirectoryRef.current;
+          if (directory && (await ensureProjectDirectoryPermission(directory))) {
+            const projects = await studioSubfolder(directory, 'Projects');
+            fileHandle = await projects.getFileHandle(fileName, { create: true }) as unknown as ProjectFileHandle;
           }
         } catch (err) {
+          if (isPickerCancelled(err)) return false;
           if (!isPickerBlockedError(err)) throw err;
           pickerBlocked = true;
         }
@@ -1183,7 +1193,7 @@ const MainStudio: React.FC = () => {
         addToast({
           type: 'success',
           title: 'Project Saved to Computer',
-          message: `Saved self-contained project "${fileHandle.name || fileName}".`,
+          message: `Saved self-contained project "${fileHandle.name || fileName}"${projectRootDirectoryRef.current && !forceSaveAs ? ` in ${projectRootDirectoryRef.current.name} / Projects` : ''}.`,
         });
       } else {
         // Non-Chromium fallback: downloads remain the supported save mechanism.
@@ -1264,15 +1274,8 @@ const MainStudio: React.FC = () => {
         }
         if (meta.toFile) {
           const blob = new Blob([serializeTemplate(template)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = templateFileName(template);
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          done.push(`downloaded as "${templateFileName(template)}"`);
+          const saved = await saveOrDownload(blob, templateFileName(template), ['Templates']);
+          done.push(saved.inFolder ? `saved to ${saved.where}` : `downloaded as "${templateFileName(template)}"`);
         }
 
         if (accountError && done.length === 0) {
@@ -1453,7 +1456,7 @@ const MainStudio: React.FC = () => {
     try {
       let directory = projectRootDirectoryRef.current;
       if (!directory) {
-        addToast({ type: 'info', title: 'Choose a Project Folder First', message: 'Select a root folder before opening a project from it.' });
+        addToast({ type: 'info', title: 'Set Up the Uuda Studio Folder First', message: 'Choose the Uuda Studio folder (File menu) before opening a project from it. Saving a project the first time also sets it up.' });
         return;
       }
       if (!(await ensureProjectDirectoryPermission(directory))) {
@@ -1462,9 +1465,14 @@ const MainStudio: React.FC = () => {
         setProjectRootDirectoryName(directory.name);
       }
       const candidates: ProjectDirectoryFileHandle[] = [];
-      for await (const entry of directory.values()) {
-        if (entry.kind === 'file' && /\.uuda$/i.test(entry.name)) candidates.push(entry as unknown as ProjectDirectoryFileHandle);
-      }
+      // Projects live in the Projects sub-folder; .uuda files saved straight in the folder by earlier versions are listed too
+      const scan = async (dir: ProjectDirectoryHandle) => {
+        for await (const entry of dir.values()) {
+          if (entry.kind === 'file' && /\.uuda$/i.test(entry.name)) candidates.push(entry as unknown as ProjectDirectoryFileHandle);
+        }
+      };
+      await scan(directory);
+      try { await scan(await directory.getDirectoryHandle('Projects')); } catch { /* no Projects folder yet */ }
       candidates.sort((a, b) => a.name.localeCompare(b.name));
       if (candidates.length === 0) {
         addToast({ type: 'info', title: 'No Uuda Projects Found', message: `No .uuda files were found in “${directory.name}”.` });

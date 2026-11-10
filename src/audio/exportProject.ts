@@ -4,7 +4,7 @@
  */
 import type { Project } from '../types';
 import { audioEngine } from './engine';
-import { saveToStudio } from '../jobs/studioFolder';
+import { saveOrDownload } from '../jobs/studioFolder';
 import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 import { readStreamedFrames } from '../assets/streamedStore';
 import { planMixdown, type MixdownDeps } from './blockMixdown';
@@ -184,22 +184,7 @@ export async function measureExportedBlob(blob: Blob): Promise<LoudnessStats> {
   return meter.finish();
 }
 
-/** Trigger file download directly in browser */
+/** Saves an export into the Uuda Studio folder (Exports) when one is set up, otherwise downloads it */
 export function triggerFileDownload(blob: Blob, filename: string): void {
-  // In Chrome and Edge, files go into the person's Uuda Studio folder (Exports) once they have chosen one; otherwise a normal download
-  void saveToStudio(blob, filename, ['Exports'], { ask: true, existing: true }).then((where) => { if (where === null) plainDownload(blob, filename); }, () => plainDownload(blob, filename));
-}
-
-function plainDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.style.display = 'none';
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, 1000);
+  void saveOrDownload(blob, filename, ['Exports']);
 }
