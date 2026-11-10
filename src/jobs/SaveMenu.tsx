@@ -1,18 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Download } from 'lucide-react';
-import { FOLDER, canPickFolder, saveToCloud, saveToComputer } from './saveFile';
+import { canPickFolder, saveToCloud, saveToComputer } from './saveFile';
+import { ROOT_NAME, cleanName, studioFolderLabel } from './studioFolder';
 
 interface Props {
   /** The file, or a way to fetch it (received audio is fetched only when the person chooses where to put it) */
   getBlob: () => Promise<Blob>;
   name: string;
   label?: string;
+  /** Sub-folders inside Uuda Studio where this file belongs, e.g. ["Jobs", "Intro spot"] */
+  folder?: string[];
   /** Visual style: "pill" is the small chip used in message bubbles, "button" is a full-size button */
   look?: 'pill' | 'button';
 }
 
 /** One Save button that asks where the file should go: this computer, or cloud storage through the device's own save menu. */
-export const SaveMenu: React.FC<Props> = ({ getBlob, name, label = 'Save', look = 'pill' }) => {
+export const SaveMenu: React.FC<Props> = ({ getBlob, name, label = 'Save', look = 'pill', folder = ['Jobs'] }) => {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
@@ -38,11 +41,13 @@ export const SaveMenu: React.FC<Props> = ({ getBlob, name, label = 'Save', look 
   }, [open]);
   useEffect(() => { if (!note) return; const t = window.setTimeout(() => setNote(''), 6000); return () => window.clearTimeout(t); }, [note]);
 
-  const go = async (to: 'computer' | 'cloud') => {
+  const [home, setHome] = useState('');
+  useEffect(() => { if (open) void studioFolderLabel().then(setHome); }, [open]);
+  const go = async (to: 'computer' | 'cloud' | 'move') => {
     setOpen(false); setBusy(true); setNote('');
     try {
       const blob = await getBlob();
-      setNote(await (to === 'computer' ? saveToComputer(blob, name) : saveToCloud(blob, name)));
+      setNote(await (to === 'cloud' ? saveToCloud(blob, name) : saveToComputer(blob, name, folder, { choose: to === 'move' })));
     } catch (e) { setNote(e instanceof Error ? e.message : 'The file could not be saved.'); } finally { setBusy(false); }
   };
   const cls = look === 'pill'
@@ -57,8 +62,13 @@ export const SaveMenu: React.FC<Props> = ({ getBlob, name, label = 'Save', look 
       {open && (
         <span role="menu" aria-label="Where to save" style={pos} className="z-50 overflow-hidden rounded-card border border-line bg-surface-1 shadow-lg">
           <button type="button" role="menuitem" className={item} onClick={() => void go('computer')}>
-            This computer<span className="block text-[11px] text-ink-dim">{canPickFolder() ? `Pick a folder once; saved in "${FOLDER}" inside it` : 'Goes to your Downloads folder'}</span>
+            This computer<span className="block text-[11px] text-ink-dim">{canPickFolder() ? (home ? `Saved in ${ROOT_NAME} / ${folder.map((f) => cleanName(f)).join(' / ')}` : `You pick where the ${ROOT_NAME} folder lives, once. Every save after goes into it.`) : 'Goes to your Downloads folder'}</span>
           </button>
+          {canPickFolder() && home && (
+            <button type="button" role="menuitem" className={`${item} border-t border-line`} onClick={() => void go('move')}>
+              Change the {ROOT_NAME} folder<span className="block text-[11px] text-ink-dim">Now: {home}. Saves this file in the new place.</span>
+            </button>
+          )}
           <button type="button" role="menuitem" className={`${item} border-t border-line`} onClick={() => void go('cloud')}>
             Cloud storage<span className="block text-[11px] text-ink-dim">Opens your device's save menu (iCloud, Drive, Dropbox, Files)</span>
           </button>

@@ -400,6 +400,7 @@ export const GuestPage: React.FC = () => {
             fill
             messages={messages}
             self="talent"
+            folder={['Jobs', view.title || 'Recording']}
             audioSrc={(a) => audioUrl(remote.jobId, a.id, remote.key)}
             onSend={async (text) => { await postMessage(remote.jobId, remote.key, who() || 'Talent', text); await loadThread(); }}
             placeholder="Write to the producer"
@@ -518,7 +519,7 @@ export const GuestPage: React.FC = () => {
                         <Button size="md" variant="primary" disabled={busySending} onClick={() => void send()} leftIcon={<Send className="h-4 w-4" />}>{busySending ? `Sending ${Math.round((sending ?? 0) * 100)}%` : 'Send to producer'}</Button>
                       ) : (
                         <>
-                          <SaveMenu look="button" label="Save WAV" name={fileFor(take)} getBlob={async () => take.blob} />
+                          <SaveMenu look="button" label="Save WAV" folder={['Jobs', view.title || 'Recording']} name={fileFor(take)} getBlob={async () => take.blob} />
                         </>
                       )}
                       <Button size="md" variant="ghost" disabled={busySending} onClick={() => void dropTake()} leftIcon={<Trash2 className="h-4 w-4" />}>Delete</Button>

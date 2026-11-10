@@ -20,6 +20,8 @@ interface Props {
   messages: ThreadMessage[];
   self: 'producer' | 'talent';
   audioSrc: (a: Attachment) => string;
+  /** Where saved files belong inside the Uuda Studio folder, e.g. ["Jobs", "Intro spot"] */
+  folder?: string[];
   /** Producer only: bring a received take into the project */
   onImport?: (a: Attachment) => void;
   onSend: (text: string) => Promise<void>;
@@ -33,7 +35,7 @@ interface Props {
  * The message thread under a job, laid out like a chat app: your messages on the right, theirs on the left, grouped by sender,
  * day dividers, the time inside each bubble, and a rounded box with a round send button at the bottom. The same on both sides.
  */
-export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, onImport, onSend, placeholder, disabled, fill }) => {
+export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, onImport, onSend, placeholder, disabled, fill }) => {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -79,7 +81,7 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, onImport
                       <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-ink-dim">
                         <span className="min-w-0 truncate">{m.attachment.name} · {mb(m.attachment.bytes)}</span>
                         <span className="flex shrink-0 gap-1">
-                          <SaveMenu name={m.attachment.name} getBlob={async () => { const r = await fetch(audioSrc(m.attachment!)); if (!r.ok) throw new Error('The file could not be downloaded.'); return r.blob(); }} />
+                          <SaveMenu folder={folder} name={m.attachment.name} getBlob={async () => { const r = await fetch(audioSrc(m.attachment!)); if (!r.ok) throw new Error('The file could not be downloaded.'); return r.blob(); }} />
                           {onImport && <button type="button" onClick={() => onImport(m.attachment!)} className="rounded-full border border-accent/40 bg-accent-soft px-2 py-0.5 font-semibold text-accent hover:brightness-125">Add to project</button>}
                         </span>
                       </div>

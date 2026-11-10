@@ -226,6 +226,7 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImp
               fill
               messages={messages}
               self="producer"
+              folder={['Jobs', job.title]}
               audioSrc={(a) => audioUrl(job.id, a.id, job.producerKey)}
               onImport={(a) => void doImport(a)}
               onSend={async (text) => { await postMessage(job.id, job.producerKey, j?.producer || 'Producer', text); await load(); }}
