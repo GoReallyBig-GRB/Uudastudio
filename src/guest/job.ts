@@ -3,6 +3,8 @@
  * the talent page needs no server and no sign-in. Pure functions, unit-tested.
  */
 
+import { spokenText } from './scriptFormat';
+
 export interface GuestJob {
   /** Format version, so old links keep working */
   v: 1;
@@ -48,10 +50,7 @@ export const parseScript = (script: string): ScriptSegment[] => {
 };
 
 /** Words the talent has to read: notes are not counted */
-export const countWords = (script: string): number =>
-  parseScript(script)
-    .filter((s) => s.kind === 'speech')
-    .reduce((n, s) => n + (s.text.match(/\S+/g)?.length ?? 0), 0);
+export const countWords = (script: string): number => spokenText(script).match(/\S+/g)?.length ?? 0;
 
 export const estimateSeconds = (script: string, wordsPerSecond = WORDS_PER_SECOND): number => countWords(script) / wordsPerSecond;
 

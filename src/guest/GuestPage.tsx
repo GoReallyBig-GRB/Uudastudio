@@ -7,7 +7,8 @@ import { checkRoom, type RoomReport } from './roomCheck';
 import { Findings, MicSheet, int16ToFloat, type SetupInfo } from './SetupPanel';
 import { useMics } from './useMics';
 import { checkRecording } from './env';
-import { countWords, estimateSeconds, formatClock, jobFromHash, parseScript, type GuestJob } from './job';
+import { countWords, estimateSeconds, formatClock, jobFromHash, type GuestJob } from './job';
+import { FormattedScript } from './FormattedScript';
 import { beginSession, deleteSession, findSaved, finishSession, loadSession, saveChunk, type SavedSession } from './takeStore';
 import { takeFileName, totalSamples, wavBlob, wavBytes } from './wavWriter';
 import { audioUrl, getThread, postMessage, sendAudio, type ThreadMessage, type ThreadResponse } from '../jobs/api';
@@ -48,21 +49,8 @@ const makeTake = (n: number, sessionId: string, chunks: Int16Array[], sampleRate
 };
 
 const Script: React.FC<{ job: GuestJob; size: number }> = ({ job, size }) => {
-  const parts = useMemo(() => parseScript(job.script), [job.script]);
-  if (parts.length === 0) return <p className="text-ink-dim" style={{ fontSize: size }}>The producer has not added a script. Record what they asked for.</p>;
-  return (
-    <div className="whitespace-pre-wrap leading-relaxed text-ink" style={{ fontSize: size }}>
-      {parts.map((p, i) =>
-        p.kind === 'note' ? (
-          <span key={i} className="mx-0.5 inline-block rounded border border-accent/40 bg-accent/10 px-1.5 py-px align-baseline text-[0.7em] font-semibold italic text-accent" aria-label={`Director's note: ${p.text}`}>
-            {p.text}
-          </span>
-        ) : (
-          <span key={i}>{p.text}</span>
-        ),
-      )}
-    </div>
-  );
+  if (!job.script.trim()) return <p className="text-ink-dim" style={{ fontSize: size }}>The producer has not added a script. Record what they asked for.</p>;
+  return <FormattedScript script={job.script} size={size} />;
 };
 
 /** What the page shows about the job, wherever it came from (the link itself, or the server) */
