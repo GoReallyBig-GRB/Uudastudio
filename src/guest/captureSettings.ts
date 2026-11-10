@@ -1,11 +1,14 @@
 /** What the browser really did with the microphone, as opposed to what the page asked for. Browsers may ignore "processing off". */
 
+/** Newer browsers may report a mode name instead of true/false */
+const isOn = (v: unknown): boolean => v === true || (typeof v === 'string' && v !== '' && v !== 'none' && v !== 'false');
+
 export interface CaptureSettings {
   sampleRate?: number;
   channelCount?: number;
-  echoCancellation?: boolean;
-  noiseSuppression?: boolean;
-  autoGainControl?: boolean;
+  echoCancellation?: boolean | string;
+  noiseSuppression?: boolean | string;
+  autoGainControl?: boolean | string;
 }
 
 export const readSettings = (track: { getSettings?: () => MediaTrackSettings }): CaptureSettings => {
@@ -18,9 +21,9 @@ export const readSettings = (track: { getSettings?: () => MediaTrackSettings }):
 /** The browser features that are still switched on after we asked for them off */
 export const processingOn = (s: CaptureSettings): string[] => {
   const on: string[] = [];
-  if (s.echoCancellation === true) on.push('echo cancellation');
-  if (s.noiseSuppression === true) on.push('noise suppression');
-  if (s.autoGainControl === true) on.push('automatic gain');
+  if (isOn(s.echoCancellation)) on.push('echo cancellation');
+  if (isOn(s.noiseSuppression)) on.push('noise suppression');
+  if (isOn(s.autoGainControl)) on.push('automatic gain');
   return on;
 };
 
