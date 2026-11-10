@@ -1,16 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Mic, RotateCcw, Send, Share2, Square, Trash2, Minus, Plus, ChevronDown } from 'lucide-react';
+import { Mic, RotateCcw, Send, Square, Trash2, Minus, Plus, ChevronDown } from 'lucide-react';
 import { Button, Input } from '../components/ui';
 import { MicCapture } from './capture';
 import { MODE_TEXT } from './channels';
 import { checkRoom, type RoomReport } from './roomCheck';
-import { Findings, MicSheet, int16ToFloat, type SetupInfo } from './SetupPanel';
+import { Findings, MicSheet, type SetupInfo } from './SetupPanel';
 import { useMics } from './useMics';
 import { checkRecording } from './env';
 import { countWords, estimateSeconds, formatClock, jobFromHash, type GuestJob } from './job';
 import { FormattedScript } from './FormattedScript';
 import { beginSession, deleteSession, findSaved, finishSession, loadSession, saveChunk, type SavedSession } from './takeStore';
-import { takeFileName, totalSamples, wavBlob, wavBytes } from './wavWriter';
+import { pcmToFloat, takeFileName, totalSamples, wavBlob, wavBytes, type Bits, type Pcm } from './wavWriter';
+import { describeSettings, processingOn } from './captureSettings';
+import { checkTake, parseWavHeader, storageCheck, wavMatches, type TakeIssue } from './takeCheck';
+import { SaveMenu } from '../jobs/SaveMenu';
+import { expiryLine } from '../jobs/saveFile';
 import { audioUrl, getThread, postMessage, sendAudio, type ThreadMessage, type ThreadResponse } from '../jobs/api';
 import { parseTalentHash } from '../jobs/links';
 import { ThreadView } from '../jobs/ThreadView';
@@ -19,8 +23,9 @@ import { usePolling } from '../jobs/usePolling';
 interface Take {
   n: number;
   sessionId: string;
-  chunks: Int16Array[];
+  chunks: Pcm[];
   sampleRate: number;
+  bits: Bits;
   seconds: number;
   blob: Blob;
   url: string;
@@ -28,6 +33,8 @@ interface Take {
   practice: boolean;
   /** What was heard in the quiet lead-in and the speech (real takes only) */
   report?: RoomReport;
+  /** Problems found in the recording itself (audio missing, signal stopped, browser processing on, damaged file) */
+  issues?: TakeIssue[];
   /** One line about the microphone, added to the Send message */
   capture?: string;
 }
@@ -35,6 +42,7 @@ interface Take {
 const NAME_KEY = 'uuda-guest-name';
 const SIZE_KEY = 'uuda-guest-text-size';
 const MIC_KEY = 'uuda-guest-mic';
+const BITS_KEY = 'uuda-guest-bits';
 const SEEN_KEY = 'uuda-guest-mic-seen';
 const SIZES = [16, 18, 20, 24, 28, 34];
 /** Seconds of quiet at the start of a real take; the room noise heard here is what the producer's cleaner learns from */
@@ -43,9 +51,9 @@ const LEAD_IN = 3;
 const readStore = (k: string): string => { try { return localStorage.getItem(k) ?? ''; } catch { return ''; } };
 const writeStore = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* not saved */ } };
 
-const makeTake = (n: number, sessionId: string, chunks: Int16Array[], sampleRate: number, practice = false): Take => {
-  const blob = wavBlob(chunks, sampleRate);
-  return { n, sessionId, chunks, sampleRate, seconds: totalSamples(chunks) / sampleRate, blob, url: URL.createObjectURL(blob), practice };
+const makeTake = (n: number, sessionId: string, chunks: Pcm[], sampleRate: number, bits: Bits, practice = false): Take => {
+  const blob = wavBlob(chunks, sampleRate, bits);
+  return { n, sessionId, chunks, sampleRate, bits, seconds: totalSamples(chunks) / sampleRate, blob, url: URL.createObjectURL(blob), practice };
 };
 
 const Script: React.FC<{ job: GuestJob; size: number }> = ({ job, size }) => {
@@ -123,7 +131,10 @@ export const GuestPage: React.FC = () => {
   const who = () => (view?.talent || name).trim();
   const infoRef = useRef<SetupInfo | null>(null);
   const capRef = useRef<MicCapture | null>(null);
-  const chunksRef = useRef<Int16Array[]>([]);
+  const chunksRef = useRef<Pcm[]>([]);
+  const startedRef = useRef(0);
+  const [bits, setBits] = useState<Bits>(() => (readStore(BITS_KEY) === '24' ? 24 : 16));
+  const [lowSpace, setLowSpace] = useState('');
   const sessionRef = useRef('');
   const samplesRef = useRef(0);
   const practiceRef = useRef(false);
@@ -132,6 +143,14 @@ export const GuestPage: React.FC = () => {
 
   useEffect(() => { if (view) document.title = `${view.title} · Uuda recording`; }, [view?.title]);
   useEffect(() => { void findSaved(jobKey).then(setSaved); }, [jobKey]);
+  // Is there room on this device for a take of the expected length (held as chunks and again as a file)?
+  useEffect(() => {
+    if (!view) return;
+    void navigator.storage?.estimate?.().then((e) => {
+      const r = storageCheck(e, Math.max(view.targetSeconds ?? 0, 600), 48000, bits);
+      setLowSpace(r?.low ? `This device has about ${r.freeMB} MB free, and a long take can need about ${r.neededMB} MB. Free some space before recording.` : '');
+    }).catch(() => undefined);
+  }, [!!view, bits]);
   useEffect(() => () => { if (takeRef.current) URL.revokeObjectURL(takeRef.current.url); }, []);
   useEffect(() => {
     if (phase !== 'recording' && !(take && !take.practice && sending === null)) return;
@@ -163,10 +182,19 @@ export const GuestPage: React.FC = () => {
     const practice = practiceRef.current;
     if (totalSamples(chunks) === 0) { if (!practice) void deleteSession(sessionRef.current); return; }
     if (!practice) await finishSession(sessionRef.current);
-    const t = makeTake(1, practice ? '' : sessionRef.current, chunks, c.sampleRate, practice);
+    const t = makeTake(1, practice ? '' : sessionRef.current, chunks, c.sampleRate, c.bits, practice);
     if (!practice) {
-      t.report = checkRoom(int16ToFloat(chunks), c.sampleRate);
-      t.capture = `Recorded on: ${c.label || 'microphone'}, ${Math.round(c.sampleRate / 100) / 10} kHz, ${MODE_TEXT[c.channelMode]}`;
+      const floats = pcmToFloat(chunks, c.bits);
+      t.report = checkRoom(floats, c.sampleRate);
+      const issues = checkTake(floats, c.sampleRate, (performance.now() - startedRef.current) / 1000);
+      const on = processingOn(c.settings);
+      if (on.length) issues.push({ id: 'processing', text: `Your browser is still applying ${on.join(' and ')}, which can thin or pump the voice. Try Chrome or Edge, or turn it off in the device's sound settings.` });
+      try {
+        const head = parseWavHeader(new Uint8Array(await t.blob.slice(0, 44).arrayBuffer()));
+        if (!wavMatches(head, t.blob.size, totalSamples(chunks), c.sampleRate, c.bits)) issues.push({ id: 'file', text: 'The recording file did not come out right. Record again.' });
+      } catch { /* the file is checked again by the server */ }
+      t.issues = issues;
+      t.capture = `Recorded on: ${c.label || 'microphone'} · ${describeSettings(c.settings, c.sampleRate)} · ${c.bits}-bit · ${MODE_TEXT[c.channelMode]}`;
     }
     setTake(t);
     if (lost) setNotice('The microphone stopped. What was recorded so far is kept as your take.');
@@ -192,7 +220,7 @@ export const GuestPage: React.FC = () => {
         },
         onLevel: (p) => setLevel(p),
         onLost: () => void finish(true),
-      }, micId || undefined);
+      }, micId || undefined, bits);
     } catch (e) {
       await c.stop();
       const denied = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
@@ -201,8 +229,10 @@ export const GuestPage: React.FC = () => {
     }
     await dropTake();
     capRef.current = c;
+    startedRef.current = performance.now();
     if (!practice) {
-      await beginSession({ id: sessionRef.current, jobKey, sampleRate: c.sampleRate, startedAt: Date.now() });
+      void navigator.storage?.persist?.();
+      await beginSession({ id: sessionRef.current, jobKey, sampleRate: c.sampleRate, bits: c.bits, startedAt: Date.now() });
       // blocks that arrived before the session record existed are saved by index again
       chunksRef.current.forEach((pcm, i) => void saveChunk(sessionRef.current, i, pcm));
     }
@@ -265,18 +295,11 @@ export const GuestPage: React.FC = () => {
     if (!saved) return;
     const chunks = await loadSession(saved.id);
     if (chunks.length === 0) { setSaved(null); return; }
-    setTake(makeTake(1, saved.id, chunks, saved.sampleRate)); setSaved(null);
+    setTake(makeTake(1, saved.id, chunks, saved.sampleRate, saved.bits ?? 16)); setSaved(null);
   };
   const forget = async () => { if (saved) await deleteSession(saved.id); setSaved(null); };
 
   const fileFor = (t: Take) => takeFileName(view?.title ?? '', who(), t.n);
-  const download = (t: Take) => { const a = document.createElement('a'); a.href = t.url; a.download = fileFor(t); document.body.appendChild(a); a.click(); a.remove(); };
-  const share = async (t: Take) => {
-    const file = new File([t.blob], fileFor(t), { type: 'audio/wav' });
-    try { await navigator.share({ files: [file], title: view?.title ?? 'Recording', text: `Recording from ${who() || 'the talent'}` }); } catch { /* cancelled */ }
-  };
-  const canShare = (t: Take) => { try { return typeof navigator.canShare === 'function' && navigator.canShare({ files: [new File([t.blob], fileFor(t), { type: 'audio/wav' })] }); } catch { return false; } };
-
   /** Sends the take into the thread. The take is only removed from the device after the server says it has it. */
   const send = async () => {
     if (!remote || !take || take.practice) return;
@@ -284,9 +307,10 @@ export const GuestPage: React.FC = () => {
     if (!view?.talent) writeStore(NAME_KEY, name.trim());
     setError(''); setSending(0);
     try {
-      await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: who(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n') }, (f) => setSending(f));
+      const sent = await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: who(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n') }, (f) => setSending(f));
       await dropTake();
-      setSendNote(''); setSentCount((n) => n + 1); setNotice('Sent. The producer can hear it now. You can record another take.');
+      setSendNote(''); setSentCount((n) => n + 1); const until = expiryLine(sent.attachment?.expiresAt);
+      setNotice(`Sent. The producer can hear it now. You can record another take.${until ? ` ${until.text}` : ''}`);
       await loadThread();
     } catch (e) {
       setError(`Not sent: ${e instanceof Error ? e.message : 'something went wrong'}. Your take is still here. Try again.`);
@@ -364,6 +388,8 @@ export const GuestPage: React.FC = () => {
         onMicId={(id) => { setMicId(id); writeStore(MIC_KEY, id); setMicLevel(''); }}
         fresh={fresh}
         onAllow={async () => { try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach((t) => t.stop()); } catch { /* shown by the test */ } await refresh(); }}
+        bits={bits}
+        onBits={(b) => { setBits(b); writeStore(BITS_KEY, String(b)); }}
         disabled={!cap.ok || busySending}
         onResult={(i, r) => { infoRef.current = i; setMicLevel(r.overall); }}
       />
@@ -374,6 +400,7 @@ export const GuestPage: React.FC = () => {
             fill
             messages={messages}
             self="talent"
+            folder={['Jobs', view.title || 'Recording']}
             audioSrc={(a) => audioUrl(remote.jobId, a.id, remote.key)}
             onSend={async (text) => { await postMessage(remote.jobId, remote.key, who() || 'Talent', text); await loadThread(); }}
             placeholder="Write to the producer"
@@ -389,6 +416,7 @@ export const GuestPage: React.FC = () => {
         onMouseDown={() => hold(true)} onMouseUp={() => hold(false)} onMouseLeave={() => hold(false)}
       >
       {!cap.ok && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{cap.problem}</div>}
+      {lowSpace && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{lowSpace}</div>}
 
       {saved && !take && phase === 'ready' && (
         <div className="m-4 flex flex-wrap items-center gap-3 rounded-card border border-line-strong bg-surface-2 p-3 text-sm">
@@ -403,6 +431,7 @@ export const GuestPage: React.FC = () => {
           <div className="mb-4 rounded-card border border-line bg-surface-2 p-3">
             <div className="mb-1.5 text-xs font-medium text-ink-dim">Reference: listen to how it should sound</div>
             <audio controls preload="none" src={audioUrl(remote.jobId, thread.job.reference.id, remote.key)} className="w-full" aria-label="Reference recording" />
+            {(() => { const e = expiryLine(thread.job.reference.expiresAt); return e ? <p className={`mt-1.5 text-[11px] ${e.soon ? 'text-warn' : 'text-ink-faint'}`}>{e.text}</p> : null; })()}
           </div>
         )}
         {view.notes && (
@@ -464,8 +493,13 @@ export const GuestPage: React.FC = () => {
               <div className="rounded-card border border-line bg-surface-2 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2 text-xs text-ink-dim">
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${take.practice ? 'border border-line bg-surface-1 text-ink-dim' : 'bg-accent text-accent-ink'}`}>{take.practice ? 'Rehearsal' : 'Your take'}</span>
-                  <span className="font-num">{formatClock(take.seconds)} · {(wavBytes(take.seconds, take.sampleRate) / 1048576).toFixed(1)} MB</span>
+                  <span className="font-num">{formatClock(take.seconds)} · {(wavBytes(take.seconds, take.sampleRate, take.bits) / 1048576).toFixed(1)} MB</span>
                 </div>
+                {take.issues && take.issues.length > 0 && (
+                  <div role="alert" className="mb-3 rounded-card border border-warn/40 bg-warn/10 p-2"><div className="mb-1.5 text-xs font-semibold text-ink">Problems with this recording</div>
+                    <ul className="space-y-1.5">{take.issues.map((i) => <li key={i.id} className="flex items-start gap-2 text-sm text-ink"><span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-warn" aria-hidden />{i.text}</li>)}</ul>
+                  </div>
+                )}
                 {take.report && take.report.overall !== 'ok' && !sentCount && (
                   <div className="mb-3 rounded-card border border-line bg-surface-1 p-2"><div className="mb-1.5 text-xs font-semibold text-ink-dim">Before you send</div><Findings report={take.report} /></div>
                 )}
@@ -485,14 +519,13 @@ export const GuestPage: React.FC = () => {
                         <Button size="md" variant="primary" disabled={busySending} onClick={() => void send()} leftIcon={<Send className="h-4 w-4" />}>{busySending ? `Sending ${Math.round((sending ?? 0) * 100)}%` : 'Send to producer'}</Button>
                       ) : (
                         <>
-                          <Button size="md" variant="primary" onClick={() => download(take)} leftIcon={<Download className="h-4 w-4" />}>Download WAV</Button>
-                          {canShare(take) && <Button size="md" variant="secondary" onClick={() => void share(take)} leftIcon={<Share2 className="h-4 w-4" />}>Share</Button>}
+                          <SaveMenu look="button" label="Save WAV" folder={['Jobs', view.title || 'Recording']} name={fileFor(take)} getBlob={async () => take.blob} />
                         </>
                       )}
                       <Button size="md" variant="ghost" disabled={busySending} onClick={() => void dropTake()} leftIcon={<Trash2 className="h-4 w-4" />}>Delete</Button>
                     </div>
                     <p className="mt-2 text-xs text-ink-dim">
-                      {remote ? 'Listen first. Send puts it in the messages above for the producer. Until you press Send it only exists on this device.' : `Listen first. When you are happy, download the file (or Share) and send it to ${view.producer || 'the producer'} by email or WhatsApp. Attach the file; do not paste a link to it.`}
+                      {remote ? 'Listen first. Send puts it in the messages above for the producer. Until you press Send it only exists on this device. After that the server keeps it for 30 days, then deletes it.' : `Listen first. When you are happy, save the file and send it to ${view.producer || 'the producer'} by email or WhatsApp. Attach the file; do not paste a link to it.`}
                     </p>
                   </>
                 )}

@@ -1,6 +1,8 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Download, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 import type { Attachment, ThreadMessage } from './api';
+import { SaveMenu } from './SaveMenu';
+import { expiryLine } from './saveFile';
 
 const mb = (n: number) => `${(n / 1048576).toFixed(1)} MB`;
 const hm = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -18,6 +20,8 @@ interface Props {
   messages: ThreadMessage[];
   self: 'producer' | 'talent';
   audioSrc: (a: Attachment) => string;
+  /** Where saved files belong inside the Uuda Studio folder, e.g. ["Jobs", "Intro spot"] */
+  folder?: string[];
   /** Producer only: bring a received take into the project */
   onImport?: (a: Attachment) => void;
   onSend: (text: string) => Promise<void>;
@@ -31,7 +35,7 @@ interface Props {
  * The message thread under a job, laid out like a chat app: your messages on the right, theirs on the left, grouped by sender,
  * day dividers, the time inside each bubble, and a rounded box with a round send button at the bottom. The same on both sides.
  */
-export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, onImport, onSend, placeholder, disabled, fill }) => {
+export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, onImport, onSend, placeholder, disabled, fill }) => {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -77,12 +81,14 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, onImport
                       <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-ink-dim">
                         <span className="min-w-0 truncate">{m.attachment.name} · {mb(m.attachment.bytes)}</span>
                         <span className="flex shrink-0 gap-1">
-                          <a href={audioSrc(m.attachment)} download={m.attachment.name} aria-label={`Save ${m.attachment.name}`} className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-ink hover:bg-surface-3"><Download className="h-3 w-3" />Save</a>
+                          <SaveMenu folder={folder} name={m.attachment.name} getBlob={async () => { const r = await fetch(audioSrc(m.attachment!)); if (!r.ok) throw new Error('The file could not be downloaded.'); return r.blob(); }} />
                           {onImport && <button type="button" onClick={() => onImport(m.attachment!)} className="rounded-full border border-accent/40 bg-accent-soft px-2 py-0.5 font-semibold text-accent hover:brightness-125">Add to project</button>}
                         </span>
                       </div>
+                      {(() => { const e = expiryLine(m.attachment.expiresAt); return e ? <p className={`mt-1 text-[11px] ${e.soon ? 'text-warn' : 'text-ink-faint'}`}>{e.text}</p> : null; })()}
                     </div>
                   )}
+                  {m.attachmentExpired && <p className="mb-1 text-[11px] text-ink-faint">This recording expired and was deleted from the server.</p>}
                   <div className="flex flex-wrap items-end justify-end gap-x-3">
                     {m.text && <p className="min-w-0 max-w-full flex-1 whitespace-pre-wrap break-words">{m.text}</p>}
                     <span className="ml-auto shrink-0 translate-y-0.5 font-num text-[10px] leading-none text-ink-dim">{hm(m.ts)}</span>
