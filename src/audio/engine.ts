@@ -4,6 +4,7 @@
  * Manages AudioContext, graph nodes, playback scheduling, metering, and clip fading.
  */
 
+import { applyOutput, loadOutputId } from './outputDevice';
 import { Project, Track, Clip, Asset } from '../types';
 import { pluginManager, MASTER_TRACK_ID } from '../plugins/pluginManager';
 import { groupChainId, groupIdOfChain, isGroupChainId } from '../plugins/groupChain';
@@ -340,6 +341,9 @@ export class AudioEngine {
       }
 
       this.setupMasterBus();
+      // Play through the device chosen last time (if it is still there)
+      const out = loadOutputId();
+      if (out) void applyOutput(this.ctx, out);
     }
 
     if (this.ctx.state === 'suspended') {

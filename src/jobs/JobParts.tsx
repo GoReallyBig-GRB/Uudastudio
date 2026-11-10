@@ -7,6 +7,7 @@ import { CODE_KEY, STATUS_TEXT, statusOf, type JobStatus, type StoredJob } from 
 import type { JobSummary } from './useJobs';
 import { inviteText, nudgeText, talentLink } from './links';
 import { ThreadView } from './ThreadView';
+import { ScriptEditor } from '../components/ui/ScriptEditor';
 import { usePolling } from './usePolling';
 
 const base = () => window.location.origin + window.location.pathname;
@@ -86,7 +87,7 @@ export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCre
       </div>
       <div>
         <label htmlFor="job-script" className="mb-1.5 block text-xs font-medium text-ink-dim">Script</label>
-        <textarea id="job-script" rows={10} value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} placeholder="What the talent reads." className={AREA} />
+        <ScriptEditor id="job-script" rows={10} value={script} onChange={setScript} maxLength={20000} placeholder="What the talent reads. Put directions in [square brackets]." />
       </div>
       <div>
         <label htmlFor="job-notes" className="mb-1.5 block text-xs font-medium text-ink-dim">Director notes</label>

@@ -298,7 +298,7 @@ export const GuestPage: React.FC = () => {
     try {
       await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: who(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n') }, (f) => setSending(f));
       await dropTake();
-      setSendNote(''); setSentCount((n) => n + 1); setNotice('Sent. The producer can hear it now. You can reply below or record another take.');
+      setSendNote(''); setSentCount((n) => n + 1); setNotice('Sent. The producer can hear it now. You can record another take.');
       await loadThread();
     } catch (e) {
       setError(`Not sent: ${e instanceof Error ? e.message : 'something went wrong'}. Your take is still here. Try again.`);
@@ -511,7 +511,7 @@ export const GuestPage: React.FC = () => {
               </div>
             )}
             <div className="grid grid-cols-[1fr_auto] gap-2">
-              <Button size="lg" variant={take && !take.practice ? 'secondary' : 'primary'} className="h-14 w-full text-base" disabled={!cap.ok || busySending} onClick={() => void start(false)} leftIcon={take && !take.practice ? <RotateCcw className="h-4 w-4" /> : <Mic className="h-4 w-4" />}>
+              <Button size="lg" variant={take && !take.practice ? 'secondary' : 'primary'} className="h-14 w-full whitespace-nowrap text-base" disabled={!cap.ok || busySending} onClick={() => void start(false)} leftIcon={take && !take.practice ? <RotateCcw className="h-4 w-4" /> : <Mic className="h-4 w-4" />}>
                 {confirmReplace ? 'Tap again to delete your take and retake' : take && !take.practice ? 'Retake' : sentCount > 0 ? 'Record another take' : 'Record'}
               </Button>
               <Button size="lg" variant="ghost" className="h-14 text-base" disabled={!cap.ok || busySending} onClick={() => void start(true)}>Rehearse</Button>

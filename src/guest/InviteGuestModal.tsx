@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
+import { ScriptEditor } from '../components/ui/ScriptEditor';
 import { Button, Input, ModalShell } from '../components/ui';
 import { LINK_WARN_LENGTH, MAX_SCRIPT, countWords, estimateSeconds, formatClock, jobLink } from './job';
 
@@ -54,15 +55,7 @@ export const InviteGuestModal: React.FC<Props> = ({ open, onClose, defaultTitle 
         </div>
         <div>
           <label htmlFor="guest-script" className="mb-1.5 block text-xs font-medium text-ink-dim">Script</label>
-          <textarea
-            id="guest-script"
-            value={script}
-            maxLength={MAX_SCRIPT}
-            onChange={(e) => setScript(e.target.value)}
-            rows={9}
-            placeholder={'Type or paste the script.\nPut directions in [square brackets], for example [warm, smiling] or [pause]. The talent sees them highlighted and they are not counted as words to read.'}
-            className="w-full resize-y rounded-card border border-line-strong bg-surface-1 p-3 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-          />
+          <ScriptEditor id="guest-script" value={script} maxLength={MAX_SCRIPT} onChange={setScript} rows={9} placeholder={'Type or paste the script.\nPut directions in [square brackets], for example [warm, smiling] or [pause]. The talent sees them highlighted and they are not counted as words to read.'} />
           <div className="mt-1 text-xs text-ink-dim">
             {words} words to read{words > 0 ? ` · about ${formatClock(estimateSeconds(script))} at a normal pace` : ''}
           </div>

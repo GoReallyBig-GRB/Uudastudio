@@ -406,6 +406,14 @@ export const Header: React.FC<HeaderProps> = ({
               {/* Set up */}
               {onChooseProjectRoot && <FileMenuItem icon={<FolderArchive className="w-4 h-4" />} label="Choose Root Folder..." onClick={onChooseProjectRoot} />}
               <FileMenuItem
+                icon={<Mic className="w-4 h-4" />}
+                label="Audio Devices..."
+                onClick={() => {
+                  setIsProjectMenuOpen(false);
+                  window.dispatchEvent(new CustomEvent('uuda:open-devices'));
+                }}
+              />
+              <FileMenuItem
                 icon={<Settings className="w-4 h-4" />}
                 label="Studio Settings..."
                 onClick={() => {
