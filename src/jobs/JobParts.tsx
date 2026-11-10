@@ -8,6 +8,7 @@ import type { JobSummary } from './useJobs';
 import { inviteText, nudgeText, talentLink } from './links';
 import { ThreadView } from './ThreadView';
 import { ScriptEditor } from '../components/ui/ScriptEditor';
+import { FormattedScript } from '../guest/FormattedScript';
 import { usePolling } from './usePolling';
 
 const base = () => window.location.origin + window.location.pathname;
@@ -200,7 +201,7 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImp
             <>
               <section aria-label="Script">
                 <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-dim">Script</h3>
-                <div className="whitespace-pre-wrap rounded-card border border-line bg-surface-2 p-3 text-sm text-ink">{j.script || 'No script.'}</div>
+                <div className="rounded-card border border-line bg-surface-2 p-3 text-sm">{j.script ? <FormattedScript script={j.script} /> : <span className="text-ink-dim">No script.</span>}</div>
               </section>
               {j.notes && (
                 <section aria-label="Director notes">
