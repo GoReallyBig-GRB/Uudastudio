@@ -366,7 +366,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               {/* Open an existing project */}
               <FileMenuItem icon={<FolderOpen className="w-4 h-4" />} label="Open Project from Computer..." onClick={() => projectFileInputRef.current?.click()} />
-              {onOpenProjectFromRoot && <FileMenuItem icon={<FolderOpen className="w-4 h-4" />} label="Open from Root Folder..." onClick={onOpenProjectFromRoot} />}
+              {onOpenProjectFromRoot && <FileMenuItem icon={<FolderOpen className="w-4 h-4" />} label="Open from Uuda Studio Folder..." onClick={onOpenProjectFromRoot} />}
 
               <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-ink-faint font-semibold">
                 Recent Projects
@@ -404,7 +404,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="h-px bg-line my-1" />
 
               {/* Set up */}
-              {onChooseProjectRoot && <FileMenuItem icon={<FolderArchive className="w-4 h-4" />} label="Choose Root Folder..." onClick={onChooseProjectRoot} />}
+              {onChooseProjectRoot && <FileMenuItem icon={<FolderArchive className="w-4 h-4" />} label={projectRootDirectoryName ? `Uuda Studio Folder: ${projectRootDirectoryName}...` : 'Choose Uuda Studio Folder...'} onClick={onChooseProjectRoot} />}
               <FileMenuItem
                 icon={<Mic className="w-4 h-4" />}
                 label="Audio Devices..."

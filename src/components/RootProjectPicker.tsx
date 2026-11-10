@@ -14,12 +14,12 @@ interface Props {
   onClose: () => void;
 }
 
-/** List of the .uuda projects found in the root folder. Replaces window.prompt, which sandboxed frames block. */
+/** List of the .uuda projects found in the Uuda Studio folder. Replaces window.prompt, which sandboxed frames block. */
 export const RootProjectPicker: React.FC<Props> = ({ open, folderName, choices, onPick, onClose }) => (
   <ModalShell
     open={open}
     onClose={onClose}
-    title="Open from root folder"
+    title="Open from Uuda Studio folder"
     description={`Projects found in “${folderName}”`}
     size="sm"
     footer={<Button variant="secondary" onClick={onClose}>Cancel</Button>}

@@ -1,10 +1,13 @@
 /**
  * The "Uuda Studio" folder on the person's computer. They choose where it lives once (Chrome and Edge); the browser is asked to
- * remember it, and every saved file then goes into it, organised: Uuda Studio / Jobs / <job name> / file, Uuda Studio / Exports / file.
+ * remember it, and every saved file then goes into it, organised: Uuda Studio / Jobs / <job name> / file, Uuda Studio / Exports / file,
+ * Projects, Templates.
  * A browser never lets a page write outside a folder the person picked, so the pick is what makes the folder possible.
  */
 
-export const ROOT_NAME = 'Uuda Studio';
+import { STUDIO_FOLDER_NAME, chooseProjectRootDirectory, forgetProjectRootDirectory, loadProjectRootDirectory } from '../storage/projectDirectory';
+
+export const ROOT_NAME = STUDIO_FOLDER_NAME;
 
 type Dir = FileSystemDirectoryHandle;
 type Picker = (o?: { id?: string; mode?: 'readwrite'; startIn?: string }) => Promise<Dir>;
@@ -43,14 +46,9 @@ export const writeInto = async (root: Dir, path: string[], name: string, blob: B
   return `${shown.join(' / ')} / ${file}`;
 };
 
-// The chosen folder is kept in the browser's own database so it survives closing the tab
-const open = (): Promise<IDBDatabase> => new Promise((res, rej) => { const r = indexedDB.open('uuda-studio-folder', 1); r.onupgradeneeded = () => r.result.createObjectStore('h'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
-const idb = async <T,>(mode: IDBTransactionMode, f: (s: IDBObjectStore) => IDBRequest<T>): Promise<T | undefined> => {
-  try { const db = await open(); return await new Promise<T>((res, rej) => { const q = f(db.transaction('h', mode).objectStore('h')); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); } catch { return undefined; }
-};
-let cached: WithPerm | null = null;
-const remembered = async (): Promise<WithPerm | null> => cached ?? (cached = ((await idb('readonly', (s) => s.get('root'))) as WithPerm | undefined) ?? null);
-export const forgetStudioFolder = async (): Promise<void> => { cached = null; await idb('readwrite', (s) => s.delete('root')); };
+// The folder is the same one the project save and "Open from Uuda Studio" use (see storage/projectDirectory.ts)
+const remembered = async (): Promise<WithPerm | null> => (await loadProjectRootDirectory()) as unknown as WithPerm | null;
+export const forgetStudioFolder = (): Promise<void> => forgetProjectRootDirectory();
 
 /** The folder's name if one is remembered (so the menu can say where files will go) */
 export const studioFolderLabel = async (): Promise<string> => { const h = await remembered(); return h ? `${h.name}` : ''; };
@@ -74,12 +72,7 @@ export const getStudioFolder = async (o: { ask: boolean; choose?: boolean; exist
     if (h && (await granted(h, o.ask))) return h;
     if (!o.ask || o.existing) return null;
   } else if (!o.ask) return null;
-  const parent = await pick({ id: 'uuda-studio', mode: 'readwrite', startIn: 'documents' });
-  // Inside the chosen place, make (or reuse) a folder called Uuda Studio, unless they already picked one with that name
-  const root = parent.name === ROOT_NAME ? parent : await parent.getDirectoryHandle(ROOT_NAME, { create: true });
-  cached = root as WithPerm;
-  await idb('readwrite', (s) => s.put(root, 'root'));
-  return root;
+  return (await chooseProjectRootDirectory()) as unknown as WithPerm;
 };
 
 /**
@@ -96,4 +89,25 @@ export const saveToStudio = async (blob: Blob, name: string, path: string[], o: 
     await forgetStudioFolder();
     return null;
   }
+};
+
+const plain = (blob: Blob, name: string) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.style.display = 'none'; a.href = url; a.download = name;
+  document.body.appendChild(a); a.click();
+  window.setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
+};
+
+/**
+ * Saves a file into the Uuda Studio folder if the person has chosen one and the browser still allows writing there,
+ * otherwise as a normal download. Returns where it went, for a message.
+ */
+export const saveOrDownload = async (blob: Blob, name: string, path: string[]): Promise<{ where: string; inFolder: boolean }> => {
+  try {
+    const where = await saveToStudio(blob, name, path, { ask: true, existing: true });
+    if (where) return { where, inFolder: true };
+  } catch { /* fall through */ }
+  plain(blob, name);
+  return { where: 'your Downloads folder', inFolder: false };
 };
