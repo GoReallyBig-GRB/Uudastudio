@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHUNK, LIMITS, handleJob, looksLikeAudio, type HandlerEnv } from './handler';
+import { CHUNK, FILE_TTL_MS, LIMITS, handleJob, looksLikeAudio, type HandlerEnv } from './handler';
 import { MemoryRepo } from './repo';
 
 let n = 0;
@@ -180,5 +180,22 @@ describe('resumable uploads', () => {
     expect((await call(env, 'POST', `uploads/${u.uploadId}/complete`, { key: k.producerKey })).status).toBe(201);
     const t = await (await call(env, 'GET', 'thread', { key: k.talentKey })).json() as any;
     expect(t.job.reference.id).toBe(u.uploadId); expect(t.messages.length).toBe(0);
+  });
+});
+
+describe('file expiry', () => {
+  it('tells the sender when the file will be deleted, then deletes it and says so', async () => {
+    const env = mk(); const k = await create(env);
+    const file = wav(900);
+    const u = (await (await call(env, 'POST', 'uploads', { key: k.talentKey, body: JSON.stringify({ name: 'a.wav', mime: 'audio/wav', size: 900 }) })).json()) as any;
+    await call(env, 'PUT', `uploads/${u.uploadId}/0`, { key: k.talentKey, body: file, headers: { 'x-chunk-sha256': await sha(file) } });
+    const done = (await (await call(env, 'POST', `uploads/${u.uploadId}/complete`, { key: k.talentKey })).json()) as any;
+    expect(done.attachment.expiresAt - env.now()).toBeGreaterThan(FILE_TTL_MS - 1000);
+    let t = (await (await call(env, 'GET', 'thread', { key: k.producerKey })).json()) as any;
+    expect(t.messages[0].attachment.expiresAt).toBe(done.attachment.expiresAt); expect(t.messages[0].attachmentExpired).toBe(false);
+    (env as any).clock += FILE_TTL_MS + 5;
+    t = (await (await call(env, 'GET', 'thread', { key: k.producerKey })).json()) as any;
+    expect(t.messages[0].attachment).toBeNull(); expect(t.messages[0].attachmentExpired).toBe(true);
+    expect((await call(env, 'GET', `audio/${u.uploadId}`, { key: k.producerKey })).status).toBe(404);
   });
 });

@@ -47,6 +47,8 @@ export interface JobRepo {
   deleteUpload(id: string): void;
   /** Which pieces of a file are stored, in order */
   chunkIndexes(att: string): number[];
+  /** Ids of files uploaded before the given time */
+  attsBefore(ts: number): string[];
 }
 
 export class MemoryRepo implements JobRepo {
@@ -76,6 +78,7 @@ export class MemoryRepo implements JobRepo {
   putUpload(u: UploadRow) { this.ups.set(u.id, { ...u }); }
   getUpload(id: string) { const u = this.ups.get(id); return u ? { ...u } : null; }
   deleteUpload(id: string) { this.ups.delete(id); }
+  attsBefore(ts: number) { return [...this.atts.values()].filter((a) => a.ts < ts).map((a) => a.id); }
   chunkIndexes(att: string) { return [...this.chunks.keys()].filter((k) => k.startsWith(`${att}:`)).map((k) => Number(k.slice(att.length + 1))).sort((a, b) => a - b); }
   deleteAtt(id: string) {
     this.atts.delete(id);
@@ -141,6 +144,7 @@ export class SqlRepo implements JobRepo {
     try { return JSON.parse(String(r.json)) as UploadRow; } catch { return null; }
   }
   deleteUpload(id: string) { this.sql.exec('DELETE FROM uploads WHERE id = ?', id); }
+  attsBefore(ts: number): string[] { return this.sql.exec('SELECT id FROM atts WHERE ts < ?', ts).toArray().map((r) => String(r.id)); }
   chunkIndexes(att: string): number[] { return this.sql.exec('SELECT idx FROM blobs WHERE att = ? ORDER BY idx', att).toArray().map((r) => Number(r.idx)); }
   deleteAtt(id: string) {
     this.sql.exec('DELETE FROM blobs WHERE att = ?', id);

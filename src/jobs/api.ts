@@ -1,7 +1,8 @@
 /** Calls to the jobs server (Cloudflare Worker when hosted, Express in AI Studio). */
 
-export interface Attachment { id: string; name: string; mime: string; bytes: number }
-export interface ThreadMessage { id: number; ts: number; role: 'producer' | 'talent'; name: string; text: string; attachment: Attachment | null }
+/** `expiresAt` is when the server deletes the file (ms since epoch) */
+export interface Attachment { id: string; name: string; mime: string; bytes: number; expiresAt?: number }
+export interface ThreadMessage { id: number; ts: number; role: 'producer' | 'talent'; name: string; text: string; attachment: Attachment | null; attachmentExpired?: boolean }
 export interface JobInfo { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds: number | null; createdAt: number; reference: Attachment | null }
 export interface ThreadResponse { role: 'producer' | 'talent'; job: JobInfo; messages: ThreadMessage[]; lastId: number; keys?: { talent?: string } }
 export interface NewJob { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds?: number }

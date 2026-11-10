@@ -22,7 +22,8 @@ export const LIMITS = {
 /** Bytes per stored piece; each piece is one database row, which must stay under 2 MB */
 export const CHUNK = 1024 * 1024;
 /** A job with no activity for this long is deleted */
-export const RETENTION_MS = 60 * 24 * 3600 * 1000;
+export const FILE_TTL_MS = 30 * 24 * 3600 * 1000;
+export const RETENTION_MS = FILE_TTL_MS;
 
 export interface HandlerEnv {
   repo: JobRepo;
@@ -74,17 +75,27 @@ const roleOf = (req: Request, repo: JobRepo): Role | null => {
   return null;
 };
 
+/** Deletes audio older than FILE_TTL_MS (the messages stay, marked as expired) */
+const purgeExpired = (repo: JobRepo, now: number) => {
+  const gone = repo.attsBefore(now - FILE_TTL_MS);
+  if (!gone.length) return;
+  const j = repo.getJob();
+  for (const id of gone) { if (j?.referenceAtt === id) repo.setReference(null); repo.deleteAtt(id); }
+};
+
+const pubAtt = (a: { id: string; name: string; mime: string; bytes: number; ts: number }) => ({ id: a.id, name: a.name, mime: a.mime, bytes: a.bytes, expiresAt: a.ts + FILE_TTL_MS });
+
 const publicJob = (j: JobRow, repo: JobRepo) => {
   const ref = j.referenceAtt ? repo.getAtt(j.referenceAtt) : null;
   return {
     title: j.title, script: j.script, notes: j.notes, producer: j.producer, talent: j.talent ?? '', targetSeconds: j.targetSeconds, createdAt: j.createdAt,
-    reference: ref ? { id: ref.id, name: ref.name, mime: ref.mime, bytes: ref.bytes } : null,
+    reference: ref ? pubAtt(ref) : null,
   };
 };
 
 const publicMsg = (m: MsgRow, repo: JobRepo) => {
   const a = m.att ? repo.getAtt(m.att) : null;
-  return { id: m.id, ts: m.ts, role: m.role, name: m.name, text: m.text, attachment: a ? { id: a.id, name: a.name, mime: a.mime, bytes: a.bytes } : null };
+  return { id: m.id, ts: m.ts, role: m.role, name: m.name, text: m.text, attachment: a ? pubAtt(a) : null, attachmentExpired: !!m.att && !a };
 };
 
 const threadFor = (role: Role, url: URL): string => (role === 'talent' ? 'talent' : url.searchParams.get('thread') === 'client' ? 'client' : 'talent');
@@ -187,6 +198,7 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
   if (!job) return fail(404, 'This job does not exist or has been deleted.');
   const role = roleOf(req, repo);
   if (!role) return fail(403, 'This link is not valid any more. Ask the producer for a new one.');
+  purgeExpired(repo, now());
 
   if (route === 'thread' && req.method === 'GET') {
     const thread = threadFor(role, url);
@@ -215,16 +227,17 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     const stored = await storeStream(req, repo, attId, LIMITS.attachmentBytes, LIMITS.jobBytes - repo.totalBytes());
     if ('error' in stored) return fail(stored.status, stored.error);
     const name = safeName(url.searchParams.get('name') || 'audio');
-    repo.addAtt({ id: attId, name, mime: safeMime(url.searchParams.get('mime') || 'audio/wav'), bytes: stored.bytes, ts: now() });
+    const ts = now();
+    repo.addAtt({ id: attId, name, mime: safeMime(url.searchParams.get('mime') || 'audio/wav'), bytes: stored.bytes, ts });
     if (route === 'reference') {
       if (job.referenceAtt) repo.deleteAtt(job.referenceAtt);
       repo.setReference(attId);
       env.touch?.();
-      return json({ attachment: { id: attId, name, bytes: stored.bytes } }, 201);
+      return json({ attachment: { id: attId, name, bytes: stored.bytes, expiresAt: ts + FILE_TTL_MS } }, 201);
     }
     const id = repo.addMessage({ ts: now(), thread: threadFor(role, url), role, name: clip(url.searchParams.get('who'), LIMITS.name).trim() || (role === 'producer' ? job.producer || 'Producer' : 'Talent'), text: clip(url.searchParams.get('text'), LIMITS.text).trim(), att: attId });
     env.touch?.();
-    return json({ id, attachment: { id: attId, name, bytes: stored.bytes } }, 201);
+    return json({ id, attachment: { id: attId, name, bytes: stored.bytes, expiresAt: ts + FILE_TTL_MS } }, 201);
   }
 
   if (route === 'uploads') {
@@ -264,9 +277,10 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
       if (have.length !== count || have.some((v, i) => v !== i)) return json({ error: 'Some of the file did not arrive. Send it again.', received: have }, 409);
       const first = repo.getChunk(up.id, 0);
       if (!first || !looksLikeAudio(first)) { repo.deleteAtt(up.id); repo.deleteUpload(up.id); return bad('That does not look like an audio file.', 415); }
-      repo.addAtt({ id: up.id, name: up.name, mime: up.mime, bytes: up.size, ts: now() });
+      const ts = now();
+      repo.addAtt({ id: up.id, name: up.name, mime: up.mime, bytes: up.size, ts });
       repo.deleteUpload(up.id);
-      const att = { id: up.id, name: up.name, bytes: up.size };
+      const att = { id: up.id, name: up.name, bytes: up.size, expiresAt: ts + FILE_TTL_MS };
       if (up.kind === 'reference') {
         if (job.referenceAtt) repo.deleteAtt(job.referenceAtt);
         repo.setReference(up.id);

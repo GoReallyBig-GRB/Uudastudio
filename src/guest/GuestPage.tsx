@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Mic, RotateCcw, Send, Share2, Square, Trash2, Minus, Plus, ChevronDown } from 'lucide-react';
+import { Mic, RotateCcw, Send, Square, Trash2, Minus, Plus, ChevronDown } from 'lucide-react';
 import { Button, Input } from '../components/ui';
 import { MicCapture } from './capture';
 import { MODE_TEXT } from './channels';
@@ -13,6 +13,8 @@ import { beginSession, deleteSession, findSaved, finishSession, loadSession, sav
 import { pcmToFloat, takeFileName, totalSamples, wavBlob, wavBytes, type Bits, type Pcm } from './wavWriter';
 import { describeSettings, processingOn } from './captureSettings';
 import { checkTake, parseWavHeader, storageCheck, wavMatches, type TakeIssue } from './takeCheck';
+import { SaveMenu } from '../jobs/SaveMenu';
+import { expiryLine } from '../jobs/saveFile';
 import { audioUrl, getThread, postMessage, sendAudio, type ThreadMessage, type ThreadResponse } from '../jobs/api';
 import { parseTalentHash } from '../jobs/links';
 import { ThreadView } from '../jobs/ThreadView';
@@ -298,13 +300,6 @@ export const GuestPage: React.FC = () => {
   const forget = async () => { if (saved) await deleteSession(saved.id); setSaved(null); };
 
   const fileFor = (t: Take) => takeFileName(view?.title ?? '', who(), t.n);
-  const download = (t: Take) => { const a = document.createElement('a'); a.href = t.url; a.download = fileFor(t); document.body.appendChild(a); a.click(); a.remove(); };
-  const share = async (t: Take) => {
-    const file = new File([t.blob], fileFor(t), { type: 'audio/wav' });
-    try { await navigator.share({ files: [file], title: view?.title ?? 'Recording', text: `Recording from ${who() || 'the talent'}` }); } catch { /* cancelled */ }
-  };
-  const canShare = (t: Take) => { try { return typeof navigator.canShare === 'function' && navigator.canShare({ files: [new File([t.blob], fileFor(t), { type: 'audio/wav' })] }); } catch { return false; } };
-
   /** Sends the take into the thread. The take is only removed from the device after the server says it has it. */
   const send = async () => {
     if (!remote || !take || take.practice) return;
@@ -312,9 +307,10 @@ export const GuestPage: React.FC = () => {
     if (!view?.talent) writeStore(NAME_KEY, name.trim());
     setError(''); setSending(0);
     try {
-      await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: who(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n') }, (f) => setSending(f));
+      const sent = await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: who(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n') }, (f) => setSending(f));
       await dropTake();
-      setSendNote(''); setSentCount((n) => n + 1); setNotice('Sent. The producer can hear it now. You can record another take.');
+      setSendNote(''); setSentCount((n) => n + 1); const until = expiryLine(sent.attachment?.expiresAt);
+      setNotice(`Sent. The producer can hear it now. You can record another take.${until ? ` ${until.text}` : ''}`);
       await loadThread();
     } catch (e) {
       setError(`Not sent: ${e instanceof Error ? e.message : 'something went wrong'}. Your take is still here. Try again.`);
@@ -434,6 +430,7 @@ export const GuestPage: React.FC = () => {
           <div className="mb-4 rounded-card border border-line bg-surface-2 p-3">
             <div className="mb-1.5 text-xs font-medium text-ink-dim">Reference: listen to how it should sound</div>
             <audio controls preload="none" src={audioUrl(remote.jobId, thread.job.reference.id, remote.key)} className="w-full" aria-label="Reference recording" />
+            {(() => { const e = expiryLine(thread.job.reference.expiresAt); return e ? <p className={`mt-1.5 text-[11px] ${e.soon ? 'text-warn' : 'text-ink-faint'}`}>{e.text}</p> : null; })()}
           </div>
         )}
         {view.notes && (
@@ -521,14 +518,13 @@ export const GuestPage: React.FC = () => {
                         <Button size="md" variant="primary" disabled={busySending} onClick={() => void send()} leftIcon={<Send className="h-4 w-4" />}>{busySending ? `Sending ${Math.round((sending ?? 0) * 100)}%` : 'Send to producer'}</Button>
                       ) : (
                         <>
-                          <Button size="md" variant="primary" onClick={() => download(take)} leftIcon={<Download className="h-4 w-4" />}>Download WAV</Button>
-                          {canShare(take) && <Button size="md" variant="secondary" onClick={() => void share(take)} leftIcon={<Share2 className="h-4 w-4" />}>Share</Button>}
+                          <SaveMenu look="button" label="Save WAV" name={fileFor(take)} getBlob={async () => take.blob} />
                         </>
                       )}
                       <Button size="md" variant="ghost" disabled={busySending} onClick={() => void dropTake()} leftIcon={<Trash2 className="h-4 w-4" />}>Delete</Button>
                     </div>
                     <p className="mt-2 text-xs text-ink-dim">
-                      {remote ? 'Listen first. Send puts it in the messages above for the producer. Until you press Send it only exists on this device.' : `Listen first. When you are happy, download the file (or Share) and send it to ${view.producer || 'the producer'} by email or WhatsApp. Attach the file; do not paste a link to it.`}
+                      {remote ? 'Listen first. Send puts it in the messages above for the producer. Until you press Send it only exists on this device. After that the server keeps it for 30 days, then deletes it.' : `Listen first. When you are happy, save the file and send it to ${view.producer || 'the producer'} by email or WhatsApp. Attach the file; do not paste a link to it.`}
                     </p>
                   </>
                 )}
