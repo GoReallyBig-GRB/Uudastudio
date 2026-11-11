@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Check, Copy, Link2Off, Trash2 } from 'lucide-react';
 import { Button, Input } from '../components/ui';
-import { ApiError, audioUrl, createJob, deleteJob, getThread, postMessage, revokeTalentLink, sendReference, type Attachment, type ThreadResponse } from './api';
+import { ApiError, audioUrl, createJob, deleteJob, getThread, postMessage, revokeTalentLink, sendAudio, sendReference, type Attachment, type ThreadResponse } from './api';
 import { CODE_KEY, STATUS_TEXT, statusOf, type JobStatus, type StoredJob } from './jobsStore';
 import type { JobSummary } from './useJobs';
 import { inviteText, nudgeText, talentLink } from './links';
@@ -258,6 +258,7 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, on
               audioSrc={(a) => audioUrl(job.id, a.id, job.producerKey)}
               onImport={which === 'talent' ? (a) => void doImport(a) : undefined}
               onSend={async (text) => { await postMessage(job.id, job.producerKey, j?.producer || 'Producer', text, which); await (which === 'talent' ? load() : loadClient()); }}
+              onAttach={which === 'client' ? async (file, text) => { await sendAudio(job.id, job.producerKey, file, { name: file.name, who: j?.producer || 'Producer', text, thread: 'client' }); await loadClient(); } : undefined}
               placeholder={which === 'talent' ? 'Reply to the talent' : 'Reply to the client'}
             />
           </div>

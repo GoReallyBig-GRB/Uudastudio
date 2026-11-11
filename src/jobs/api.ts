@@ -56,7 +56,7 @@ const begun = new WeakMap<Blob, string>();
  * Sends a file in pieces. Each piece carries its SHA-256 so the server can refuse one damaged in transit, and a piece that
  * fails is retried; sending the same file again continues from the pieces the server already holds.
  */
-const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'attachment' | 'reference' | 'preview' | 'final'; name: string; mime: string; who?: string; text?: string; thread?: string }, onProgress?: (f: number) => void): Promise<{ id?: number; attachment?: Attachment }> => {
+const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'attachment' | 'reference' | 'preview' | 'final'; name: string; mime: string; who?: string; text?: string; thread?: 'talent' | 'client' }, onProgress?: (f: number) => void): Promise<{ id?: number; attachment?: Attachment }> => {
   const h = { 'x-job-key': key };
   let uploadId = begun.get(blob);
   let chunkSize = 0, chunks = 0, have = new Set<number>();
@@ -94,8 +94,8 @@ const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'att
   return done;
 };
 
-export const sendAudio = (jobId: string, key: string, blob: Blob, o: { name: string; who: string; text?: string }, onProgress?: (f: number) => void) =>
-  upload(jobId, key, blob, { kind: 'attachment', name: o.name, mime: blob.type || 'audio/wav', who: o.who, text: o.text ?? '' }, onProgress);
+export const sendAudio = (jobId: string, key: string, blob: Blob, o: { name: string; who: string; text?: string; thread?: 'talent' | 'client' }, onProgress?: (f: number) => void) =>
+  upload(jobId, key, blob, { kind: 'attachment', name: o.name, mime: blob.type || 'audio/wav', who: o.who, text: o.text ?? '', thread: o.thread }, onProgress);
 
 export const sendReference = (jobId: string, key: string, file: File, onProgress?: (f: number) => void) =>
   upload(jobId, key, file, { kind: 'reference', name: file.name, mime: file.type || 'audio/wav' }, onProgress);
