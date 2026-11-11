@@ -116,13 +116,15 @@ export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCre
 interface DetailProps {
   job: StoredJob;
   onSeen: (lastId: number, status: JobStatus) => void;
+  /** The client thread was looked at up to this message */
+  onClientSeen?: (lastId: number) => void;
   onRemoved: () => void;
   onImportFile: (f: File) => Promise<void> | void;
   onBack?: () => void;
 }
 
 /** One job: link controls, script and notes on the left, the message thread on the right */
-export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImportFile, onBack }) => {
+export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, onRemoved, onImportFile, onBack }) => {
   const [thread, setThread] = useState<ThreadResponse | null>(null);
   const [messages, setMessages] = useState<ThreadResponse['messages']>([]);
   const [error, setError] = useState('');
@@ -154,6 +156,10 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImp
     } catch { /* the talent thread already shows connection problems */ }
   }, [job.id, job.producerKey, clientMessages]);
   usePolling(loadClient, 6000, !!clientKey);
+  // Messages in the tab being looked at count as read; the other tab keeps its dot
+  const lastClientId = clientMessages.length ? clientMessages[clientMessages.length - 1].id : 0;
+  useEffect(() => { if (which === 'client' && lastClientId) onClientSeen?.(lastClientId); }, [which, lastClientId, onClientSeen]);
+  const clientUnread = which === 'client' ? 0 : clientMessages.filter((m) => m.id > (job.lastReadClient ?? 0) && m.role !== 'producer').length;
 
   const link = useMemo(() => (talentKey ? talentLink(base(), job.id, talentKey) : ''), [talentKey, job.id]);
   const flash = (what: string) => { setCopied(what); window.setTimeout(() => setCopied(''), 2200); };
@@ -237,7 +243,7 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImp
           <div role="tablist" aria-label="Message threads" className="mb-2 flex gap-1">
             {(['talent', 'client'] as const).map((w) => (
               <button key={w} type="button" role="tab" aria-selected={which === w} disabled={w === 'client' && !clientKey} onClick={() => setWhich(w)} className={`rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-40 ${which === w ? 'bg-accent/15 text-accent' : 'text-ink-dim hover:bg-surface-3'}`}>
-                {w === 'talent' ? 'Talent' : 'Client'} <span className="font-normal text-ink-faint">{(w === 'talent' ? messages : clientMessages).length || ''}</span>
+                {w === 'talent' ? 'Talent' : 'Client'} <span className="font-normal text-ink-faint">{(w === 'talent' ? messages : clientMessages).length || ''}</span>{w === 'client' && clientUnread > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] font-bold text-[var(--accent-ink,#041014)]" aria-label={`${clientUnread} unread`}>{clientUnread}</span>}
               </button>
             ))}
           </div>
