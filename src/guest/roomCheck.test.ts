@@ -53,3 +53,31 @@ describe('room check', () => {
     expect(ids(checkRoom(new Float32Array(SR * 6), SR))).toEqual(['nothing']);
   });
 });
+
+describe('very quiet microphones (no false alarms)', () => {
+  /** A quiet USB mic: noise near -85 dB with frame-to-frame wobble, a start-up settle in the first 0.6 s, then speech after 4 s */
+  const quietMic = (o: { settle?: boolean; wobbleDb?: number; bumpAt?: number } = {}) => {
+    const lead = 4, x = new Float32Array(Math.round((lead + 8) * SR));
+    let seed = 11; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296) * 2 - 1;
+    const frame = Math.round(0.05 * SR);
+    let gain = 1;
+    for (let i = 0; i < x.length; i++) {
+      const t = i / SR;
+      if (i % frame === 0) gain = Math.pow(10, ((o.wobbleDb ?? 8) * rnd()) / 20);
+      let v = rnd() * Math.pow(10, -85 / 20) * Math.sqrt(3) * gain;
+      if (o.settle && t < 0.6) v += rnd() * 0.004 * (1 - t / 0.6);
+      const talking = t >= lead && (t - lead) % 1.6 < 1.1;
+      if (talking) for (let h = 1; h <= 8; h++) v += (0.05 / Math.pow(h, 0.5)) * Math.sin(2 * Math.PI * 180 * h * t);
+      if (o.bumpAt && t > o.bumpAt && t < o.bumpAt + 0.2) v += 0.02 * Math.sin(2 * Math.PI * 300 * t);
+      x[i] = v;
+    }
+    return x;
+  };
+  it('a silent room on a quiet mic passes even with a start-up settle and noisy-looking frames', () => {
+    const r = checkRoom(quietMic({ settle: true }), SR);
+    expect(ids(r)).not.toContain('lead'); expect(ids(r)).not.toContain('event');
+    expect(r.metrics!.leadInSeconds).toBeGreaterThan(3.5);
+  });
+  it('still catches a real bump in the quiet start', () => expect(ids(checkRoom(quietMic({ settle: true, bumpAt: 2 }), SR))).toContain('event'));
+  it('still asks for a quiet start when speech begins at once', () => expect(ids(checkRoom(take({ leadSeconds: 0.7 }), SR))).toContain('lead'));
+});

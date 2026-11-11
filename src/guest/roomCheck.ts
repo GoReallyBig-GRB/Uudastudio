@@ -5,6 +5,12 @@
  */
 
 export const FRAME_SECONDS = 0.05;
+/** The first moments after a microphone opens often hold a start-up click or a level settling. They are not the room, so they are ignored. */
+const SETTLE_SECONDS = 0.5;
+/** Speech never starts below this level. Without it a very quiet mic (noise near -85 dB) makes ordinary hiss look like speech. */
+const SPEECH_FLOOR_DB = -58;
+/** A noise in the quiet start only matters if it is audible at all */
+const EVENT_FLOOR_DB = -55;
 
 export interface RoomMetrics {
   /** Seconds of quiet before the first words (0 if speech started at once) */
@@ -84,11 +90,13 @@ export const measure = (x: Float32Array, sampleRate: number): RoomMetrics | null
     level[f] = db(Math.sqrt(s / n));
   }
   const sorted = [...level].sort((a, b) => a - b);
-  const floorGuess = pct(sorted, 10);
+  const settle = Math.min(Math.round(SETTLE_SECONDS / FRAME_SECONDS), Math.floor(frames / 4));
+  const settled = level.slice(settle);
+  const floorGuess = pct([...settled].sort((a, b) => a - b), 20);
   // The first frame where speech starts: loud for 150 ms and still going (at least 0.4 s of the next second), so a cough or a bump does not count
-  const thr = floorGuess + 18;
+  const thr = Math.max(floorGuess + 18, SPEECH_FLOOR_DB);
   let onset = -1;
-  for (let f = 0; f + 2 < frames; f++) {
+  for (let f = settle; f + 2 < frames; f++) {
     if (!(level[f] > thr && level[f + 1] > thr && level[f + 2] > thr)) continue;
     let loud = 0;
     for (let k = f; k < Math.min(frames, f + 20); k++) if (level[k] > thr) loud++;
@@ -96,7 +104,7 @@ export const measure = (x: Float32Array, sampleRate: number): RoomMetrics | null
   }
   if (onset < 0) return null;
   // Leave out the last 0.6 s before the words: a breath or a lip smack there is the talent, not the room
-  const rawLead = level.slice(0, onset);
+  const rawLead = level.slice(settle, onset);
   const lead = rawLead.length - 12 >= 10 ? rawLead.slice(0, rawLead.length - 12) : rawLead;
   const leadSorted = [...lead].sort((a, b) => a - b);
   const noiseDb = lead.length ? pct(leadSorted, 50) : floorGuess;
@@ -117,7 +125,7 @@ export const assess = (m: RoomMetrics | null): RoomReport => {
   const f: Finding[] = [];
   if (m.sampleRate <= 24000) f.push({ id: 'narrow', level: 'problem', text: 'This microphone records at phone-call quality (a Bluetooth headset does this). Use the phone or computer microphone, or a wired or USB mic.' });
   if (m.leadInSeconds < 1) f.push({ id: 'lead', level: 'warn', text: 'There was no quiet moment before you spoke. Stay silent for about 3 seconds first so the room can be measured.' });
-  if (m.leadInSeconds >= 1 && m.noiseMaxDb - m.noiseDb >= 10) f.push({ id: 'event', level: 'warn', text: 'Something made a noise during the quiet part (a cough, a bump, a car). Try again and keep still and silent.' });
+  if (m.leadInSeconds >= 1 && m.noiseMaxDb > EVENT_FLOOR_DB && m.noiseMaxDb - m.noiseDb >= 12) f.push({ id: 'event', level: 'warn', text: 'Something made a noise during the quiet part (a cough, a bump, a car). Try again and keep still and silent.' });
   if (m.clippedSamples >= 3 || m.peakDb > -1) f.push({ id: 'loud', level: m.clippedSamples >= 3 ? 'problem' : 'warn', text: m.clippedSamples >= 3 ? 'The sound is clipping (too loud, and the damage cannot be repaired). Move back from the microphone or turn its gain down.' : 'The loudest sounds reach the limit. Move a little further from the microphone or lower its gain.' });
   // A quiet voice is only a fault when the room noise is close behind it. A clean quiet take is fine: the producer raises the level
   // and nothing is lost, and a mic with its auto-gain off always records lower than a phone's own recorder app.

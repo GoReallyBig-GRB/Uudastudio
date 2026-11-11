@@ -2,7 +2,8 @@
  * Records the microphone to 16-bit mono PCM blocks. Each block is handed out as it arrives, so the page can save it to disk and a
  * reload or crash does not lose the take. No effects: no echo cancellation, noise suppression or auto gain, so the producer gets raw audio.
  */
-import { floatToPcm, peakOf, type Bits, type Pcm } from './wavWriter';
+import { floatToPcm, type Bits, type Pcm } from './wavWriter';
+import { blockInfo, type BlockInfo } from './levelMeter';
 import { readSettings, type CaptureSettings } from './captureSettings';
 import { mixBlock, newMixState, type ChannelMode } from './channels';
 
@@ -27,6 +28,8 @@ export interface CaptureHandlers {
   onBlock: (pcm: Pcm, index: number) => void;
   /** Peak level 0..1 of the latest block, for the meter */
   onLevel: (peak: number) => void;
+  /** Peak and a plosive guess for the latest block, for the meter's advice */
+  onInfo?: (info: BlockInfo) => void;
   /** The microphone stopped by itself (unplugged, or taken by another app) */
   onLost: () => void;
 }
@@ -68,7 +71,9 @@ export class MicCapture {
       if (!this.running) return;
       const m = mixBlock(left, right, this.mix);
       this.channelMode = m.mode;
-      h.onLevel(peakOf(m.out));
+      const info = blockInfo(m.out, this.sampleRate);
+      h.onLevel(info.peak);
+      h.onInfo?.(info);
       h.onBlock(floatToPcm(m.out, this.bits), this.index++);
     };
     try {

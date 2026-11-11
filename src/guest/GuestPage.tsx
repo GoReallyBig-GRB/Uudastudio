@@ -13,6 +13,7 @@ import { beginSession, deleteSession, findSaved, finishSession, loadSession, sav
 import { pcmToFloat, takeFileName, totalSamples, wavBlob, wavBytes, type Bits, type Pcm } from './wavWriter';
 import { describeSettings, processingOn } from './captureSettings';
 import { checkTake, parseWavHeader, storageCheck, wavMatches, type TakeIssue } from './takeCheck';
+import { LevelMeter, useMeter } from './MeterBar';
 import { SaveMenu } from '../jobs/SaveMenu';
 import { expiryLine } from '../jobs/saveFile';
 import { audioUrl, getThread, postMessage, sendAudio, type ThreadMessage, type ThreadResponse } from '../jobs/api';
@@ -108,7 +109,7 @@ export const GuestPage: React.FC = () => {
   const [take, setTake] = useState<Take | null>(null);
   const [practiceNext, setPracticeNext] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [level, setLevel] = useState(0);
+  const meter = useMeter();
   const [error, setError] = useState('');
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmReplace, setConfirmReplace] = useState(false);
@@ -177,7 +178,7 @@ export const GuestPage: React.FC = () => {
     await c.stop();
     setPhase('ready');
     setConfirmStop(false);
-    setLevel(0);
+    meter.reset();
     const chunks = chunksRef.current;
     const practice = practiceRef.current;
     if (totalSamples(chunks) === 0) { if (!practice) void deleteSession(sessionRef.current); return; }
@@ -218,7 +219,8 @@ export const GuestPage: React.FC = () => {
           setElapsed(samplesRef.current / c.sampleRate);
           if (!practiceRef.current) void saveChunk(sessionRef.current, i, pcm);
         },
-        onLevel: (p) => setLevel(p),
+        onLevel: () => undefined,
+        onInfo: meter.onInfo,
         onLost: () => void finish(true),
       }, micId || undefined, bits);
     } catch (e) {
@@ -479,9 +481,7 @@ export const GuestPage: React.FC = () => {
                 {elapsed < LEAD_IN ? `Stay quiet for ${Math.ceil(LEAD_IN - elapsed)}...` : 'Read now'}
               </div>
             )}
-            <div className="mb-3 h-2 overflow-hidden rounded-full bg-surface-3" role="meter" aria-label="Input level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Number(level.toFixed(2))}>
-              <div className={`h-full rounded-full ${level > 0.95 ? 'bg-danger' : level > 0.7 ? 'bg-warn' : 'bg-ok'}`} style={{ width: `${Math.min(100, level * 100)}%`, transition: 'width 60ms linear' }} />
-            </div>
+            <LevelMeter state={meter.state} className="mb-3" />
             <Button size="lg" variant={confirmStop ? 'danger' : 'secondary'} className="h-14 w-full text-base" onClick={stopPressed} leftIcon={<Square className="h-4 w-4" />}>
               {confirmStop ? 'Tap again to stop' : 'Stop'}
             </Button>
