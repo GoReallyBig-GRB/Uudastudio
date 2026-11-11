@@ -3,7 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { isJoinHash } from './guest/job';
-import { isTalentHash } from './jobs/links';
+import { isClientHash, isTalentHash } from './jobs/links';
 import './index.css';
 
 // Dev-only design-system preview, loaded lazily so the normal app never fetches it. Open it with:
@@ -15,6 +15,8 @@ const galleryOnly =
 
 // A voice talent's recording link (#/join/...) opens only the small recording page: no editor code, no sign-in.
 const GuestPage = lazy(() => import('./guest/GuestPage'));
+const ClientPage = lazy(() => import('./jobs/ClientPage'));
+const clientOnly = isClientHash(window.location.hash);
 const guestOnly = isJoinHash(window.location.hash) || isTalentHash(window.location.hash);
 
 const Root = () => {
@@ -32,6 +34,14 @@ const Root = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  if (clientOnly) {
+    return (
+      <Suspense fallback={null}>
+        <ClientPage />
+      </Suspense>
+    );
+  }
 
   if (guestOnly) {
     return (

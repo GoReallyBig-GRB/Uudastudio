@@ -2,9 +2,12 @@
 
 /** `expiresAt` is when the server deletes the file (ms since epoch) */
 export interface Attachment { id: string; name: string; mime: string; bytes: number; expiresAt?: number }
-export interface ThreadMessage { id: number; ts: number; role: 'producer' | 'talent'; name: string; text: string; attachment: Attachment | null; attachmentExpired?: boolean }
-export interface JobInfo { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds: number | null; createdAt: number; reference: Attachment | null }
-export interface ThreadResponse { role: 'producer' | 'talent'; job: JobInfo; messages: ThreadMessage[]; lastId: number; keys?: { talent?: string } }
+export interface ThreadMessage { id: number; ts: number; role: 'producer' | 'talent' | 'client'; name: string; text: string; attachment: Attachment | null; attachmentExpired?: boolean }
+export interface JobInfo { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds: number | null; createdAt: number; reference: Attachment | null; /** Producer only: what the client reviews */ preview?: Attachment | null; final?: Attachment | null; released?: boolean }
+/** What a reviewing client is allowed to see */
+export interface ClientJobInfo { title: string; producer: string; preview: Attachment | null; /** A final file exists but is not released */ finalReady: boolean; released: boolean; final: Attachment | null }
+export interface ClientThreadResponse { role: 'client'; job: ClientJobInfo; messages: ThreadMessage[]; lastId: number }
+export interface ThreadResponse { role: 'producer' | 'talent' | 'client'; job: JobInfo; messages: ThreadMessage[]; lastId: number; keys?: { talent?: string; client?: string } }
 export interface NewJob { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds?: number }
 
 export class ApiError extends Error {
@@ -33,11 +36,15 @@ export const ping = async (): Promise<{ createRequiresCode: boolean; temporary: 
 export const createJob = (job: NewJob, code?: string) =>
   net(fetch(BASE, { method: 'POST', headers: { 'content-type': 'application/json', ...(code ? { 'x-jobs-create-code': code } : {}) }, body: JSON.stringify(job) }).then(read)) as Promise<{ jobId: string; producerKey: string; talentKey: string }>;
 
-export const getThread = (jobId: string, key: string, after = 0) =>
-  net(fetch(`${BASE}/${jobId}/thread?after=${after}`, { headers: { 'x-job-key': key }, cache: 'no-store' }).then(read)) as Promise<ThreadResponse>;
+export const getThread = (jobId: string, key: string, after = 0, thread: 'talent' | 'client' = 'talent') =>
+  net(fetch(`${BASE}/${jobId}/thread?after=${after}${thread === 'client' ? '&thread=client' : ''}`, { headers: { 'x-job-key': key }, cache: 'no-store' }).then(read)) as Promise<ThreadResponse>;
 
-export const postMessage = (jobId: string, key: string, name: string, text: string) =>
-  net(fetch(`${BASE}/${jobId}/messages`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ name, text }) }).then(read));
+/** The reviewing client's own view of the job */
+export const getClientThread = (jobId: string, key: string, after = 0) =>
+  net(fetch(`${BASE}/${jobId}/thread?after=${after}`, { headers: { 'x-job-key': key }, cache: 'no-store' }).then(read)) as unknown as Promise<ClientThreadResponse>;
+
+export const postMessage = (jobId: string, key: string, name: string, text: string, thread: 'talent' | 'client' = 'talent') =>
+  net(fetch(`${BASE}/${jobId}/messages${thread === 'client' ? '?thread=client' : ''}`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ name, text }) }).then(read));
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const hex = async (d: ArrayBuffer) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', d))].map((x) => x.toString(16).padStart(2, '0')).join('');
@@ -49,7 +56,7 @@ const begun = new WeakMap<Blob, string>();
  * Sends a file in pieces. Each piece carries its SHA-256 so the server can refuse one damaged in transit, and a piece that
  * fails is retried; sending the same file again continues from the pieces the server already holds.
  */
-const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'attachment' | 'reference'; name: string; mime: string; who?: string; text?: string; thread?: string }, onProgress?: (f: number) => void): Promise<{ id?: number; attachment?: Attachment }> => {
+const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'attachment' | 'reference' | 'preview' | 'final'; name: string; mime: string; who?: string; text?: string; thread?: 'talent' | 'client' }, onProgress?: (f: number) => void): Promise<{ id?: number; attachment?: Attachment }> => {
   const h = { 'x-job-key': key };
   let uploadId = begun.get(blob);
   let chunkSize = 0, chunks = 0, have = new Set<number>();
@@ -87,11 +94,21 @@ const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'att
   return done;
 };
 
-export const sendAudio = (jobId: string, key: string, blob: Blob, o: { name: string; who: string; text?: string }, onProgress?: (f: number) => void) =>
-  upload(jobId, key, blob, { kind: 'attachment', name: o.name, mime: blob.type || 'audio/wav', who: o.who, text: o.text ?? '' }, onProgress);
+export const sendAudio = (jobId: string, key: string, blob: Blob, o: { name: string; who: string; text?: string; thread?: 'talent' | 'client' }, onProgress?: (f: number) => void) =>
+  upload(jobId, key, blob, { kind: 'attachment', name: o.name, mime: blob.type || 'audio/wav', who: o.who, text: o.text ?? '', thread: o.thread }, onProgress);
 
 export const sendReference = (jobId: string, key: string, file: File, onProgress?: (f: number) => void) =>
   upload(jobId, key, file, { kind: 'reference', name: file.name, mime: file.type || 'audio/wav' }, onProgress);
+
+export const sendPreview = (jobId: string, key: string, file: File, onProgress?: (f: number) => void) =>
+  upload(jobId, key, file, { kind: 'preview', name: file.name, mime: file.type || 'audio/wav' }, onProgress);
+
+export const sendFinal = (jobId: string, key: string, file: File, onProgress?: (f: number) => void) =>
+  upload(jobId, key, file, { kind: 'final', name: file.name, mime: file.type || 'audio/wav' }, onProgress);
+
+/** Makes (or replaces) the client link; the old one stops working */
+export const createClientLink = (jobId: string, key: string) => net(fetch(`${BASE}/${jobId}/client-link`, { method: 'POST', headers: { 'x-job-key': key } }).then(read)) as Promise<{ clientKey: string }>;
+export const setReleased = (jobId: string, key: string, released: boolean) => net(fetch(`${BASE}/${jobId}/release`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ released }) }).then(read)) as Promise<{ released: boolean }>;
 
 export const audioUrl = (jobId: string, attId: string, key: string): string => `${BASE}/${jobId}/audio/${attId}?k=${key}`;
 

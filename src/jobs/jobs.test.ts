@@ -48,3 +48,15 @@ describe('producer job list', () => {
     expect(statusOf([{ role: 'producer', attachment: { id: 'r' } }])).toBe('waiting');
   });
 });
+
+import { markReadClient } from './jobsStore';
+describe('client thread read marks', () => {
+  it('keeps its own read mark, only moving forward, and old saved jobs load with zero', () => {
+    const jobs = addJob([], { id: 'j', producerKey: 'k', title: 'T', createdAt: 1 });
+    expect(jobs[0].lastReadClient).toBe(0);
+    expect(markReadClient(markReadClient(jobs, 'j', 5), 'j', 3)[0].lastReadClient).toBe(5);
+    expect(markReadClient(jobs, 'j', 5)[0].lastRead).toBe(0);
+    const old = loadJobs({ getItem: () => JSON.stringify([{ id: 'a', producerKey: 'b', title: 'x', createdAt: 1, lastRead: 2 }]) });
+    expect(old[0].lastReadClient).toBe(0);
+  });
+});

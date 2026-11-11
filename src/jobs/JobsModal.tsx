@@ -44,7 +44,7 @@ export const JobsModal: React.FC<Props> = ({ open, onClose, jobs, target, onImpo
             />
           )}
           {view?.kind === 'job' && current && (
-            <JobDetail key={current.id} job={current} onSeen={(lastId, status) => jobs.markSeen(current.id, lastId, status)} onRemoved={() => { jobs.remove(current.id); setView(null); }} onImportFile={onImportFile} />
+            <JobDetail key={current.id} job={current} onSeen={(lastId, status) => jobs.markSeen(current.id, lastId, status)} onClientSeen={(lastId) => jobs.markClientSeen(current.id, lastId)} onRemoved={() => { jobs.remove(current.id); setView(null); }} onImportFile={onImportFile} />
           )}
           {(!view || (view.kind === 'job' && !current)) && (
             <div className="grid h-full place-items-center p-8 text-center">

@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Check, Copy, Link2Off, Trash2 } from 'lucide-react';
 import { Button, Input } from '../components/ui';
-import { ApiError, audioUrl, createJob, deleteJob, getThread, postMessage, revokeTalentLink, sendReference, type Attachment, type ThreadResponse } from './api';
+import { ApiError, audioUrl, createJob, deleteJob, getThread, postMessage, revokeTalentLink, sendAudio, sendReference, type Attachment, type ThreadResponse } from './api';
 import { CODE_KEY, STATUS_TEXT, statusOf, type JobStatus, type StoredJob } from './jobsStore';
 import type { JobSummary } from './useJobs';
 import { inviteText, nudgeText, talentLink } from './links';
@@ -10,6 +10,7 @@ import { ThreadView } from './ThreadView';
 import { ScriptEditor } from '../components/ui/ScriptEditor';
 import { FormattedScript } from '../guest/FormattedScript';
 import { usePolling } from './usePolling';
+import { ClientReview } from './ClientReview';
 
 const base = () => window.location.origin + window.location.pathname;
 const lsGet = (k: string) => { try { return localStorage.getItem(k) ?? ''; } catch { return ''; } };
@@ -115,17 +116,22 @@ export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCre
 interface DetailProps {
   job: StoredJob;
   onSeen: (lastId: number, status: JobStatus) => void;
+  /** The client thread was looked at up to this message */
+  onClientSeen?: (lastId: number) => void;
   onRemoved: () => void;
   onImportFile: (f: File) => Promise<void> | void;
   onBack?: () => void;
 }
 
 /** One job: link controls, script and notes on the left, the message thread on the right */
-export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImportFile, onBack }) => {
+export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, onRemoved, onImportFile, onBack }) => {
   const [thread, setThread] = useState<ThreadResponse | null>(null);
   const [messages, setMessages] = useState<ThreadResponse['messages']>([]);
   const [error, setError] = useState('');
   const [talentKey, setTalentKey] = useState('');
+  const [clientKey, setClientKey] = useState('');
+  const [clientMessages, setClientMessages] = useState<ThreadResponse['messages']>([]);
+  const [which, setWhich] = useState<'talent' | 'client'>('talent');
   const [copied, setCopied] = useState('');
   const [importing, setImporting] = useState('');
 
@@ -135,11 +141,25 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImp
       const t = await getThread(job.id, job.producerKey, after);
       setThread(t); setError('');
       if (t.keys?.talent) setTalentKey(t.keys.talent);
+      setClientKey(t.keys?.client ?? '');
       if (t.messages.length) setMessages((all) => [...all, ...t.messages.filter((m) => !all.some((x) => x.id === m.id))]);
       onSeen(t.lastId, statusOf([...messages, ...t.messages]));
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not load this job.'); }
   }, [job.id, job.producerKey, messages, onSeen]);
   usePolling(load, 6000);
+
+  const loadClient = useCallback(async () => {
+    const after = clientMessages.length ? clientMessages[clientMessages.length - 1].id : 0;
+    try {
+      const t = await getThread(job.id, job.producerKey, after, 'client');
+      if (t.messages.length) setClientMessages((all) => [...all, ...t.messages.filter((m) => !all.some((x) => x.id === m.id))]);
+    } catch { /* the talent thread already shows connection problems */ }
+  }, [job.id, job.producerKey, clientMessages]);
+  usePolling(loadClient, 6000, !!clientKey);
+  // Messages in the tab being looked at count as read; the other tab keeps its dot
+  const lastClientId = clientMessages.length ? clientMessages[clientMessages.length - 1].id : 0;
+  useEffect(() => { if (which === 'client' && lastClientId) onClientSeen?.(lastClientId); }, [which, lastClientId, onClientSeen]);
+  const clientUnread = which === 'client' ? 0 : clientMessages.filter((m) => m.id > (job.lastReadClient ?? 0) && m.role !== 'producer').length;
 
   const link = useMemo(() => (talentKey ? talentLink(base(), job.id, talentKey) : ''), [talentKey, job.id]);
   const flash = (what: string) => { setCopied(what); window.setTimeout(() => setCopied(''), 2200); };
@@ -197,6 +217,7 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImp
             </div>
             <p className="mt-2 text-[11px] text-ink-faint">Uuda cannot notify the talent. After you reply, send them the nudge by email or WhatsApp. Jobs with no activity for 60 days are deleted.</p>
           </section>
+          <ClientReview jobId={job.id} title={job.title} producerKey={job.producerKey} clientKey={clientKey} onClientKey={setClientKey} info={j} reload={load} />
           {j && (
             <>
               <section aria-label="Script">
@@ -219,18 +240,26 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onRemoved, onImp
           )}
         </div>
         <div className="flex min-h-0 flex-col p-6">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">Messages</h3>
+          <div role="tablist" aria-label="Message threads" className="mb-2 flex gap-1">
+            {(['talent', 'client'] as const).map((w) => (
+              <button key={w} type="button" role="tab" aria-selected={which === w} disabled={w === 'client' && !clientKey} onClick={() => setWhich(w)} className={`rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-40 ${which === w ? 'bg-accent/15 text-accent' : 'text-ink-dim hover:bg-surface-3'}`}>
+                {w === 'talent' ? 'Talent' : 'Client'} <span className="font-normal text-ink-faint">{(w === 'talent' ? messages : clientMessages).length || ''}</span>{w === 'client' && clientUnread > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] font-bold text-[var(--accent-ink,#041014)]" aria-label={`${clientUnread} unread`}>{clientUnread}</span>}
+              </button>
+            ))}
+          </div>
           {importing && <div className="mb-2 text-xs text-ink-dim">Adding {importing} to the project...</div>}
           <div className="min-h-0 flex-1">
             <ThreadView
+              key={which}
               fill
-              messages={messages}
+              messages={which === 'talent' ? messages : clientMessages}
               self="producer"
               folder={['Jobs', job.title]}
               audioSrc={(a) => audioUrl(job.id, a.id, job.producerKey)}
-              onImport={(a) => void doImport(a)}
-              onSend={async (text) => { await postMessage(job.id, job.producerKey, j?.producer || 'Producer', text); await load(); }}
-              placeholder="Reply to the talent"
+              onImport={which === 'talent' ? (a) => void doImport(a) : undefined}
+              onSend={async (text) => { await postMessage(job.id, job.producerKey, j?.producer || 'Producer', text, which); await (which === 'talent' ? load() : loadClient()); }}
+              onAttach={which === 'client' ? async (file, text) => { await sendAudio(job.id, job.producerKey, file, { name: file.name, who: j?.producer || 'Producer', text, thread: 'client' }); await loadClient(); } : undefined}
+              placeholder={which === 'talent' ? 'Reply to the talent' : 'Reply to the client'}
             />
           </div>
         </div>

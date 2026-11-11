@@ -26,8 +26,8 @@ for (const [label, make] of makers) {
     it('keeps the job, keys and revocation', async () => {
       const r = await make();
       expect(r.getJob()).toBeNull();
-      r.putJob({ title: 'T', script: 'S', notes: 'N', producer: 'P', targetSeconds: 30, createdAt: 5, referenceAtt: null });
-      expect(r.getJob()).toEqual({ title: 'T', script: 'S', notes: 'N', producer: 'P', targetSeconds: 30, createdAt: 5, referenceAtt: null });
+      r.putJob({ title: 'T', script: 'S', notes: 'N', producer: 'P', targetSeconds: 30, createdAt: 5, referenceAtt: null, previewAtt: null, finalAtt: null, released: false });
+      expect(r.getJob()).toEqual({ title: 'T', script: 'S', notes: 'N', producer: 'P', targetSeconds: 30, createdAt: 5, referenceAtt: null, previewAtt: null, finalAtt: null, released: false });
       r.setKey('talent', 'abc'); r.setKey('producer', 'def'); r.revokeKey('talent');
       expect(r.getKeys().sort((a, b) => a.role.localeCompare(b.role))).toEqual([{ role: 'producer', key: 'def', revoked: false }, { role: 'talent', key: 'abc', revoked: true }]);
     });

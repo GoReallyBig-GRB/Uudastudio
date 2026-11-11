@@ -7,6 +7,8 @@ export interface StoredJob {
   createdAt: number;
   /** Highest message id the producer has seen */
   lastRead: number;
+  /** Same for the client thread */
+  lastReadClient?: number;
 }
 
 const KEY = 'uuda-jobs-v1';
@@ -16,7 +18,7 @@ export const loadJobs = (storage: Pick<Storage, 'getItem'>): StoredJob[] => {
   try {
     const raw = JSON.parse(storage.getItem(KEY) ?? '[]');
     if (!Array.isArray(raw)) return [];
-    return raw.filter((j) => j && typeof j.id === 'string' && typeof j.producerKey === 'string').map((j) => ({ id: j.id, producerKey: j.producerKey, title: String(j.title ?? 'Voice recording'), createdAt: Number(j.createdAt) || 0, lastRead: Number(j.lastRead) || 0 }));
+    return raw.filter((j) => j && typeof j.id === 'string' && typeof j.producerKey === 'string').map((j) => ({ id: j.id, producerKey: j.producerKey, title: String(j.title ?? 'Voice recording'), createdAt: Number(j.createdAt) || 0, lastRead: Number(j.lastRead) || 0, lastReadClient: Number(j.lastReadClient) || 0 }));
   } catch { return []; }
 };
 
@@ -24,9 +26,11 @@ export const saveJobs = (storage: Pick<Storage, 'setItem'>, jobs: StoredJob[]): 
   try { storage.setItem(KEY, JSON.stringify(jobs)); } catch { /* not saved: the list is lost on reload */ }
 };
 
-export const addJob = (jobs: StoredJob[], j: Omit<StoredJob, 'lastRead'>): StoredJob[] => [{ ...j, lastRead: 0 }, ...jobs.filter((x) => x.id !== j.id)];
+export const addJob = (jobs: StoredJob[], j: Omit<StoredJob, 'lastRead' | 'lastReadClient'>): StoredJob[] => [{ ...j, lastRead: 0, lastReadClient: 0 }, ...jobs.filter((x) => x.id !== j.id)];
 export const removeJob = (jobs: StoredJob[], id: string): StoredJob[] => jobs.filter((j) => j.id !== id);
 export const markRead = (jobs: StoredJob[], id: string, lastRead: number): StoredJob[] => jobs.map((j) => (j.id === id && lastRead > j.lastRead ? { ...j, lastRead } : j));
+
+export const markReadClient = (jobs: StoredJob[], id: string, last: number): StoredJob[] => jobs.map((j) => (j.id === id && last > (j.lastReadClient ?? 0) ? { ...j, lastReadClient: last } : j));
 
 /** Messages from the talent that the producer has not read yet */
 export const unreadCount = (messages: { id: number; role: string }[], lastRead: number): number => messages.filter((m) => m.id > lastRead && m.role !== 'producer').length;

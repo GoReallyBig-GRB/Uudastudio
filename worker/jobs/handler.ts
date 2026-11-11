@@ -80,16 +80,29 @@ const purgeExpired = (repo: JobRepo, now: number) => {
   const gone = repo.attsBefore(now - FILE_TTL_MS);
   if (!gone.length) return;
   const j = repo.getJob();
-  for (const id of gone) { if (j?.referenceAtt === id) repo.setReference(null); repo.deleteAtt(id); }
+  for (const id of gone) {
+    if (j?.referenceAtt === id) repo.setReference(null);
+    if (j && (j.previewAtt === id || j.finalAtt === id)) repo.putJob({ ...j, previewAtt: j.previewAtt === id ? null : j.previewAtt, finalAtt: j.finalAtt === id ? null : j.finalAtt, released: j.finalAtt === id ? false : j.released });
+    repo.deleteAtt(id);
+  }
 };
 
 const pubAtt = (a: { id: string; name: string; mime: string; bytes: number; ts: number }) => ({ id: a.id, name: a.name, mime: a.mime, bytes: a.bytes, expiresAt: a.ts + FILE_TTL_MS });
 
-const publicJob = (j: JobRow, repo: JobRepo) => {
+const publicJob = (j: JobRow, repo: JobRepo, role: Role) => {
   const ref = j.referenceAtt ? repo.getAtt(j.referenceAtt) : null;
+  if (role === 'client') {
+    // The client sees the preview, and the final only once released. Never the script, notes, reference or talent.
+    const preview = j.previewAtt ? repo.getAtt(j.previewAtt) : null;
+    const fin = j.finalAtt ? repo.getAtt(j.finalAtt) : null;
+    return { title: j.title, producer: j.producer, preview: preview ? pubAtt(preview) : null, finalReady: !!fin, released: !!fin && !!j.released, final: fin && j.released ? pubAtt(fin) : null };
+  }
+  const preview = j.previewAtt ? repo.getAtt(j.previewAtt) : null;
+  const fin = j.finalAtt ? repo.getAtt(j.finalAtt) : null;
   return {
     title: j.title, script: j.script, notes: j.notes, producer: j.producer, talent: j.talent ?? '', targetSeconds: j.targetSeconds, createdAt: j.createdAt,
     reference: ref ? pubAtt(ref) : null,
+    ...(role === 'producer' ? { preview: preview ? pubAtt(preview) : null, final: fin ? pubAtt(fin) : null, released: !!fin && !!j.released } : {}),
   };
 };
 
@@ -98,7 +111,15 @@ const publicMsg = (m: MsgRow, repo: JobRepo) => {
   return { id: m.id, ts: m.ts, role: m.role, name: m.name, text: m.text, attachment: a ? pubAtt(a) : null, attachmentExpired: !!m.att && !a };
 };
 
-const threadFor = (role: Role, url: URL): string => (role === 'talent' ? 'talent' : url.searchParams.get('thread') === 'client' ? 'client' : 'talent');
+const threadFor = (role: Role, url: URL): string => (role === 'talent' ? 'talent' : role === 'client' ? 'client' : url.searchParams.get('thread') === 'client' ? 'client' : 'talent');
+
+/** Which files each role may hear: the producer everything; the talent the reference and the talent thread; the client the preview, a released final and the client thread */
+const mayHear = (role: Role, job: JobRow, repo: JobRepo, attId: string): boolean => {
+  if (role === 'producer') return true;
+  const m = repo.messageWithAtt(attId);
+  if (role === 'talent') return attId === job.referenceAtt || (!!m && m.thread === 'talent');
+  return attId === job.previewAtt || (attId === job.finalAtt && !!job.released) || (!!m && m.thread === 'client');
+};
 
 /** Reads a request body into pieces of CHUNK bytes and stores them. Returns the byte count, or an error. */
 const storeStream = async (req: Request, repo: JobRepo, attId: string, max: number, room: number): Promise<{ bytes: number; head: Uint8Array } | { error: string; status: number }> => {
@@ -204,7 +225,7 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     const thread = threadFor(role, url);
     const after = Math.max(0, Number(url.searchParams.get('after')) || 0);
     const keys = role === 'producer' ? Object.fromEntries(repo.getKeys().filter((k) => !k.revoked).map((k) => [k.role, k.key])) : undefined;
-    return json({ role, job: publicJob(job, repo), messages: repo.messagesAfter(thread, after, LIMITS.page).map((m) => publicMsg(m, repo)), lastId: repo.lastMessageId(thread), keys });
+    return json({ role, job: publicJob(job, repo, role), messages: repo.messagesAfter(thread, after, LIMITS.page).map((m) => publicMsg(m, repo)), lastId: repo.lastMessageId(thread), keys });
   }
 
   if (route === 'messages' && req.method === 'POST') {
@@ -217,6 +238,8 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     env.touch?.();
     return json({ id }, 201);
   }
+
+  if ((route === 'attachments' || route === 'reference' || route === 'uploads') && role === 'client') return fail(403, 'Reviewers cannot send audio.');
 
   if ((route === 'attachments' || route === 'reference') && req.method === 'PUT') {
     if (route === 'reference' && role !== 'producer') return fail(403, 'Only the producer can add a reference.');
@@ -245,9 +268,9 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     if (req.method === 'POST' && !rest[1]) {
       let b: Record<string, unknown>;
       try { b = (await req.json()) as Record<string, unknown>; } catch { return bad('Bad request.'); }
-      const kind = b.kind === 'reference' ? 'reference' : 'attachment';
-      if (kind === 'reference' && role !== 'producer') return bad('Only the producer can add a reference.', 403);
-      if (repo.messageCount() >= LIMITS.messages) return bad('This thread is full.', 429);
+      const kind = b.kind === 'reference' || b.kind === 'preview' || b.kind === 'final' ? b.kind : 'attachment';
+      if (kind !== 'attachment' && role !== 'producer') return bad('Only the producer can do that.', 403);
+      if (kind === 'attachment' && repo.messageCount() >= LIMITS.messages) return bad('This thread is full.', 429);
       const size = Math.floor(Number(b.size));
       if (!Number.isFinite(size) || size <= 0) return bad('The file is empty.');
       if (size > LIMITS.attachmentBytes) return bad(`That file is too large. The limit is ${LIMITS.attachmentBytes / 1048576} MB.`, 413);
@@ -287,6 +310,14 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
         env.touch?.();
         return json({ attachment: att }, 201);
       }
+      if (up.kind === 'preview' || up.kind === 'final') {
+        const old = up.kind === 'preview' ? job.previewAtt : job.finalAtt;
+        if (old) repo.deleteAtt(old);
+        // A new final starts locked, so a replaced file is never released by accident
+        repo.putJob(up.kind === 'preview' ? { ...job, previewAtt: up.id } : { ...job, finalAtt: up.id, released: false });
+        env.touch?.();
+        return json({ attachment: att }, 201);
+      }
       const id = repo.addMessage({ ts: now(), thread: up.thread, role, name: up.who || (role === 'producer' ? job.producer || 'Producer' : 'Talent'), text: up.text, att: up.id });
       env.touch?.();
       return json({ id, attachment: att }, 201);
@@ -294,7 +325,30 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     return bad('Not found.', 404);
   }
 
-  if (route === 'audio' && (req.method === 'GET' || req.method === 'HEAD') && rest[1]) return serveAudio(req, repo, rest[1]);
+  if (route === 'audio' && (req.method === 'GET' || req.method === 'HEAD') && rest[1]) {
+    if (!mayHear(role, job, repo, rest[1])) return fail(403, role === 'client' ? 'That file has not been released yet.' : 'Not allowed.');
+    return serveAudio(req, repo, rest[1]);
+  }
+
+  if (route === 'release' && req.method === 'POST') {
+    if (role !== 'producer') return fail(403, 'Only the producer can do that.');
+    let b: Record<string, unknown> = {};
+    try { b = (await req.json()) as Record<string, unknown>; } catch { /* default below */ }
+    const released = b.released !== false;
+    if (released && !(job.finalAtt && repo.getAtt(job.finalAtt))) return fail(409, 'Add the final file first.');
+    repo.putJob({ ...job, released });
+    env.touch?.();
+    return json({ released });
+  }
+
+  if (route === 'client-link' && req.method === 'POST') {
+    if (role !== 'producer') return fail(403, 'Only the producer can do that.');
+    repo.revokeKey('client');
+    const clientKey = env.newKey();
+    repo.setKey('client', clientKey);
+    env.touch?.();
+    return json({ clientKey });
+  }
 
   if (route === 'revoke' && req.method === 'POST') {
     if (role !== 'producer') return fail(403, 'Only the producer can do that.');

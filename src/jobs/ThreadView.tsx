@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send } from 'lucide-react';
+import { Paperclip, Send } from 'lucide-react';
 import type { Attachment, ThreadMessage } from './api';
 import { SaveMenu } from './SaveMenu';
 import { expiryLine } from './saveFile';
@@ -18,13 +18,15 @@ const GROUP_MS = 5 * 60 * 1000;
 
 interface Props {
   messages: ThreadMessage[];
-  self: 'producer' | 'talent';
+  self: 'producer' | 'talent' | 'client';
   audioSrc: (a: Attachment) => string;
   /** Where saved files belong inside the Uuda Studio folder, e.g. ["Jobs", "Intro spot"] */
   folder?: string[];
   /** Producer only: bring a received take into the project */
   onImport?: (a: Attachment) => void;
   onSend: (text: string) => Promise<void>;
+  /** Producer only: send an audio file into this thread, with the text (if any) as its caption */
+  onAttach?: (file: File, text: string) => Promise<void>;
   placeholder?: string;
   disabled?: boolean;
   /** Fill the height of the parent: the messages scroll and the box stays at the bottom */
@@ -35,12 +37,18 @@ interface Props {
  * The message thread under a job, laid out like a chat app: your messages on the right, theirs on the left, grouped by sender,
  * day dividers, the time inside each bubble, and a rounded box with a round send button at the bottom. The same on both sides.
  */
-export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, onImport, onSend, placeholder, disabled, fill }) => {
+export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, onImport, onSend, onAttach, placeholder, disabled, fill }) => {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const listRef = useRef<HTMLUListElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const attach = async (f: File) => {
+    if (!onAttach) return;
+    setBusy(true); setError('');
+    try { await onAttach(f, text.trim()); setText(''); } catch (e) { setError(e instanceof Error ? e.message : 'The file could not be sent.'); } finally { setBusy(false); }
+  };
   // On a phone, Enter makes a new line and the round button sends, as in other chat apps; on a computer Enter sends
   const touch = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
@@ -62,7 +70,7 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
   return (
     <div className={`flex min-h-0 flex-col ${fill ? 'h-full' : 'gap-3'}`}>
       <ul ref={listRef} className={`flex flex-col px-3 py-2 ${fill ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : ''}`} aria-label="Messages" aria-live="polite">
-        {messages.length === 0 && <li className="mx-auto my-6 max-w-xs rounded-card border border-dashed border-line px-3 py-4 text-center text-xs text-ink-faint">No messages yet. Write here to reach the {self === 'talent' ? 'producer' : 'talent'}.</li>}
+        {messages.length === 0 && <li className="mx-auto my-6 max-w-xs rounded-card border border-dashed border-line px-3 py-4 text-center text-xs text-ink-faint">No messages yet. Write here to start the conversation.</li>}
         {messages.map((m, i) => {
           const prev = messages[i - 1], next = messages[i + 1];
           const mine = m.role === self;
@@ -102,6 +110,12 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
       <div className={`${fill ? 'border-t border-line bg-surface-1 px-2 pt-2' : ''}`} style={fill ? { paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' } : undefined}>
         {error && <div role="alert" className="mb-1.5 px-2 text-xs text-danger">{error}</div>}
         <div className="flex items-end gap-2">
+          {onAttach && (
+            <>
+              <button type="button" aria-label="Attach audio" disabled={busy || disabled} onClick={() => fileRef.current?.click()} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line-strong text-ink-dim hover:bg-surface-3 disabled:opacity-40"><Paperclip className="h-5 w-5" /></button>
+              <input ref={fileRef} type="file" accept="audio/*" hidden aria-label="Audio file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void attach(f); }} />
+            </>
+          )}
           <textarea
             ref={boxRef}
             value={text}
