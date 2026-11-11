@@ -199,3 +199,76 @@ describe('file expiry', () => {
     expect((await call(env, 'GET', `audio/${u.uploadId}`, { key: k.producerKey })).status).toBe(404);
   });
 });
+
+describe('client review', () => {
+  const upload = async (env: HandlerEnv, key: string, kind: string, data: Uint8Array, extra: object = {}) => {
+    const u = (await (await call(env, 'POST', 'uploads', { key, body: JSON.stringify({ kind, name: `${kind}.wav`, mime: 'audio/wav', size: data.length, ...extra }) })).json()) as any;
+    await call(env, 'PUT', `uploads/${u.uploadId}/0`, { key, body: data, headers: { 'x-chunk-sha256': await sha(data) } });
+    const done = await call(env, 'POST', `uploads/${u.uploadId}/complete`, { key });
+    return { id: u.uploadId as string, status: done.status };
+  };
+  const setup = async () => {
+    const env = mk(); const k = await create(env);
+    const clientKey = ((await (await call(env, 'POST', 'client-link', { key: k.producerKey })).json()) as any).clientKey as string;
+    return { env, k, clientKey };
+  };
+
+  it('only the producer can make a client link, and making another stops the old one', async () => {
+    const { env, k, clientKey } = await setup();
+    expect((await call(env, 'POST', 'client-link', { key: k.talentKey })).status).toBe(403);
+    expect((await call(env, 'POST', 'client-link', { key: clientKey })).status).toBe(403);
+    const again = ((await (await call(env, 'POST', 'client-link', { key: k.producerKey })).json()) as any).clientKey;
+    expect((await call(env, 'GET', 'thread', { key: clientKey })).status).toBe(403);
+    expect((await call(env, 'GET', 'thread', { key: again })).status).toBe(200);
+  });
+
+  it('the client never sees the script, notes, reference or talent, and has a thread of its own', async () => {
+    const { env, k, clientKey } = await setup();
+    await call(env, 'POST', 'messages', { key: k.talentKey, body: JSON.stringify({ text: 'for the talent' }) });
+    await call(env, 'POST', 'messages', { key: clientKey, body: JSON.stringify({ text: 'love it', name: 'Client' }) });
+    const t = (await (await call(env, 'GET', 'thread', { key: clientKey })).json()) as any;
+    expect(Object.keys(t.job).sort()).toEqual(['final', 'finalReady', 'preview', 'producer', 'released', 'title']);
+    expect(t.messages.map((m: any) => m.text)).toEqual(['love it']);
+    const talent = (await (await call(env, 'GET', 'thread', { key: k.talentKey })).json()) as any;
+    expect(talent.messages.map((m: any) => m.text)).toEqual(['for the talent']);
+    const prod = (await (await call(env, 'GET', 'thread?thread=client', { key: k.producerKey })).json()) as any;
+    expect(prod.messages.map((m: any) => m.text)).toEqual(['love it']);
+    expect(prod.keys.client).toBe(clientKey);
+  });
+
+  it('the client can play the preview but not the final until it is released; replacing the final locks it again', async () => {
+    const { env, k, clientKey } = await setup();
+    const prev = await upload(env, k.producerKey, 'preview', wav(900));
+    const fin = await upload(env, k.producerKey, 'final', wav(1200));
+    expect(prev.status).toBe(201); expect(fin.status).toBe(201);
+    let t = (await (await call(env, 'GET', 'thread', { key: clientKey })).json()) as any;
+    expect(t.job.preview.id).toBe(prev.id); expect(t.job.final).toBeNull(); expect(t.job.finalReady).toBe(true); expect(t.job.released).toBe(false);
+    expect((await call(env, 'GET', `audio/${prev.id}`, { key: clientKey })).status).toBe(200);
+    expect((await call(env, 'GET', `audio/${fin.id}`, { key: clientKey })).status).toBe(403);
+    expect((await call(env, 'POST', 'release', { key: clientKey, body: '{}' })).status).toBe(403);
+    expect((await call(env, 'POST', 'release', { key: k.producerKey, body: JSON.stringify({ released: true }) })).status).toBe(200);
+    expect((await call(env, 'GET', `audio/${fin.id}`, { key: clientKey })).status).toBe(200);
+    t = (await (await call(env, 'GET', 'thread', { key: clientKey })).json()) as any;
+    expect(t.job.final.id).toBe(fin.id); expect(t.job.released).toBe(true);
+    const fin2 = await upload(env, k.producerKey, 'final', wav(1300));
+    t = (await (await call(env, 'GET', 'thread', { key: clientKey })).json()) as any;
+    expect(t.job.released).toBe(false); expect(t.job.final).toBeNull();
+    expect((await call(env, 'GET', `audio/${fin.id}`, { key: k.producerKey })).status).toBe(404);
+    expect((await call(env, 'GET', `audio/${fin2.id}`, { key: clientKey })).status).toBe(403);
+    await call(env, 'POST', 'release', { key: k.producerKey, body: JSON.stringify({ released: false }) });
+  });
+
+  it('cannot release before there is a final file; client and talent cannot send audio or reach each other\'s files', async () => {
+    const { env, k, clientKey } = await setup();
+    expect((await call(env, 'POST', 'release', { key: k.producerKey, body: JSON.stringify({ released: true }) })).status).toBe(409);
+    expect((await call(env, 'POST', 'uploads', { key: clientKey, body: JSON.stringify({ size: 100 }) })).status).toBe(403);
+    expect((await call(env, 'POST', 'uploads', { key: k.talentKey, body: JSON.stringify({ kind: 'preview', size: 100 }) })).status).toBe(403);
+    const take = await upload(env, k.talentKey, 'attachment', wav(800));
+    expect((await call(env, 'GET', `audio/${take.id}`, { key: clientKey })).status).toBe(403);
+    const prev = await upload(env, k.producerKey, 'preview', wav(800));
+    expect((await call(env, 'GET', `audio/${prev.id}`, { key: k.talentKey })).status).toBe(403);
+    const note = await upload(env, k.producerKey, 'attachment', wav(800), { thread: 'client' });
+    expect((await call(env, 'GET', `audio/${note.id}`, { key: clientKey })).status).toBe(200);
+    expect((await call(env, 'GET', `audio/${note.id}`, { key: k.talentKey })).status).toBe(403);
+  });
+});

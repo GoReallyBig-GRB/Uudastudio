@@ -18,7 +18,7 @@ const GROUP_MS = 5 * 60 * 1000;
 
 interface Props {
   messages: ThreadMessage[];
-  self: 'producer' | 'talent';
+  self: 'producer' | 'talent' | 'client';
   audioSrc: (a: Attachment) => string;
   /** Where saved files belong inside the Uuda Studio folder, e.g. ["Jobs", "Intro spot"] */
   folder?: string[];
@@ -62,7 +62,7 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
   return (
     <div className={`flex min-h-0 flex-col ${fill ? 'h-full' : 'gap-3'}`}>
       <ul ref={listRef} className={`flex flex-col px-3 py-2 ${fill ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : ''}`} aria-label="Messages" aria-live="polite">
-        {messages.length === 0 && <li className="mx-auto my-6 max-w-xs rounded-card border border-dashed border-line px-3 py-4 text-center text-xs text-ink-faint">No messages yet. Write here to reach the {self === 'talent' ? 'producer' : 'talent'}.</li>}
+        {messages.length === 0 && <li className="mx-auto my-6 max-w-xs rounded-card border border-dashed border-line px-3 py-4 text-center text-xs text-ink-faint">No messages yet. Write here to start the conversation.</li>}
         {messages.map((m, i) => {
           const prev = messages[i - 1], next = messages[i + 1];
           const mine = m.role === self;

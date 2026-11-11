@@ -3,7 +3,7 @@
  * Cloudflare Durable Object (SqlRepo) and on the Express server used in AI Studio (MemoryRepo), and are tested without either.
  */
 
-export type Role = 'producer' | 'talent';
+export type Role = 'producer' | 'talent' | 'client';
 
 export interface JobRow {
   title: string;
@@ -15,13 +15,18 @@ export interface JobRow {
   targetSeconds: number | null;
   createdAt: number;
   referenceAtt: string | null;
+  /** What the client listens to while reviewing */
+  previewAtt?: string | null;
+  /** The finished file; the client gets it only after the producer releases it */
+  finalAtt?: string | null;
+  released?: boolean;
 }
 export interface KeyRow { role: Role; key: string; revoked: boolean }
 export interface AttRow { id: string; name: string; mime: string; bytes: number; ts: number }
 export interface MsgRow { id: number; ts: number; thread: string; role: Role; name: string; text: string; att: string | null }
 
 /** A file being sent piece by piece. Its pieces are stored as chunks under the same id the finished attachment will have. */
-export interface UploadRow { id: string; kind: 'attachment' | 'reference'; name: string; mime: string; who: string; text: string; thread: string; role: Role; size: number; ts: number }
+export interface UploadRow { id: string; kind: 'attachment' | 'reference' | 'preview' | 'final'; name: string; mime: string; who: string; text: string; thread: string; role: Role; size: number; ts: number }
 
 export interface JobRepo {
   ensure(): void;
@@ -49,6 +54,8 @@ export interface JobRepo {
   chunkIndexes(att: string): number[];
   /** Ids of files uploaded before the given time */
   attsBefore(ts: number): string[];
+  /** The message a file belongs to, if any (to know which thread may hear it) */
+  messageWithAtt(att: string): MsgRow | null;
 }
 
 export class MemoryRepo implements JobRepo {
@@ -78,6 +85,7 @@ export class MemoryRepo implements JobRepo {
   putUpload(u: UploadRow) { this.ups.set(u.id, { ...u }); }
   getUpload(id: string) { const u = this.ups.get(id); return u ? { ...u } : null; }
   deleteUpload(id: string) { this.ups.delete(id); }
+  messageWithAtt(att: string) { const m = this.msgs.find((x) => x.att === att); return m ? { ...m } : null; }
   attsBefore(ts: number) { return [...this.atts.values()].filter((a) => a.ts < ts).map((a) => a.id); }
   chunkIndexes(att: string) { return [...this.chunks.keys()].filter((k) => k.startsWith(`${att}:`)).map((k) => Number(k.slice(att.length + 1))).sort((a, b) => a - b); }
   deleteAtt(id: string) {
@@ -101,6 +109,7 @@ export class SqlRepo implements JobRepo {
     q('CREATE TABLE IF NOT EXISTS job (id INTEGER PRIMARY KEY CHECK (id = 1), title TEXT, script TEXT, notes TEXT, producer TEXT, target INTEGER, created INTEGER, reference_att TEXT)');
     // Jobs made before talent names existed lack this column; adding it twice throws, which is fine
     try { q('ALTER TABLE job ADD COLUMN talent TEXT'); } catch { /* already there */ }
+    for (const col of ['preview_att TEXT', 'final_att TEXT', 'released INTEGER']) { try { q(`ALTER TABLE job ADD COLUMN ${col}`); } catch { /* already there */ } }
     q('CREATE TABLE IF NOT EXISTS keys (role TEXT PRIMARY KEY, key TEXT, revoked INTEGER)');
     q('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, thread TEXT, role TEXT, name TEXT, text TEXT, att TEXT)');
     q('CREATE TABLE IF NOT EXISTS atts (id TEXT PRIMARY KEY, name TEXT, mime TEXT, bytes INTEGER, ts INTEGER)');
@@ -110,9 +119,9 @@ export class SqlRepo implements JobRepo {
   getJob(): JobRow | null {
     const r = this.sql.exec('SELECT * FROM job WHERE id = 1').toArray()[0];
     if (!r) return null;
-    return { title: String(r.title), script: String(r.script), notes: String(r.notes), producer: String(r.producer), ...(r.talent ? { talent: String(r.talent) } : {}), targetSeconds: r.target == null ? null : Number(r.target), createdAt: Number(r.created), referenceAtt: r.reference_att == null ? null : String(r.reference_att) };
+    return { title: String(r.title), script: String(r.script), notes: String(r.notes), producer: String(r.producer), ...(r.talent ? { talent: String(r.talent) } : {}), targetSeconds: r.target == null ? null : Number(r.target), createdAt: Number(r.created), referenceAtt: r.reference_att == null ? null : String(r.reference_att), previewAtt: r.preview_att == null ? null : String(r.preview_att), finalAtt: r.final_att == null ? null : String(r.final_att), released: Number(r.released) === 1 };
   }
-  putJob(j: JobRow) { this.sql.exec('INSERT OR REPLACE INTO job (id, title, script, notes, producer, talent, target, created, reference_att) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)', j.title, j.script, j.notes, j.producer, j.talent ?? null, j.targetSeconds, j.createdAt, j.referenceAtt); }
+  putJob(j: JobRow) { this.sql.exec('INSERT OR REPLACE INTO job (id, title, script, notes, producer, talent, target, created, reference_att, preview_att, final_att, released) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', j.title, j.script, j.notes, j.producer, j.talent ?? null, j.targetSeconds, j.createdAt, j.referenceAtt, j.previewAtt ?? null, j.finalAtt ?? null, j.released ? 1 : 0); }
   setReference(attId: string | null) { this.sql.exec('UPDATE job SET reference_att = ? WHERE id = 1', attId); }
   getKeys(): KeyRow[] { return this.sql.exec('SELECT role, key, revoked FROM keys').toArray().map((r) => ({ role: r.role as Role, key: String(r.key), revoked: Number(r.revoked) === 1 })); }
   setKey(role: Role, key: string) { this.sql.exec('INSERT OR REPLACE INTO keys (role, key, revoked) VALUES (?, ?, 0)', role, key); }
@@ -144,6 +153,10 @@ export class SqlRepo implements JobRepo {
     try { return JSON.parse(String(r.json)) as UploadRow; } catch { return null; }
   }
   deleteUpload(id: string) { this.sql.exec('DELETE FROM uploads WHERE id = ?', id); }
+  messageWithAtt(att: string): MsgRow | null {
+    const r = this.sql.exec('SELECT * FROM messages WHERE att = ? LIMIT 1', att).toArray()[0];
+    return r ? { id: Number(r.id), ts: Number(r.ts), thread: String(r.thread), role: r.role as Role, name: String(r.name), text: String(r.text), att: String(r.att) } : null;
+  }
   attsBefore(ts: number): string[] { return this.sql.exec('SELECT id FROM atts WHERE ts < ?', ts).toArray().map((r) => String(r.id)); }
   chunkIndexes(att: string): number[] { return this.sql.exec('SELECT idx FROM blobs WHERE att = ? ORDER BY idx', att).toArray().map((r) => Number(r.idx)); }
   deleteAtt(id: string) {
