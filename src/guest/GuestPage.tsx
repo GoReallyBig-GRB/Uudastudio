@@ -13,6 +13,7 @@ import { beginSession, deleteSession, findSaved, finishSession, loadSession, sav
 import { pcmToFloat, takeFileName, totalSamples, wavBlob, wavBytes, type Bits, type Pcm } from './wavWriter';
 import { describeSettings, processingOn } from './captureSettings';
 import { checkTake, parseWavHeader, storageCheck, wavMatches, type TakeIssue } from './takeCheck';
+import { LevelMeter, useMeter } from './MeterBar';
 import { SaveMenu } from '../jobs/SaveMenu';
 import { expiryLine } from '../jobs/saveFile';
 import { audioUrl, getThread, postMessage, sendAudio, type ThreadMessage, type ThreadResponse } from '../jobs/api';
@@ -108,7 +109,7 @@ export const GuestPage: React.FC = () => {
   const [take, setTake] = useState<Take | null>(null);
   const [practiceNext, setPracticeNext] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [level, setLevel] = useState(0);
+  const meter = useMeter();
   const [error, setError] = useState('');
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmReplace, setConfirmReplace] = useState(false);
@@ -177,7 +178,7 @@ export const GuestPage: React.FC = () => {
     await c.stop();
     setPhase('ready');
     setConfirmStop(false);
-    setLevel(0);
+    meter.reset();
     const chunks = chunksRef.current;
     const practice = practiceRef.current;
     if (totalSamples(chunks) === 0) { if (!practice) void deleteSession(sessionRef.current); return; }
@@ -218,7 +219,8 @@ export const GuestPage: React.FC = () => {
           setElapsed(samplesRef.current / c.sampleRate);
           if (!practiceRef.current) void saveChunk(sessionRef.current, i, pcm);
         },
-        onLevel: (p) => setLevel(p),
+        onLevel: () => undefined,
+        onInfo: meter.onInfo,
         onLost: () => void finish(true),
       }, micId || undefined, bits);
     } catch (e) {
@@ -409,12 +411,15 @@ export const GuestPage: React.FC = () => {
       ) : (
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* The meter sits on the script itself, so the talent sees the words and the level together */}
+      {recording && <div className="pointer-events-none absolute inset-x-0 top-0 z-10 border-b border-line bg-surface-1/90 px-4 py-2 backdrop-blur"><LevelMeter state={meter.state} /></div>}
       <div
         ref={readerRef}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
         onTouchStart={() => hold(true)} onTouchEnd={() => hold(false)} onTouchCancel={() => hold(false)}
         onMouseDown={() => hold(true)} onMouseUp={() => hold(false)} onMouseLeave={() => hold(false)}
       >
+      {recording && <div className="h-10 shrink-0" aria-hidden />}
       {!cap.ok && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{cap.problem}</div>}
       {lowSpace && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{lowSpace}</div>}
 
@@ -460,7 +465,7 @@ export const GuestPage: React.FC = () => {
 
       <div className="h-24 shrink-0" aria-hidden />
       </div>
-      {recording && autoScroll && held && <div role="status" className="pointer-events-none absolute inset-x-0 top-2 mx-auto w-fit rounded-full bg-surface-1/95 px-3 py-1 text-xs font-semibold text-ink shadow">Paused while you hold the screen</div>}
+      {recording && autoScroll && held && <div role="status" className="pointer-events-none absolute inset-x-0 top-14 mx-auto w-fit rounded-full bg-surface-1/95 px-3 py-1 text-xs font-semibold text-ink shadow">Paused while you hold the screen</div>}
       </div>
 
       <section className="max-h-[58dvh] shrink-0 overflow-y-auto border-t border-line-strong bg-surface-1 px-4 py-3 lg:max-h-none lg:w-[400px] lg:border-l lg:border-t-0" aria-label="Recording controls">
@@ -479,9 +484,6 @@ export const GuestPage: React.FC = () => {
                 {elapsed < LEAD_IN ? `Stay quiet for ${Math.ceil(LEAD_IN - elapsed)}...` : 'Read now'}
               </div>
             )}
-            <div className="mb-3 h-2 overflow-hidden rounded-full bg-surface-3" role="meter" aria-label="Input level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Number(level.toFixed(2))}>
-              <div className={`h-full rounded-full ${level > 0.95 ? 'bg-danger' : level > 0.7 ? 'bg-warn' : 'bg-ok'}`} style={{ width: `${Math.min(100, level * 100)}%`, transition: 'width 60ms linear' }} />
-            </div>
             <Button size="lg" variant={confirmStop ? 'danger' : 'secondary'} className="h-14 w-full text-base" onClick={stopPressed} leftIcon={<Square className="h-4 w-4" />}>
               {confirmStop ? 'Tap again to stop' : 'Stop'}
             </Button>

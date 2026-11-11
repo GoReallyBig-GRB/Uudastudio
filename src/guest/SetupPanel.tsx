@@ -4,6 +4,7 @@ import { Button } from '../components/ui';
 import { MicCapture } from './capture';
 import { MODE_TEXT, type ChannelMode } from './channels';
 import type { MicInfo } from './devices';
+import { LevelMeter, useMeter } from './MeterBar';
 import { checkRoom, type Level, type RoomReport } from './roomCheck';
 import { describeSettings, processingOn } from './captureSettings';
 import { pcmToFloat, type Bits, type Pcm } from './wavWriter';
@@ -52,7 +53,7 @@ const kindOf = (m: MicInfo) => (m.bluetooth ? 'bluetooth' : /usb|samson|rode|rø
  */
 export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onMicId, fresh, onAllow, bits, onBits, disabled, onResult }) => {
   const [phase, setPhase] = useState<'idle' | 'quiet' | 'read'>('idle');
-  const [level, setLevel] = useState(0);
+  const meter = useMeter();
   const [report, setReport] = useState<RoomReport | null>(null);
   const [info, setInfo] = useState<SetupInfo | null>(null);
   const [error, setError] = useState('');
@@ -87,7 +88,7 @@ export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onM
       finished = true; capRef.current = null;
       const sr = c.sampleRate, label = c.label, mode = c.channelMode, settings = c.settings;
       await c.stop();
-      setPhase('idle'); setLevel(0);
+      setPhase('idle'); meter.reset();
       const r = checkRoom(pcmToFloat(chunks, bits), sr);
       const on = processingOn(settings);
       if (on.length) r.findings.push({ id: 'processing', level: 'warn', text: `Your browser is still applying ${on.join(' and ')}, which can thin or pump the voice. Try Chrome or Edge, or turn it off in the device's sound settings.` });
@@ -103,7 +104,8 @@ export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onM
           setPhase(s < QUIET_SECONDS ? 'quiet' : 'read');
           if (s >= TEST_SECONDS) void done();
         },
-        onLevel: (p) => setLevel(p),
+        onLevel: () => undefined,
+        onInfo: meter.onInfo,
         onLost: () => { if (!finished) { finished = true; capRef.current = null; setPhase('idle'); setError('The microphone stopped during the test. Check it is plugged in and try again.'); } },
       }, micId || undefined, bits);
       capRef.current = c;
@@ -178,7 +180,7 @@ export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onM
               <div role="status" className="rounded-card border border-line-strong bg-surface-2 p-4 text-center">
                 <div className="text-lg font-semibold">{phase === 'quiet' ? 'Stay quiet' : 'Now read the first line of the script'}</div>
                 <div className="mb-3 text-xs text-ink-dim">{phase === 'quiet' ? 'Listening to the room' : 'In your normal voice, at the distance you will record'}</div>
-                <div className="h-2 overflow-hidden rounded-full bg-surface-3" role="meter" aria-label="Input level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Number(level.toFixed(2))}><div className={`h-full rounded-full ${level > 0.95 ? 'bg-danger' : level > 0.7 ? 'bg-warn' : 'bg-ok'}`} style={{ width: `${Math.min(100, level * 100)}%`, transition: 'width 60ms linear' }} /></div>
+                <LevelMeter state={meter.state} className="text-left" />
               </div>
             ) : (
               <Button size="lg" variant={report ? 'secondary' : 'primary'} className="h-12 w-full" disabled={disabled} onClick={() => void test()} leftIcon={<Mic className="h-4 w-4" />}>{report ? 'Test again' : 'Test my setup (10 seconds)'}</Button>
