@@ -32,7 +32,7 @@ describe('meter state and advice', () => {
   });
   it('gives the most serious advice, and clears it after a moment', () => {
     let s = nextMeter(METER_START, { peak: 0.6, plosive: true }, 1000);
-    expect(meterAdvice(s, 1100)!.kind).toBe('pop');
+    expect(meterAdvice(s, 1100)!.kind).toBe('pop'); expect(meterAdvice(s, 1100)!.text).toBe('Plosive: step back');
     s = nextMeter(s, { peak: 1, plosive: false }, 1200);
     expect(meterAdvice(s, 1300)!.kind).toBe('clip');
     expect(meterAdvice(s, 5000)).toBeNull();

@@ -50,8 +50,8 @@ export type MeterAdvice = { kind: 'clip' | 'hot' | 'pop'; text: string } | null;
 const ADVICE_MS = 2500;
 /** The one thing worth telling the person right now, most serious first */
 export const meterAdvice = (s: MeterState, now: number): MeterAdvice => {
-  if (now - s.clipAt < ADVICE_MS) return { kind: 'clip', text: 'Clipping. The sound is too loud and distorts. Step back from the microphone or lower its input level.' };
-  if (now - s.popAt < ADVICE_MS) return { kind: 'pop', text: 'A pop on a P or B. Move back a hand-width, or speak slightly across the microphone.' };
-  if (now - s.hotAt < ADVICE_MS) return { kind: 'hot', text: 'Peaking. Step back from the microphone a little.' };
+  if (now - s.clipAt < ADVICE_MS) return { kind: 'clip', text: 'Clipping: step back' };
+  if (now - s.popAt < ADVICE_MS) return { kind: 'pop', text: 'Plosive: step back' };
+  if (now - s.hotAt < ADVICE_MS) return { kind: 'hot', text: 'Peaking: step back' };
   return null;
 };

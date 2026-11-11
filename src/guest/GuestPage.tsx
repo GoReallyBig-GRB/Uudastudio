@@ -411,12 +411,15 @@ export const GuestPage: React.FC = () => {
       ) : (
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* The meter sits on the script itself, so the talent sees the words and the level together */}
+      {recording && <div className="pointer-events-none absolute inset-x-0 top-0 z-10 border-b border-line bg-surface-1/90 px-4 py-2 backdrop-blur"><LevelMeter state={meter.state} /></div>}
       <div
         ref={readerRef}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
         onTouchStart={() => hold(true)} onTouchEnd={() => hold(false)} onTouchCancel={() => hold(false)}
         onMouseDown={() => hold(true)} onMouseUp={() => hold(false)} onMouseLeave={() => hold(false)}
       >
+      {recording && <div className="h-10 shrink-0" aria-hidden />}
       {!cap.ok && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{cap.problem}</div>}
       {lowSpace && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{lowSpace}</div>}
 
@@ -462,7 +465,7 @@ export const GuestPage: React.FC = () => {
 
       <div className="h-24 shrink-0" aria-hidden />
       </div>
-      {recording && autoScroll && held && <div role="status" className="pointer-events-none absolute inset-x-0 top-2 mx-auto w-fit rounded-full bg-surface-1/95 px-3 py-1 text-xs font-semibold text-ink shadow">Paused while you hold the screen</div>}
+      {recording && autoScroll && held && <div role="status" className="pointer-events-none absolute inset-x-0 top-14 mx-auto w-fit rounded-full bg-surface-1/95 px-3 py-1 text-xs font-semibold text-ink shadow">Paused while you hold the screen</div>}
       </div>
 
       <section className="max-h-[58dvh] shrink-0 overflow-y-auto border-t border-line-strong bg-surface-1 px-4 py-3 lg:max-h-none lg:w-[400px] lg:border-l lg:border-t-0" aria-label="Recording controls">
@@ -481,7 +484,6 @@ export const GuestPage: React.FC = () => {
                 {elapsed < LEAD_IN ? `Stay quiet for ${Math.ceil(LEAD_IN - elapsed)}...` : 'Read now'}
               </div>
             )}
-            <LevelMeter state={meter.state} className="mb-3" />
             <Button size="lg" variant={confirmStop ? 'danger' : 'secondary'} className="h-14 w-full text-base" onClick={stopPressed} leftIcon={<Square className="h-4 w-4" />}>
               {confirmStop ? 'Tap again to stop' : 'Stop'}
             </Button>
