@@ -1069,6 +1069,7 @@ const MainStudio: React.FC = () => {
     audioEngine.seek(end);
     playheadSecondsRef.current = end;
     setPlayhead(end);
+    window.dispatchEvent(new CustomEvent('uuda:reveal-time', { detail: { seconds: end } }));
   };
 
   const handleReturnToStart = useCallback(() => {
@@ -1079,6 +1080,7 @@ const MainStudio: React.FC = () => {
     audioEngine.seek(0);
     playheadSecondsRef.current = 0;
     setPlayhead(0);
+    window.dispatchEvent(new CustomEvent('uuda:reveal-time', { detail: { seconds: 0 } }));
     addToast({
       type: 'info',
       title: 'Rewound to Head',
