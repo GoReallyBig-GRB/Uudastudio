@@ -272,3 +272,26 @@ describe('client review', () => {
     expect((await call(env, 'GET', `audio/${note.id}`, { key: k.talentKey })).status).toBe(403);
   });
 });
+
+describe('live updates', () => {
+  it('says which thread changed, and closes links when they stop working', async () => {
+    const env = mk(); const seen: (string | undefined)[] = []; const closed: (string | undefined)[] = [];
+    env.touch = (th) => { seen.push(th); }; env.closeLive = (r) => { closed.push(r); };
+    const k = await create(env);
+    seen.length = 0;
+    await call(env, 'POST', 'messages', { key: k.talentKey, body: JSON.stringify({ text: 'hi' }) });
+    const c = await (await call(env, 'POST', 'client-link', { key: k.producerKey })).json() as { clientKey: string };
+    await call(env, 'POST', 'messages', { key: c.clientKey, body: JSON.stringify({ text: 'ok' }) });
+    await call(env, 'POST', 'messages?thread=client', { key: k.producerKey, body: JSON.stringify({ text: 'thanks' }) });
+    await call(env, 'POST', 'revoke', { key: k.producerKey });
+    expect(seen).toEqual(['talent', undefined, 'client', 'client', undefined]);
+    expect(closed).toEqual(['client', 'talent']);
+  });
+  it('gives the producer both threads in one request, and nobody else', async () => {
+    const env = mk(); const k = await create(env);
+    await call(env, 'POST', 'messages', { key: k.talentKey, body: JSON.stringify({ text: 'hi' }) });
+    const s = await (await call(env, 'GET', 'summary', { key: k.producerKey })).json() as any;
+    expect(s.talent.messages).toHaveLength(1); expect(s.client.linked).toBe(false);
+    expect((await call(env, 'GET', 'summary', { key: k.talentKey })).status).toBe(403);
+  });
+});

@@ -43,6 +43,11 @@ export const getThread = (jobId: string, key: string, after = 0, thread: 'talent
 export const getClientThread = (jobId: string, key: string, after = 0) =>
   net(fetch(`${BASE}/${jobId}/thread?after=${after}`, { headers: { 'x-job-key': key }, cache: 'no-store' }).then(read)) as unknown as Promise<ClientThreadResponse>;
 
+/** Both threads of a job in one request (producer only). Older servers lack this and answer 404. */
+export interface JobSummaryResponse { talent: { messages: ThreadMessage[]; lastId: number }; client: { messages: ThreadMessage[]; lastId: number; linked: boolean } }
+export const getSummary = (jobId: string, key: string) =>
+  net(fetch(`${BASE}/${jobId}/summary`, { headers: { 'x-job-key': key }, cache: 'no-store' }).then(read)) as Promise<JobSummaryResponse>;
+
 export const postMessage = (jobId: string, key: string, name: string, text: string, thread: 'talent' | 'client' = 'talent') =>
   net(fetch(`${BASE}/${jobId}/messages${thread === 'client' ? '?thread=client' : ''}`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ name, text }) }).then(read));
 

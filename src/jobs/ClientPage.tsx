@@ -6,6 +6,7 @@ import { SaveMenu } from './SaveMenu';
 import { ThreadView } from './ThreadView';
 import { expiryLine } from './saveFile';
 import { usePolling } from './usePolling';
+import { useLive } from './live';
 import { Input } from '../components/ui';
 
 const NAME_KEY = 'uuda-client-name';
@@ -23,19 +24,25 @@ const ClientPage: React.FC = () => {
   const [error, setError] = useState('');
   const [name, setName] = useState(read);
   const last = useRef(0);
+  const jobSig = useRef('');
 
   const load = useCallback(async () => {
     if (!link) return;
     try {
       const t = await getClientThread(link.jobId, link.key, last.current);
+      const sig = JSON.stringify(t.job);
+      const unchanged = sig === jobSig.current && !t.messages.length;
+      jobSig.current = sig;
       setJob(t.job); setError('');
       if (t.messages.length) {
         last.current = t.messages[t.messages.length - 1].id;
         setMessages((all) => [...all, ...t.messages.filter((m) => !all.some((x) => x.id === m.id))]);
       }
+      return !unchanged;
     } catch (e) { setError(e instanceof ApiError && (e.status === 403 || e.status === 404) ? e.message : 'Could not reach the server. Trying again...'); }
   }, [link?.jobId, link?.key]);
-  usePolling(load, 6000, !!link);
+  const live = useLive(link?.jobId, link?.key, (c) => { if (c !== 'talent') void load(); }, !!link);
+  usePolling(load, 6000, !!link, live);
 
   if (!link) return <div className="grid h-dvh place-items-center bg-surface-0 p-6 text-center text-sm text-ink-dim">This review link is not valid. Ask the producer for a new one.</div>;
   const src = (id: string) => audioUrl(link.jobId, id, link.key);

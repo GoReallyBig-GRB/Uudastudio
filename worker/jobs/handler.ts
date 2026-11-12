@@ -30,8 +30,10 @@ export interface HandlerEnv {
   now: () => number;
   /** A fresh unguessable key (128 bits or more) */
   newKey: () => string;
-  /** Called after any change, to push back the deletion date */
-  touch?: () => void;
+  /** Called after any change: pushes back the deletion date and tells connected pages. `thread` is set when only one message thread changed; otherwise the whole job did. */
+  touch?: (thread?: 'talent' | 'client') => void;
+  /** Called when a link stops working or the job is deleted, so its open connections close */
+  closeLive?: (role?: Role) => void;
   /** Deletes the whole job */
   wipe?: () => void | Promise<void>;
 }
@@ -228,6 +230,17 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     return json({ role, job: publicJob(job, repo, role), messages: repo.messagesAfter(thread, after, LIMITS.page).map((m) => publicMsg(m, repo)), lastId: repo.lastMessageId(thread), keys });
   }
 
+  if (route === 'summary' && req.method === 'GET') {
+    if (role !== 'producer') return fail(403, 'Only the producer can do that.');
+    const keys = repo.getKeys().filter((k) => !k.revoked);
+    const msgs = repo.messagesAfter('talent', 0, LIMITS.page).map((m) => publicMsg(m, repo));
+    const clientMsgs = keys.some((k) => k.role === 'client') ? repo.messagesAfter('client', 0, LIMITS.page).map((m) => publicMsg(m, repo)) : [];
+    return json({
+      talent: { messages: msgs, lastId: repo.lastMessageId('talent') },
+      client: { messages: clientMsgs, lastId: repo.lastMessageId('client'), linked: keys.some((k) => k.role === 'client') },
+    });
+  }
+
   if (route === 'messages' && req.method === 'POST') {
     let b: Record<string, unknown>;
     try { b = (await req.json()) as Record<string, unknown>; } catch { return fail(400, 'Bad request.'); }
@@ -235,7 +248,7 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     if (!text) return fail(400, 'Type a message first.');
     if (repo.messageCount() >= LIMITS.messages) return fail(429, 'This thread is full.');
     const id = repo.addMessage({ ts: now(), thread: threadFor(role, url), role, name: clip(b.name, LIMITS.name).trim() || (role === 'producer' ? job.producer || 'Producer' : 'Talent'), text, att: null });
-    env.touch?.();
+    env.touch?.(threadFor(role, url) as 'talent' | 'client');
     return json({ id }, 201);
   }
 
@@ -259,7 +272,7 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
       return json({ attachment: { id: attId, name, bytes: stored.bytes, expiresAt: ts + FILE_TTL_MS } }, 201);
     }
     const id = repo.addMessage({ ts: now(), thread: threadFor(role, url), role, name: clip(url.searchParams.get('who'), LIMITS.name).trim() || (role === 'producer' ? job.producer || 'Producer' : 'Talent'), text: clip(url.searchParams.get('text'), LIMITS.text).trim(), att: attId });
-    env.touch?.();
+    env.touch?.(threadFor(role, url) as 'talent' | 'client');
     return json({ id, attachment: { id: attId, name, bytes: stored.bytes, expiresAt: ts + FILE_TTL_MS } }, 201);
   }
 
@@ -319,7 +332,7 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
         return json({ attachment: att }, 201);
       }
       const id = repo.addMessage({ ts: now(), thread: up.thread, role, name: up.who || (role === 'producer' ? job.producer || 'Producer' : 'Talent'), text: up.text, att: up.id });
-      env.touch?.();
+      env.touch?.(up.thread as 'talent' | 'client');
       return json({ id, attachment: att }, 201);
     }
     return bad('Not found.', 404);
@@ -346,6 +359,7 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     repo.revokeKey('client');
     const clientKey = env.newKey();
     repo.setKey('client', clientKey);
+    env.closeLive?.('client');
     env.touch?.();
     return json({ clientKey });
   }
@@ -355,12 +369,14 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     repo.revokeKey('talent');
     const talentKey = env.newKey();
     repo.setKey('talent', talentKey);
+    env.closeLive?.('talent');
     env.touch?.();
     return json({ talentKey });
   }
 
   if (route === '' && req.method === 'DELETE') {
     if (role !== 'producer') return fail(403, 'Only the producer can do that.');
+    env.closeLive?.();
     await env.wipe?.();
     return json({ ok: true });
   }

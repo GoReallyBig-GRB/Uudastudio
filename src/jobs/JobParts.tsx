@@ -1,5 +1,5 @@
 /** The parts of the Jobs workspace: the new-job form, the status list and one job with its thread. */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy, Link2Off, Trash2 } from 'lucide-react';
 import { Button, Input } from '../components/ui';
 import { ApiError, audioUrl, createJob, deleteJob, getThread, postMessage, revokeTalentLink, sendAudio, sendReference, type Attachment, type ThreadResponse } from './api';
@@ -10,6 +10,7 @@ import { ThreadView } from './ThreadView';
 import { ScriptEditor } from '../components/ui/ScriptEditor';
 import { FormattedScript } from '../guest/FormattedScript';
 import { usePolling } from './usePolling';
+import { useLive } from './live';
 import { ClientReview } from './ClientReview';
 
 const base = () => window.location.origin + window.location.pathname;
@@ -135,6 +136,7 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, on
   const [copied, setCopied] = useState('');
   const [importing, setImporting] = useState('');
 
+  const sigRef = useRef('');
   const load = useCallback(async () => {
     const after = messages.length ? messages[messages.length - 1].id : 0;
     try {
@@ -144,18 +146,24 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, on
       setClientKey(t.keys?.client ?? '');
       if (t.messages.length) setMessages((all) => [...all, ...t.messages.filter((m) => !all.some((x) => x.id === m.id))]);
       onSeen(t.lastId, statusOf([...messages, ...t.messages]));
+      const sig = JSON.stringify([t.job, t.keys]);
+      const unchanged = sig === sigRef.current && !t.messages.length;
+      sigRef.current = sig;
+      return !unchanged;
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not load this job.'); }
   }, [job.id, job.producerKey, messages, onSeen]);
-  usePolling(load, 6000);
 
   const loadClient = useCallback(async () => {
     const after = clientMessages.length ? clientMessages[clientMessages.length - 1].id : 0;
     try {
       const t = await getThread(job.id, job.producerKey, after, 'client');
       if (t.messages.length) setClientMessages((all) => [...all, ...t.messages.filter((m) => !all.some((x) => x.id === m.id))]);
+      return t.messages.length > 0;
     } catch { /* the talent thread already shows connection problems */ }
   }, [job.id, job.producerKey, clientMessages]);
-  usePolling(loadClient, 6000, !!clientKey);
+  const live = useLive(job.id, job.producerKey, (c) => { if (c !== 'client') void load(); if (c !== 'talent') void loadClient(); });
+  usePolling(load, 6000, true, live);
+  usePolling(loadClient, 6000, !!clientKey, live);
   // Messages in the tab being looked at count as read; the other tab keeps its dot
   const lastClientId = clientMessages.length ? clientMessages[clientMessages.length - 1].id : 0;
   useEffect(() => { if (which === 'client' && lastClientId) onClientSeen?.(lastClientId); }, [which, lastClientId, onClientSeen]);

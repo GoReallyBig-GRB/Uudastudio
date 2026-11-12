@@ -20,6 +20,7 @@ import { audioUrl, getThread, postMessage, sendAudio, type ThreadMessage, type T
 import { parseTalentHash } from '../jobs/links';
 import { ThreadView } from '../jobs/ThreadView';
 import { usePolling } from '../jobs/usePolling';
+import { useLive } from '../jobs/live';
 
 interface Take {
   n: number;
@@ -88,16 +89,22 @@ export const GuestPage: React.FC = () => {
   const [thread, setThread] = useState<ThreadResponse | null>(null);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [loadError, setLoadError] = useState('');
+  const jobSig = useRef('');
   const loadThread = useCallback(async () => {
     if (!remote) return;
     const after = messages.length ? messages[messages.length - 1].id : 0;
     try {
       const t = await getThread(remote.jobId, remote.key, after);
+      const sig = JSON.stringify(t.job);
+      const unchanged = sig === jobSig.current && !t.messages.length;
+      jobSig.current = sig;
       setThread(t); setLoadError('');
       if (t.messages.length) setMessages((all) => [...all, ...t.messages.filter((m) => !all.some((x) => x.id === m.id))]);
+      return !unchanged;
     } catch (e) { if (!thread) setLoadError(e instanceof Error ? e.message : 'The job could not be opened.'); }
   }, [remote, messages, thread]);
-  usePolling(loadThread, 6000, !!remote);
+  const live = useLive(remote?.jobId, remote?.key, (c) => { if (c !== 'client') void loadThread(); }, !!remote);
+  usePolling(loadThread, 6000, !!remote, live);
 
   const view: View | null = remote
     ? thread ? { title: thread.job.title, script: thread.job.script, notes: thread.job.notes, producer: thread.job.producer, talent: thread.job.talent ?? '', targetSeconds: thread.job.targetSeconds ?? undefined, referenceId: thread.job.reference?.id } : null
