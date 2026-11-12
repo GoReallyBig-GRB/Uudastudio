@@ -2,10 +2,16 @@
 
 /** `expiresAt` is when the server deletes the file (ms since epoch) */
 export interface Attachment { id: string; name: string; mime: string; bytes: number; expiresAt?: number }
-export interface ThreadMessage { id: number; ts: number; role: 'producer' | 'talent' | 'client'; name: string; text: string; attachment: Attachment | null; attachmentExpired?: boolean }
-export interface JobInfo { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds: number | null; createdAt: number; reference: Attachment | null; /** Producer only: what the client reviews */ preview?: Attachment | null; final?: Attachment | null; released?: boolean }
+/** Something the server records in a client thread when the script is shared, approved or sent back */
+export interface ThreadEvent { type: 'shared' | 'approved' | 'changes'; n: number }
+export interface ThreadMessage { id: number; ts: number; role: 'producer' | 'talent' | 'client'; name: string; text: string; attachment: Attachment | null; attachmentExpired?: boolean; event?: ThreadEvent }
+export interface ScriptVersionInfo { n: number; ts: number; label: string; words: number }
+/** The script as shared with the client */
+export interface ShareInfo { n: number; at: number; approved: boolean; approvedN: number | null; /** The shared version is the current one */ current: boolean }
+export interface JobInfo { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds: number | null; createdAt: number; reference: Attachment | null; /** Producer only: what the client reviews */ preview?: Attachment | null; final?: Attachment | null; released?: boolean; scriptN?: number; versions?: ScriptVersionInfo[]; share?: ShareInfo | null }
 /** What a reviewing client is allowed to see */
-export interface ClientJobInfo { title: string; producer: string; preview: Attachment | null; /** A final file exists but is not released */ finalReady: boolean; released: boolean; final: Attachment | null }
+export interface ClientScript { n: number; text: string; at: number; approved: boolean }
+export interface ClientJobInfo { title: string; producer: string; script: ClientScript | null; preview: Attachment | null; /** A final file exists but is not released */ finalReady: boolean; released: boolean; final: Attachment | null }
 export interface ClientThreadResponse { role: 'client'; job: ClientJobInfo; messages: ThreadMessage[]; lastId: number }
 export interface ThreadResponse { role: 'producer' | 'talent' | 'client'; job: JobInfo; messages: ThreadMessage[]; lastId: number; keys?: { talent?: string; client?: string } }
 export interface NewJob { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds?: number }
@@ -47,6 +53,18 @@ export const getClientThread = (jobId: string, key: string, after = 0) =>
 export interface JobSummaryResponse { talent: { messages: ThreadMessage[]; lastId: number }; client: { messages: ThreadMessage[]; lastId: number; linked: boolean } }
 export const getSummary = (jobId: string, key: string) =>
   net(fetch(`${BASE}/${jobId}/summary`, { headers: { 'x-job-key': key }, cache: 'no-store' }).then(read)) as Promise<JobSummaryResponse>;
+
+export const saveScript = (jobId: string, key: string, body: { script?: string; notes?: string; label?: string }) =>
+  net(fetch(`${BASE}/${jobId}/script`, { method: 'PUT', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(read)) as Promise<{ n: number; changed: boolean }>;
+export const getScriptVersion = (jobId: string, key: string, n: number) =>
+  net(fetch(`${BASE}/${jobId}/script/versions/${n}`, { headers: { 'x-job-key': key }, cache: 'no-store' }).then(read)) as Promise<{ n: number; ts: number; label: string; script: string }>;
+export const shareScript = (jobId: string, key: string) => net(fetch(`${BASE}/${jobId}/script/share`, { method: 'POST', headers: { 'x-job-key': key } }).then(read)) as Promise<{ n: number }>;
+export const unshareScript = (jobId: string, key: string) => net(fetch(`${BASE}/${jobId}/script/unshare`, { method: 'POST', headers: { 'x-job-key': key } }).then(read));
+/** The client's answer to the shared script */
+export const approveScript = (jobId: string, key: string, n: number, name: string) =>
+  net(fetch(`${BASE}/${jobId}/script/approve`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ n, name }) }).then(read));
+export const requestScriptChanges = (jobId: string, key: string, n: number, text: string, name: string) =>
+  net(fetch(`${BASE}/${jobId}/script/changes`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ n, text, name }) }).then(read));
 
 export const postMessage = (jobId: string, key: string, name: string, text: string, thread: 'talent' | 'client' = 'talent') =>
   net(fetch(`${BASE}/${jobId}/messages${thread === 'client' ? '?thread=client' : ''}`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ name, text }) }).then(read));

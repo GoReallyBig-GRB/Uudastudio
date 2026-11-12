@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Paperclip, Send } from 'lucide-react';
+import { Check, FileText, MessageSquareWarning, Paperclip, Send } from 'lucide-react';
 import type { Attachment, ThreadMessage } from './api';
 import { SaveMenu } from './SaveMenu';
 import { expiryLine } from './saveFile';
@@ -31,17 +31,22 @@ interface Props {
   disabled?: boolean;
   /** Fill the height of the parent: the messages scroll and the box stays at the bottom */
   fill?: boolean;
+  /** Shown at the top of the conversation and scrolling with it (the shared script and files) */
+  header?: React.ReactNode;
+  /** Opens the script from a "script shared" card */
+  onOpenScript?: (n: number) => void;
 }
 
 /**
  * The message thread under a job, laid out like a chat app: your messages on the right, theirs on the left, grouped by sender,
  * day dividers, the time inside each bubble, and a rounded box with a round send button at the bottom. The same on both sides.
  */
-export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, onImport, onSend, onAttach, placeholder, disabled, fill }) => {
+export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, onImport, onSend, onAttach, placeholder, disabled, fill, header, onOpenScript }) => {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const listRef = useRef<HTMLUListElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const attach = async (f: File) => {
@@ -52,7 +57,7 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
   // On a phone, Enter makes a new line and the round button sends, as in other chat apps; on a computer Enter sends
   const touch = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
-  useLayoutEffect(() => { const el = listRef.current; if (el && fill) el.scrollTop = el.scrollHeight; }, [messages.length, fill]);
+  useLayoutEffect(() => { const el = scrollRef.current; if (el && fill) el.scrollTop = el.scrollHeight; }, [messages.length, fill]);
   useEffect(() => {
     const t = boxRef.current;
     if (!t) return;
@@ -69,7 +74,9 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
 
   return (
     <div className={`flex min-h-0 flex-col ${fill ? 'h-full' : 'gap-3'}`}>
-      <ul ref={listRef} className={`flex flex-col px-3 py-2 ${fill ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : ''}`} aria-label="Messages" aria-live="polite">
+      <div className={fill ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : ''} ref={scrollRef}>
+      {header}
+      <ul ref={listRef} className="flex flex-col px-3 py-2" aria-label="Messages" aria-live="polite">
         {messages.length === 0 && <li className="mx-auto my-6 max-w-xs rounded-card border border-dashed border-line px-3 py-4 text-center text-xs text-ink-faint">No messages yet. Write here to start the conversation.</li>}
         {messages.map((m, i) => {
           const prev = messages[i - 1], next = messages[i + 1];
@@ -77,6 +84,25 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
           const newDay = !prev || dayKey(prev.ts) !== dayKey(m.ts);
           const joinsPrev = !!prev && !newDay && prev.role === m.role && m.ts - prev.ts < GROUP_MS;
           const joinsNext = !!next && dayKey(next.ts) === dayKey(m.ts) && next.role === m.role && next.ts - m.ts < GROUP_MS;
+          if (m.event) {
+            const who = m.role === self ? 'You' : m.name;
+            return (
+              <React.Fragment key={m.id}>
+                {newDay && <li className="my-3 self-center rounded-full bg-surface-2 px-3 py-0.5 text-[11px] font-medium text-ink-dim" aria-hidden>{dayLabel(m.ts)}</li>}
+                <li className="my-2 w-full max-w-md self-center rounded-card border border-line bg-surface-1 px-3 py-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    {m.event.type === 'approved' ? <Check className="h-4 w-4 shrink-0 text-ok" aria-hidden /> : m.event.type === 'changes' ? <MessageSquareWarning className="h-4 w-4 shrink-0 text-warn" aria-hidden /> : <FileText className="h-4 w-4 shrink-0 text-accent" aria-hidden />}
+                    <span className="min-w-0 flex-1 font-semibold text-ink">
+                      {m.event.type === 'shared' ? `${who === 'You' ? 'You shared' : `${who} shared`} the script (version ${m.event.n})` : m.event.type === 'approved' ? `${who === 'You' ? 'You' : who} approved version ${m.event.n}` : `${who === 'You' ? 'You' : who} asked for changes to version ${m.event.n}`}
+                    </span>
+                    <span className="shrink-0 font-num text-[10px] text-ink-dim">{hm(m.ts)}</span>
+                  </div>
+                  {m.event.type === 'changes' && m.text && <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-ink">{m.text}</p>}
+                  {m.event.type === 'shared' && onOpenScript && <button type="button" onClick={() => onOpenScript(m.event!.n)} className="mt-1.5 font-semibold text-accent hover:brightness-125">Read the script</button>}
+                </li>
+              </React.Fragment>
+            );
+          }
           return (
             <React.Fragment key={m.id}>
               {newDay && <li className="my-3 self-center rounded-full bg-surface-2 px-3 py-0.5 text-[11px] font-medium text-ink-dim" aria-hidden>{dayLabel(m.ts)}</li>}
@@ -107,6 +133,7 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
           );
         })}
       </ul>
+      </div>
       <div className={`${fill ? 'border-t border-line bg-surface-1 px-2 pt-2' : ''}`} style={fill ? { paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' } : undefined}>
         {error && <div role="alert" className="mb-1.5 px-2 text-xs text-danger">{error}</div>}
         <div className="flex items-end gap-2">
