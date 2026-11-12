@@ -1,37 +1,32 @@
-/** The parts of the Jobs workspace: the new-job form, the status list and one job with its thread. */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, Copy, Link2Off, Trash2 } from 'lucide-react';
+/** The parts of the Jobs workspace: the status list and the new-job form. One job is in JobDetail. */
+import React, { useState } from 'react';
 import { Button, Input } from '../components/ui';
-import { ApiError, audioUrl, createJob, deleteJob, getThread, postMessage, revokeTalentLink, sendAudio, sendReference, type Attachment, type ThreadResponse } from './api';
-import { CODE_KEY, STATUS_TEXT, statusOf, type JobStatus, type StoredJob } from './jobsStore';
+import { createJob, sendReference } from './api';
+import { CODE_KEY, STATUS_TEXT, type StoredJob } from './jobsStore';
 import type { JobSummary } from './useJobs';
-import { inviteText, nudgeText, talentLink } from './links';
-import { ThreadView } from './ThreadView';
 import { ScriptEditor } from '../components/ui/ScriptEditor';
-import { FormattedScript } from '../guest/FormattedScript';
-import { usePolling } from './usePolling';
-import { useLive } from './live';
-import { ClientReview } from './ClientReview';
 
-const base = () => window.location.origin + window.location.pathname;
 const lsGet = (k: string) => { try { return localStorage.getItem(k) ?? ''; } catch { return ''; } };
 const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* not saved */ } };
-const copyText = async (t: string): Promise<boolean> => { try { await navigator.clipboard.writeText(t); return true; } catch { return false; } };
 const AREA = 'w-full resize-y rounded-card border border-line-strong bg-surface-1 p-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
+
+const DOT: Record<string, string> = { waiting: 'bg-ink-faint', talking: 'bg-warn', take: 'bg-ok' };
 
 /** One row per job: name, status, unread count */
 export const JobRows: React.FC<{ jobs: StoredJob[]; summaries: Record<string, JobSummary>; selectedId?: string; onOpen: (id: string) => void }> = ({ jobs, summaries, selectedId, onOpen }) => (
-  <ul className="flex flex-col gap-1.5" aria-label="Jobs">
+  <ul className="flex flex-col gap-1" aria-label="Jobs">
     {jobs.map((j) => {
       const s = summaries[j.id];
+      const on = selectedId === j.id;
       return (
         <li key={j.id}>
-          <button type="button" aria-current={selectedId === j.id ? 'true' : undefined} onClick={() => onOpen(j.id)} className={`flex w-full items-center gap-2 rounded-card border px-3 py-2 text-left hover:border-line-strong hover:bg-surface-3 ${selectedId === j.id ? 'border-accent/50 bg-surface-3' : 'border-line bg-surface-2'}`}>
+          <button type="button" aria-current={on ? 'true' : undefined} onClick={() => onOpen(j.id)} className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${on ? 'border-accent/50 bg-accent-soft' : 'border-transparent hover:bg-surface-3'}`}>
+            <span className={`h-2 w-2 shrink-0 rounded-full ${s?.failed ? 'bg-warn' : DOT[s?.status ?? 'waiting']}`} aria-hidden />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold text-ink">{j.title}</span>
               <span className={`block truncate text-[11px] ${s?.failed ? 'text-warn' : 'text-ink-dim'}`}>{s ? (s.failed ? 'Could not load' : STATUS_TEXT[s.status]) : 'Checking...'}</span>
             </span>
-            {s && s.unread > 0 && <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-surface-0" aria-label={`${s.unread} unread`}>{s.unread}</span>}
+            {s && s.unread > 0 && <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-accent-ink" aria-label={`${s.unread} unread`}>{s.unread}</span>}
           </button>
         </li>
       );
@@ -81,7 +76,7 @@ export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCre
     <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
       <div>
         <h2 className="text-base font-semibold text-ink">New job</h2>
-        <p className="text-xs text-ink-dim">Write what the talent reads, add notes and an optional reference, then send them the link.</p>
+        <p className="text-xs text-ink-dim">Write what the talent reads. You send them the link from the job once it exists.</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Input label="Job name" value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -90,7 +85,7 @@ export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCre
       </div>
       <div>
         <label htmlFor="job-script" className="mb-1.5 block text-xs font-medium text-ink-dim">Script</label>
-        <ScriptEditor id="job-script" rows={10} value={script} onChange={setScript} maxLength={20000} placeholder="What the talent reads. Put directions in [square brackets]." />
+        <ScriptEditor id="job-script" rows={10} value={script} onChange={setScript} maxLength={20000} placeholder="What the talent reads." />
       </div>
       <div>
         <label htmlFor="job-notes" className="mb-1.5 block text-xs font-medium text-ink-dim">Director notes</label>
@@ -108,169 +103,7 @@ export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCre
       {error && <div role="alert" className="text-xs text-danger">{error}</div>}
       <div className="flex gap-2">
         {onCancel && <Button variant="ghost" onClick={onCancel} disabled={!!busy}>Cancel</Button>}
-        <Button variant="primary" onClick={() => void submit()} disabled={!!busy}>{busy || 'Create job and get link'}</Button>
-      </div>
-    </div>
-  );
-};
-
-interface DetailProps {
-  job: StoredJob;
-  onSeen: (lastId: number, status: JobStatus) => void;
-  /** The client thread was looked at up to this message */
-  onClientSeen?: (lastId: number) => void;
-  onRemoved: () => void;
-  onImportFile: (f: File) => Promise<void> | void;
-  onBack?: () => void;
-}
-
-/** One job: link controls, script and notes on the left, the message thread on the right */
-export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, onRemoved, onImportFile, onBack }) => {
-  const [thread, setThread] = useState<ThreadResponse | null>(null);
-  const [messages, setMessages] = useState<ThreadResponse['messages']>([]);
-  const [error, setError] = useState('');
-  const [talentKey, setTalentKey] = useState('');
-  const [clientKey, setClientKey] = useState('');
-  const [clientMessages, setClientMessages] = useState<ThreadResponse['messages']>([]);
-  const [which, setWhich] = useState<'talent' | 'client'>('talent');
-  const [copied, setCopied] = useState('');
-  const [importing, setImporting] = useState('');
-
-  const sigRef = useRef('');
-  const load = useCallback(async () => {
-    const after = messages.length ? messages[messages.length - 1].id : 0;
-    try {
-      const t = await getThread(job.id, job.producerKey, after);
-      setThread(t); setError('');
-      if (t.keys?.talent) setTalentKey(t.keys.talent);
-      setClientKey(t.keys?.client ?? '');
-      if (t.messages.length) setMessages((all) => [...all, ...t.messages.filter((m) => !all.some((x) => x.id === m.id))]);
-      onSeen(t.lastId, statusOf([...messages, ...t.messages]));
-      const sig = JSON.stringify([t.job, t.keys]);
-      const unchanged = sig === sigRef.current && !t.messages.length;
-      sigRef.current = sig;
-      return !unchanged;
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not load this job.'); }
-  }, [job.id, job.producerKey, messages, onSeen]);
-
-  const loadClient = useCallback(async () => {
-    const after = clientMessages.length ? clientMessages[clientMessages.length - 1].id : 0;
-    try {
-      const t = await getThread(job.id, job.producerKey, after, 'client');
-      if (t.messages.length) setClientMessages((all) => [...all, ...t.messages.filter((m) => !all.some((x) => x.id === m.id))]);
-      return t.messages.length > 0;
-    } catch { /* the talent thread already shows connection problems */ }
-  }, [job.id, job.producerKey, clientMessages]);
-  const live = useLive(job.id, job.producerKey, (c) => { if (c !== 'client') void load(); if (c !== 'talent') void loadClient(); });
-  usePolling(load, 6000, true, live);
-  usePolling(loadClient, 6000, !!clientKey, live);
-  // Messages in the tab being looked at count as read; the other tab keeps its dot
-  const lastClientId = clientMessages.length ? clientMessages[clientMessages.length - 1].id : 0;
-  useEffect(() => { if (which === 'client' && lastClientId) onClientSeen?.(lastClientId); }, [which, lastClientId, onClientSeen]);
-  const clientUnread = which === 'client' ? 0 : clientMessages.filter((m) => m.id > (job.lastReadClient ?? 0) && m.role !== 'producer').length;
-
-  const link = useMemo(() => (talentKey ? talentLink(base(), job.id, talentKey) : ''), [talentKey, job.id]);
-  const flash = (what: string) => { setCopied(what); window.setTimeout(() => setCopied(''), 2200); };
-
-  const doImport = async (a: Attachment) => {
-    setImporting(a.name);
-    try {
-      const r = await fetch(audioUrl(job.id, a.id, job.producerKey));
-      if (!r.ok) throw new Error('The file could not be downloaded.');
-      await onImportFile(new File([await r.blob()], a.name, { type: a.mime }));
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not add the file.'); } finally { setImporting(''); }
-  };
-  // Browser pop-up questions are blocked inside some embedded previews, so the buttons ask by changing their own label
-  const [armed, setArmed] = useState<'' | 'revoke' | 'delete'>('');
-  useEffect(() => { if (!armed) return; const t = window.setTimeout(() => setArmed(''), 4000); return () => window.clearTimeout(t); }, [armed]);
-  const revoke = async () => {
-    if (armed !== 'revoke') { setArmed('revoke'); return; }
-    setArmed(''); setError('');
-    try { const r = await revokeTalentLink(job.id, job.producerKey); setTalentKey(r.talentKey); flash('new'); } catch (e) { setError(e instanceof Error ? e.message : 'Could not change the link.'); }
-  };
-  const remove = async () => {
-    if (armed !== 'delete') { setArmed('delete'); return; }
-    setArmed('');
-    try { await deleteJob(job.id, job.producerKey); onRemoved(); } catch (e) {
-      if (e instanceof ApiError && e.status === 404) { onRemoved(); return; }
-      setError(e instanceof Error ? e.message : 'Could not delete the job.');
-    }
-  };
-
-  const j = thread?.job;
-  const status = statusOf(messages);
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-line px-6 py-3">
-        <div className="min-w-0">
-          {onBack && <button type="button" onClick={onBack} className="mb-1 flex items-center gap-1 text-xs text-ink-dim hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />Jobs</button>}
-          <h2 className="truncate text-base font-semibold text-ink">{job.title}</h2>
-          <div className="text-xs text-ink-dim">{STATUS_TEXT[status]}{j?.producer ? ` · from ${j.producer}` : ''}</div>
-        </div>
-        <div className="flex shrink-0 gap-1.5">
-          <Button size="sm" variant="ghost" onClick={() => void revoke()} leftIcon={<Link2Off className="h-3.5 w-3.5" />}>{copied === 'new' ? 'New link made' : armed === 'revoke' ? 'Tap again: old link stops working' : 'New talent link'}</Button>
-          <Button size="sm" variant="ghost" onClick={() => void remove()} leftIcon={<Trash2 className="h-3.5 w-3.5" />}>{armed === 'delete' ? 'Tap again: delete job and audio' : 'Delete job'}</Button>
-        </div>
-      </div>
-      {error && <div role="alert" className="mx-6 mt-3 rounded-card border border-danger/40 bg-danger/10 p-2 text-xs text-ink">{error}</div>}
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-        <div className="min-h-0 space-y-4 overflow-y-auto border-r border-line p-6">
-          <section className="rounded-card border border-line bg-surface-2 p-3" aria-label="Talent link">
-            <div className="mb-1.5 text-xs font-medium text-ink-dim">Talent link</div>
-            <div className="mb-2 max-h-16 overflow-auto break-all font-num text-[10px] text-ink-faint">{link || 'Loading...'}</div>
-            <div className="flex flex-wrap gap-1.5">
-              <Button size="sm" variant="primary" disabled={!link} onClick={async () => { if (await copyText(inviteText(job.title, j?.producer ?? '', link))) flash('invite'); }} leftIcon={copied === 'invite' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}>{copied === 'invite' ? 'Copied' : 'Copy invite'}</Button>
-              <Button size="sm" variant="secondary" disabled={!link} onClick={async () => { if (await copyText(link)) flash('link'); }}>{copied === 'link' ? 'Copied' : 'Copy link only'}</Button>
-              <Button size="sm" variant="ghost" disabled={!link} onClick={async () => { if (await copyText(nudgeText(job.title, link))) flash('nudge'); }}>{copied === 'nudge' ? 'Copied' : 'Copy a nudge'}</Button>
-            </div>
-            <p className="mt-2 text-[11px] text-ink-faint">Uuda cannot notify the talent. After you reply, send them the nudge by email or WhatsApp. Jobs with no activity for 60 days are deleted.</p>
-          </section>
-          <ClientReview jobId={job.id} title={job.title} producerKey={job.producerKey} clientKey={clientKey} onClientKey={setClientKey} info={j} reload={load} />
-          {j && (
-            <>
-              <section aria-label="Script">
-                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-dim">Script</h3>
-                <div className="rounded-card border border-line bg-surface-2 p-3 text-sm">{j.script ? <FormattedScript script={j.script} /> : <span className="text-ink-dim">No script.</span>}</div>
-              </section>
-              {j.notes && (
-                <section aria-label="Director notes">
-                  <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-dim">Director notes</h3>
-                  <div className="whitespace-pre-wrap rounded-card border border-line bg-surface-2 p-3 text-sm text-ink-dim">{j.notes}</div>
-                </section>
-              )}
-              {j.reference && (
-                <section aria-label="Reference audio">
-                  <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-dim">Reference</h3>
-                  <audio controls preload="none" src={audioUrl(job.id, j.reference.id, job.producerKey)} className="w-full" />
-                </section>
-              )}
-            </>
-          )}
-        </div>
-        <div className="flex min-h-0 flex-col p-6">
-          <div role="tablist" aria-label="Message threads" className="mb-2 flex gap-1">
-            {(['talent', 'client'] as const).map((w) => (
-              <button key={w} type="button" role="tab" aria-selected={which === w} disabled={w === 'client' && !clientKey} onClick={() => setWhich(w)} className={`rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-40 ${which === w ? 'bg-accent/15 text-accent' : 'text-ink-dim hover:bg-surface-3'}`}>
-                {w === 'talent' ? 'Talent' : 'Client'} <span className="font-normal text-ink-faint">{(w === 'talent' ? messages : clientMessages).length || ''}</span>{w === 'client' && clientUnread > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] font-bold text-[var(--accent-ink,#041014)]" aria-label={`${clientUnread} unread`}>{clientUnread}</span>}
-              </button>
-            ))}
-          </div>
-          {importing && <div className="mb-2 text-xs text-ink-dim">Adding {importing} to the project...</div>}
-          <div className="min-h-0 flex-1">
-            <ThreadView
-              key={which}
-              fill
-              messages={which === 'talent' ? messages : clientMessages}
-              self="producer"
-              folder={['Jobs', job.title]}
-              audioSrc={(a) => audioUrl(job.id, a.id, job.producerKey)}
-              onImport={which === 'talent' ? (a) => void doImport(a) : undefined}
-              onSend={async (text) => { await postMessage(job.id, job.producerKey, j?.producer || 'Producer', text, which); await (which === 'talent' ? load() : loadClient()); }}
-              onAttach={which === 'client' ? async (file, text) => { await sendAudio(job.id, job.producerKey, file, { name: file.name, who: j?.producer || 'Producer', text, thread: 'client' }); await loadClient(); } : undefined}
-              placeholder={which === 'talent' ? 'Reply to the talent' : 'Reply to the client'}
-            />
-          </div>
-        </div>
+        <Button variant="primary" onClick={() => void submit()} disabled={!!busy}>{busy || 'Create job'}</Button>
       </div>
     </div>
   );

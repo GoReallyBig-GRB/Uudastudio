@@ -28,9 +28,12 @@ export const saveJobs = (storage: Pick<Storage, 'setItem'>, jobs: StoredJob[]): 
 
 export const addJob = (jobs: StoredJob[], j: Omit<StoredJob, 'lastRead' | 'lastReadClient'>): StoredJob[] => [{ ...j, lastRead: 0, lastReadClient: 0 }, ...jobs.filter((x) => x.id !== j.id)];
 export const removeJob = (jobs: StoredJob[], id: string): StoredJob[] => jobs.filter((j) => j.id !== id);
-export const markRead = (jobs: StoredJob[], id: string, lastRead: number): StoredJob[] => jobs.map((j) => (j.id === id && lastRead > j.lastRead ? { ...j, lastRead } : j));
+/** The same list (not a copy) when nothing changes, so setting it again does not re-render everything */
+export const markRead = (jobs: StoredJob[], id: string, lastRead: number): StoredJob[] =>
+  jobs.some((j) => j.id === id && lastRead > j.lastRead) ? jobs.map((j) => (j.id === id && lastRead > j.lastRead ? { ...j, lastRead } : j)) : jobs;
 
-export const markReadClient = (jobs: StoredJob[], id: string, last: number): StoredJob[] => jobs.map((j) => (j.id === id && last > (j.lastReadClient ?? 0) ? { ...j, lastReadClient: last } : j));
+export const markReadClient = (jobs: StoredJob[], id: string, last: number): StoredJob[] =>
+  jobs.some((j) => j.id === id && last > (j.lastReadClient ?? 0)) ? jobs.map((j) => (j.id === id && last > (j.lastReadClient ?? 0) ? { ...j, lastReadClient: last } : j)) : jobs;
 
 /** Messages from the talent that the producer has not read yet */
 export const unreadCount = (messages: { id: number; role: string }[], lastRead: number): number => messages.filter((m) => m.id > lastRead && m.role !== 'producer').length;

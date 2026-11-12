@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Briefcase, Plus } from 'lucide-react';
 import { Button, ModalShell } from '../components/ui';
-import { JobDetail, JobRows, NewJob } from './JobParts';
+import { JobRows, NewJob } from './JobParts';
+import { JobDetail } from './JobDetail';
 import type { JobsState } from './useJobs';
 
 export type JobsTarget = { kind: 'new' } | { kind: 'job'; id: string } | null;

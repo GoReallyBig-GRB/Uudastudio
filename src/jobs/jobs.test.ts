@@ -60,3 +60,14 @@ describe('client thread read marks', () => {
     expect(old[0].lastReadClient).toBe(0);
   });
 });
+
+describe('marking read', () => {
+  const list = [{ id: 'a', producerKey: 'k', title: 'A', createdAt: 1, lastRead: 5, lastReadClient: 3 }];
+  it('gives back the same list when nothing is newer, so React does not re-render', async () => {
+    const { markRead, markReadClient } = await import('./jobsStore');
+    expect(markRead(list, 'a', 5)).toBe(list);
+    expect(markReadClient(list, 'a', 2)).toBe(list);
+    expect(markRead(list, 'a', 6)[0].lastRead).toBe(6);
+    expect(markReadClient(list, 'a', 4)[0].lastReadClient).toBe(4);
+  });
+});
