@@ -163,12 +163,12 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
     >
       <section
         role="dialog" aria-modal="true" aria-labelledby="export-heading"
-        className="uuda-pop-in flex max-h-[92vh] w-full max-w-[540px] flex-col overflow-hidden rounded-3xl border border-line bg-surface-1 text-ink shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
+        className="uuda-pop-in flex max-h-[94vh] w-full max-w-[500px] flex-col overflow-hidden rounded-3xl border border-line bg-surface-1 text-ink shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
       >
-        <header className="flex items-start justify-between gap-4 px-5 pb-2 pt-6 sm:px-7">
+        <header className="flex items-start justify-between gap-4 px-5 pb-1 pt-4 sm:px-6">
           <div>
-            <h2 id="export-heading" className="text-xl font-semibold tracking-tight">Export</h2>
-            <p className="mt-1 text-xs text-ink-faint">
+            <h2 id="export-heading" className="text-lg font-semibold tracking-tight">Export</h2>
+            <p className="mt-0.5 text-xs text-ink-faint">
               {hasAudio ? `${formatTrackLength(seconds) || '<1m'} of audio, ${sampleRate / 1000} kHz` : 'Nothing on the timeline yet'}
             </p>
           </div>
@@ -209,7 +209,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
           </div>
         ) : (
           <>
-            <div className={`flex-1 space-y-7 overflow-y-auto px-5 pb-6 pt-5 transition-opacity sm:px-7 ${running ? 'pointer-events-none opacity-40' : ''}`} aria-busy={running}>
+            <div className={`flex-1 space-y-4 overflow-y-auto px-5 pb-4 pt-3 transition-opacity sm:px-6 ${running ? 'pointer-events-none opacity-40' : ''}`} aria-busy={running}>
               {tempActive && (
                 <div className="flex items-center justify-between gap-3 rounded-2xl border border-accent/30 bg-accent-soft px-4 py-3 text-xs text-ink-dim">
                   <span>Temporary clip levels are applied to this export ({Object.keys(tempClipLevels).length} {Object.keys(tempClipLevels).length === 1 ? 'clip' : 'clips'}). They are not saved.</span>
@@ -221,12 +221,12 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
                 </div>
               )}
               <div>
-                <label htmlFor="export-title" className="mb-2 block text-xs font-medium text-ink-dim">Name</label>
-                <div className="flex items-baseline gap-2 border-b border-line-strong pb-2 transition-colors focus-within:border-accent">
+                <label htmlFor="export-title" className="mb-1 block text-xs font-medium text-ink-dim">Name</label>
+                <div className="flex items-baseline gap-2 border-b border-line-strong pb-1.5 transition-colors focus-within:border-accent">
                   <input
                     id="export-title" value={title} maxLength={180} placeholder="Name your file" autoFocus
                     onChange={(e) => setTitle(e.target.value)} disabled={running}
-                    className="min-w-0 flex-1 bg-transparent text-xl font-medium outline-none placeholder:text-ink-faint"
+                    className="min-w-0 flex-1 bg-transparent text-lg font-medium outline-none placeholder:text-ink-faint"
                   />
                   <span className="mono-nums shrink-0 text-sm text-ink-faint">.{format}</span>
                 </div>
@@ -234,8 +234,8 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
 
               {selection && format !== 'uuda' && (
                 <div>
-                  <div className="mb-2 text-xs font-medium text-ink-dim">What to export</div>
-                  <div role="radiogroup" aria-label="What to export" className="grid grid-cols-2 gap-2.5">
+                  <div className="mb-1.5 text-xs font-medium text-ink-dim">What to export</div>
+                  <div role="radiogroup" aria-label="What to export" className="grid grid-cols-2 gap-2">
                     {([
                       { value: 'all' as const, name: 'Whole project', detail: 'Every track and clip' },
                       { value: 'selection' as const, name: `Selected (${selection.clipCount} ${selection.clipCount === 1 ? 'clip' : 'clips'})`, detail: `${selection.trackCount} ${selection.trackCount === 1 ? 'track' : 'tracks'}, only their own length` },
@@ -245,7 +245,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
                         aria-checked={(lockedToSelection ? 'selection' : scope) === o.value}
                         disabled={lockedToSelection && o.value === 'all'}
                         onClick={() => setScope(o.value)}
-                        className={`rounded-2xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${(lockedToSelection ? 'selection' : scope) === o.value ? 'border-accent/60 bg-accent-soft' : 'border-line bg-surface-1 hover:bg-surface-1 disabled:hover:bg-surface-1'}`}
+                        className={`rounded-xl border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${(lockedToSelection ? 'selection' : scope) === o.value ? 'border-accent/60 bg-accent-soft' : 'border-line bg-surface-1 hover:bg-surface-1 disabled:hover:bg-surface-1'}`}
                       >
                         <div className="text-sm font-semibold">{o.name}</div>
                         <div className="text-[11px] text-ink-faint">{o.detail}</div>
@@ -259,18 +259,18 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
               )}
 
               <div>
-                <div className="mb-2 text-xs font-medium text-ink-dim">Format</div>
-                <div role="radiogroup" aria-label="Format" className="grid grid-cols-3 gap-2.5">
+                <div className="mb-1.5 text-xs font-medium text-ink-dim">Format</div>
+                <div role="radiogroup" aria-label="Format" className="grid grid-cols-3 gap-2">
                   {FORMATS.map((f) => {
                     const on = format === f.value;
                     return (
                       <button
                         key={f.value} type="button" role="radio" aria-checked={on}
                         onClick={() => { setFormat(f.value); setFinished(null); setError(null); }}
-                        className={`rounded-2xl border px-3.5 py-3.5 text-left transition-colors focus-visible sm:px-4:outline focus-visible:outline-2 focus-visible:outline-accent ${on ? 'border-accent/70 bg-accent/[0.06]' : 'border-line bg-surface-1 hover:border-line-strong'}`}
+                        className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${on ? 'border-accent/70 bg-accent/[0.06]' : 'border-line bg-surface-1 hover:border-line-strong'}`}
                       >
-                        <span className={`block text-base font-semibold ${on ? 'text-ink' : 'text-ink-dim'}`}>{f.name}</span>
-                        <span className="mt-0.5 block text-[11px] leading-snug text-ink-faint">{f.detail}</span>
+                        <span className={`block text-sm font-semibold ${on ? 'text-ink' : 'text-ink-dim'}`}>{f.name}</span>
+                        <span className="block text-[11px] leading-snug text-ink-faint">{f.detail}</span>
                       </button>
                     );
                   })}
@@ -316,8 +316,8 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
 
               {isAudio && (
                 <div>
-                  <div className="mb-2 text-xs font-medium text-ink-dim">Mastering</div>
-                  <div className="rounded-2xl border border-line bg-surface-1 px-4 py-3.5">
+                  <div className="mb-1.5 text-xs font-medium text-ink-dim">Mastering</div>
+                  <div className="rounded-xl border border-line bg-surface-1 px-3.5 py-2.5">
                     <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-ink">{useMastering ? presetName : 'Original mix'}</div>
@@ -347,7 +347,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
               )}
             </div>
 
-            <footer className="shrink-0 border-t border-line bg-[#0c0c10] px-5 py-5 sm:px-7">
+            <footer className="shrink-0 border-t border-line bg-[#0c0c10] px-5 py-3 sm:px-6">
               {running && progress ? (
                 <ProgressIndicator fraction={progress.percent / 100} label={progress.message} onCancel={() => { cancelled.current = true; }} cancelLabel="Cancel export" />
               ) : (
@@ -357,7 +357,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
                   </p>
                   <button
                     type="button" onClick={handleExport} disabled={!hasAudio || !title.trim() || blocked}
-                    className="flex h-12 items-center gap-2 whitespace-nowrap rounded-full bg-gold px-6 text-sm font-semibold text-gold-ink transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
+                    className="flex h-11 items-center gap-2 whitespace-nowrap rounded-full bg-gold px-6 text-sm font-semibold text-gold-ink transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
                   >
                     <Download className="h-4 w-4" /> Export {format === 'uuda' ? 'project' : format.toUpperCase()}
                   </button>

@@ -41,3 +41,18 @@ describe('selection export scope', () => {
     expect(p.tracks[0].clips).toHaveLength(2);
   });
 });
+
+describe('clip count', () => {
+  it('counts pieces of one edited clip that touch end to end as one clip', () => {
+    const piece = (id: string, start: number, dur: number): Clip => ({ ...clip(id, start, dur), spliceId: 's1' });
+    const p = project([track('t1', [piece('a', 0, 2), piece('b', 2, 3), piece('c', 5, 1), clip('x', 20, 4)])]);
+    const s = selectionScope(p, new Set(['a', 'b', 'c', 'x']));
+    expect(s.clipCount).toBe(2);
+    expect(s.trackCount).toBe(1);
+  });
+  it('still counts pieces that have a gap between them as separate clips', () => {
+    const piece = (id: string, start: number, dur: number): Clip => ({ ...clip(id, start, dur), spliceId: 's1' });
+    const p = project([track('t1', [piece('a', 0, 2), piece('b', 3, 3)])]);
+    expect(selectionScope(p, new Set(['a', 'b'])).clipCount).toBe(2);
+  });
+});
