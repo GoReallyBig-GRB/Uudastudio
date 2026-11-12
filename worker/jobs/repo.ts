@@ -5,6 +5,11 @@
 
 export type Role = 'producer' | 'talent' | 'client';
 
+/** One saved state of the script */
+export interface ScriptVersion { n: number; ts: number; script: string; label: string }
+/** The script as shared with the client for approval: which version, when, and which version (if any) they approved */
+export interface ShareState { n: number; at: number; approvedN: number | null; approvedAt: number | null }
+
 export interface JobRow {
   title: string;
   script: string;
@@ -20,6 +25,11 @@ export interface JobRow {
   /** The finished file; the client gets it only after the producer releases it */
   finalAtt?: string | null;
   released?: boolean;
+  /** Number of the current script version (1 for the first) */
+  scriptN?: number;
+  /** Older and current versions of the script, oldest first */
+  history?: ScriptVersion[];
+  share?: ShareState | null;
 }
 export interface KeyRow { role: Role; key: string; revoked: boolean }
 export interface AttRow { id: string; name: string; mime: string; bytes: number; ts: number }
@@ -99,6 +109,13 @@ export interface Sql {
   exec(query: string, ...bindings: unknown[]): { toArray(): Record<string, unknown>[] };
 }
 
+const parseExtra = (v: unknown): Pick<JobRow, 'scriptN' | 'history' | 'share'> => {
+  if (typeof v !== 'string' || !v) return {};
+  try {
+    const o = JSON.parse(v);
+    return { ...(typeof o.scriptN === 'number' ? { scriptN: o.scriptN } : {}), ...(Array.isArray(o.history) ? { history: o.history } : {}), ...(o.share ? { share: o.share } : {}) };
+  } catch { return {}; }
+};
 const asBytes = (v: unknown): Uint8Array => (v instanceof Uint8Array ? v : new Uint8Array(v as ArrayBuffer));
 const asBuffer = (u: Uint8Array): ArrayBuffer => u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
 
@@ -109,7 +126,7 @@ export class SqlRepo implements JobRepo {
     q('CREATE TABLE IF NOT EXISTS job (id INTEGER PRIMARY KEY CHECK (id = 1), title TEXT, script TEXT, notes TEXT, producer TEXT, target INTEGER, created INTEGER, reference_att TEXT)');
     // Jobs made before talent names existed lack this column; adding it twice throws, which is fine
     try { q('ALTER TABLE job ADD COLUMN talent TEXT'); } catch { /* already there */ }
-    for (const col of ['preview_att TEXT', 'final_att TEXT', 'released INTEGER']) { try { q(`ALTER TABLE job ADD COLUMN ${col}`); } catch { /* already there */ } }
+    for (const col of ['preview_att TEXT', 'final_att TEXT', 'released INTEGER', 'extra TEXT']) { try { q(`ALTER TABLE job ADD COLUMN ${col}`); } catch { /* already there */ } }
     q('CREATE TABLE IF NOT EXISTS keys (role TEXT PRIMARY KEY, key TEXT, revoked INTEGER)');
     q('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, thread TEXT, role TEXT, name TEXT, text TEXT, att TEXT)');
     q('CREATE TABLE IF NOT EXISTS atts (id TEXT PRIMARY KEY, name TEXT, mime TEXT, bytes INTEGER, ts INTEGER)');
@@ -119,9 +136,9 @@ export class SqlRepo implements JobRepo {
   getJob(): JobRow | null {
     const r = this.sql.exec('SELECT * FROM job WHERE id = 1').toArray()[0];
     if (!r) return null;
-    return { title: String(r.title), script: String(r.script), notes: String(r.notes), producer: String(r.producer), ...(r.talent ? { talent: String(r.talent) } : {}), targetSeconds: r.target == null ? null : Number(r.target), createdAt: Number(r.created), referenceAtt: r.reference_att == null ? null : String(r.reference_att), previewAtt: r.preview_att == null ? null : String(r.preview_att), finalAtt: r.final_att == null ? null : String(r.final_att), released: Number(r.released) === 1 };
+    return { title: String(r.title), script: String(r.script), notes: String(r.notes), producer: String(r.producer), ...(r.talent ? { talent: String(r.talent) } : {}), targetSeconds: r.target == null ? null : Number(r.target), createdAt: Number(r.created), referenceAtt: r.reference_att == null ? null : String(r.reference_att), previewAtt: r.preview_att == null ? null : String(r.preview_att), finalAtt: r.final_att == null ? null : String(r.final_att), released: Number(r.released) === 1, ...parseExtra(r.extra) };
   }
-  putJob(j: JobRow) { this.sql.exec('INSERT OR REPLACE INTO job (id, title, script, notes, producer, talent, target, created, reference_att, preview_att, final_att, released) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', j.title, j.script, j.notes, j.producer, j.talent ?? null, j.targetSeconds, j.createdAt, j.referenceAtt, j.previewAtt ?? null, j.finalAtt ?? null, j.released ? 1 : 0); }
+  putJob(j: JobRow) { this.sql.exec('INSERT OR REPLACE INTO job (id, title, script, notes, producer, talent, target, created, reference_att, preview_att, final_att, released, extra) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', j.title, j.script, j.notes, j.producer, j.talent ?? null, j.targetSeconds, j.createdAt, j.referenceAtt, j.previewAtt ?? null, j.finalAtt ?? null, j.released ? 1 : 0, JSON.stringify({ scriptN: j.scriptN, history: j.history, share: j.share ?? null })); }
   setReference(attId: string | null) { this.sql.exec('UPDATE job SET reference_att = ? WHERE id = 1', attId); }
   getKeys(): KeyRow[] { return this.sql.exec('SELECT role, key, revoked FROM keys').toArray().map((r) => ({ role: r.role as Role, key: String(r.key), revoked: Number(r.revoked) === 1 })); }
   setKey(role: Role, key: string) { this.sql.exec('INSERT OR REPLACE INTO keys (role, key, revoked) VALUES (?, ?, 0)', role, key); }

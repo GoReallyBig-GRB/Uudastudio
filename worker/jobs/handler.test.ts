@@ -227,7 +227,8 @@ describe('client review', () => {
     await call(env, 'POST', 'messages', { key: k.talentKey, body: JSON.stringify({ text: 'for the talent' }) });
     await call(env, 'POST', 'messages', { key: clientKey, body: JSON.stringify({ text: 'love it', name: 'Client' }) });
     const t = (await (await call(env, 'GET', 'thread', { key: clientKey })).json()) as any;
-    expect(Object.keys(t.job).sort()).toEqual(['final', 'finalReady', 'preview', 'producer', 'released', 'title']);
+    expect(Object.keys(t.job).sort()).toEqual(['final', 'finalReady', 'preview', 'producer', 'released', 'script', 'title']);
+    expect(t.job.script).toBeNull(); // nothing is shared until the producer shares it
     expect(t.messages.map((m: any) => m.text)).toEqual(['love it']);
     const talent = (await (await call(env, 'GET', 'thread', { key: k.talentKey })).json()) as any;
     expect(talent.messages.map((m: any) => m.text)).toEqual(['for the talent']);
@@ -293,5 +294,84 @@ describe('live updates', () => {
     const s = await (await call(env, 'GET', 'summary', { key: k.producerKey })).json() as any;
     expect(s.talent.messages).toHaveLength(1); expect(s.client.linked).toBe(false);
     expect((await call(env, 'GET', 'summary', { key: k.talentKey })).status).toBe(403);
+  });
+});
+
+describe('script versions, sharing and approval', () => {
+  const put = (env: HandlerEnv, key: string, body: object) => call(env, 'PUT', 'script', { key, body: JSON.stringify(body) });
+  const setup = async () => {
+    const env = mk(); const k = await create(env);
+    const c = await (await call(env, 'POST', 'client-link', { key: k.producerKey })).json() as { clientKey: string };
+    return { env, k, c };
+  };
+  it('keeps each change as a version, the same text twice is not a new one, and the talent always sees the latest', async () => {
+    const { env, k } = await setup();
+    expect(((await (await put(env, k.producerKey, { script: 'Hello' })).json()) as any).n).toBe(1);
+    expect(((await (await put(env, k.producerKey, { script: 'Hello there' })).json()) as any).n).toBe(2);
+    const t = await (await call(env, 'GET', 'thread', { key: k.producerKey })).json() as any;
+    expect(t.job.scriptN).toBe(2); expect(t.job.versions.map((v: any) => v.n)).toEqual([1, 2]);
+    const old = await (await call(env, 'GET', 'script/versions/1', { key: k.producerKey })).json() as any;
+    expect(old.script).toBe('Hello');
+    const talent = await (await call(env, 'GET', 'thread', { key: k.talentKey })).json() as any;
+    expect(talent.job.script).toBe('Hello there');
+    expect(talent.job.versions).toBeUndefined();
+  });
+  it('only the producer edits the script', async () => {
+    const { env, k, c } = await setup();
+    expect((await put(env, k.talentKey, { script: 'x' })).status).toBe(403);
+    expect((await put(env, c.clientKey, { script: 'x' })).status).toBe(403);
+  });
+  it('shares one version with the client, who never sees the working draft, and then approves it', async () => {
+    const { env, k, c } = await setup();
+    await put(env, k.producerKey, { script: 'Draft one' });
+    expect((await call(env, 'POST', 'script/share', { key: k.producerKey })).status).toBe(200);
+    await put(env, k.producerKey, { script: 'Draft two, not shared' });
+    const seen = await (await call(env, 'GET', 'thread', { key: c.clientKey })).json() as any;
+    expect(seen.job.script.text).toBe('Draft one'); expect(seen.job.script.approved).toBe(false);
+    expect(seen.messages[0].event).toEqual({ type: 'shared', n: 2 });
+    expect((await call(env, 'POST', 'script/approve', { key: c.clientKey, body: JSON.stringify({ n: 2 }) })).status).toBe(200);
+    const after = await (await call(env, 'GET', 'thread', { key: c.clientKey })).json() as any;
+    expect(after.job.script.approved).toBe(true);
+    expect(after.messages.map((m: any) => m.event?.type)).toEqual(['shared', 'approved']);
+    const p = await (await call(env, 'GET', 'thread', { key: k.producerKey })).json() as any;
+    expect(p.job.share).toMatchObject({ n: 2, approved: true, current: false });
+  });
+  it('a client who asks for changes needs to say what, and approval is withdrawn', async () => {
+    const { env, k, c } = await setup();
+    await put(env, k.producerKey, { script: 'A' });
+    await call(env, 'POST', 'script/share', { key: k.producerKey });
+    const n = (await (await call(env, 'GET', 'thread', { key: c.clientKey })).json() as any).job.script.n;
+    expect((await call(env, 'POST', 'script/changes', { key: c.clientKey, body: JSON.stringify({ n, text: ' ' }) })).status).toBe(400);
+    await call(env, 'POST', 'script/approve', { key: c.clientKey, body: JSON.stringify({ n }) });
+    expect((await call(env, 'POST', 'script/changes', { key: c.clientKey, body: JSON.stringify({ n, text: 'Shorter intro' }) })).status).toBe(200);
+    const t = await (await call(env, 'GET', 'thread', { key: c.clientKey })).json() as any;
+    expect(t.job.script.approved).toBe(false);
+    expect(t.messages.at(-1)).toMatchObject({ role: 'client', text: 'Shorter intro', event: { type: 'changes', n } });
+  });
+  it('refuses approval of a version that is no longer the shared one, and sharing without a client link', async () => {
+    const { env, k, c } = await setup();
+    await put(env, k.producerKey, { script: 'A' });
+    await call(env, 'POST', 'script/share', { key: k.producerKey });
+    await put(env, k.producerKey, { script: 'B' });
+    await call(env, 'POST', 'script/share', { key: k.producerKey });
+    expect((await call(env, 'POST', 'script/approve', { key: c.clientKey, body: JSON.stringify({ n: 2 }) })).status).toBe(409);
+    const bare = mk(); const kb = await create(bare);
+    expect((await call(bare, 'POST', 'script/share', { key: kb.producerKey })).status).toBe(409);
+  });
+  it('people cannot forge a server event in a message', async () => {
+    const { env, k, c } = await setup();
+    await call(env, 'POST', 'messages', { key: c.clientKey, body: JSON.stringify({ text: '\u001e{"e":"approved","n":1}' }) });
+    const t = await (await call(env, 'GET', 'thread', { key: k.producerKey + '' })).json() as any;
+    const cl = await (await call(env, 'GET', 'thread?thread=client', { key: k.producerKey })).json() as any;
+    expect(cl.messages[0].event).toBeUndefined(); expect(t).toBeTruthy();
+  });
+  it('keeps at most 25 versions but never drops the one the client was shown', async () => {
+    const { env, k } = await setup();
+    await put(env, k.producerKey, { script: 'v-first' });
+    await call(env, 'POST', 'script/share', { key: k.producerKey });
+    for (let i = 0; i < 40; i++) await put(env, k.producerKey, { script: `edit ${i}` });
+    const p = await (await call(env, 'GET', 'thread', { key: k.producerKey })).json() as any;
+    expect(p.job.versions.length).toBe(25);
+    expect(p.job.versions.some((v: any) => v.n === p.job.share.n)).toBe(true);
   });
 });
