@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Mic, RotateCcw, Send, Square, Trash2, Minus, Plus, ChevronDown } from 'lucide-react';
+import { Mic, RotateCcw, Send, Square, Trash2, Minus, Plus, ChevronDown, Minimize2, Maximize2 } from 'lucide-react';
 import { Button, Input } from '../components/ui';
 import { MicCapture } from './capture';
 import { MODE_TEXT } from './channels';
@@ -113,6 +113,8 @@ export const GuestPage: React.FC = () => {
   const [name, setName] = useState(() => readStore(NAME_KEY));
   const [sizeIdx, setSizeIdx] = useState(() => { const i = Number(readStore(SIZE_KEY)); return Number.isInteger(i) && i >= 0 && i < SIZES.length ? i : 2; });
   const [phase, setPhase] = useState<'ready' | 'recording'>('ready');
+  /** While recording the page is a full screen of script; this folds it back to the normal page without stopping */
+  const [minimised, setMinimised] = useState(false);
   const [take, setTake] = useState<Take | null>(null);
   const [practiceNext, setPracticeNext] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -132,7 +134,7 @@ export const GuestPage: React.FC = () => {
   const [micId, setMicId] = useState(() => readStore(MIC_KEY));
   const [sheetOpen, setSheetOpen] = useState(false);
   const [micLevel, setMicLevel] = useState<'' | 'ok' | 'warn' | 'problem'>('');
-  const { mics, fresh, clearFresh, refresh } = useMics();
+  const { mics, defaultLabel, fresh, clearFresh, refresh } = useMics();
   const heldRef = useRef(false);
   const [held, setHeld] = useState(false);
   const [seen, setSeen] = useState(0);
@@ -149,6 +151,7 @@ export const GuestPage: React.FC = () => {
   const takeRef = useRef<Take | null>(null);
   takeRef.current = take;
 
+  useEffect(() => { if (phase === 'recording') setMinimised(false); }, [phase]);
   useEffect(() => { if (view) document.title = `${view.title} · Uuda recording`; }, [view?.title]);
   useEffect(() => { void findSaved(jobKey).then(setSaved); }, [jobKey]);
   // Is there room on this device for a take of the expected length (held as chunks and again as a file)?
@@ -353,15 +356,16 @@ export const GuestPage: React.FC = () => {
   const words = countWords(view.script);
   const busySending = sending !== null;
 
-  const micName = micId ? (mics.find((m) => m.id === micId)?.label ?? 'Chosen microphone') : 'Default microphone';
+  const micName = micId ? (mics.find((m) => m.id === micId)?.label ?? 'Chosen microphone') : (defaultLabel || 'Default microphone');
   const recording = phase === 'recording';
+  const full = recording && !minimised;
   const unread = Math.max(0, messages.length - seen);
   const tabs = remote ? (['script', 'messages'] as const) : (['script'] as const);
   const ring = micLevel === 'problem' ? 'bg-danger' : micLevel === 'warn' ? 'bg-warn' : micLevel === 'ok' ? 'bg-ok' : 'bg-ink-faint';
 
   return (
     <main className="flex h-dvh flex-col overflow-hidden bg-surface-0 text-ink" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <header className="shrink-0 border-b border-line px-4 pb-2 pt-2 lg:pb-3">
+      {!full && <header className="shrink-0 border-b border-line px-4 pb-2 pt-2 lg:pb-3">
       <div className="flex items-center gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-gold-soft text-sm font-bold text-gold">U</span>
@@ -378,8 +382,13 @@ export const GuestPage: React.FC = () => {
         <h1 className="truncate text-base font-semibold leading-tight lg:text-xl">{view.title}</h1>
         <div className="truncate text-xs text-ink-dim">Voice recording{view.producer ? ` · from ${view.producer}` : ''}{view.talent ? ` · for ${view.talent}` : ''}</div>
       </div>
-      </header>
-      {tabs.length > 1 && (
+      </header>}
+      {recording && minimised && (
+        <button type="button" onClick={() => setMinimised(false)} className="flex h-11 shrink-0 items-center justify-center gap-2 border-b border-danger/40 bg-danger/10 text-sm font-semibold text-danger">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-danger" aria-hidden /> Recording {formatClock(elapsed)} <Maximize2 className="h-4 w-4" aria-hidden /> Return
+        </button>
+      )}
+      {!full && tabs.length > 1 && (
         <div role="tablist" aria-label="Page sections" className="grid shrink-0 grid-cols-2 border-b border-line bg-surface-1">
           {tabs.map((t) => (
             <button key={t} type="button" role="tab" aria-selected={tab === t} disabled={recording && t === 'messages'} onClick={() => setTab(t)} className={`relative h-11 text-sm font-semibold disabled:opacity-40 ${tab === t ? 'border-b-2 border-accent text-ink' : 'text-ink-dim'}`}>
@@ -393,6 +402,7 @@ export const GuestPage: React.FC = () => {
         open={sheetOpen}
         onClose={() => { setSheetOpen(false); clearFresh(); }}
         mics={mics}
+        defaultLabel={defaultLabel}
         micId={micId}
         onMicId={(id) => { setMicId(id); writeStore(MIC_KEY, id); setMicLevel(''); }}
         fresh={fresh}
@@ -419,14 +429,21 @@ export const GuestPage: React.FC = () => {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
       {/* The meter sits on the script itself, so the talent sees the words and the level together */}
-      {recording && <div className="pointer-events-none absolute inset-x-0 top-0 z-10 border-b border-line bg-surface-1/90 px-4 py-2 backdrop-blur"><LevelMeter state={meter.state} /></div>}
+      {full && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-line bg-surface-1 px-4 py-2" style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
+          <div className="min-w-0 flex-1"><LevelMeter state={meter.state} /></div>
+          <span className="font-num text-lg text-ink" aria-label="Time recorded">{formatClock(elapsed)}</span>
+          <button type="button" onClick={() => setMinimised(true)} aria-label="Minimise" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line-strong bg-surface-2 text-ink-dim hover:bg-surface-3"><Minimize2 className="h-5 w-5" /></button>
+        </div>
+      )}
+      {recording && !full && <div className="pointer-events-none absolute inset-x-0 top-0 z-10 border-b border-line bg-surface-1/90 px-4 py-2 backdrop-blur"><LevelMeter state={meter.state} /></div>}
       <div
         ref={readerRef}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
         onTouchStart={() => hold(true)} onTouchEnd={() => hold(false)} onTouchCancel={() => hold(false)}
         onMouseDown={() => hold(true)} onMouseUp={() => hold(false)} onMouseLeave={() => hold(false)}
       >
-      {recording && <div className="h-10 shrink-0" aria-hidden />}
+      {recording && !full && <div className="h-10 shrink-0" aria-hidden />}
       {!cap.ok && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{cap.problem}</div>}
       {lowSpace && <div role="alert" className="m-4 rounded-card border border-warn/40 bg-warn/10 p-3 text-sm text-ink">{lowSpace}</div>}
 
@@ -441,7 +458,7 @@ export const GuestPage: React.FC = () => {
       <section className="px-4 py-4 lg:mx-auto lg:w-full lg:max-w-3xl" aria-label="Script">
         {remote && thread?.job.reference && (
           <div className="mb-4 rounded-card border border-line bg-surface-2 p-3">
-            <div className="mb-1.5 text-xs font-medium text-ink-dim">Reference: listen to how it should sound</div>
+            <div className="mb-1.5 text-xs font-medium text-ink-dim">Reference</div>
             <audio controls preload="none" src={audioUrl(remote.jobId, thread.job.reference.id, remote.key)} className="w-full" aria-label="Reference recording" />
             {(() => { const e = expiryLine(thread.job.reference.expiresAt); return e ? <p className={`mt-1.5 text-[11px] ${e.soon ? 'text-warn' : 'text-ink-faint'}`}>{e.text}</p> : null; })()}
           </div>
@@ -475,6 +492,23 @@ export const GuestPage: React.FC = () => {
       {recording && autoScroll && held && <div role="status" className="pointer-events-none absolute inset-x-0 top-14 mx-auto w-fit rounded-full bg-surface-1/95 px-3 py-1 text-xs font-semibold text-ink shadow">Paused while you hold the screen</div>}
       </div>
 
+      {full ? (
+      <section className="shrink-0 border-t border-line-strong bg-surface-1 px-4 py-3 lg:w-[400px] lg:border-l lg:border-t-0" aria-label="Recording controls">
+        <div className="flex items-center gap-4">
+          <div className="min-w-0 flex-1">
+            <div className={`text-sm font-semibold ${practiceRef.current ? 'text-ink-dim' : elapsed < LEAD_IN ? 'text-warn' : 'text-ok'}`}>
+              {practiceRef.current ? 'Rehearsing' : elapsed < LEAD_IN ? `Stay quiet for ${Math.ceil(LEAD_IN - elapsed)}...` : 'Read now'}
+            </div>
+            {target > 0 && <div className={`font-num text-xs ${remaining < 0 ? 'text-warn' : 'text-ink-dim'}`}>{remaining >= 0 ? `${formatClock(remaining)} left` : `${formatClock(-remaining)} over`}</div>}
+            {confirmStop && <div className="text-xs font-semibold text-danger">Tap again to stop</div>}
+          </div>
+          <button type="button" onClick={stopPressed} aria-label={confirmStop ? 'Tap again to stop' : 'Stop recording'} className={`grid h-16 w-16 shrink-0 place-items-center rounded-full bg-danger transition-transform active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink ${confirmStop ? 'ring-4 ring-danger/40' : ''}`}>
+            <span className="h-6 w-6 rounded-[4px] bg-white" aria-hidden />
+          </button>
+        </div>
+        {error && <div role="alert" className="mt-3 rounded-card border border-danger/40 bg-danger/10 p-3 text-sm text-ink">{error}</div>}
+      </section>
+      ) : (
       <section className="max-h-[58dvh] shrink-0 overflow-y-auto border-t border-line-strong bg-surface-1 px-4 py-3 lg:max-h-none lg:w-[400px] lg:border-l lg:border-t-0" aria-label="Recording controls">
         {error && <div role="alert" className="mb-3 rounded-card border border-danger/40 bg-danger/10 p-3 text-sm text-ink">{error}</div>}
         {notice && <div role="status" className="mb-3 rounded-card border border-line-strong bg-surface-2 p-3 text-sm text-ink">{notice}</div>}
@@ -517,7 +551,7 @@ export const GuestPage: React.FC = () => {
                 )}
                 <audio key={take.url} src={take.url} controls className="mb-3 w-full" aria-label={take.practice ? 'Play rehearsal' : 'Play your take'} />
                 {take.practice ? (
-                  <p className="text-xs text-ink-dim">A rehearsal is never saved or sent. When you are ready, press Record.</p>
+                  <p className="text-xs text-ink-dim">Rehearsals are never saved or sent.</p>
                 ) : (
                   <>
                     {remote && (
@@ -534,7 +568,7 @@ export const GuestPage: React.FC = () => {
                       <Button size="md" variant="ghost" disabled={busySending} onClick={() => void dropTake()} leftIcon={<Trash2 className="h-4 w-4" />}>Delete</Button>
                     </div>
                     <p className="mt-2 text-xs text-ink-dim">
-                      {remote ? 'Listen first. Send puts it in the messages above for the producer. Until you press Send it only exists on this device. After that the server keeps it for 30 days, then deletes it.' : `Listen first. When you are happy, save the file and send it to ${view.producer || 'the producer'} by email or WhatsApp. Attach the file; do not paste a link to it.`}
+                      {remote ? 'Until you press Send, this take only exists on this device. The server keeps it for 30 days.' : `Save the file and send it to ${view.producer || 'the producer'}.`}
                     </p>
                   </>
                 )}
@@ -546,10 +580,11 @@ export const GuestPage: React.FC = () => {
               </Button>
               <Button size="lg" variant="ghost" className="h-14 text-base" disabled={!cap.ok || busySending} onClick={() => void start(true)}>Rehearse</Button>
             </div>
-            {target > 0 && <p className="text-center text-[11px] text-ink-faint">Aim for about {formatClock(target)}{view.targetSeconds ? '' : ' (estimated from the script)'}. Use headphones and a quiet room. Rehearse as often as you like: nothing is saved.</p>}
+            {target > 0 && <p className="text-center text-[11px] text-ink-faint">About {formatClock(target)}{view.targetSeconds ? '' : ' (estimated)'}. Headphones help.</p>}
           </div>
         )}
       </section>
+      )}
       </div>
       )}
     </main>

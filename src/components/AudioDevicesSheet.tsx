@@ -3,7 +3,7 @@ import { Bluetooth, Headphones, Laptop, Mic, Sliders, Usb, Volume2 } from 'lucid
 import { Button, ModalShell } from './ui';
 import { audioEngine } from '../audio/engine';
 import { canChooseOutput, applyOutput, loadOutputId, saveOutputId } from '../audio/outputDevice';
-import { KIND_TEXT, type AudioDevice, type DeviceKind } from '../audio/deviceWatch';
+import { KIND_TEXT, withoutDefaultTwin, type AudioDevice, type DeviceKind, type SystemDefaults } from '../audio/deviceWatch';
 import { loadRecordingDeviceSettings, saveRecordingDeviceSettings } from '../storage/presets';
 
 const ICON: Record<DeviceKind, React.ComponentType<{ className?: string }>> = { usb: Usb, interface: Sliders, bluetooth: Bluetooth, headphones: Headphones, builtin: Laptop };
@@ -12,6 +12,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   devices: AudioDevice[];
+  defaults?: SystemDefaults;
   /** A device plugged in after the app opened */
   fresh: AudioDevice | null;
   /** Whether device names are known (they need the microphone to be allowed once) */
@@ -20,7 +21,7 @@ interface Props {
 }
 
 /** Shown when the app loads and whenever gear is plugged in: pick the microphone to record with and where to listen. */
-export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, fresh, named, requestAccess }) => {
+export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, defaults = {}, fresh, named, requestAccess }) => {
   const [micId, setMicId] = useState('');
   const [outId, setOutId] = useState('');
   const [error, setError] = useState('');
@@ -37,8 +38,9 @@ export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, fre
   };
   const useFresh = () => { if (!fresh) return; if (fresh.direction === 'input') chooseMic(fresh.id); else void chooseOut(fresh.id); };
 
-  const inputs = devices.filter((d) => d.direction === 'input');
-  const outputs = devices.filter((d) => d.direction === 'output');
+  const shown = withoutDefaultTwin(devices, defaults);
+  const inputs = shown.filter((d) => d.direction === 'input');
+  const outputs = shown.filter((d) => d.direction === 'output');
   const freshDone = !!fresh && (fresh.direction === 'input' ? micId === fresh.id : outId === fresh.id);
 
   const card = (id: string, label: string, kind: DeviceKind, selected: boolean, onPick: () => void, note?: string) => {
@@ -80,7 +82,7 @@ export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, fre
         <section aria-label="Microphones">
           <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">Microphone</div>
           <ul role="radiogroup" aria-label="Microphones" className="space-y-2">
-            {card('', 'System default', 'builtin', micId === '', () => chooseMic(''))}
+            {card('', 'System default', 'builtin', micId === '', () => chooseMic(''), defaults.input?.label ? `Follows your system: ${defaults.input.label}` : undefined)}
             {inputs.map((d) => card(d.id, d.label, d.kind, micId === d.id, () => chooseMic(d.id)))}
           </ul>
         </section>
@@ -88,7 +90,7 @@ export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, fre
           <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">Listen through</div>
           {sinkOk ? (
             <ul role="radiogroup" aria-label="Outputs" className="space-y-2">
-              {card('', 'System default', 'builtin', outId === '', () => void chooseOut(''))}
+              {card('', 'System default', 'builtin', outId === '', () => void chooseOut(''), defaults.output?.label ? `Follows your system: ${defaults.output.label}` : undefined)}
               {outputs.map((d) => card(d.id, d.label, d.kind, outId === d.id, () => void chooseOut(d.id)))}
             </ul>
           ) : (

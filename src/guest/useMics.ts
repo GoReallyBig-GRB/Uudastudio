@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { listMics, type MicInfo } from './devices';
+import { listMicState, type MicInfo } from './devices';
 
 /** The microphones on offer. `fresh` is set when a device appears after the page opened (a USB mic plugged in), so the page can offer it. */
 export const useMics = () => {
   const [mics, setMics] = useState<MicInfo[]>([]);
   const [fresh, setFresh] = useState<MicInfo | null>(null);
+  const [defaultLabel, setDefaultLabel] = useState('');
   const known = useRef<Set<string> | null>(null);
 
   const refresh = useCallback(async () => {
-    const list = await listMics();
+    const { mics: list, defaultLabel: dl } = await listMicState();
     setMics(list);
+    setDefaultLabel(dl);
     const ids = new Set(list.map((m) => m.id).filter(Boolean));
     if (known.current) {
       const added = list.find((m) => m.id && m.id !== 'default' && !known.current!.has(m.id));
@@ -28,5 +30,5 @@ export const useMics = () => {
     return () => md?.removeEventListener?.('devicechange', on);
   }, [refresh]);
 
-  return { mics, fresh, clearFresh: () => setFresh(null), refresh };
+  return { mics, defaultLabel, fresh, clearFresh: () => setFresh(null), refresh };
 };
