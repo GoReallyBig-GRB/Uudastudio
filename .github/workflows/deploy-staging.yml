@@ -1,6 +1,6 @@
 name: Deploy staging
 
-# Puts the branch on a private test address (uuda-studio-staging.<account>.workers.dev) so the real Cloudflare setup can be tested.
+# Puts the branch on a private test address (uudatest.goreallybig.com) so the real Cloudflare setup can be tested.
 # Runs only after the repository variable CLOUDFLARE_STAGING_ENABLED is "true" and the two Cloudflare secrets exist.
 on:
   workflow_dispatch:
