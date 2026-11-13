@@ -1,0 +1,20 @@
+{
+  // A separate copy of the app for testing the real architecture (Workers, Durable Objects, WebSockets) at uudatest.goreallybig.com (and a workers.dev fallback).
+  // It never touches the production Worker or the custom domain.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "uudatest",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-10-22",
+  "workers_dev": true,
+  "routes": [{ "pattern": "uudatest.goreallybig.com", "custom_domain": true }],
+  "durable_objects": {
+    "bindings": [{ "name": "JOB_ROOM", "class_name": "JobRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["JobRoom"] }],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/api"]
+  }
+}

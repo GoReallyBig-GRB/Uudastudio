@@ -4,6 +4,7 @@
  * Pure, so the rules can be unit-tested without a browser.
  */
 import type { Project } from '../types';
+import { chainsOnTrack } from '../components/spliceChains';
 
 export interface SelectionScope {
   /** The project with every clip that is not part of the selection removed (tracks and settings are kept). */
@@ -30,9 +31,12 @@ export function selectionScope(project: Project, selectedClipIds: ReadonlySet<st
   let start = Infinity;
   let end = 0;
   let trackCount = 0;
+  /** Selected pieces of one edited clip that touch end to end are ONE clip, as they are everywhere else in the app */
+  let clipCount = 0;
   const tracks = project.tracks.map((t) => {
     const clips = t.clips.filter((c) => ids.has(c.id));
     if (clips.length > 0) trackCount++;
+    clipCount += clips.length - chainsOnTrack(clips).reduce((n, chain) => n + chain.length - 1, 0);
     for (const c of clips) {
       start = Math.min(start, c.startSeconds);
       end = Math.max(end, c.startSeconds + c.durationSeconds);
@@ -40,5 +44,5 @@ export function selectionScope(project: Project, selectedClipIds: ReadonlySet<st
     return { ...t, clips };
   });
   const range = ids.size > 0 && isFinite(start) && end > start ? { startSeconds: start, endSeconds: end } : null;
-  return { project: { ...project, tracks }, range, clipCount: ids.size, trackCount };
+  return { project: { ...project, tracks }, range, clipCount, trackCount };
 }

@@ -30,5 +30,5 @@ export const inviteText = (title: string, producer: string, link: string): strin
 export const nudgeText = (title: string, link: string): string => `I replied on "${title}". Open your link to read it:\n${link}`;
 
 export const clientInviteText = (title: string, producer: string, link: string): string =>
-  `Hi, here is the preview of "${title}"${producer ? ` from ${producer}` : ''}. Open the link to listen and leave your comments on the same page. The final file is added there once everything is agreed.\n${link}`;
+  `Hi, "${title}"${producer ? ` from ${producer}` : ''} is ready for your review. Open the link to read the script, listen to the preview and reply on the same page. The final file is added there once everything is agreed.\n${link}`;
 export const clientNudgeText = (title: string, link: string): string => `I replied on "${title}". Open your link to read it:\n${link}`;

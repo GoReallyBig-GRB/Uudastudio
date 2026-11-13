@@ -130,6 +130,18 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             <Music className="w-4 h-4" />
           </button>
 
+          {/* Modular Audio Plugins Rack button */}
+          {onOpenPlugins && (
+            <button
+              type="button"
+              onClick={onOpenPlugins}
+              title="Open Modular Audio Plugins Rack (WAM 2.0 & Native)"
+              className={`${RAIL_LAYOUT} ${RAIL_IDLE}`}
+            >
+              <Plug className="w-4 h-4" />
+            </button>
+          )}
+
           {jobsState && onOpenJobsWindow && (
             <button
               type="button"
@@ -140,18 +152,6 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             >
               <Briefcase className="w-4 h-4" />
               {(jobsState?.unread ?? 0) > 0 && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-surface-0 bg-accent" />}
-            </button>
-          )}
-
-          {/* Modular Audio Plugins Rack button */}
-          {onOpenPlugins && (
-            <button
-              type="button"
-              onClick={onOpenPlugins}
-              title="Open Modular Audio Plugins Rack (WAM 2.0 & Native)"
-              className={`${RAIL_LAYOUT} ${RAIL_IDLE}`}
-            >
-              <Plug className="w-4 h-4" />
             </button>
           )}
 

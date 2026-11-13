@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { audioRecorder } from './recorder';
 import { loadRecordingDeviceSettings } from '../storage/presets';
-import { newDevices, shouldOpenOnLoad, signature, toDevices, type AudioDevice } from './deviceWatch';
+import { newDevices, shouldOpenOnLoad, signature, systemDefaults, toDevices, type AudioDevice, type SystemDefaults } from './deviceWatch';
 
 const SIG_KEY = 'uuda_audio_signature';
 const readSig = (): string | null => { try { return localStorage.getItem(SIG_KEY); } catch { return null; } };
@@ -16,13 +16,14 @@ export const useAudioDevices = () => {
   const [open, setOpen] = useState(false);
   const [fresh, setFresh] = useState<AudioDevice | null>(null);
   const [named, setNamed] = useState(false);
+  const [defaults, setDefaults] = useState<SystemDefaults>({});
   const known = useRef<Set<string> | null>(null);
   const loadedRef = useRef(false);
 
   const refresh = useCallback(async (): Promise<AudioDevice[]> => {
     if (!navigator.mediaDevices?.enumerateDevices) return [];
     let list: AudioDevice[] = [];
-    try { list = toDevices(await navigator.mediaDevices.enumerateDevices()); } catch { /* nothing to list */ }
+    try { const raw = await navigator.mediaDevices.enumerateDevices(); list = toDevices(raw); setDefaults(systemDefaults(raw)); } catch { /* nothing to list */ }
     setDevices(list);
     setNamed(list.length > 0);
     if (known.current && list.length > 0) {
@@ -62,5 +63,5 @@ export const useAudioDevices = () => {
     writeSig(signature(devices));
   }, [devices]);
 
-  return { devices, open, fresh, named, close, requestAccess };
+  return { devices, defaults, open, fresh, named, close, requestAccess };
 };

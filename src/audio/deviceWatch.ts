@@ -11,7 +11,37 @@ export interface AudioDevice {
   label: string;
   direction: DeviceDirection;
   kind: DeviceKind;
+  /** Browsers give the same physical device the same group id */
+  groupId?: string;
 }
+
+/** The browser's "default"/"communications" entries are aliases of a real device, not devices of their own */
+export const isAlias = (d: { deviceId: string; label: string }): boolean =>
+  d.deviceId === 'default' || d.deviceId === 'communications' || /^(default|communications)\b/i.test(d.label.trim());
+
+/** "Default - Internal Microphone (Conexant)" -> "Internal Microphone (Conexant)" */
+export const stripDefaultPrefix = (label: string): string => label.trim().replace(/^(default|communications)\s*[-\u2013:]\s*/i, '').trim();
+
+export interface SystemDefault { label: string; groupId: string }
+export type SystemDefaults = Partial<Record<DeviceDirection, SystemDefault>>;
+
+/** Which real device the system default currently points at, per direction (the browser lists it as a "default" entry) */
+export const systemDefaults = (list: ReadonlyArray<{ deviceId: string; kind: string; label: string; groupId?: string }>): SystemDefaults => {
+  const out: SystemDefaults = {};
+  for (const d of list) {
+    if (d.kind !== 'audioinput' && d.kind !== 'audiooutput') continue;
+    if (d.deviceId !== 'default' && !isAlias(d)) continue;
+    if (d.deviceId === 'communications') continue;
+    const direction: DeviceDirection = d.kind === 'audioinput' ? 'input' : 'output';
+    const label = stripDefaultPrefix(d.label);
+    if (!out[direction]) out[direction] = { label: /^(microphone|speaker|audio)\b.*device$/i.test(label) || !label ? '' : label, groupId: d.groupId ?? '' };
+  }
+  return out;
+};
+
+/** Drops the real device the system default already points at, so one microphone is not listed twice */
+export const withoutDefaultTwin = <T extends { direction: DeviceDirection; groupId?: string }>(devices: readonly T[], defaults: SystemDefaults): T[] =>
+  devices.filter((d) => { const def = defaults[d.direction]; return !(def && def.groupId && d.groupId && d.groupId === def.groupId); });
 
 export const kindOf = (label: string, direction: DeviceDirection): DeviceKind => {
   const l = label.toLowerCase();
@@ -31,14 +61,14 @@ export const KIND_TEXT: Record<DeviceKind, string> = {
 };
 
 /** Real, nameable devices from a browser list; aliases ("default", "communications") and id-less entries are dropped */
-export const toDevices = (list: ReadonlyArray<{ deviceId: string; kind: string; label: string }>): AudioDevice[] => {
+export const toDevices = (list: ReadonlyArray<{ deviceId: string; kind: string; label: string; groupId?: string }>): AudioDevice[] => {
   const out: AudioDevice[] = [];
   list.forEach((d, i) => {
     if (d.kind !== 'audioinput' && d.kind !== 'audiooutput') return;
-    if (!d.deviceId || d.deviceId === 'default' || d.deviceId === 'communications') return;
+    if (!d.deviceId || isAlias(d)) return;
     const direction: DeviceDirection = d.kind === 'audioinput' ? 'input' : 'output';
     const label = d.label.trim() || `${direction === 'input' ? 'Microphone' : 'Speaker'} ${i + 1}`;
-    out.push({ id: d.deviceId, label, direction, kind: kindOf(label, direction) });
+    out.push({ id: d.deviceId, label, direction, kind: kindOf(label, direction), groupId: d.groupId });
   });
   return out;
 };

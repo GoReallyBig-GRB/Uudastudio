@@ -23,6 +23,7 @@ import { Project, Track, Clip, Asset, GroupSettings } from '../types';
 import { TrackControls } from './TrackControls';
 import { rangeTrackIds, type RangeSelection, type TimelineTool } from './rangeDelete';
 import { dragRangeEdge, rangeEdgeHit } from './rangeEdge';
+import { pickEdge, trimEdge } from './clipEdge';
 import { TITLE_PAD_X, displayTitle, fitTitle, formatClipLength, placeTip } from './clipTitle';
 import { TimelineRuler } from './TimelineRuler';
 import { ClipActionStrip } from './ClipActionStrip';
@@ -158,6 +159,10 @@ interface EdgeTrimDragState {
   initialStartSeconds: number;
   initialOffsetSeconds: number;
   initialDurationSeconds: number;
+  /** Length of the clip's source audio, or null if unknown (then the right end cannot grow) */
+  sourceSeconds: number | null;
+  /** Neighbouring clips on the track, so extending an end cannot run into them */
+  bounds: { minStart: number; maxEnd: number };
 }
 
 const ROW_HEIGHT = 80;
@@ -619,6 +624,25 @@ export const Timeline: React.FC<TimelineProps> = ({
     return subscribePlayhead(step);
   }, [pixelsPerSecond, currentHeaderWidth, scrollLeft]);
 
+  // Home / End: bring the view to the playhead's new place ('uuda:reveal-time'), not only the playhead
+  useEffect(() => {
+    const onReveal = (e: Event) => {
+      const viewport = laneScrollContainerRef.current;
+      if (!viewport) return;
+      const seconds = Number((e as CustomEvent<{ seconds: number }>).detail?.seconds ?? 0);
+      const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      const x = currentHeaderWidth + seconds * pixelsPerSecond;
+      // Start sits at the left edge of the lanes; anywhere else is centred
+      const target = seconds <= 0 ? 0 : Math.min(maxScrollLeft, Math.max(0, x - viewport.clientWidth / 2));
+      autoCenterPendingRef.current = false;
+      autoCenterTargetRef.current = null;
+      lastScrollLeftRef.current = target;
+      viewport.scrollTo({ left: target, behavior: 'auto' });
+    };
+    window.addEventListener('uuda:reveal-time', onReveal);
+    return () => window.removeEventListener('uuda:reveal-time', onReveal);
+  }, [pixelsPerSecond, currentHeaderWidth]);
+
   // Keyboard navigation & Shortcuts (S=split, Ctrl+C=copy, etc.)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1048,7 +1072,6 @@ export const Timeline: React.FC<TimelineProps> = ({
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
-    const timeAtClick = clickX / pixelsPerSecond;
 
     // Pointer on a clip's title strip (and clear of the trim edges): show the full title.
     let tipClip: Clip | null = null;
@@ -1065,19 +1088,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     if (tipClip) showTitleTip(e.clientX, e.clientY, displayTitle(tipClip.name), tipClip.durationSeconds);
     else hideTitleTip();
 
-    let isNearEdge = false;
-    const hoverSeams = seamFlags(track.clips);
-    for (const clip of track.clips) {
-      if (timeAtClick >= clip.startSeconds - 0.2 && timeAtClick <= clip.startSeconds + clip.durationSeconds + 0.2) {
-        const leftEdgePx = clip.startSeconds * pixelsPerSecond;
-        const rightEdgePx = (clip.startSeconds + clip.durationSeconds) * pixelsPerSecond;
-        const hs = hoverSeams.get(clip.id);
-        if ((!hs?.left && Math.abs(clickX - leftEdgePx) <= 8) || (!hs?.right && Math.abs(clickX - rightEdgePx) <= 8)) {
-          isNearEdge = true;
-          break;
-        }
-      }
-    }
+    const isNearEdge = clickY > 16 && !!pickEdge(track.clips, seamFlags(track.clips), clickX, pixelsPerSecond, e.pointerType === 'touch');
 
     if (isNearEdge) {
       e.currentTarget.style.cursor = 'col-resize';
@@ -1142,22 +1153,14 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     // Where pieces of one edited clip touch, there is no edge to trim and no fade handle: it is one clip
     const seams = seamFlags(track.clips);
-    for (const clip of track.clips) {
-      const leftEdgePx = clip.startSeconds * pixelsPerSecond;
-      const rightEdgePx = (clip.startSeconds + clip.durationSeconds) * pixelsPerSecond;
+    // A clip end wins over any body next to it: the nearest end within the grab zone (wider on touch)
+    const edgeHit = clickY > 16 ? pickEdge(track.clips, seams, clickX, pixelsPerSecond, e.pointerType === 'touch') : null;
+    if (edgeHit) {
+      clickedClip = track.clips.find((c) => c.id === edgeHit.clipId) ?? null;
+      clickedEdge = edgeHit.edge;
+    }
+    for (const clip of edgeHit ? [] : track.clips) {
       const sm = seams.get(clip.id);
-
-      // Check edge trimmer within 8px
-      if (!sm?.left && Math.abs(clickX - leftEdgePx) <= 8 && clickY > 16) {
-        clickedClip = clip;
-        clickedEdge = 'left';
-        break;
-      }
-      if (!sm?.right && Math.abs(clickX - rightEdgePx) <= 8 && clickY > 16) {
-        clickedClip = clip;
-        clickedEdge = 'right';
-        break;
-      }
 
       if (timeAtClick >= clip.startSeconds && timeAtClick <= clip.startSeconds + clip.durationSeconds) {
         clickedClip = clip;
@@ -1217,6 +1220,11 @@ export const Timeline: React.FC<TimelineProps> = ({
           initialStartSeconds: clickedClip.startSeconds,
           initialOffsetSeconds: clickedClip.offsetSeconds || 0,
           initialDurationSeconds: clickedClip.durationSeconds,
+          sourceSeconds: audioEngine.getAsset(clickedClip.assetId)?.durationSeconds ?? null,
+          bounds: {
+            minStart: Math.max(0, ...track.clips.filter((c) => c.id !== clickedClip!.id && c.startSeconds + c.durationSeconds <= clickedClip!.startSeconds + 1e-6).map((c) => c.startSeconds + c.durationSeconds)),
+            maxEnd: Math.min(Infinity, ...track.clips.filter((c) => c.id !== clickedClip!.id && c.startSeconds >= clickedClip!.startSeconds + clickedClip!.durationSeconds - 1e-6).map((c) => c.startSeconds)),
+          },
         });
         return;
       }
@@ -1314,27 +1322,21 @@ export const Timeline: React.FC<TimelineProps> = ({
         const dx = e.clientX - edgeTrimDrag.startX;
         const dt = dx / pixelsPerSecond;
 
-        if (edgeTrimDrag.edge === 'left') {
-          // Dragging inward to the right (dt > 0) deletes left portion of waveform
-          const trimAmount = Math.max(0, Math.min(edgeTrimDrag.initialDurationSeconds - 0.05, dt));
-          const newStart = edgeTrimDrag.initialStartSeconds + trimAmount;
-          const newOffset = edgeTrimDrag.initialOffsetSeconds + trimAmount;
-          const newDuration = edgeTrimDrag.initialDurationSeconds - trimAmount;
-
-          onUpdateClip(edgeTrimDrag.clipId, {
-            startSeconds: newStart,
-            offsetSeconds: newOffset,
-            durationSeconds: newDuration,
-          }, `trim:${gestureRef.current}`);
-        } else {
-          // Dragging inward to the left (dt < 0) deletes right portion of waveform
-          const trimAmount = Math.max(0, Math.min(edgeTrimDrag.initialDurationSeconds - 0.05, -dt));
-          const newDuration = edgeTrimDrag.initialDurationSeconds - trimAmount;
-
-          onUpdateClip(edgeTrimDrag.clipId, {
-            durationSeconds: newDuration,
-          }, `trim:${gestureRef.current}`);
-        }
+        // Both directions: inward cuts the clip, outward brings back audio trimmed away (up to the source ends)
+        const t = trimEdge(
+          edgeTrimDrag.edge,
+          dt,
+          { startSeconds: edgeTrimDrag.initialStartSeconds, offsetSeconds: edgeTrimDrag.initialOffsetSeconds, durationSeconds: edgeTrimDrag.initialDurationSeconds },
+          edgeTrimDrag.sourceSeconds,
+          edgeTrimDrag.bounds,
+        );
+        onUpdateClip(
+          edgeTrimDrag.clipId,
+          edgeTrimDrag.edge === 'left'
+            ? { startSeconds: t.startSeconds, offsetSeconds: t.offsetSeconds, durationSeconds: t.durationSeconds }
+            : { durationSeconds: t.durationSeconds },
+          `trim:${gestureRef.current}`,
+        );
         return;
       }
 

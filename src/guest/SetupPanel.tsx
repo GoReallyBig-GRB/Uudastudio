@@ -3,7 +3,7 @@ import { CheckCircle2, AlertTriangle, XCircle, Mic, X, Usb, Bluetooth, Laptop } 
 import { Button } from '../components/ui';
 import { MicCapture } from './capture';
 import { MODE_TEXT, type ChannelMode } from './channels';
-import type { MicInfo } from './devices';
+import { isBluetoothLabel, type MicInfo } from './devices';
 import { LevelMeter, useMeter } from './MeterBar';
 import { checkRoom, type Level, type RoomReport } from './roomCheck';
 import { describeSettings, processingOn } from './captureSettings';
@@ -32,6 +32,8 @@ interface SheetProps {
   open: boolean;
   onClose: () => void;
   mics: MicInfo[];
+  /** What the phone or computer currently uses when nothing is chosen, if the browser says */
+  defaultLabel?: string;
   micId: string;
   onMicId: (id: string) => void;
   /** A microphone that was plugged in after the page opened */
@@ -51,7 +53,7 @@ const kindOf = (m: MicInfo) => (m.bluetooth ? 'bluetooth' : /usb|samson|rode|rø
  * The microphone sheet: a bottom sheet on a phone, a dialog on a computer. Pick the microphone from clear cards, then listen to the
  * room for ten seconds. Nothing from the test is kept or sent.
  */
-export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onMicId, fresh, onAllow, bits, onBits, disabled, onResult }) => {
+export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, defaultLabel = '', micId, onMicId, fresh, onAllow, bits, onBits, disabled, onResult }) => {
   const [phase, setPhase] = useState<'idle' | 'quiet' | 'read'>('idle');
   const meter = useMeter();
   const [report, setReport] = useState<RoomReport | null>(null);
@@ -160,7 +162,7 @@ export const MicSheet: React.FC<SheetProps> = ({ open, onClose, mics, micId, onM
               </div>
             )}
             <ul role="radiogroup" aria-label="Microphones" className="space-y-2">
-              {card('', 'Default microphone', 'builtin')}
+              {card('', defaultLabel ? 'Automatic' : 'Default microphone', kindOf({ id: '', label: defaultLabel, bluetooth: isBluetoothLabel(defaultLabel) }), defaultLabel ? `Uses ${defaultLabel}` : 'Uses what your device is set to use')}
               {mics.map((m) => card(m.id, m.label, kindOf(m)))}
             </ul>
           </div>
