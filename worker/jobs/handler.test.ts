@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { CHUNK, FILE_TTL_MS, LIMITS, handleJob, looksLikeAudio, type HandlerEnv } from './handler';
 import { MemoryRepo } from './repo';
+import { MemoryStorageGuard } from './storage';
 
 let n = 0;
 const mk = (): HandlerEnv & { clock: number } => {
-  const e: any = { repo: new MemoryRepo(), clock: 1000, now: () => e.clock++, newKey: () => `key${(n++).toString().padStart(30, '0')}` };
+  const e: any = { repo: new MemoryRepo(), jobId: 'J', clock: 1000, now: () => e.clock++, newKey: () => `key${(n++).toString().padStart(30, '0')}` };
   return e;
 };
 const call = (env: HandlerEnv, method: string, path: string, opts: { key?: string; body?: BodyInit; headers?: Record<string, string> } = {}) => {
@@ -181,7 +182,57 @@ describe('resumable uploads', () => {
     const t = await (await call(env, 'GET', 'thread', { key: k.talentKey })).json() as any;
     expect(t.job.reference.id).toBe(u.uploadId); expect(t.messages.length).toBe(0);
   });
+
+  it('refuses uploads before the global cap and reports completed bytes', async () => {
+    const env = mk(); const k = await create(env);
+    const guard = new MemoryStorageGuard();
+    env.storage = guard; env.storageLimitBytes = 1000; env.maxTakeBytes = 1000;
+    const file = wav(800);
+    const first = await begin(env, k.talentKey, file.length, { durationSeconds: 45 });
+    expect((await sendPiece(env, k.talentKey, first.uploadId, 0, file)).status).toBe(200);
+    expect((await call(env, 'POST', `uploads/${first.uploadId}/complete`, { key: k.talentKey })).status).toBe(201);
+    expect(guard.status(1000)).toMatchObject({ totalBytes: 800, limitBytes: 1000, mode: 'guarded' });
+
+    const response = await call(env, 'POST', 'uploads', { key: k.talentKey, body: JSON.stringify({ kind: 'attachment', size: 201 }) });
+    expect(response.status).toBe(507);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining('Storage is full') });
+    expect(env.repo.getUpload('missing')).toBeNull();
+  });
+
+  it('checks declared duration and per-take bytes before making an upload', async () => {
+    const env = mk(); const k = await create(env);
+    const guard = new MemoryStorageGuard(); env.storage = guard; env.maxTakeBytes = 1000; env.maxTakeSeconds = 60;
+    const tooLong = await call(env, 'POST', 'uploads', { key: k.talentKey, body: JSON.stringify({ size: 100, durationSeconds: 61 }) });
+    expect(tooLong.status).toBe(413);
+    const tooLarge = await call(env, 'POST', 'uploads', { key: k.talentKey, body: JSON.stringify({ size: 1001, durationSeconds: 30 }) });
+    expect(tooLarge.status).toBe(413);
+    expect(guard.status(1000).totalBytes).toBe(0);
+  });
+
+  it('keeps old behavior without a registry and refreshes totals after purge or delete', async () => {
+    const env = mk(); const k = await create(env);
+    env.storageLimitBytes = 1;
+    const noRegistry = await begin(env, k.talentKey, 900);
+    expect(noRegistry.uploadId).toBeTruthy();
+
+    const guard = new MemoryStorageGuard(); env.storage = guard; env.storageLimitBytes = 2000; env.maxTakeBytes = 2000;
+    const file = wav(900);
+    await sendPiece(env, k.talentKey, noRegistry.uploadId, 0, file);
+    expect((await call(env, 'POST', `uploads/${noRegistry.uploadId}/complete`, { key: k.talentKey })).status).toBe(201);
+    expect(guard.status(2000).totalBytes).toBe(900);
+    (env as any).clock += FILE_TTL_MS + 5;
+    await call(env, 'GET', 'thread', { key: k.producerKey });
+    expect(guard.status(2000).totalBytes).toBe(0);
+
+    const next = await begin(env, k.talentKey, 900);
+    await sendPiece(env, k.talentKey, next.uploadId, 0, file);
+    expect((await call(env, 'POST', `uploads/${next.uploadId}/complete`, { key: k.talentKey })).status).toBe(201);
+    expect(guard.status(2000).totalBytes).toBe(900);
+    expect((await call(env, 'DELETE', '', { key: k.producerKey })).status).toBe(200);
+    expect(guard.status(2000).totalBytes).toBe(0);
+  });
 });
+
 
 describe('file expiry', () => {
   it('tells the sender when the file will be deleted, then deletes it and says so', async () => {

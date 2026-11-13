@@ -1,9 +1,16 @@
 export { JobRoom } from "./jobs/jobRoom";
+export { JobRegistry } from "./jobs/jobRegistry";
+import { registryStorage, storageLimit, storageStatusResponse } from './jobs/storage';
 
 export interface Env {
   ASSETS: Fetcher;
   /** One Durable Object per voice-talent job (script, message thread, audio) */
   JOB_ROOM: DurableObjectNamespace;
+  /** Optional account-level storage guard; older deployments without it remain functional. */
+  JOB_REGISTRY?: DurableObjectNamespace;
+  STORAGE_LIMIT_BYTES?: string;
+  MAX_TAKE_BYTES?: string;
+  MAX_TAKE_SECONDS?: string;
   /** Optional. If set, creating a job needs this code (typed once in the Jobs panel). */
   JOBS_CREATE_CODE?: string;
   /**
@@ -83,6 +90,11 @@ const hex = (n: number): string => {
 
 async function handleJobs(request: Request, url: URL, env: Env): Promise<Response> {
   const rest = url.pathname.split("/").filter(Boolean).slice(2); // after api, jobs
+  const registryStub = env.JOB_REGISTRY?.get(env.JOB_REGISTRY.idFromName('account-storage'));
+  const storage = registryStub ? registryStorage(registryStub) : undefined;
+  if (rest[0] === "_status" && request.method === "GET") {
+    return storageStatusResponse(storage, storageLimit(env.STORAGE_LIMIT_BYTES));
+  }
   if (rest[0] === "ping" && request.method === "GET") {
     return new Response(JSON.stringify({ ok: true, createRequiresCode: Boolean(env.JOBS_CREATE_CODE) }), { headers: jsonHeaders });
   }

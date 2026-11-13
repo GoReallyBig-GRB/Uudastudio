@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { RETENTION_MS, handleJob } from './handler';
 import { SqlRepo } from './repo';
+import { registryStorage, storageLimit, takeByteLimit, takeDurationLimit } from './storage';
 
 const newKey = (): string => {
   const b = crypto.getRandomValues(new Uint8Array(24));
@@ -11,10 +12,19 @@ const newKey = (): string => {
 
 /** One voice-talent job: its script, keys, message thread and audio. One of these exists per job; it deletes itself after 60 days without activity. */
 type Th = 'talent' | 'client';
+type JobRoomEnv = {
+  JOB_REGISTRY?: DurableObjectNamespace;
+  STORAGE_LIMIT_BYTES?: string;
+  MAX_TAKE_BYTES?: string;
+  MAX_TAKE_SECONDS?: string;
+};
 
 export class JobRoom extends DurableObject {
+  private readonly jobEnv: JobRoomEnv;
+
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx, env as never);
+    this.jobEnv = env as JobRoomEnv;
     // Answered by the runtime without waking this object, so a quiet open page costs nothing
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
   }
@@ -37,6 +47,9 @@ export class JobRoom extends DurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
+    const parts = new URL(request.url).pathname.split('/').filter(Boolean); // api, jobs, <id>, ...rest
+    const jobId = parts[2] ?? '';
+    if (jobId && !(await this.ctx.storage.get<string>('__jobId'))) await this.ctx.storage.put('__jobId', jobId);
     const repo = new SqlRepo(this.ctx.storage.sql);
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const key = new URL(request.url).searchParams.get('k') || '';
@@ -47,10 +60,15 @@ export class JobRoom extends DurableObject {
       pair[1].serializeAttachment({ role: found.role });
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
-    const parts = new URL(request.url).pathname.split('/').filter(Boolean); // api, jobs, <id>, ...rest
     const rest = parts.slice(3);
+    const registryStub = this.jobEnv.JOB_REGISTRY?.get(this.jobEnv.JOB_REGISTRY.idFromName('account-storage'));
     return handleJob(request, rest, {
       repo,
+      jobId,
+      ...(registryStub ? { storage: registryStorage(registryStub) } : {}),
+      storageLimitBytes: storageLimit(this.jobEnv.STORAGE_LIMIT_BYTES),
+      maxTakeBytes: takeByteLimit(this.jobEnv.MAX_TAKE_BYTES),
+      maxTakeSeconds: takeDurationLimit(this.jobEnv.MAX_TAKE_SECONDS),
       now: () => Date.now(),
       newKey,
       touch: (thread) => { void this.ctx.storage.setAlarm(Date.now() + RETENTION_MS); this.broadcast(thread); },
@@ -63,7 +81,10 @@ export class JobRoom extends DurableObject {
   webSocketClose(ws: WebSocket, code: number): void { try { ws.close(code === 1005 ? 1000 : code); } catch { /* gone */ } }
 
   async alarm(): Promise<void> {
+    const jobId = await this.ctx.storage.get<string>('__jobId');
     this.closeSockets();
     await this.ctx.storage.deleteAll();
+    const registryStub = this.jobEnv.JOB_REGISTRY?.get(this.jobEnv.JOB_REGISTRY.idFromName('account-storage'));
+    if (jobId && registryStub) await registryStorage(registryStub).report(jobId, 0, undefined, true);
   }
 }
