@@ -3,6 +3,7 @@ import { Check, FileText, MessageSquareWarning, Paperclip, Send } from 'lucide-r
 import type { Attachment, ThreadMessage } from './api';
 import { SaveMenu } from './SaveMenu';
 import { expiryLine } from './saveFile';
+import { apiErrorMessage } from './limits';
 
 const mb = (n: number) => `${(n / 1048576).toFixed(1)} MB`;
 const hm = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -52,7 +53,7 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
   const attach = async (f: File) => {
     if (!onAttach) return;
     setBusy(true); setError('');
-    try { await onAttach(f, text.trim()); setText(''); } catch (e) { setError(e instanceof Error ? e.message : 'The file could not be sent.'); } finally { setBusy(false); }
+    try { await onAttach(f, text.trim()); setText(''); } catch (e) { setError(apiErrorMessage(e, 'The file could not be sent.')); } finally { setBusy(false); }
   };
   // On a phone, Enter makes a new line and the round button sends, as in other chat apps; on a computer Enter sends
   const touch = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
@@ -69,7 +70,7 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
     const t = text.trim();
     if (!t || busy || disabled) return;
     setBusy(true); setError('');
-    try { await onSend(t); setText(''); } catch (e) { setError(e instanceof Error ? e.message : 'The message was not sent.'); } finally { setBusy(false); }
+    try { await onSend(t); setText(''); } catch (e) { setError(apiErrorMessage(e, 'The message was not sent.')); } finally { setBusy(false); }
   };
 
   return (

@@ -3,6 +3,7 @@
  * Host-neutral (Web Request and Response only) so it runs inside a Cloudflare Durable Object and inside Express.
  */
 import type { JobRepo, JobRow, MsgRow, Role, ScriptVersion } from './repo';
+import { DEFAULT_MAX_TAKE_BYTES, DEFAULT_STORAGE_LIMIT_BYTES, storageLimit, storageStatusResponse, takeByteLimit, takeDurationLimit, type StorageGuard } from './storage';
 
 export const LIMITS = {
   title: 120,
@@ -13,7 +14,7 @@ export const LIMITS = {
   name: 60,
   text: 4000,
   /** One audio file */
-  attachmentBytes: 80 * 1024 * 1024,
+  attachmentBytes: DEFAULT_MAX_TAKE_BYTES,
   /** All audio of one job */
   jobBytes: 300 * 1024 * 1024,
   messages: 1000,
@@ -27,6 +28,13 @@ export const RETENTION_MS = FILE_TTL_MS;
 
 export interface HandlerEnv {
   repo: JobRepo;
+  /** Stable id shared by this job's Worker room and the account registry. */
+  jobId?: string;
+  /** Optional global storage accounting. Omitted on older/test hosts to preserve their behavior. */
+  storage?: StorageGuard;
+  storageLimitBytes?: number;
+  maxTakeBytes?: number;
+  maxTakeSeconds?: number;
   now: () => number;
   /** A fresh unguessable key (128 bits or more) */
   newKey: () => string;
@@ -104,16 +112,39 @@ const roleOf = (req: Request, repo: JobRepo): Role | null => {
 };
 
 /** Deletes audio older than FILE_TTL_MS (the messages stay, marked as expired) */
-const purgeExpired = (repo: JobRepo, now: number) => {
+const purgeExpired = (repo: JobRepo, now: number): boolean => {
   const gone = repo.attsBefore(now - FILE_TTL_MS);
-  if (!gone.length) return;
+  if (!gone.length) return false;
   const j = repo.getJob();
   for (const id of gone) {
     if (j?.referenceAtt === id) repo.setReference(null);
     if (j && (j.previewAtt === id || j.finalAtt === id)) repo.putJob({ ...j, previewAtt: j.previewAtt === id ? null : j.previewAtt, finalAtt: j.finalAtt === id ? null : j.finalAtt, released: j.finalAtt === id ? false : j.released });
     repo.deleteAtt(id);
   }
+  return true;
 };
+
+const syncStorage = async (env: HandlerEnv, uploadId?: string): Promise<boolean> => {
+  if (!env.storage) return true;
+  if (!env.jobId) return false;
+  await env.storage.report(env.jobId, env.repo.completedBytes(), uploadId);
+  return true;
+};
+
+const reserveStorage = async (env: HandlerEnv, uploadId: string, bytes: number): Promise<boolean> => {
+  if (!env.storage) return true;
+  if (!env.jobId) throw new Error('Storage accounting requires a job id.');
+  return await env.storage.reserve(env.jobId, uploadId, bytes, storageLimit(env.storageLimitBytes));
+};
+
+const releaseStorage = async (env: HandlerEnv, uploadId: string): Promise<void> => {
+  if (env.storage && env.jobId) await env.storage.release(env.jobId, uploadId);
+};
+
+const storageUnavailable = () => fail(503, 'The storage limit could not be checked. Try again shortly.');
+
+export const storageStatus = (guard: StorageGuard | undefined, configuredLimit?: string | number): Promise<Response> =>
+  storageStatusResponse(guard, storageLimit(configuredLimit ?? DEFAULT_STORAGE_LIMIT_BYTES));
 
 const pubAtt = (a: { id: string; name: string; mime: string; bytes: number; ts: number }) => ({ id: a.id, name: a.name, mime: a.mime, bytes: a.bytes, expiresAt: a.ts + FILE_TTL_MS });
 
@@ -258,7 +289,9 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
   if (!job) return fail(404, 'This job does not exist or has been deleted.');
   const role = roleOf(req, repo);
   if (!role) return fail(403, 'This link is not valid any more. Ask the producer for a new one.');
-  purgeExpired(repo, now());
+  if (purgeExpired(repo, now())) {
+    try { if (!(await syncStorage(env))) return storageUnavailable(); } catch { return storageUnavailable(); }
+  }
 
   if (route === 'thread' && req.method === 'GET') {
     const thread = threadFor(role, url);
@@ -352,20 +385,40 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
   if ((route === 'attachments' || route === 'reference') && req.method === 'PUT') {
     if (route === 'reference' && role !== 'producer') return fail(403, 'Only the producer can add a reference.');
     if (repo.messageCount() >= LIMITS.messages) return fail(429, 'This thread is full.');
-    const declared = Number(req.headers.get('content-length'));
-    if (Number.isFinite(declared) && declared > LIMITS.attachmentBytes) return fail(413, `That file is too large. The limit is ${LIMITS.attachmentBytes / 1048576} MB.`);
+    const contentLength = req.headers.get('content-length');
+    const declared = contentLength === null ? NaN : Number(contentLength);
+    if (env.storage && (!Number.isSafeInteger(declared) || declared <= 0)) return fail(411, 'The file size is needed before upload.');
+    const maxBytes = takeByteLimit(env.maxTakeBytes);
+    if (Number.isFinite(declared) && declared > maxBytes) return fail(413, `That file is too large. The limit is ${Math.floor(maxBytes / 1048576)} MB.`);
+    const duration = url.searchParams.get('durationSeconds');
+    const declaredDuration = duration ?? job.targetSeconds;
+    const maxSeconds = takeDurationLimit(env.maxTakeSeconds);
+    if (route === 'attachments' && declaredDuration !== null && declaredDuration !== undefined && declaredDuration !== '') {
+      const seconds = Number(declaredDuration);
+      if (!Number.isFinite(seconds) || seconds <= 0) return fail(400, 'The recording length is invalid.');
+      if (seconds > maxSeconds) return fail(413, `That recording is too long. The limit is ${Math.floor(maxSeconds / 60)} minutes.`);
+    }
     const attId = env.newKey();
-    const stored = await storeStream(req, repo, attId, LIMITS.attachmentBytes, LIMITS.jobBytes - repo.totalBytes());
-    if ('error' in stored) return fail(stored.status, stored.error);
+    let reserved = false;
+    try { reserved = await reserveStorage(env, attId, Number.isFinite(declared) && declared > 0 ? declared : maxBytes); } catch { return storageUnavailable(); }
+    if (!reserved) return fail(507, 'Storage is full. Remove an older recording or try again later.');
+    const streamLimit = Number.isFinite(declared) && declared > 0 ? Math.min(maxBytes, declared) : maxBytes;
+    const stored = await storeStream(req, repo, attId, streamLimit, LIMITS.jobBytes - repo.totalBytes());
+    if ('error' in stored) {
+      try { await releaseStorage(env, attId); } catch { /* keep the reservation if the registry cannot confirm release */ }
+      return fail(stored.status, stored.error);
+    }
     const name = safeName(url.searchParams.get('name') || 'audio');
     const ts = now();
     repo.addAtt({ id: attId, name, mime: safeMime(url.searchParams.get('mime') || 'audio/wav'), bytes: stored.bytes, ts });
     if (route === 'reference') {
       if (job.referenceAtt) repo.deleteAtt(job.referenceAtt);
       repo.setReference(attId);
+      try { if (!(await syncStorage(env, attId))) return storageUnavailable(); } catch { return storageUnavailable(); }
       env.touch?.();
       return json({ attachment: { id: attId, name, bytes: stored.bytes, expiresAt: ts + FILE_TTL_MS } }, 201);
     }
+    try { if (!(await syncStorage(env, attId))) return storageUnavailable(); } catch { return storageUnavailable(); }
     const id = repo.addMessage({ ts: now(), thread: threadFor(role, url), role, name: clip(url.searchParams.get('who'), LIMITS.name).trim() || (role === 'producer' ? job.producer || 'Producer' : 'Talent'), text: clip(url.searchParams.get('text'), LIMITS.text).trim(), att: attId });
     env.touch?.(threadFor(role, url) as 'talent' | 'client');
     return json({ id, attachment: { id: attId, name, bytes: stored.bytes, expiresAt: ts + FILE_TTL_MS } }, 201);
@@ -381,10 +434,21 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
       if (kind === 'attachment' && repo.messageCount() >= LIMITS.messages) return bad('This thread is full.', 429);
       const size = Math.floor(Number(b.size));
       if (!Number.isFinite(size) || size <= 0) return bad('The file is empty.');
-      if (size > LIMITS.attachmentBytes) return bad(`That file is too large. The limit is ${LIMITS.attachmentBytes / 1048576} MB.`, 413);
+      const maxBytes = takeByteLimit(env.maxTakeBytes);
+      if (size > maxBytes) return bad(`That file is too large. The limit is ${Math.floor(maxBytes / 1048576)} MB.`, 413);
+      const declaredDuration = b.durationSeconds ?? (kind === 'attachment' ? job.targetSeconds : undefined);
+      const maxSeconds = takeDurationLimit(env.maxTakeSeconds);
+      if (kind === 'attachment' && declaredDuration !== undefined && declaredDuration !== null && declaredDuration !== '') {
+        const seconds = Number(declaredDuration);
+        if (!Number.isFinite(seconds) || seconds <= 0) return bad('The recording length is invalid.');
+        if (seconds > maxSeconds) return bad(`That recording is too long. The limit is ${Math.floor(maxSeconds / 60)} minutes.`, 413);
+      }
       if (size > LIMITS.jobBytes - repo.totalBytes()) return bad('This job has no room left for more audio.', 413);
       const id = env.newKey();
-      repo.putUpload({ id, kind, name: safeName(clip(b.name, 120) || 'audio'), mime: safeMime(clip(b.mime, 60) || 'audio/wav'), who: clip(b.who, LIMITS.name).trim(), text: clip(b.text, LIMITS.text).trim(), thread: threadFor(role, new URL(`http://x/?thread=${b.thread === 'client' ? 'client' : 'talent'}`)), role, size, ts: now() });
+      let reserved: boolean;
+      try { reserved = await reserveStorage(env, id, size); } catch { return storageUnavailable(); }
+      if (!reserved) return bad('Storage is full. Remove an older recording or try again later.', 507);
+      repo.putUpload({ id, kind, name: safeName(clip(b.name, 120) || 'audio'), mime: safeMime(clip(b.mime, 60) || 'audio/wav'), who: clip(b.who, LIMITS.name).trim(), text: clip(b.text, LIMITS.text).trim(), thread: threadFor(role, new URL(`http://x/?thread=${b.thread === 'client' ? 'client' : 'talent'}`)), role, size, ...(Number.isFinite(Number(declaredDuration)) && Number(declaredDuration) > 0 ? { durationSeconds: Number(declaredDuration) } : {}), ts: now() });
       return json({ uploadId: id, chunkSize: CHUNK, chunks: Math.ceil(size / CHUNK) }, 201);
     }
     const up = rest[1] ? repo.getUpload(rest[1]) : null;
@@ -407,14 +471,19 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
       const have = repo.chunkIndexes(up.id);
       if (have.length !== count || have.some((v, i) => v !== i)) return json({ error: 'Some of the file did not arrive. Send it again.', received: have }, 409);
       const first = repo.getChunk(up.id, 0);
-      if (!first || !looksLikeAudio(first)) { repo.deleteAtt(up.id); repo.deleteUpload(up.id); return bad('That does not look like an audio file.', 415); }
+      if (!first || !looksLikeAudio(first)) {
+        repo.deleteAtt(up.id); repo.deleteUpload(up.id);
+        try { await releaseStorage(env, up.id); } catch { /* keep the reservation if the registry cannot confirm release */ }
+        return bad('That does not look like an audio file.', 415);
+      }
       const ts = now();
       repo.addAtt({ id: up.id, name: up.name, mime: up.mime, bytes: up.size, ts });
-      repo.deleteUpload(up.id);
       const att = { id: up.id, name: up.name, bytes: up.size, expiresAt: ts + FILE_TTL_MS };
       if (up.kind === 'reference') {
         if (job.referenceAtt) repo.deleteAtt(job.referenceAtt);
         repo.setReference(up.id);
+        try { if (!(await syncStorage(env, up.id))) return storageUnavailable(); } catch { return storageUnavailable(); }
+        repo.deleteUpload(up.id);
         env.touch?.();
         return json({ attachment: att }, 201);
       }
@@ -423,9 +492,13 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
         if (old) repo.deleteAtt(old);
         // A new final starts locked, so a replaced file is never released by accident
         repo.putJob(up.kind === 'preview' ? { ...job, previewAtt: up.id } : { ...job, finalAtt: up.id, released: false });
+        try { if (!(await syncStorage(env, up.id))) return storageUnavailable(); } catch { return storageUnavailable(); }
+        repo.deleteUpload(up.id);
         env.touch?.();
         return json({ attachment: att }, 201);
       }
+      try { if (!(await syncStorage(env, up.id))) return storageUnavailable(); } catch { return storageUnavailable(); }
+      repo.deleteUpload(up.id);
       const id = repo.addMessage({ ts: now(), thread: up.thread, role, name: up.who || (role === 'producer' ? job.producer || 'Producer' : 'Talent'), text: up.text, att: up.id });
       env.touch?.(up.thread as 'talent' | 'client');
       return json({ id, attachment: att }, 201);
@@ -473,6 +546,7 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     if (role !== 'producer') return fail(403, 'Only the producer can do that.');
     env.closeLive?.();
     await env.wipe?.();
+    try { if (env.storage && env.jobId) await env.storage.report(env.jobId, 0, undefined, true); } catch { return storageUnavailable(); }
     return json({ ok: true });
   }
 

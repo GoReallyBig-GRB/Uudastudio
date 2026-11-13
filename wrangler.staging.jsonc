@@ -8,9 +8,15 @@
   "workers_dev": true,
   "routes": [{ "pattern": "uudatest.goreallybig.com", "custom_domain": true }],
   "durable_objects": {
-    "bindings": [{ "name": "JOB_ROOM", "class_name": "JobRoom" }]
+    "bindings": [
+      { "name": "JOB_ROOM", "class_name": "JobRoom" },
+      { "name": "JOB_REGISTRY", "class_name": "JobRegistry" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["JobRoom"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["JobRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["JobRegistry"] }
+  ],
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

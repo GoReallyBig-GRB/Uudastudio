@@ -17,6 +17,7 @@ import { LevelMeter, useMeter } from './MeterBar';
 import { SaveMenu } from '../jobs/SaveMenu';
 import { expiryLine } from '../jobs/saveFile';
 import { audioUrl, getThread, postMessage, sendAudio, type ThreadMessage, type ThreadResponse } from '../jobs/api';
+import { limitErrorMessage } from '../jobs/limits';
 import { parseTalentHash } from '../jobs/links';
 import { ThreadView } from '../jobs/ThreadView';
 import { usePolling } from '../jobs/usePolling';
@@ -319,13 +320,13 @@ export const GuestPage: React.FC = () => {
     if (!view?.talent) writeStore(NAME_KEY, name.trim());
     setError(''); setSending(0);
     try {
-      const sent = await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: who(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n') }, (f) => setSending(f));
+      const sent = await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: who(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n'), durationSeconds: take.seconds }, (f) => setSending(f));
       await dropTake();
       setSendNote(''); setSentCount((n) => n + 1); const until = expiryLine(sent.attachment?.expiresAt);
       setNotice(`Sent. The producer can hear it now. You can record another take.${until ? ` ${until.text}` : ''}`);
       await loadThread();
     } catch (e) {
-      setError(`Not sent: ${e instanceof Error ? e.message : 'something went wrong'}. Your take is still here. Try again.`);
+      setError(limitErrorMessage(e) ?? `Not sent: ${e instanceof Error ? e.message : 'something went wrong'}. Your take is still here. Try again.`);
     } finally { setSending(null); }
   };
 

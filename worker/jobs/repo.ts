@@ -36,7 +36,7 @@ export interface AttRow { id: string; name: string; mime: string; bytes: number;
 export interface MsgRow { id: number; ts: number; thread: string; role: Role; name: string; text: string; att: string | null }
 
 /** A file being sent piece by piece. Its pieces are stored as chunks under the same id the finished attachment will have. */
-export interface UploadRow { id: string; kind: 'attachment' | 'reference' | 'preview' | 'final'; name: string; mime: string; who: string; text: string; thread: string; role: Role; size: number; ts: number }
+export interface UploadRow { id: string; kind: 'attachment' | 'reference' | 'preview' | 'final'; name: string; mime: string; who: string; text: string; thread: string; role: Role; size: number; durationSeconds?: number; ts: number }
 
 export interface JobRepo {
   ensure(): void;
@@ -54,6 +54,8 @@ export interface JobRepo {
   getAtt(id: string): AttRow | null;
   /** Total bytes of every attachment held for this job */
   totalBytes(): number;
+  /** Total bytes of completed attachments; resumable upload chunks are excluded. */
+  completedBytes(): number;
   putChunk(att: string, idx: number, data: Uint8Array): void;
   getChunk(att: string, idx: number): Uint8Array | null;
   deleteAtt(id: string): void;
@@ -90,6 +92,7 @@ export class MemoryRepo implements JobRepo {
   addAtt(a: AttRow) { this.atts.set(a.id, { ...a }); }
   getAtt(id: string) { const a = this.atts.get(id); return a ? { ...a } : null; }
   totalBytes() { let n = 0; for (const c of this.chunks.values()) n += c.length; return n; }
+  completedBytes() { let n = 0; for (const a of this.atts.values()) n += a.bytes; return n; }
   putChunk(att: string, idx: number, data: Uint8Array) { this.chunks.set(`${att}:${idx}`, data.slice()); }
   getChunk(att: string, idx: number) { return this.chunks.get(`${att}:${idx}`) ?? null; }
   putUpload(u: UploadRow) { this.ups.set(u.id, { ...u }); }
@@ -158,6 +161,7 @@ export class SqlRepo implements JobRepo {
     return r ? { id: String(r.id), name: String(r.name), mime: String(r.mime), bytes: Number(r.bytes), ts: Number(r.ts) } : null;
   }
   totalBytes() { return Number(this.sql.exec('SELECT COALESCE(SUM(LENGTH(data)), 0) AS n FROM blobs').toArray()[0].n); }
+  completedBytes() { return Number(this.sql.exec('SELECT COALESCE(SUM(bytes), 0) AS n FROM atts').toArray()[0].n); }
   putChunk(att: string, idx: number, data: Uint8Array) { this.sql.exec('INSERT OR REPLACE INTO blobs (att, idx, data) VALUES (?, ?, ?)', att, idx, asBuffer(data)); }
   getChunk(att: string, idx: number): Uint8Array | null {
     const r = this.sql.exec('SELECT data FROM blobs WHERE att = ? AND idx = ?', att, idx).toArray()[0];

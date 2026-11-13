@@ -3,6 +3,7 @@ import { Check, ChevronDown, FileText } from 'lucide-react';
 import { Button } from '../components/ui';
 import { FormattedScript } from '../guest/FormattedScript';
 import type { ClientScript as Shared } from './api';
+import { apiErrorMessage } from './limits';
 
 interface Props {
   script: Shared;
@@ -20,7 +21,7 @@ export const ClientScript: React.FC<Props> = ({ script, onApprove, onRequest, op
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const run = async (f: () => Promise<void>) => { setBusy(true); setError(''); try { await f(); } catch (e) { setError(e instanceof Error ? e.message : 'That did not go through. Try again.'); } finally { setBusy(false); } };
+  const run = async (f: () => Promise<void>) => { setBusy(true); setError(''); try { await f(); } catch (e) { setError(apiErrorMessage(e, 'That did not go through. Try again.')); } finally { setBusy(false); } };
 
   return (
     <section aria-label="Script" className="mx-3 mt-3 overflow-hidden rounded-card border border-line bg-surface-1">

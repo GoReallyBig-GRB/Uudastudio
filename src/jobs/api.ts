@@ -24,8 +24,12 @@ const BASE = '/api/jobs';
 
 const read = async (r: Response) => {
   let body: { error?: string } & Record<string, unknown> = {};
-  try { body = await r.json(); } catch { /* not JSON */ }
-  if (!r.ok) throw new ApiError(r.status, typeof body.error === 'string' ? body.error : r.status === 404 ? 'The jobs service is not available here.' : 'Something went wrong. Try again.');
+  let raw = '';
+  try { raw = await r.text(); body = JSON.parse(raw); } catch { /* non-JSON response, including edge error pages */ }
+  if (!r.ok) {
+    const message = typeof body.error === 'string' ? body.error : /\b1027\b/.test(raw) ? 'Cloudflare error 1027' : r.status === 404 ? 'The jobs service is not available here.' : 'Something went wrong. Try again.';
+    throw new ApiError(r.status, message);
+  }
   return body;
 };
 const net = async <T,>(p: Promise<T>): Promise<T> => { try { return await p; } catch (e) { if (e instanceof ApiError) throw e; throw new ApiError(0, 'No connection. Check the internet and try again.'); } };
@@ -79,7 +83,7 @@ const begun = new WeakMap<Blob, string>();
  * Sends a file in pieces. Each piece carries its SHA-256 so the server can refuse one damaged in transit, and a piece that
  * fails is retried; sending the same file again continues from the pieces the server already holds.
  */
-const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'attachment' | 'reference' | 'preview' | 'final'; name: string; mime: string; who?: string; text?: string; thread?: 'talent' | 'client' }, onProgress?: (f: number) => void): Promise<{ id?: number; attachment?: Attachment }> => {
+const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'attachment' | 'reference' | 'preview' | 'final'; name: string; mime: string; who?: string; text?: string; thread?: 'talent' | 'client'; durationSeconds?: number }, onProgress?: (f: number) => void): Promise<{ id?: number; attachment?: Attachment }> => {
   const h = { 'x-job-key': key };
   let uploadId = begun.get(blob);
   let chunkSize = 0, chunks = 0, have = new Set<number>();
@@ -117,8 +121,8 @@ const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'att
   return done;
 };
 
-export const sendAudio = (jobId: string, key: string, blob: Blob, o: { name: string; who: string; text?: string; thread?: 'talent' | 'client' }, onProgress?: (f: number) => void) =>
-  upload(jobId, key, blob, { kind: 'attachment', name: o.name, mime: blob.type || 'audio/wav', who: o.who, text: o.text ?? '', thread: o.thread }, onProgress);
+export const sendAudio = (jobId: string, key: string, blob: Blob, o: { name: string; who: string; text?: string; thread?: 'talent' | 'client'; durationSeconds?: number }, onProgress?: (f: number) => void) =>
+  upload(jobId, key, blob, { kind: 'attachment', name: o.name, mime: blob.type || 'audio/wav', who: o.who, text: o.text ?? '', thread: o.thread, durationSeconds: o.durationSeconds }, onProgress);
 
 export const sendReference = (jobId: string, key: string, file: File, onProgress?: (f: number) => void) =>
   upload(jobId, key, file, { kind: 'reference', name: file.name, mime: file.type || 'audio/wav' }, onProgress);

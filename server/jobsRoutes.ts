@@ -7,15 +7,20 @@ import { Readable } from 'stream';
 import { Router, type Request as ExpressRequest, type Response as ExpressResponse } from 'express';
 import { handleJob, RETENTION_MS } from '../worker/jobs/handler';
 import { MemoryRepo } from '../worker/jobs/repo';
+import { MemoryStorageGuard, storageLimit, storageStatusResponse, takeByteLimit, takeDurationLimit } from '../worker/jobs/storage';
 
 const MAX_JOBS = 200;
 const jobs = new Map<string, { repo: MemoryRepo; last: number }>();
+const storage = new MemoryStorageGuard();
+const storageLimitBytes = storageLimit(process.env.STORAGE_LIMIT_BYTES);
+const maxTakeBytes = takeByteLimit(process.env.MAX_TAKE_BYTES);
+const maxTakeSeconds = takeDurationLimit(process.env.MAX_TAKE_SECONDS);
 
 const newKey = () => crypto.randomBytes(24).toString('hex');
 
 const sweep = () => {
   const cutoff = Date.now() - RETENTION_MS;
-  for (const [id, j] of jobs) if (j.last < cutoff) jobs.delete(id);
+  for (const [id, j] of jobs) if (j.last < cutoff) { jobs.delete(id); storage.report(id, 0, undefined, true); }
 };
 
 const toWeb = (req: ExpressRequest): Request => {
@@ -36,13 +41,14 @@ export const jobsRouter = Router();
 export const handleJobsRequest = async (req: ExpressRequest, res: ExpressResponse): Promise<void> => {
   try {
     const rest = req.path.split('/').filter(Boolean);
+    if (rest[0] === '_status' && req.method === 'GET') { sweep(); await send(res, await storageStatusResponse(storage, storageLimitBytes)); return; }
     if (rest[0] === 'ping' && req.method === 'GET') { res.json({ ok: true, createRequiresCode: false, temporary: true }); return; }
     if (rest.length === 0 && req.method === 'POST') {
       sweep();
       if (jobs.size >= MAX_JOBS) { res.status(429).json({ error: 'Too many jobs on this test server.' }); return; }
       const id = crypto.randomBytes(16).toString('hex');
       const entry = { repo: new MemoryRepo(), last: Date.now() };
-      const init = await handleJob(toWeb(req), ['init'], { repo: entry.repo, now: Date.now, newKey });
+      const init = await handleJob(toWeb(req), ['init'], { repo: entry.repo, jobId: id, storage, storageLimitBytes, maxTakeBytes, maxTakeSeconds, now: Date.now, newKey });
       if (init.ok) jobs.set(id, entry);
       const body = (await init.json()) as Record<string, unknown>;
       res.status(init.status).json(init.ok ? { jobId: id, ...body } : body);
@@ -51,7 +57,7 @@ export const handleJobsRequest = async (req: ExpressRequest, res: ExpressRespons
     const entry = /^[0-9a-f]{32}$/.test(rest[0] ?? '') ? jobs.get(rest[0]) : undefined;
     if (!entry) { res.status(404).json({ error: 'This job does not exist or has been deleted.' }); return; }
     const id = rest[0];
-    const out = await handleJob(toWeb(req), rest.slice(1), { repo: entry.repo, now: Date.now, newKey, touch: () => { entry.last = Date.now(); }, wipe: () => { jobs.delete(id); } });
+    const out = await handleJob(toWeb(req), rest.slice(1), { repo: entry.repo, jobId: id, storage, storageLimitBytes, maxTakeBytes, maxTakeSeconds, now: Date.now, newKey, touch: () => { entry.last = Date.now(); }, wipe: () => { jobs.delete(id); } });
     await send(res, out);
   } catch {
     if (!res.headersSent) res.status(500).json({ error: 'Something went wrong.' });
