@@ -3,6 +3,7 @@
  * Host-neutral (Web Request and Response only) so it runs inside a Cloudflare Durable Object and inside Express.
  */
 import type { JobRepo, JobRow, MsgRow, Role, ScriptVersion } from './repo';
+import type { StorageGuard } from './storage';
 
 export const LIMITS = {
   title: 120,
@@ -36,6 +37,8 @@ export interface HandlerEnv {
   closeLive?: (role?: Role) => void;
   /** Deletes the whole job */
   wipe?: () => void | Promise<void>;
+  /** Account-wide storage limit. Absent means no extra limit beyond the per-job ones. */
+  storage?: StorageGuard;
 }
 
 const H = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' };
@@ -232,7 +235,7 @@ const serveAudio = (req: Request, repo: JobRepo, attId: string): Response => {
 };
 
 /** Handles one request for one job. `rest` is the path after the job id, split on "/". */
-export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): Promise<Response> => {
+const run = async (req: Request, rest: string[], env: HandlerEnv): Promise<Response> => {
   const { repo, now } = env;
   const url = new URL(req.url);
   const route = rest[0] ?? '';
@@ -354,6 +357,11 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     if (repo.messageCount() >= LIMITS.messages) return fail(429, 'This thread is full.');
     const declared = Number(req.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > LIMITS.attachmentBytes) return fail(413, `That file is too large. The limit is ${LIMITS.attachmentBytes / 1048576} MB.`);
+    if (env.storage && Number.isFinite(declared) && declared > 0) {
+      let refusal: string | null = null;
+      try { refusal = await env.storage.check(declared); } catch { /* advisory */ }
+      if (refusal) return fail(507, refusal);
+    }
     const attId = env.newKey();
     const stored = await storeStream(req, repo, attId, LIMITS.attachmentBytes, LIMITS.jobBytes - repo.totalBytes());
     if ('error' in stored) return fail(stored.status, stored.error);
@@ -381,8 +389,16 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
       if (kind === 'attachment' && repo.messageCount() >= LIMITS.messages) return bad('This thread is full.', 429);
       const size = Math.floor(Number(b.size));
       if (!Number.isFinite(size) || size <= 0) return bad('The file is empty.');
-      if (size > LIMITS.attachmentBytes) return bad(`That file is too large. The limit is ${LIMITS.attachmentBytes / 1048576} MB.`, 413);
-      if (size > LIMITS.jobBytes - repo.totalBytes()) return bad('This job has no room left for more audio.', 413);
+      const maxTake = env.storage?.maxTakeBytes ?? LIMITS.attachmentBytes;
+      if (size > maxTake) return bad(`That file is too large. The limit is ${Math.floor(maxTake / 1048576)} MB.`, 413);
+      const seconds = Number(b.seconds);
+      if (env.storage?.maxTakeSeconds && Number.isFinite(seconds) && seconds > env.storage.maxTakeSeconds) return bad(`That recording is too long. The limit is ${Math.floor(env.storage.maxTakeSeconds / 60)} minutes.`, 413);
+      if (size > Math.max(LIMITS.jobBytes, maxTake) - repo.totalBytes()) return bad('This job has no room left for more audio.', 413);
+      if (env.storage) {
+        let refusal: string | null = null;
+        try { refusal = await env.storage.check(size); } catch { /* the registry is advisory; the real cap is the backstop */ }
+        if (refusal) return bad(refusal, 507);
+      }
       const id = env.newKey();
       repo.putUpload({ id, kind, name: safeName(clip(b.name, 120) || 'audio'), mime: safeMime(clip(b.mime, 60) || 'audio/wav'), who: clip(b.who, LIMITS.name).trim(), text: clip(b.text, LIMITS.text).trim(), thread: threadFor(role, new URL(`http://x/?thread=${b.thread === 'client' ? 'client' : 'talent'}`)), role, size, ts: now() });
       return json({ uploadId: id, chunkSize: CHUNK, chunks: Math.ceil(size / CHUNK) }, 201);
@@ -477,4 +493,16 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
   }
 
   return fail(404, 'Not found.');
+};
+
+/** Handles one request for one job, then tells the storage guard the job's new size when it may have changed */
+export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): Promise<Response> => {
+  const res = await run(req, rest, env);
+  // Audio size changes only when a file is stored or replaced (a finished upload, a direct upload, a reference).
+  // Single pieces are skipped: the total is reported once, when the upload completes.
+  const stores = req.method === 'PUT' ? rest[0] === 'attachments' || rest[0] === 'reference' : req.method === 'POST' && rest[0] === 'uploads' && rest[2] === 'complete';
+  if (env.storage && stores && res.status < 500) {
+    try { await env.storage.report(env.repo.totalBytes()); } catch { /* advisory */ }
+  }
+  return res;
 };

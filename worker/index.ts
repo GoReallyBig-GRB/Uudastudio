@@ -1,9 +1,16 @@
 export { JobRoom } from "./jobs/jobRoom";
+export { JobRegistry } from "./jobs/jobRegistry";
 
 export interface Env {
   ASSETS: Fetcher;
   /** One Durable Object per voice-talent job (script, message thread, audio) */
   JOB_ROOM: DurableObjectNamespace;
+  /** One account-wide object that tracks audio bytes so uploads can be refused before Cloudflare's free 5 GB cap. Optional. */
+  JOB_REGISTRY?: DurableObjectNamespace;
+  /** Optional settings (plain numbers as text): bytes allowed in total (default 4 GB), bytes and seconds per take */
+  STORAGE_LIMIT_BYTES?: string;
+  MAX_TAKE_BYTES?: string;
+  MAX_TAKE_SECONDS?: string;
   /** Optional. If set, creating a job needs this code (typed once in the Jobs panel). */
   JOBS_CREATE_CODE?: string;
   /**
@@ -85,6 +92,10 @@ async function handleJobs(request: Request, url: URL, env: Env): Promise<Respons
   const rest = url.pathname.split("/").filter(Boolean).slice(2); // after api, jobs
   if (rest[0] === "ping" && request.method === "GET") {
     return new Response(JSON.stringify({ ok: true, createRequiresCode: Boolean(env.JOBS_CREATE_CODE) }), { headers: jsonHeaders });
+  }
+  if (rest[0] === "_status" && request.method === "GET") {
+    if (!env.JOB_REGISTRY) return new Response(JSON.stringify({ mode: "unguarded" }), { headers: jsonHeaders });
+    return env.JOB_REGISTRY.get(env.JOB_REGISTRY.idFromName("main")).fetch(new Request("https://registry/status"));
   }
   if (rest.length === 0 && request.method === "POST") {
     if (env.JOBS_CREATE_CODE && request.headers.get("x-jobs-create-code") !== env.JOBS_CREATE_CODE) {
