@@ -16,6 +16,8 @@ const galleryOnly =
 // A voice talent's recording link (#/join/...) opens only the small recording page: no editor code, no sign-in.
 const GuestPage = lazy(() => import('./guest/GuestPage'));
 const ClientPage = lazy(() => import('./jobs/ClientPage'));
+const SelfTest = lazy(() => import('./jobs/SelfTest'));
+const selfTestOnly = window.location.hash === '#/selftest';
 const clientOnly = isClientHash(window.location.hash);
 const guestOnly = isJoinHash(window.location.hash) || isTalentHash(window.location.hash);
 
@@ -34,6 +36,14 @@ const Root = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  if (selfTestOnly) {
+    return (
+      <Suspense fallback={null}>
+        <SelfTest />
+      </Suspense>
+    );
+  }
 
   if (clientOnly) {
     return (
