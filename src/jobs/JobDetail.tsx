@@ -8,6 +8,7 @@ import { ApiError, audioUrl, createClientLink, deleteJob, getScriptVersion, getT
 import { STATUS_TEXT, statusOf, type JobStatus, type StoredJob } from './jobsStore';
 import { clientInviteText, clientLink, inviteText, nudgeText, talentLink } from './links';
 import { ThreadView } from './ThreadView';
+import { apiErrorMessage } from './limits';
 import { ClientFiles } from './ClientReview';
 import { usePolling } from './usePolling';
 import { useLive } from './live';
@@ -59,7 +60,7 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, on
       const unchanged = sig === sigRef.current && !t.messages.length;
       sigRef.current = sig;
       return !unchanged;
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not load this job.'); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not load this job.')); }
   }, [job.id, job.producerKey, messages, onSeen]);
   const loadClient = useCallback(async () => {
     const after = clientMessages.length ? clientMessages[clientMessages.length - 1].id : 0;
@@ -81,7 +82,7 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, on
   const cLink = useMemo(() => (clientKey ? clientLink(base(), job.id, clientKey) : ''), [clientKey, job.id]);
   const flash = (what: string) => { setCopied(what); window.setTimeout(() => setCopied(''), 2200); };
   useEffect(() => { if (!armed) return; const t = window.setTimeout(() => setArmed(''), 4000); return () => window.clearTimeout(t); }, [armed]);
-  const fail = (e: unknown, fallback: string) => setError(e instanceof Error ? e.message : fallback);
+  const fail = (e: unknown, fallback: string) => setError(apiErrorMessage(e, fallback));
 
   // ---- the script: a draft you edit, saved as a new version ----
   const [draft, setDraft] = useState('');

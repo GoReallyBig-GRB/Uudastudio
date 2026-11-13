@@ -17,6 +17,7 @@ import { LevelMeter, useMeter } from './MeterBar';
 import { SaveMenu } from '../jobs/SaveMenu';
 import { expiryLine } from '../jobs/saveFile';
 import { audioUrl, getThread, postMessage, sendAudio, type ThreadMessage, type ThreadResponse } from '../jobs/api';
+import { limitErrorMessage } from '../jobs/limits';
 import { parseTalentHash } from '../jobs/links';
 import { ThreadView } from '../jobs/ThreadView';
 import { usePolling } from '../jobs/usePolling';
@@ -325,7 +326,7 @@ export const GuestPage: React.FC = () => {
       setNotice(`Sent. The producer can hear it now. You can record another take.${until ? ` ${until.text}` : ''}`);
       await loadThread();
     } catch (e) {
-      setError(`Not sent: ${e instanceof Error ? e.message : 'something went wrong'}. Your take is still here. Try again.`);
+      setError(limitErrorMessage(e) ?? `Not sent: ${e instanceof Error ? e.message : 'something went wrong'}. Your take is still here. Try again.`);
     } finally { setSending(null); }
   };
 

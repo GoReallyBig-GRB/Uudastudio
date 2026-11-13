@@ -24,8 +24,12 @@ const BASE = '/api/jobs';
 
 const read = async (r: Response) => {
   let body: { error?: string } & Record<string, unknown> = {};
-  try { body = await r.json(); } catch { /* not JSON */ }
-  if (!r.ok) throw new ApiError(r.status, typeof body.error === 'string' ? body.error : r.status === 404 ? 'The jobs service is not available here.' : 'Something went wrong. Try again.');
+  let raw = '';
+  try { raw = await r.text(); body = JSON.parse(raw); } catch { /* non-JSON response, including edge error pages */ }
+  if (!r.ok) {
+    const message = typeof body.error === 'string' ? body.error : /\b1027\b/.test(raw) ? 'Cloudflare error 1027' : r.status === 404 ? 'The jobs service is not available here.' : 'Something went wrong. Try again.';
+    throw new ApiError(r.status, message);
+  }
   return body;
 };
 const net = async <T,>(p: Promise<T>): Promise<T> => { try { return await p; } catch (e) { if (e instanceof ApiError) throw e; throw new ApiError(0, 'No connection. Check the internet and try again.'); } };
