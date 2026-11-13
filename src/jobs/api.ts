@@ -1,4 +1,5 @@
 /** Calls to the jobs server (Cloudflare Worker when hosted, Express in AI Studio). */
+import { limitKind, limitMessage, type LimitKind } from './limits';
 
 /** `expiresAt` is when the server deletes the file (ms since epoch) */
 export interface Attachment { id: string; name: string; mime: string; bytes: number; expiresAt?: number }
@@ -17,7 +18,7 @@ export interface ThreadResponse { role: 'producer' | 'talent' | 'client'; job: J
 export interface NewJob { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds?: number }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  constructor(public status: number, message: string, public limit: LimitKind | null = null) { super(message); }
 }
 
 const BASE = '/api/jobs';
@@ -25,7 +26,10 @@ const BASE = '/api/jobs';
 const read = async (r: Response) => {
   let body: { error?: string } & Record<string, unknown> = {};
   try { body = await r.json(); } catch { /* not JSON */ }
-  if (!r.ok) throw new ApiError(r.status, typeof body.error === 'string' ? body.error : r.status === 404 ? 'The jobs service is not available here.' : 'Something went wrong. Try again.');
+  if (!r.ok) {
+    const own = typeof body.error === 'string' ? body.error : undefined;
+    throw new ApiError(r.status, limitMessage(r.status, own) ?? own ?? (r.status === 404 ? 'The jobs service is not available here.' : 'Something went wrong. Try again.'), limitKind(r.status, own));
+  }
   return body;
 };
 const net = async <T,>(p: Promise<T>): Promise<T> => { try { return await p; } catch (e) { if (e instanceof ApiError) throw e; throw new ApiError(0, 'No connection. Check the internet and try again.'); } };
@@ -105,7 +109,7 @@ const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'att
         await net(fetch(`${BASE}/${jobId}/uploads/${uploadId}/${i}`, { method: 'PUT', headers: { ...h, 'x-chunk-sha256': sum }, body: data }).then(read));
         break;
       } catch (e) {
-        const retryable = !(e instanceof ApiError) || e.status === 0 || e.status === 422 || e.status >= 500;
+        const retryable = !(e instanceof ApiError) || (!e.limit && (e.status === 0 || e.status === 422 || e.status >= 500));
         if (!retryable || attempt >= 4) throw e;
         await sleep(600 * 2 ** attempt);
       }

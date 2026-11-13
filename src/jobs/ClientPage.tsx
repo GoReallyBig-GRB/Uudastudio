@@ -42,7 +42,7 @@ const ClientPage: React.FC = () => {
         setMessages((all) => [...all, ...t.messages.filter((m) => !all.some((x) => x.id === m.id))]);
       }
       return !unchanged;
-    } catch (e) { setError(e instanceof ApiError && (e.status === 403 || e.status === 404) ? e.message : 'Could not reach the server. Trying again...'); }
+    } catch (e) { setError(e instanceof ApiError && (e.status === 403 || e.status === 404 || e.limit) ? e.message : 'Could not reach the server. Trying again...'); }
   }, [link?.jobId, link?.key]);
   const live = useLive(link?.jobId, link?.key, (c) => { if (c !== 'talent') void load(); }, !!link);
   usePolling(load, 6000, !!link, live);
