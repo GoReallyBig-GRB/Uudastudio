@@ -95,7 +95,7 @@ export const handleAuth = async (req: Request, rest: string[], env: AuthEnv): Pr
     if (!me) return send({ user: null }, 200);
     // Opening the app renews a session that is in use (up to 30 days from the sign-in that began it)
     const renewed = await renewSession(env.sessionSecret, me.claims, env.now());
-    const extra = renewed ? { 'set-cookie': setCookie(renewed.token, Math.max(1, Math.floor((renewed.expires - env.now()) / 1000))) } : {};
+    const extra: Record<string, string> = renewed ? { 'set-cookie': setCookie(renewed.token, Math.max(1, Math.floor((renewed.expires - env.now()) / 1000))) } : {};
     return send({ user: publicUser(me.user), unreadTicketsCount: 0, isAdminVerified: false }, 200, extra);
   }
 
