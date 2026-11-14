@@ -49,8 +49,9 @@ const sameSite = (req: Request): boolean => {
 };
 
 /** Who is signed in: a genuine, unexpired, unrevoked session of an unblocked user */
-export const userFor = async (req: Request, env: AuthEnv): Promise<{ user: UserRow; token: string; claims: SessionClaims } | null> => {
-  const token = tokenOf(req);
+export const userFor = async (req: Request, env: AuthEnv, cookieOnly = false): Promise<{ user: UserRow; token: string; claims: SessionClaims } | null> => {
+  // cookieOnly: for routes whose Authorization header carries something else (the Freesound routes send the user's Freesound token)
+  const token = cookieOnly ? cookieOf(req, COOKIE) : tokenOf(req);
   const claims = await readSession(env.sessionSecret, token, env.now());
   if (!claims) return null;
   const user = await env.store.get(claims.uid);
