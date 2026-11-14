@@ -7,6 +7,9 @@
   "compatibility_date": "2026-10-22",
   "workers_dev": true,
   "routes": [{ "pattern": "uudatest.goreallybig.com", "custom_domain": true }],
+  // The Firebase project the browser signs in with. A public id, not a secret.
+  // Sign-in on this Worker also needs the AUTH_DB (D1) binding and the SESSION_SECRET secret; until both exist it stays off.
+  "vars": { "FIREBASE_PROJECT_ID": "gen-lang-client-0557048278" },
   "durable_objects": {
     "bindings": [
       { "name": "JOB_ROOM", "class_name": "JobRoom" },
