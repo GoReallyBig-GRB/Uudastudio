@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { Lock, Unlock } from 'lucide-react';
 import { ClientScript } from './ClientScript';
-import { ApiError, approveScript, audioUrl, getClientThread, postMessage, requestScriptChanges, type ClientJobInfo, type ThreadMessage } from './api';
+import { ApiError, approvePreview, approveScript, requestPreviewChanges, audioUrl, getClientThread, postMessage, requestScriptChanges, type ClientJobInfo, type ThreadMessage } from './api';
 import { parseClientHash } from './links';
 import { SaveMenu } from './SaveMenu';
 import { ThreadView } from './ThreadView';
@@ -49,7 +49,6 @@ const ClientPage: React.FC = () => {
 
   if (!link) return <div className="grid h-dvh place-items-center bg-surface-0 p-6 text-center text-sm text-ink-dim">This review link is not valid. Ask the producer for a new one.</div>;
   const src = (id: string) => audioUrl(link.jobId, id, link.key);
-  const pv = expiryLine(job?.preview?.expiresAt);
   const fin = job?.final ? expiryLine(job.final.expiresAt) : null;
 
   const who = name.trim() || 'Client';
@@ -64,16 +63,7 @@ const ClientPage: React.FC = () => {
           onRequest={async (text) => { await requestScriptChanges(link.jobId, link.key, job.script!.n, text, who); await load(); }}
         />
       )}
-      <section aria-label="Files" className="mx-3 mt-3 grid gap-2 sm:grid-cols-2">
-        <div className="rounded-card border border-line bg-surface-1 p-3">
-          <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-dim">Preview</h2>
-          {job?.preview ? (
-            <>
-              <audio controls preload="metadata" controlsList="nodownload" src={src(job.preview.id)} className="h-10 w-full" aria-label="Preview" />
-              <p className="mt-1.5 text-[11px] text-ink-faint">For listening and comments only.{pv ? ` ${pv.text.replace(' Save your own copy.', '')}` : ''}</p>
-            </>
-          ) : <p className="text-sm text-ink-dim">{job ? 'Not added yet. This page updates by itself.' : ''}</p>}
-        </div>
+      <section aria-label="Files" className="mx-3 mt-3">
         <div className="rounded-card border border-line bg-surface-1 p-3">
           <h2 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-dim">{job?.released ? <Unlock className="h-3.5 w-3.5 text-ok" aria-hidden /> : <Lock className="h-3.5 w-3.5" aria-hidden />}Final file</h2>
           {job?.final ? (
@@ -106,6 +96,7 @@ const ClientPage: React.FC = () => {
       <main className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col">
         <ThreadView fill header={files} messages={messages} self="client" audioSrc={(a) => src(a.id)} folder={['Jobs', job?.title ?? 'Review']}
           onOpenScript={() => setScriptOpen(true)}
+          onPreviewDecision={async (id, kind, text) => { await (kind === 'approve' ? approvePreview(link.jobId, link.key, id, who) : requestPreviewChanges(link.jobId, link.key, id, text, who)); await load(); }}
           onSend={async (text) => { await postMessage(link.jobId, link.key, who, text); await load(); }} placeholder="Write to the producer" />
       </main>
     </div>

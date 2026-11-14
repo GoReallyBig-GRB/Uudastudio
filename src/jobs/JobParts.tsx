@@ -1,7 +1,8 @@
 /** The parts of the Jobs workspace: the status list and the new-job form. One job is in JobDetail. */
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { Upload, X } from 'lucide-react';
 import { Button, Input } from '../components/ui';
-import { createJob, sendReference } from './api';
+import { AUDIO_ACCEPT, createJob, sendReference } from './api';
 import { CODE_KEY, STATUS_TEXT, type StoredJob } from './jobsStore';
 import type { JobSummary } from './useJobs';
 import { ScriptEditor } from '../components/ui/ScriptEditor';
@@ -42,6 +43,7 @@ export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCre
   const [notes, setNotes] = useState('');
   const [minutes, setMinutes] = useState('');
   const [reference, setReference] = useState<File | null>(null);
+  const refInput = useRef<HTMLInputElement>(null);
   const [code, setCode] = useState(() => lsGet(CODE_KEY));
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -95,7 +97,16 @@ export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCre
         <Input label="Target length (minutes, optional)" inputMode="decimal" value={minutes} onChange={(e) => setMinutes(e.target.value)} />
         <div>
           <label htmlFor="job-ref" className="mb-1.5 block text-xs font-medium text-ink-dim">Reference audio (optional)</label>
-          <input id="job-ref" type="file" accept="audio/*" onChange={(e) => setReference(e.target.files?.[0] ?? null)} className="block w-full text-xs text-ink-dim file:mr-2 file:rounded-full file:border file:border-line-strong file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:text-ink" />
+          <input ref={refInput} id="job-ref" type="file" accept={AUDIO_ACCEPT} hidden onChange={(e) => { setReference(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+          {reference ? (
+            <div className="flex items-center gap-2 rounded-control border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink">
+              <span className="min-w-0 flex-1 truncate">{reference.name}</span>
+              <span className="shrink-0 text-ink-faint">{(reference.size / 1048576).toFixed(1)} MB</span>
+              <button type="button" onClick={() => setReference(null)} aria-label="Remove the reference audio" title="Remove" disabled={!!busy} className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-ink-dim hover:bg-surface-3 hover:text-ink disabled:opacity-40"><X className="h-3.5 w-3.5" /></button>
+            </div>
+          ) : (
+            <Button type="button" size="sm" variant="secondary" onClick={() => refInput.current?.click()} leftIcon={<Upload className="h-3.5 w-3.5" />}>Choose a file</Button>
+          )}
           <p className="mt-1 text-[11px] text-ink-faint">A read for the talent to listen to. Up to 80 MB.</p>
         </div>
       </div>

@@ -4,7 +4,8 @@ import { limitKind, limitMessage, type LimitKind } from './limits';
 /** `expiresAt` is when the server deletes the file (ms since epoch) */
 export interface Attachment { id: string; name: string; mime: string; bytes: number; expiresAt?: number }
 /** Something the server records in a client thread when the script is shared, approved or sent back */
-export interface ThreadEvent { type: 'shared' | 'approved' | 'changes'; n: number }
+/** For script events `n` is the script version; for a preview it is the message that holds the preview */
+export interface ThreadEvent { type: 'shared' | 'approved' | 'changes' | 'preview' | 'pvapproved' | 'pvchanges'; n: number }
 export interface ThreadMessage { id: number; ts: number; role: 'producer' | 'talent' | 'client'; name: string; text: string; attachment: Attachment | null; attachmentExpired?: boolean; event?: ThreadEvent }
 export interface ScriptVersionInfo { n: number; ts: number; label: string; words: number }
 /** The script as shared with the client */
@@ -22,6 +23,9 @@ export class ApiError extends Error {
 }
 
 const BASE = '/api/jobs';
+
+/** Listed by extension: a file picker told `audio/*` has to look up every audio type, which takes seconds to open on Windows */
+export const AUDIO_ACCEPT = '.wav,.mp3,.m4a,.aac,.flac,.ogg,.oga,.opus,.aif,.aiff,.webm';
 
 const read = async (r: Response) => {
   let body: { error?: string } & Record<string, unknown> = {};
@@ -69,6 +73,12 @@ export const approveScript = (jobId: string, key: string, n: number, name: strin
   net(fetch(`${BASE}/${jobId}/script/approve`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ n, name }) }).then(read));
 export const requestScriptChanges = (jobId: string, key: string, n: number, text: string, name: string) =>
   net(fetch(`${BASE}/${jobId}/script/changes`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ n, text, name }) }).then(read));
+
+/** The client's answer to the latest preview (`n` is the id of the preview's message) */
+export const approvePreview = (jobId: string, key: string, n: number, name: string) =>
+  net(fetch(`${BASE}/${jobId}/preview/approve`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ n, name }) }).then(read));
+export const requestPreviewChanges = (jobId: string, key: string, n: number, text: string, name: string) =>
+  net(fetch(`${BASE}/${jobId}/preview/changes`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ n, text, name }) }).then(read));
 
 export const postMessage = (jobId: string, key: string, name: string, text: string, thread: 'talent' | 'client' = 'talent') =>
   net(fetch(`${BASE}/${jobId}/messages${thread === 'client' ? '?thread=client' : ''}`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ name, text }) }).then(read));

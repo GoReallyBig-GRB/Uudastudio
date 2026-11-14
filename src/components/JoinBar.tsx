@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { isTypingTarget } from '../utils/typing';
 import { ChevronLeft, ChevronRight, Link2, Play, Square } from 'lucide-react';
 import { Button } from './ui';
 import { stepClip } from './joinInOrder';
@@ -34,8 +35,7 @@ export const JoinBar: React.FC<JoinBarProps> = ({ picked, result, problem, previ
   const [scrub, setScrub] = useState<number | null>(null);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      if (isTypingTarget(e.target)) return;
       if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
       if (e.key === 'Enter' && result) { e.preventDefault(); onApply(); }
     };

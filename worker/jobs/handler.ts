@@ -58,11 +58,14 @@ const clip = (v: unknown, max: number): string => (typeof v === 'string' ? v : '
 /** How many script versions are kept; the oldest go first */
 export const MAX_VERSIONS = 25;
 const EVENT = '\u001e';
-type ThreadEvent = { e: 'shared' | 'approved' | 'changes'; n: number };
+type EventKind = 'shared' | 'approved' | 'changes' | 'preview' | 'pvapproved' | 'pvchanges';
+const EVENT_KINDS: string[] = ['shared', 'approved', 'changes', 'preview', 'pvapproved', 'pvchanges'];
+/** For script events `n` is the script version; for preview events it is the id of the message that holds the preview */
+type ThreadEvent = { e: EventKind; n: number };
 const eventText = (ev: ThreadEvent, note = ''): string => EVENT + JSON.stringify({ ...ev, note });
 const parseEvent = (text: string): (ThreadEvent & { note: string }) | null => {
   if (!text.startsWith(EVENT)) return null;
-  try { const o = JSON.parse(text.slice(1)); return o && (o.e === 'shared' || o.e === 'approved' || o.e === 'changes') ? { e: o.e, n: Number(o.n) || 0, note: typeof o.note === 'string' ? o.note : '' } : null; } catch { return null; }
+  try { const o = JSON.parse(text.slice(1)); return o && EVENT_KINDS.includes(o.e) ? { e: o.e, n: Number(o.n) || 0, note: typeof o.note === 'string' ? o.note : '' } : null; } catch { return null; }
 };
 
 const currentN = (j: JobRow): number => j.scriptN ?? j.history?.[j.history.length - 1]?.n ?? 1;
@@ -149,7 +152,7 @@ const publicJob = (j: JobRow, repo: JobRepo, role: Role) => {
 const publicMsg = (m: MsgRow, repo: JobRepo) => {
   const a = m.att ? repo.getAtt(m.att) : null;
   const ev = parseEvent(m.text);
-  if (ev) return { id: m.id, ts: m.ts, role: m.role, name: m.name, text: ev.note, event: { type: ev.e, n: ev.n }, attachment: null, attachmentExpired: false };
+  if (ev) return { id: m.id, ts: m.ts, role: m.role, name: m.name, text: ev.note, event: { type: ev.e, n: ev.e === 'preview' ? m.id : ev.n }, attachment: a ? pubAtt(a) : null, attachmentExpired: ev.e === 'preview' && !a };
   return { id: m.id, ts: m.ts, role: m.role, name: m.name, text: m.text, attachment: a ? pubAtt(a) : null, attachmentExpired: !!m.att && !a };
 };
 
@@ -439,6 +442,8 @@ const run = async (req: Request, rest: string[], env: HandlerEnv): Promise<Respo
         if (old) repo.deleteAtt(old);
         // A new final starts locked, so a replaced file is never released by accident
         repo.putJob(up.kind === 'preview' ? { ...job, previewAtt: up.id } : { ...job, finalAtt: up.id, released: false });
+        // A preview is also a message in the client thread, so the conversation reads in order and the client can answer it
+        if (up.kind === 'preview') repo.addMessage({ ts: now(), thread: 'client', role: 'producer', name: job.producer || 'Producer', text: eventText({ e: 'preview', n: 0 }), att: up.id });
         env.touch?.();
         return json({ attachment: att }, 201);
       }
@@ -452,6 +457,24 @@ const run = async (req: Request, rest: string[], env: HandlerEnv): Promise<Respo
   if (route === 'audio' && (req.method === 'GET' || req.method === 'HEAD') && rest[1]) {
     if (!mayHear(role, job, repo, rest[1])) return fail(403, role === 'client' ? 'That file has not been released yet.' : 'Not allowed.');
     return serveAudio(req, repo, rest[1]);
+  }
+
+  if (route === 'preview' && req.method === 'POST' && (rest[1] === 'approve' || rest[1] === 'changes')) {
+    if (role !== 'client') return fail(403, 'Only the client can do that.');
+    let b: Record<string, unknown> = {};
+    try { b = (await req.json()) as Record<string, unknown>; } catch { /* approve needs no body */ }
+    const cur = job.previewAtt ? repo.messageWithAtt(job.previewAtt) : null;
+    if (!cur || cur.id !== Number(b.n)) return fail(409, 'A newer preview was added. Listen to it first.');
+    if (repo.messageCount() >= LIMITS.messages) return fail(429, 'This thread is full.');
+    const who = clip(b.name, LIMITS.name).trim() || 'Client';
+    if (rest[1] === 'approve') repo.addMessage({ ts: now(), thread: 'client', role: 'client', name: who, text: eventText({ e: 'pvapproved', n: cur.id }), att: null });
+    else {
+      const note = clip(b.text, LIMITS.text).trim();
+      if (!note) return fail(400, 'Say what should change.');
+      repo.addMessage({ ts: now(), thread: 'client', role: 'client', name: who, text: eventText({ e: 'pvchanges', n: cur.id }, note), att: null });
+    }
+    env.touch?.('client');
+    return json({ ok: true });
   }
 
   if (route === 'release' && req.method === 'POST') {

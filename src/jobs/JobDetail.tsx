@@ -1,6 +1,6 @@
 /** One job, laid out as a workspace: the script you edit on the left, the conversations on the right. Links live behind two menus. */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, Copy, History, Link2, MoreHorizontal, Send, Share2, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Copy, Link2, MoreHorizontal, Pencil, Send, Share2, Trash2 } from 'lucide-react';
 import { Button, Menu, type MenuItem } from '../components/ui';
 import { ScriptEditor } from '../components/ui/ScriptEditor';
 import { FormattedScript } from '../guest/FormattedScript';
@@ -43,6 +43,8 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, on
   const [copied, setCopied] = useState('');
   const [importing, setImporting] = useState('');
   const [armed, setArmed] = useState<'' | 'talent' | 'client' | 'delete'>('');
+  /** The script is only editable after the pencil is pressed */
+  const [editing, setEditing] = useState(false);
 
   // ---- loading and live updates ----
   const sigRef = useRef('');
@@ -99,7 +101,7 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, on
   const save = async (): Promise<boolean> => {
     if (!dirty) return true;
     setSaving('Saving...'); setError('');
-    try { await saveScript(job.id, job.producerKey, { script: draft, notes }); await load(); return true; } catch (e) { fail(e, 'The script was not saved.'); return false; } finally { setSaving(''); }
+    try { await saveScript(job.id, job.producerKey, { script: draft, notes }); await load(); setEditing(false); return true; } catch (e) { fail(e, 'The script was not saved.'); return false; } finally { setSaving(''); }
   };
   const share = async () => {
     setError('');
@@ -119,16 +121,21 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, on
     id, label: copied === id ? 'Copied' : label, hint, icon: copied === id ? <Check className="h-4 w-4 text-ok" /> : icon, divider, disabled: !text,
     onSelect: () => { void copyText(text).then((ok) => { if (ok) flash(id); }); },
   });
+  /** The client link is made the first time it is wanted; making it again would replace the old one */
+  const copyClient = async (what: 'link' | 'invite') => {
+    try {
+      let key = clientKey;
+      if (!key) { key = (await createClientLink(job.id, job.producerKey)).clientKey; setClientKey(key); }
+      const link = clientLink(base(), job.id, key);
+      if (await copyText(what === 'link' ? link : clientInviteText(job.title, j?.producer ?? '', link))) flash(what === 'link' ? 'c-link' : 'c-invite');
+    } catch (e) { fail(e, 'Could not make the link.'); }
+  };
   const inviteItems: MenuItem[] = [
-    copyItem('t-invite', 'Talent: copy invitation', 'A message with their link, ready to send', inviteText(job.title, j?.producer ?? '', tLink), <Send className="h-4 w-4" />),
-    copyItem('t-link', 'Talent: copy link only', '', tLink, <Link2 className="h-4 w-4" />),
+    copyItem('t-link', 'Copy talent link', 'For the voice talent to record', tLink, <Link2 className="h-4 w-4" />),
+    { id: 'c-link', label: copied === 'c-link' ? 'Copied' : 'Copy client link', hint: cLink ? 'For someone who reviews' : 'Made when you copy it. Optional.', icon: copied === 'c-link' ? <Check className="h-4 w-4 text-ok" /> : <Link2 className="h-4 w-4" />, onSelect: () => { void copyClient('link'); } },
+    copyItem('t-invite', 'Talent: copy invitation message', 'Their link in a message ready to send', inviteText(job.title, j?.producer ?? '', tLink), <Send className="h-4 w-4" />, true),
+    { id: 'c-invite', label: copied === 'c-invite' ? 'Copied' : 'Client: copy invitation message', icon: copied === 'c-invite' ? <Check className="h-4 w-4 text-ok" /> : <Send className="h-4 w-4" />, onSelect: () => { void copyClient('invite'); } },
     copyItem('t-nudge', 'Talent: copy a nudge', 'After you reply, send this by email or WhatsApp', nudgeText(job.title, tLink), <Copy className="h-4 w-4" />),
-    ...(cLink
-      ? [
-        copyItem('c-invite', 'Client: copy invitation', 'A message with their link, ready to send', clientInviteText(job.title, j?.producer ?? '', cLink), <Send className="h-4 w-4" />, true),
-        copyItem('c-link', 'Client: copy link only', '', cLink, <Link2 className="h-4 w-4" />),
-      ]
-      : [{ id: 'c-make', label: 'Create a client link', hint: 'For someone who reviews the script and the audio', icon: <Link2 className="h-4 w-4" />, divider: true, onSelect: () => { void createClientLink(job.id, job.producerKey).then((r) => setClientKey(r.clientKey)).catch((e) => fail(e, 'Could not make the link.')); } }]),
   ];
   const moreItems: MenuItem[] = [
     { id: 'new-t', label: armed === 'talent' ? 'Tap again: the old talent link stops' : copied === 'new-t' ? 'New talent link made' : 'New talent link', hint: 'Replaces the link if it got into the wrong hands', icon: <Link2 className="h-4 w-4" />,
@@ -164,8 +171,14 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, on
     label: `Version ${v.n}${v.n === j?.scriptN ? ' · current' : ''}${share_?.n === v.n ? ' · shared' : ''}`,
     hint: `${ago(v.ts)} · ${v.words} word${v.words === 1 ? '' : 's'}${v.n === j?.scriptN ? '' : ' · open in the editor'}`,
     disabled: v.n === j?.scriptN && !dirty,
-    onSelect: () => { void restore(v.n); },
+    onSelect: () => { setEditing(true); void restore(v.n); },
   }));
+
+  /** Version history and the optional step of sending the script to the client for approval */
+  const scriptItems: MenuItem[] = [
+    { id: 'share', label: shareLabel, hint: share_?.approved ? `Approved v${share_.n}` : 'Optional. Only if the client must approve it.', icon: <Share2 className="h-4 w-4" />, disabled: !j || (!!share_?.current && !dirty) || !!saving, onSelect: () => { void share(); } },
+    ...(historyItems.length > 1 ? historyItems.map((h, i) => ({ ...h, divider: i === 0 })) : []),
+  ];
 
   const sharedHeader = which === 'client' && j ? <SharedHeader job={job} info={j} pill={clientPill} /> : undefined;
 
@@ -197,19 +210,26 @@ export const JobDetail: React.FC<DetailProps> = ({ job, onSeen, onClientSeen, on
               <h3 className="text-sm font-semibold text-ink">Script</h3>
               {j?.scriptN ? <span className="rounded-full bg-surface-3 px-2 py-0.5 font-num text-[11px] text-ink-dim">v{j.scriptN}</span> : null}
               <span className="flex-1" />
-              <Menu label="Version history" align="end" items={historyItems} trigger={(p) => <Button {...p} size="sm" variant="ghost" disabled={versions.length < 2} leftIcon={<History className="h-3.5 w-3.5" />}>History</Button>} />
-              <Button size="sm" variant={share_?.current && !dirty ? 'secondary' : 'primary'} disabled={!j || (!!share_?.current && !dirty) || !!saving} onClick={() => void share()} leftIcon={<Share2 className="h-3.5 w-3.5" />}>{shareLabel}</Button>
+              {!editing && <button type="button" onClick={() => setEditing(true)} disabled={!j} aria-label="Edit script" title="Edit script" className="grid h-8 w-8 place-items-center rounded-full border border-line text-ink-dim hover:bg-surface-3 hover:text-ink disabled:opacity-40"><Pencil className="h-3.5 w-3.5" /></button>}
+              <Menu label="Script options" align="end" keepOpen items={scriptItems} trigger={(p) => <button {...p} aria-label="Script options" title="Version history and client approval" className="grid h-8 w-8 place-items-center rounded-full border border-line text-ink-dim hover:bg-surface-3 hover:text-ink"><MoreHorizontal className="h-3.5 w-3.5" /></button>} />
             </div>
-            <ScriptEditor id="job-script" rows={9} value={draft} onChange={setDraft} maxLength={20000} placeholder="What the talent reads." />
-            <details className="group mt-3">
-              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-ink-dim hover:text-ink"><ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden />Director notes{notes.trim() ? ' · added' : ''}</summary>
-              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} maxLength={6000} aria-label="Director notes" placeholder="Tone, pace, pronunciation. Shown to the talent apart from the script." className="mt-2 w-full resize-y rounded-card border border-line-strong bg-surface-1 p-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none" />
-            </details>
-            <div className="mt-3 flex items-center gap-3 border-t border-line pt-3">
-              <p role="status" className="min-w-0 flex-1 truncate text-xs text-ink-dim">{saving || (dirty ? 'Unsaved changes' : j ? 'The talent always sees the saved script' : '')}</p>
-              {dirty && <Button size="sm" variant="ghost" disabled={!!saving} onClick={() => { setDraft(j?.script ?? ''); setNotes(j?.notes ?? ''); }}>Discard</Button>}
-              <Button size="sm" variant="primary" disabled={!dirty || !!saving} onClick={() => void save()}>Save changes</Button>
-            </div>
+            {editing ? (
+              <>
+                <ScriptEditor id="job-script" rows={9} value={draft} onChange={setDraft} maxLength={20000} placeholder="What the talent reads." />
+                <label className="mt-3 block text-xs font-medium text-ink-dim" htmlFor="job-notes">Director notes</label>
+                <textarea id="job-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={6000} placeholder="Tone, pace, pronunciation. Shown to the talent apart from the script." className="mt-1 w-full resize-y rounded-card border border-line-strong bg-surface-1 p-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none" />
+                <div className="mt-3 flex items-center gap-3 border-t border-line pt-3">
+                  <p role="status" className="min-w-0 flex-1 truncate text-xs text-ink-dim">{saving || (dirty ? 'Unsaved changes' : 'No changes yet')}</p>
+                  <Button size="sm" variant="ghost" disabled={!!saving} onClick={() => { setDraft(j?.script ?? ''); setNotes(j?.notes ?? ''); setEditing(false); }}>Cancel</Button>
+                  <Button size="sm" variant="primary" disabled={!dirty || !!saving} onClick={() => void save()}>Save changes</Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="max-h-[46dvh] overflow-y-auto text-[15px]">{j?.script?.trim() ? <FormattedScript script={j.script} /> : <p className="text-xs text-ink-faint">No script yet. Press the pencil to write one.</p>}</div>
+                {j?.notes?.trim() ? <div className="mt-3 border-t border-line pt-3"><div className={`mb-1 ${LABEL}`}>Director notes</div><p className="whitespace-pre-wrap text-sm text-ink-dim">{j.notes}</p></div> : null}
+              </>
+            )}
           </section>
 
           <section className={`${CARD} p-4`} aria-label="Files">
@@ -264,7 +284,7 @@ const SharedHeader: React.FC<{ job: StoredJob; info: JobInfo; pill: Pill | null 
     if (!open || !n || text !== null) return;
     void getScriptVersion(job.id, job.producerKey, n).then((v) => setText(v.script)).catch(() => setText(''));
   }, [open, n, text, job.id, job.producerKey]);
-  if (!info.share && !info.preview && !info.final) return <p className="mx-3 mt-3 rounded-card border border-dashed border-line px-3 py-3 text-center text-xs text-ink-faint">Share the script, or add a preview, and the client sees it here.</p>;
+  if (!info.share) return null;
   return (
     <div className="space-y-2 px-3 pt-3">
       {info.share && (
@@ -274,12 +294,6 @@ const SharedHeader: React.FC<{ job: StoredJob; info: JobInfo; pill: Pill | null 
             <ChevronDown className={`h-4 w-4 text-ink-dim transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
           </button>
           {open && <div className="max-h-[40dvh] overflow-y-auto border-t border-line px-4 py-3 text-[15px]">{text === null ? <span className="text-xs text-ink-dim">Loading...</span> : <FormattedScript script={text} />}</div>}
-        </div>
-      )}
-      {info.preview && (
-        <div className="rounded-card border border-line bg-surface-2 px-3 py-2">
-          <div className={`mb-1 ${LABEL}`}>Preview the client hears</div>
-          <audio controls preload="none" src={audioUrl(job.id, info.preview.id, job.producerKey)} className="h-10 w-full" aria-label="Preview the client hears" />
         </div>
       )}
     </div>

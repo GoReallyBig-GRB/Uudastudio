@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, FileText, MessageSquareWarning, Paperclip, Send } from 'lucide-react';
-import type { Attachment, ThreadMessage } from './api';
+import { AUDIO_ACCEPT, type Attachment, type ThreadMessage } from './api';
 import { SaveMenu } from './SaveMenu';
 import { expiryLine } from './saveFile';
 
@@ -35,13 +35,26 @@ interface Props {
   header?: React.ReactNode;
   /** Opens the script from a "script shared" card */
   onOpenScript?: (n: number) => void;
+  /** Client only: answer the latest preview. `id` is the preview's message. */
+  onPreviewDecision?: (id: number, kind: 'approve' | 'changes', text: string) => Promise<void>;
 }
 
 /**
  * The message thread under a job, laid out like a chat app: your messages on the right, theirs on the left, grouped by sender,
  * day dividers, the time inside each bubble, and a rounded box with a round send button at the bottom. The same on both sides.
  */
-export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, onImport, onSend, onAttach, placeholder, disabled, fill, header, onOpenScript }) => {
+export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, onImport, onSend, onAttach, placeholder, disabled, fill, header, onOpenScript, onPreviewDecision }) => {
+  const [pvText, setPvText] = useState('');
+  const [pvAsk, setPvAsk] = useState(false);
+  const [pvBusy, setPvBusy] = useState(false);
+  const latestPreview = [...messages].reverse().find((m) => m.event?.type === 'preview');
+  const decided = !!latestPreview && messages.some((m) => m.id > latestPreview.id && (m.event?.type === 'pvapproved' || m.event?.type === 'pvchanges') && m.event.n === latestPreview.id);
+  const decide = async (id: number, kind: 'approve' | 'changes') => {
+    if (!onPreviewDecision) return;
+    if (kind === 'changes' && !pvText.trim()) return;
+    setPvBusy(true); setError('');
+    try { await onPreviewDecision(id, kind, pvText.trim()); setPvText(''); setPvAsk(false); } catch (e) { setError(e instanceof Error ? e.message : 'That was not sent.'); } finally { setPvBusy(false); }
+  };
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -84,20 +97,20 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
           const newDay = !prev || dayKey(prev.ts) !== dayKey(m.ts);
           const joinsPrev = !!prev && !newDay && prev.role === m.role && m.ts - prev.ts < GROUP_MS;
           const joinsNext = !!next && dayKey(next.ts) === dayKey(m.ts) && next.role === m.role && next.ts - m.ts < GROUP_MS;
-          if (m.event) {
+          if (m.event && m.event.type !== 'preview') {
             const who = m.role === self ? 'You' : m.name;
             return (
               <React.Fragment key={m.id}>
                 {newDay && <li className="my-3 self-center rounded-full bg-surface-2 px-3 py-0.5 text-[11px] font-medium text-ink-dim" aria-hidden>{dayLabel(m.ts)}</li>}
                 <li className="my-2 w-full max-w-md self-center rounded-card border border-line bg-surface-1 px-3 py-2 text-xs">
                   <div className="flex items-center gap-2">
-                    {m.event.type === 'approved' ? <Check className="h-4 w-4 shrink-0 text-ok" aria-hidden /> : m.event.type === 'changes' ? <MessageSquareWarning className="h-4 w-4 shrink-0 text-warn" aria-hidden /> : <FileText className="h-4 w-4 shrink-0 text-accent" aria-hidden />}
+                    {m.event.type === 'approved' || m.event.type === 'pvapproved' ? <Check className="h-4 w-4 shrink-0 text-ok" aria-hidden /> : m.event.type === 'changes' || m.event.type === 'pvchanges' ? <MessageSquareWarning className="h-4 w-4 shrink-0 text-warn" aria-hidden /> : <FileText className="h-4 w-4 shrink-0 text-accent" aria-hidden />}
                     <span className="min-w-0 flex-1 font-semibold text-ink">
-                      {m.event.type === 'shared' ? `${who === 'You' ? 'You shared' : `${who} shared`} the script (version ${m.event.n})` : m.event.type === 'approved' ? `${who === 'You' ? 'You' : who} approved version ${m.event.n}` : `${who === 'You' ? 'You' : who} asked for changes to version ${m.event.n}`}
+                      {m.event.type === 'shared' ? `${who === 'You' ? 'You shared' : `${who} shared`} the script (version ${m.event.n})` : m.event.type === 'approved' ? `${who} approved version ${m.event.n}` : m.event.type === 'pvapproved' ? `${who} approved the preview` : m.event.type === 'pvchanges' ? `${who} asked for changes to the preview` : `${who} asked for changes to version ${m.event.n}`}
                     </span>
                     <span className="shrink-0 font-num text-[10px] text-ink-dim">{hm(m.ts)}</span>
                   </div>
-                  {m.event.type === 'changes' && m.text && <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-ink">{m.text}</p>}
+                  {(m.event.type === 'changes' || m.event.type === 'pvchanges') && m.text && <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-ink">{m.text}</p>}
                   {m.event.type === 'shared' && onOpenScript && <button type="button" onClick={() => onOpenScript(m.event!.n)} className="mt-1.5 font-semibold text-accent hover:brightness-125">Read the script</button>}
                 </li>
               </React.Fragment>
@@ -109,6 +122,7 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
               <li className={`flex max-w-[84%] flex-col ${mine ? 'self-end items-end' : 'self-start items-start'} ${joinsPrev ? 'mt-0.5' : 'mt-2'}`}>
                 <div className={`min-w-0 px-3 py-1.5 text-sm text-ink ${mine ? 'bg-accent-soft' : 'bg-surface-2'} rounded-2xl ${mine ? (joinsNext ? '' : 'rounded-br-md') : (joinsNext ? '' : 'rounded-bl-md')}`}>
                   {!mine && !joinsPrev && <div className="mb-0.5 text-xs font-semibold text-accent">{m.name}</div>}
+                  {m.event?.type === 'preview' && <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">Preview</div>}
                   {m.attachment && (
                     <div className="mb-1 w-[min(280px,70vw)]">
                       <audio controls preload="none" src={audioSrc(m.attachment)} className="h-10 w-full" aria-label={`Play ${m.attachment.name}`} />
@@ -122,7 +136,19 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
                       {(() => { const e = expiryLine(m.attachment.expiresAt); return e ? <p className={`mt-1 text-[11px] ${e.soon ? 'text-warn' : 'text-ink-faint'}`}>{e.text}</p> : null; })()}
                     </div>
                   )}
-                  {m.attachmentExpired && <p className="mb-1 text-[11px] text-ink-faint">This recording expired and was deleted from the server.</p>}
+                  {m.attachmentExpired && <p className="mb-1 text-[11px] text-ink-faint">{m.event?.type === 'preview' ? 'This preview was replaced by a newer one.' : 'This recording expired and was deleted from the server.'}</p>}
+                  {m.event?.type === 'preview' && m.id === latestPreview?.id && m.attachment && onPreviewDecision && !decided && (
+                    <div className="mb-1.5 w-[min(280px,70vw)]">
+                      {pvAsk ? (
+                        <>
+                          <textarea value={pvText} onChange={(e) => setPvText(e.target.value)} rows={3} maxLength={4000} aria-label="What should change" placeholder="What should change?" className="w-full resize-none rounded-card border border-line-strong bg-surface-1 p-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none" />
+                          <div className="mt-1.5 flex gap-2"><button type="button" disabled={pvBusy || !pvText.trim()} onClick={() => void decide(m.id, 'changes')} className="rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-ink disabled:opacity-40">Send</button><button type="button" disabled={pvBusy} onClick={() => setPvAsk(false)} className="rounded-full border border-line px-3 py-1 text-xs text-ink-dim">Cancel</button></div>
+                        </>
+                      ) : (
+                        <div className="flex gap-2"><button type="button" disabled={pvBusy} onClick={() => void decide(m.id, 'approve')} className="rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-ink disabled:opacity-40">Approve</button><button type="button" disabled={pvBusy} onClick={() => setPvAsk(true)} className="rounded-full border border-line-strong px-3 py-1 text-xs font-semibold text-ink hover:bg-surface-3">Request changes</button></div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-end justify-end gap-x-3">
                     {m.text && <p className="min-w-0 max-w-full flex-1 whitespace-pre-wrap break-words">{m.text}</p>}
                     <span className="ml-auto shrink-0 translate-y-0.5 font-num text-[10px] leading-none text-ink-dim">{hm(m.ts)}</span>
@@ -136,11 +162,11 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
       </div>
       <div className={`${fill ? 'border-t border-line bg-surface-1 px-2 pt-2' : ''}`} style={fill ? { paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' } : undefined}>
         {error && <div role="alert" className="mb-1.5 px-2 text-xs text-danger">{error}</div>}
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2 lg:gap-1.5">
           {onAttach && (
             <>
-              <button type="button" aria-label="Attach audio" disabled={busy || disabled} onClick={() => fileRef.current?.click()} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line-strong text-ink-dim hover:bg-surface-3 disabled:opacity-40"><Paperclip className="h-5 w-5" /></button>
-              <input ref={fileRef} type="file" accept="audio/*" hidden aria-label="Audio file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void attach(f); }} />
+              <button type="button" aria-label="Attach audio" disabled={busy || disabled} onClick={() => fileRef.current?.click()} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line-strong text-ink-dim hover:bg-surface-3 disabled:opacity-40 lg:h-10 lg:w-10"><Paperclip className="h-5 w-5 lg:h-4 lg:w-4" /></button>
+              <input ref={fileRef} type="file" accept={AUDIO_ACCEPT} hidden aria-label="Audio file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void attach(f); }} />
             </>
           )}
           <textarea
@@ -154,10 +180,11 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
             aria-label="Write a message"
             placeholder={placeholder ?? 'Write a message'}
             enterKeyHint={touch ? 'enter' : 'send'}
-            className="max-h-[132px] min-h-[44px] flex-1 resize-none rounded-3xl border border-line-strong bg-surface-2 px-4 py-[10px] text-base leading-6 text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 lg:text-sm"
+            className="max-h-[132px] min-h-[44px] flex-1 resize-none rounded-3xl border border-line-strong bg-surface-2 px-4 py-[10px] text-base leading-6 lg:min-h-[40px] lg:py-2 text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 lg:text-sm"
           />
-          <button type="button" aria-label="Send message" disabled={!text.trim() || busy || disabled} onClick={() => void submit()} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-accent text-accent-ink transition-opacity hover:brightness-110 disabled:opacity-40"><Send className="h-5 w-5" /></button>
+          <button type="button" aria-label="Send message" disabled={!text.trim() || busy || disabled} onClick={() => void submit()} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-accent text-accent-ink transition-opacity hover:brightness-110 disabled:opacity-40 lg:h-10 lg:w-10"><Send className="h-5 w-5 lg:h-4 lg:w-4" /></button>
         </div>
+        {!touch && <p className="px-3 pb-0.5 pt-1 text-[10px] text-ink-faint">Enter to send · Shift+Enter for a new line</p>}
       </div>
     </div>
   );

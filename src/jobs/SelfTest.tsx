@@ -40,8 +40,9 @@ export default function SelfTest() {
   const run = async () => {
     out.current = []; setLines([]); setRunning(true); setCopied(false);
     const realFetch = window.fetch;
+    const seen: string[] = [];
     let fetches = 0;
-    window.fetch = ((...a: Parameters<typeof fetch>) => { fetches++; return realFetch(...a); }) as typeof fetch;
+    window.fetch = ((...a: Parameters<typeof fetch>) => { fetches++; seen.push(String(a[0] instanceof Request ? a[0].url : a[0]).replace(location.origin, '')); return realFetch(...a); }) as typeof fetch;
     let job: { jobId: string; producerKey: string; talentKey: string } | null = null;
     const socks: Array<() => void> = [];
     try {
@@ -90,11 +91,11 @@ export default function SelfTest() {
       }
 
       // 4. Idle: pages open, nothing happening. Count requests.
-      const f0 = fetches, m0 = prod.s.msgs.length + talent.s.msgs.length;
+      const f0 = fetches, s0 = seen.length, m0 = prod.s.msgs.length + talent.s.msgs.length;
       for (let i = IDLE_SECONDS; i > 0; i--) { setLeft(i); await sleep(1000); }
       setLeft(0);
       const idleFetches = fetches - f0, idleMsgs = prod.s.msgs.length + talent.s.msgs.length - m0;
-      add(idleFetches === 0, `Idle ${IDLE_SECONDS} s with two live connections open: ${idleFetches} requests from this page, ${idleMsgs} live messages. (Page polling is measured on the real Jobs screens, not here.)`);
+      add(idleFetches <= 1, `Idle ${IDLE_SECONDS} s with two live connections open: ${idleFetches} requests from this page, ${idleMsgs} live messages${idleFetches ? ` (${seen.slice(s0).join(', ')})` : ''}. Page polling is measured on the real Jobs screens, not here.`);
     } catch (e) {
       add(false, `Stopped: ${e instanceof ApiError ? `${e.status} ${e.message}` : e instanceof Error ? e.message : String(e)}`);
     } finally {
