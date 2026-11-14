@@ -127,8 +127,8 @@ class AuthService {
           const idToken = await fbUser.getIdToken();
           this.volatileToken = idToken;
 
-          // Sync with Firestore user document
-          await this.syncFirestoreUserProfile(fbUser);
+          // Background copy of the profile; the page does not wait for it
+          void this.syncFirestoreUserProfile(fbUser);
 
           // Authenticate with server to fetch user record & roles
           await this.syncWithBackend(idToken, {
@@ -392,7 +392,8 @@ class AuthService {
       const idToken = await fbUser.getIdToken();
       this.volatileToken = idToken;
 
-      await this.syncFirestoreUserProfile(fbUser);
+      // Not waited for: it is a background copy of the profile and used to hold the sign-in up by a full round trip
+      void this.syncFirestoreUserProfile(fbUser);
 
       // Authenticate with server
       const res = await fetch('/api/auth/google', {
