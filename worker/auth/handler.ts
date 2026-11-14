@@ -3,7 +3,7 @@
  * The browser signs in with Firebase, sends the ID token once, and gets our own session token back (cookie and body).
  * Host-neutral (Web Request/Response) so it is tested without Cloudflare.
  */
-import { issueSession, readSession, SESSION_DAYS, SESSION_PREFIX } from './session';
+import { issueSession, readSession, renewSession, SESSION_PREFIX, type SessionClaims } from './session';
 import { publicUser, type UserRow, type UserStore } from './users';
 import type { Limiter } from './rateLimit';
 import { TokenError, verifyIdToken, type Jwk } from './verifyIdToken';
@@ -49,13 +49,13 @@ const sameSite = (req: Request): boolean => {
 };
 
 /** Who is signed in: a genuine, unexpired, unrevoked session of an unblocked user */
-export const userFor = async (req: Request, env: AuthEnv): Promise<{ user: UserRow; token: string } | null> => {
+export const userFor = async (req: Request, env: AuthEnv): Promise<{ user: UserRow; token: string; claims: SessionClaims } | null> => {
   const token = tokenOf(req);
   const claims = await readSession(env.sessionSecret, token, env.now());
   if (!claims) return null;
   const user = await env.store.get(claims.uid);
   if (!user || user.blocked || claims.iat < user.validAfter) return null;
-  return { user, token };
+  return { user, token, claims };
 };
 
 const REASONS: Record<string, string> = {
@@ -87,12 +87,16 @@ export const handleAuth = async (req: Request, rest: string[], env: AuthEnv): Pr
     const { user, isNew } = await env.store.signIn({ id: who.uid, email: who.email, name: who.name, photo: who.picture, role: admin ? 'admin' : 'user', now: env.now() });
     if (user.blocked) return fail(403, 'This account has been blocked.');
     const s = await issueSession(env.sessionSecret, user.id, env.now());
-    return send({ user: publicUser(user), isNew, sessionToken: s.token, adminCodeSent: false }, 200, { 'set-cookie': setCookie(s.token, SESSION_DAYS * 86400) });
+    return send({ user: publicUser(user), isNew, sessionToken: s.token, adminCodeSent: false }, 200, { 'set-cookie': setCookie(s.token, Math.max(1, Math.floor((s.expires - env.now()) / 1000))) });
   }
 
   if (route === 'me' && req.method === 'GET') {
     const me = await userFor(req, env);
-    return me ? send({ user: publicUser(me.user), unreadTicketsCount: 0, isAdminVerified: false }) : send({ user: null }, 200);
+    if (!me) return send({ user: null }, 200);
+    // Opening the app renews a session that is in use (up to 30 days from the sign-in that began it)
+    const renewed = await renewSession(env.sessionSecret, me.claims, env.now());
+    const extra = renewed ? { 'set-cookie': setCookie(renewed.token, Math.max(1, Math.floor((renewed.expires - env.now()) / 1000))) } : {};
+    return send({ user: publicUser(me.user), unreadTicketsCount: 0, isAdminVerified: false }, 200, extra);
   }
 
   if (route === 'signout' && post) {

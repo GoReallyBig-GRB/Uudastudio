@@ -5,6 +5,10 @@
  */
 export const SESSION_PREFIX = 'uuda_sess_';
 export const SESSION_DAYS = 5;
+/** A session that is used keeps renewing, but never lives longer than this from the sign-in that began it */
+export const MAX_SESSION_DAYS = 30;
+/** Renewal happens at most this often, so a busy page does not mint a new token on every call */
+export const RENEW_AFTER_MS = 3600_000;
 
 const enc = new TextEncoder();
 const b64u = (b: ArrayBuffer | Uint8Array): string => { let s = ''; for (const x of new Uint8Array(b)) s += String.fromCharCode(x); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
@@ -12,12 +16,12 @@ const unb64u = (s: string): Uint8Array => { const bin = atob(s.replace(/-/g, '+'
 const hmac = (secret: string) => crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 
 /** Times are in milliseconds, so signing out and straight back in is never confused with the old session */
-export interface SessionClaims { uid: string; iat: number; exp: number }
+export interface SessionClaims { uid: string; iat: number; exp: number; /** when the sign-in began; kept across renewals */ start?: number }
 
-export const issueSession = async (secret: string, uid: string, nowMs: number): Promise<{ token: string; expires: number }> => {
+export const issueSession = async (secret: string, uid: string, nowMs: number, start: number = nowMs): Promise<{ token: string; expires: number }> => {
   const iat = nowMs;
-  const exp = iat + SESSION_DAYS * 86400_000;
-  const body = b64u(enc.encode(JSON.stringify({ uid, iat, exp })));
+  const exp = Math.min(iat + SESSION_DAYS * 86400_000, start + MAX_SESSION_DAYS * 86400_000);
+  const body = b64u(enc.encode(JSON.stringify({ uid, iat, exp, start })));
   const sig = await crypto.subtle.sign('HMAC', await hmac(secret), enc.encode(body));
   return { token: `${SESSION_PREFIX}${body}.${b64u(sig)}`, expires: exp };
 };
@@ -32,6 +36,15 @@ export const readSession = async (secret: string, token: string, nowMs: number):
     if (!(await crypto.subtle.verify('HMAC', await hmac(secret), unb64u(sig), enc.encode(body)))) return null;
     const c = JSON.parse(new TextDecoder().decode(unb64u(body))) as SessionClaims;
     if (typeof c.uid !== 'string' || !c.uid || typeof c.exp !== 'number' || typeof c.iat !== 'number' || c.exp <= nowMs) return null;
+    if ((typeof c.start === 'number' ? c.start : c.iat) + MAX_SESSION_DAYS * 86400_000 <= nowMs) return null;
     return c;
   } catch { return null; }
+};
+
+/** A fresh token for a session that is in use, or null when it is too young to bother or has reached its 30-day limit */
+export const renewSession = async (secret: string, c: SessionClaims, nowMs: number): Promise<{ token: string; expires: number } | null> => {
+  if (nowMs - c.iat < RENEW_AFTER_MS) return null;
+  const start = typeof c.start === 'number' ? c.start : c.iat;
+  const next = await issueSession(secret, c.uid, nowMs, start);
+  return next.expires > c.exp ? next : null; // nothing gained once the 30-day limit is what ends it
 };

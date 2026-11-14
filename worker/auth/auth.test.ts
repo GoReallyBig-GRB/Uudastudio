@@ -154,6 +154,41 @@ describe('auth routes', () => {
     expect(((await (await call(m.env, 'GET', 'me', { token: 'uuda_sess_junk.junk', cookie: `__session=${b.sessionToken}` })).json()) as any).user).toBeNull();
   });
 
+  it('renews a session that is in use, but not one left idle, and never past 30 days', async () => {
+    const m = await mkEnv();
+    const DAY = 86400_000;
+    const b = (await (await login(m)).json()) as any;
+    const cookie = (t: string) => ({ cookie: `__session=${t}` });
+    const cookieOf = (r: Response) => /__session=([^;]+)/.exec(r.headers.get('set-cookie') || '')?.[1] ?? '';
+
+    // Too soon: no new cookie
+    m.env.tick(60_000);
+    expect(cookieOf(await call(m.env, 'GET', 'me', cookie(b.sessionToken)))).toBe('');
+
+    // Used every 4 days: each visit hands back a fresh cookie, so the person stays signed in beyond 5 days
+    let token: string = b.sessionToken;
+    for (let i = 0; i < 6; i++) {
+      m.env.tick(4 * DAY);
+      const r = await call(m.env, 'GET', 'me', cookie(token));
+      expect(((await r.json()) as any).user.id).toBe('uid-1');
+      const next = cookieOf(r);
+      expect(next).not.toBe('');
+      token = next;
+    }
+    // About 24 days in and still signed in; at 30 days from the sign-in the limit ends it, however recently it was used
+    m.env.tick(4 * DAY);
+    expect(((await (await call(m.env, 'GET', 'me', cookie(token))).json()) as any).user.id).toBe('uid-1');
+    m.env.tick(4 * DAY);
+    expect(((await (await call(m.env, 'GET', 'me', cookie(token))).json()) as any).user).toBeNull();
+  });
+
+  it('ends a session left idle for more than 5 days', async () => {
+    const m = await mkEnv();
+    const b = (await (await login(m)).json()) as any;
+    m.env.tick(5 * 86400_000 + 1000);
+    expect(((await (await call(m.env, 'GET', 'me', { cookie: `__session=${b.sessionToken}` })).json()) as any).user).toBeNull();
+  });
+
   it('refuses a forged token, even one naming the admin', async () => {
     const m = await mkEnv();
     const bad = await signToken(m.other.privateKey, 'k1', good({ email: 'boss@example.com', sub: 'x' }));
