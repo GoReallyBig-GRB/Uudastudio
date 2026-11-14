@@ -25,8 +25,10 @@ export function useAuth() {
     window.addEventListener('uuda:auth-changed', handleAuthChange);
 
     // Initial check if not yet initialized
-    authService.initSession().then((u) => {
-      setUser(u);
+    authService.initSession().then(() => {
+      // Still restoring the saved login (it finishes with an auth-changed event): do not report "signed out" yet
+      if (authService.isLoading()) return;
+      setUser(authService.getUser());
       setUnreadTicketsCount(authService.getUnreadTicketsCount());
       setIsAdminVerified(authService.isUserAdminVerified());
       setIsLoading(false);
