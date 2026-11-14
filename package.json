@@ -15,7 +15,8 @@
     "deploy:cloudflare": "wrangler deploy",
     "clean": "rm -rf dist dist-server",
     "lint": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.worker.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:playwright": "playwright test --config=playwright.config.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -33,6 +34,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261022.1",
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/express": "^5.0.3",
     "@types/multer": "^2.3.0",
