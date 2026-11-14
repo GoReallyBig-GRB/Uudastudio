@@ -7,7 +7,7 @@ import { keyCache, TokenError, verifyIdToken, type Jwk, type KeySet } from './ve
 const PROJECT = 'demo-project';
 const enc = new TextEncoder();
 const b64u = (b: ArrayBuffer | Uint8Array) => { let s = ''; for (const x of new Uint8Array(b)) s += String.fromCharCode(x); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
-const gen = async () => crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+const gen = async () => (await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify'])) as CryptoKeyPair;
 const jwkOf = async (pub: CryptoKey, kid: string): Promise<Jwk> => ({ ...(await crypto.subtle.exportKey('jwk', pub)), kid } as Jwk);
 const NOW = 1_800_000_000_000;
 const sec = NOW / 1000;
