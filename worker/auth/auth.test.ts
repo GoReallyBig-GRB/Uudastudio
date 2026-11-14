@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { handleAuth, type AuthEnv } from './handler';
+import { makeLimiter } from './rateLimit';
 import { issueSession, readSession } from './session';
 import { ACTIVE_WRITE_MS, D1UserStore, MemoryUserStore, type D1Like } from './users';
 import { keyCache, TokenError, verifyIdToken, type Jwk, type KeySet } from './verifyIdToken';
@@ -228,5 +229,22 @@ describe('D1 user store', () => {
     const u = await s.update('u', { display_name: 'New', preferences: { autoRefresh: false } });
     expect(u?.display_name).toBe('New'); expect(u?.preferences.autoRefresh).toBe(false);
     expect(await s.update('nobody', { display_name: 'x' })).toBeNull();
+  });
+});
+
+describe('sign-in rate limit', () => {
+  it('lets the limit through, then says how long to wait, per caller, and recovers', () => {
+    let t = 0; const l = makeLimiter(3, 60_000, () => t);
+    expect([l.take('a'), l.take('a'), l.take('a')]).toEqual([0, 0, 0]);
+    expect(l.take('a')).toBeGreaterThan(0);
+    expect(l.take('b')).toBe(0);
+    t = 61_000; expect(l.take('a')).toBe(0);
+  });
+  it('answers 429 with Retry-After on the route', async () => {
+    const s = await setup();
+    const env: AuthEnv = { store: new MemoryUserStore(), projectId: PROJECT, sessionSecret: 'x', keys: s.keys, now: () => NOW, limiter: makeLimiter(2, 60_000, () => NOW), caller: () => 'ip' };
+    const go = () => handleAuth(new Request('https://app.test/api/auth/google', { method: 'POST', body: JSON.stringify({ idToken: 'a.b.c' }) }), ['google'], env);
+    expect((await go()).status).toBe(401); expect((await go()).status).toBe(401);
+    const r = await go(); expect(r.status).toBe(429); expect(r.headers.get('retry-after')).toBe('60');
   });
 });

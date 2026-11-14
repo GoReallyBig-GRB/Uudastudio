@@ -5,6 +5,7 @@
  */
 import { issueSession, readSession, SESSION_DAYS } from './session';
 import { publicUser, type UserRow, type UserStore } from './users';
+import type { Limiter } from './rateLimit';
 import { TokenError, verifyIdToken, type Jwk } from './verifyIdToken';
 
 export interface AuthEnv {
@@ -15,6 +16,10 @@ export interface AuthEnv {
   superAdminEmail?: string;
   keys: { find(kid: string): Promise<Jwk | undefined> };
   now: () => number;
+  /** Optional cap on sign-in attempts per caller */
+  limiter?: Limiter;
+  /** Who is calling, for the limiter (the connecting address) */
+  caller?: (req: Request) => string;
 }
 
 const H = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' };
@@ -63,6 +68,8 @@ export const handleAuth = async (req: Request, rest: string[], env: AuthEnv): Pr
 
   if ((route === 'google' || route === 'session') && post) {
     if (!sameSite(req)) return fail(403, 'Not allowed.');
+    const wait = env.limiter?.take(env.caller?.(req) ?? 'all') ?? 0;
+    if (wait) return fail(429, `Too many sign-in attempts. Try again in ${wait} seconds.`, { 'retry-after': String(wait) });
     let idToken = '';
     try { const b = (await req.json()) as { idToken?: unknown }; idToken = typeof b.idToken === 'string' ? b.idToken : ''; } catch { /* empty */ }
     if (!idToken) idToken = (req.headers.get('authorization') || '').replace(/^Bearer\s+/, '');

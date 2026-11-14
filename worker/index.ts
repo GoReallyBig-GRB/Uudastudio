@@ -2,6 +2,7 @@ export { JobRoom } from "./jobs/jobRoom";
 export { JobRegistry } from "./jobs/jobRegistry";
 import { handleAuth, type AuthEnv } from "./auth/handler";
 import { D1UserStore, type D1Like } from "./auth/users";
+import { makeLimiter } from "./auth/rateLimit";
 import { fetchGoogleKeys, keyCache } from "./auth/verifyIdToken";
 
 export interface Env {
@@ -37,11 +38,13 @@ const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 
 // Google's signing keys are kept for as long as Google allows, per isolate
 const googleKeys = keyCache(fetchGoogleKeys);
+// At most 10 sign-in attempts a minute per address, per Worker instance
+const signInLimiter = makeLimiter(10, 60_000);
 
 /** Sign-in is handled here only when its database, project id and secret are all set; otherwise /api/auth/* goes to API_ORIGIN as before */
 const authEnv = (env: Env): AuthEnv | null =>
   env.AUTH_DB && env.FIREBASE_PROJECT_ID && env.SESSION_SECRET
-    ? { store: new D1UserStore(env.AUTH_DB), projectId: env.FIREBASE_PROJECT_ID, sessionSecret: env.SESSION_SECRET, superAdminEmail: env.SUPER_ADMIN_EMAIL, keys: googleKeys, now: Date.now }
+    ? { store: new D1UserStore(env.AUTH_DB), projectId: env.FIREBASE_PROJECT_ID, sessionSecret: env.SESSION_SECRET, superAdminEmail: env.SUPER_ADMIN_EMAIL, keys: googleKeys, now: Date.now, limiter: signInLimiter, caller: (r) => r.headers.get("cf-connecting-ip") ?? "unknown" }
     : null;
 
 export default {
