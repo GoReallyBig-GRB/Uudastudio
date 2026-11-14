@@ -3,7 +3,7 @@
  * The browser signs in with Firebase, sends the ID token once, and gets our own session token back (cookie and body).
  * Host-neutral (Web Request/Response) so it is tested without Cloudflare.
  */
-import { issueSession, readSession, SESSION_DAYS } from './session';
+import { issueSession, readSession, SESSION_DAYS, SESSION_PREFIX } from './session';
 import { publicUser, type UserRow, type UserStore } from './users';
 import type { Limiter } from './rateLimit';
 import { TokenError, verifyIdToken, type Jwk } from './verifyIdToken';
@@ -36,7 +36,10 @@ const cookieOf = (req: Request, name: string): string => {
 };
 const tokenOf = (req: Request): string => {
   const a = req.headers.get('authorization') || '';
-  return a.startsWith('Bearer ') ? a.slice(7).trim() : cookieOf(req, COOKIE);
+  const bearer = a.startsWith('Bearer ') ? a.slice(7).trim() : '';
+  // Only one of our own session tokens counts as a bearer. After a reload the app may still send the Google ID token
+  // it holds; that is not a session, so the signed-in cookie is used instead of treating the person as signed out.
+  return bearer.startsWith(SESSION_PREFIX) ? bearer : cookieOf(req, COOKIE);
 };
 
 /** A state-changing request must come from this site. SameSite=Lax already blocks most cross-site posts; this closes the rest. */

@@ -142,6 +142,18 @@ describe('auth routes', () => {
     expect(((await (await call(m.env, 'GET', 'me', { cookie: `__session=${b.sessionToken}` })).json()) as any).user.id).toBe('uid-1');
   });
 
+  it('keeps a reloaded page signed in when it sends a Google ID token next to a valid session cookie', async () => {
+    const m = await mkEnv();
+    const b = (await (await login(m)).json()) as any;
+    const googleToken = await signToken(m.pair.privateKey, 'k1', good());
+    const me = (await (await call(m.env, 'GET', 'me', { token: googleToken, cookie: `__session=${b.sessionToken}` })).json()) as any;
+    expect(me.user.id).toBe('uid-1');
+    // A Google token alone is not a session
+    expect(((await (await call(m.env, 'GET', 'me', { token: googleToken })).json()) as any).user).toBeNull();
+    // A broken session token is still refused, even beside a good cookie
+    expect(((await (await call(m.env, 'GET', 'me', { token: 'uuda_sess_junk.junk', cookie: `__session=${b.sessionToken}` })).json()) as any).user).toBeNull();
+  });
+
   it('refuses a forged token, even one naming the admin', async () => {
     const m = await mkEnv();
     const bad = await signToken(m.other.privateKey, 'k1', good({ email: 'boss@example.com', sub: 'x' }));
