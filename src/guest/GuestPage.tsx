@@ -16,7 +16,7 @@ import { checkTake, parseWavHeader, storageCheck, wavMatches, type TakeIssue } f
 import { LevelMeter, useMeter } from './MeterBar';
 import { SaveMenu } from '../jobs/SaveMenu';
 import { expiryLine } from '../jobs/saveFile';
-import { audioUrl, getThread, postMessage, sendAudio, type ThreadMessage, type ThreadResponse } from '../jobs/api';
+import { ApiError, audioUrl, getThread, postMessage, sendAudio, type ThreadMessage, type ThreadResponse } from '../jobs/api';
 import { parseTalentHash } from '../jobs/links';
 import { ThreadView } from '../jobs/ThreadView';
 import { usePolling } from '../jobs/usePolling';
@@ -325,7 +325,9 @@ export const GuestPage: React.FC = () => {
       setNotice(`Sent. The producer can hear it now. You can record another take.${until ? ` ${until.text}` : ''}`);
       await loadThread();
     } catch (e) {
-      setError(`Not sent: ${e instanceof Error ? e.message : 'something went wrong'}. Your take is still here. Try again.`);
+      // When the free service is full the message already says the take is safe and how to send it; keep the take and the Save menu.
+      if (e instanceof ApiError && e.limit) setError(`Not sent. ${e.message} Your take is still here.`);
+      else setError(`Not sent: ${e instanceof Error ? e.message : 'something went wrong'}. Your take is still here. Try again.`);
     } finally { setSending(null); }
   };
 

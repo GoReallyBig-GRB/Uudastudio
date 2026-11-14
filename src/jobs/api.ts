@@ -1,9 +1,11 @@
 /** Calls to the jobs server (Cloudflare Worker when hosted, Express in AI Studio). */
+import { limitKind, limitMessage, type LimitKind } from './limits';
 
 /** `expiresAt` is when the server deletes the file (ms since epoch) */
 export interface Attachment { id: string; name: string; mime: string; bytes: number; expiresAt?: number }
 /** Something the server records in a client thread when the script is shared, approved or sent back */
-export interface ThreadEvent { type: 'shared' | 'approved' | 'changes'; n: number }
+/** For script events `n` is the script version; for a preview it is the message that holds the preview */
+export interface ThreadEvent { type: 'shared' | 'approved' | 'changes' | 'preview' | 'pvapproved' | 'pvchanges'; n: number }
 export interface ThreadMessage { id: number; ts: number; role: 'producer' | 'talent' | 'client'; name: string; text: string; attachment: Attachment | null; attachmentExpired?: boolean; event?: ThreadEvent }
 export interface ScriptVersionInfo { n: number; ts: number; label: string; words: number }
 /** The script as shared with the client */
@@ -17,15 +19,21 @@ export interface ThreadResponse { role: 'producer' | 'talent' | 'client'; job: J
 export interface NewJob { title: string; script: string; notes: string; producer: string; talent?: string; targetSeconds?: number }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  constructor(public status: number, message: string, public limit: LimitKind | null = null) { super(message); }
 }
 
 const BASE = '/api/jobs';
 
+/** Listed by extension: a file picker told `audio/*` has to look up every audio type, which takes seconds to open on Windows */
+export const AUDIO_ACCEPT = '.wav,.mp3,.m4a,.aac,.flac,.ogg,.oga,.opus,.aif,.aiff,.webm';
+
 const read = async (r: Response) => {
   let body: { error?: string } & Record<string, unknown> = {};
   try { body = await r.json(); } catch { /* not JSON */ }
-  if (!r.ok) throw new ApiError(r.status, typeof body.error === 'string' ? body.error : r.status === 404 ? 'The jobs service is not available here.' : 'Something went wrong. Try again.');
+  if (!r.ok) {
+    const own = typeof body.error === 'string' ? body.error : undefined;
+    throw new ApiError(r.status, limitMessage(r.status, own) ?? own ?? (r.status === 404 ? 'The jobs service is not available here.' : 'Something went wrong. Try again.'), limitKind(r.status, own));
+  }
   return body;
 };
 const net = async <T,>(p: Promise<T>): Promise<T> => { try { return await p; } catch (e) { if (e instanceof ApiError) throw e; throw new ApiError(0, 'No connection. Check the internet and try again.'); } };
@@ -66,6 +74,12 @@ export const approveScript = (jobId: string, key: string, n: number, name: strin
 export const requestScriptChanges = (jobId: string, key: string, n: number, text: string, name: string) =>
   net(fetch(`${BASE}/${jobId}/script/changes`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ n, text, name }) }).then(read));
 
+/** The client's answer to the latest preview (`n` is the id of the preview's message) */
+export const approvePreview = (jobId: string, key: string, n: number, name: string) =>
+  net(fetch(`${BASE}/${jobId}/preview/approve`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ n, name }) }).then(read));
+export const requestPreviewChanges = (jobId: string, key: string, n: number, text: string, name: string) =>
+  net(fetch(`${BASE}/${jobId}/preview/changes`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ n, text, name }) }).then(read));
+
 export const postMessage = (jobId: string, key: string, name: string, text: string, thread: 'talent' | 'client' = 'talent') =>
   net(fetch(`${BASE}/${jobId}/messages${thread === 'client' ? '?thread=client' : ''}`, { method: 'POST', headers: { 'x-job-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ name, text }) }).then(read));
 
@@ -105,7 +119,7 @@ const upload = async (jobId: string, key: string, blob: Blob, init: { kind: 'att
         await net(fetch(`${BASE}/${jobId}/uploads/${uploadId}/${i}`, { method: 'PUT', headers: { ...h, 'x-chunk-sha256': sum }, body: data }).then(read));
         break;
       } catch (e) {
-        const retryable = !(e instanceof ApiError) || e.status === 0 || e.status === 422 || e.status >= 500;
+        const retryable = !(e instanceof ApiError) || (!e.limit && (e.status === 0 || e.status === 422 || e.status >= 500));
         if (!retryable || attempt >= 4) throw e;
         await sleep(600 * 2 ** attempt);
       }

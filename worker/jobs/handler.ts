@@ -3,6 +3,7 @@
  * Host-neutral (Web Request and Response only) so it runs inside a Cloudflare Durable Object and inside Express.
  */
 import type { JobRepo, JobRow, MsgRow, Role, ScriptVersion } from './repo';
+import type { StorageGuard } from './storage';
 
 export const LIMITS = {
   title: 120,
@@ -36,6 +37,8 @@ export interface HandlerEnv {
   closeLive?: (role?: Role) => void;
   /** Deletes the whole job */
   wipe?: () => void | Promise<void>;
+  /** Account-wide storage limit. Absent means no extra limit beyond the per-job ones. */
+  storage?: StorageGuard;
 }
 
 const H = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' };
@@ -55,11 +58,14 @@ const clip = (v: unknown, max: number): string => (typeof v === 'string' ? v : '
 /** How many script versions are kept; the oldest go first */
 export const MAX_VERSIONS = 25;
 const EVENT = '\u001e';
-type ThreadEvent = { e: 'shared' | 'approved' | 'changes'; n: number };
+type EventKind = 'shared' | 'approved' | 'changes' | 'preview' | 'pvapproved' | 'pvchanges';
+const EVENT_KINDS: string[] = ['shared', 'approved', 'changes', 'preview', 'pvapproved', 'pvchanges'];
+/** For script events `n` is the script version; for preview events it is the id of the message that holds the preview */
+type ThreadEvent = { e: EventKind; n: number };
 const eventText = (ev: ThreadEvent, note = ''): string => EVENT + JSON.stringify({ ...ev, note });
 const parseEvent = (text: string): (ThreadEvent & { note: string }) | null => {
   if (!text.startsWith(EVENT)) return null;
-  try { const o = JSON.parse(text.slice(1)); return o && (o.e === 'shared' || o.e === 'approved' || o.e === 'changes') ? { e: o.e, n: Number(o.n) || 0, note: typeof o.note === 'string' ? o.note : '' } : null; } catch { return null; }
+  try { const o = JSON.parse(text.slice(1)); return o && EVENT_KINDS.includes(o.e) ? { e: o.e, n: Number(o.n) || 0, note: typeof o.note === 'string' ? o.note : '' } : null; } catch { return null; }
 };
 
 const currentN = (j: JobRow): number => j.scriptN ?? j.history?.[j.history.length - 1]?.n ?? 1;
@@ -146,7 +152,7 @@ const publicJob = (j: JobRow, repo: JobRepo, role: Role) => {
 const publicMsg = (m: MsgRow, repo: JobRepo) => {
   const a = m.att ? repo.getAtt(m.att) : null;
   const ev = parseEvent(m.text);
-  if (ev) return { id: m.id, ts: m.ts, role: m.role, name: m.name, text: ev.note, event: { type: ev.e, n: ev.n }, attachment: null, attachmentExpired: false };
+  if (ev) return { id: m.id, ts: m.ts, role: m.role, name: m.name, text: ev.note, event: { type: ev.e, n: ev.e === 'preview' ? m.id : ev.n }, attachment: a ? pubAtt(a) : null, attachmentExpired: ev.e === 'preview' && !a };
   return { id: m.id, ts: m.ts, role: m.role, name: m.name, text: m.text, attachment: a ? pubAtt(a) : null, attachmentExpired: !!m.att && !a };
 };
 
@@ -232,7 +238,7 @@ const serveAudio = (req: Request, repo: JobRepo, attId: string): Response => {
 };
 
 /** Handles one request for one job. `rest` is the path after the job id, split on "/". */
-export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): Promise<Response> => {
+const run = async (req: Request, rest: string[], env: HandlerEnv): Promise<Response> => {
   const { repo, now } = env;
   const url = new URL(req.url);
   const route = rest[0] ?? '';
@@ -354,6 +360,11 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
     if (repo.messageCount() >= LIMITS.messages) return fail(429, 'This thread is full.');
     const declared = Number(req.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > LIMITS.attachmentBytes) return fail(413, `That file is too large. The limit is ${LIMITS.attachmentBytes / 1048576} MB.`);
+    if (env.storage && Number.isFinite(declared) && declared > 0) {
+      let refusal: string | null = null;
+      try { refusal = await env.storage.check(declared); } catch { /* advisory */ }
+      if (refusal) return fail(507, refusal);
+    }
     const attId = env.newKey();
     const stored = await storeStream(req, repo, attId, LIMITS.attachmentBytes, LIMITS.jobBytes - repo.totalBytes());
     if ('error' in stored) return fail(stored.status, stored.error);
@@ -381,8 +392,16 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
       if (kind === 'attachment' && repo.messageCount() >= LIMITS.messages) return bad('This thread is full.', 429);
       const size = Math.floor(Number(b.size));
       if (!Number.isFinite(size) || size <= 0) return bad('The file is empty.');
-      if (size > LIMITS.attachmentBytes) return bad(`That file is too large. The limit is ${LIMITS.attachmentBytes / 1048576} MB.`, 413);
-      if (size > LIMITS.jobBytes - repo.totalBytes()) return bad('This job has no room left for more audio.', 413);
+      const maxTake = env.storage?.maxTakeBytes ?? LIMITS.attachmentBytes;
+      if (size > maxTake) return bad(`That file is too large. The limit is ${Math.floor(maxTake / 1048576)} MB.`, 413);
+      const seconds = Number(b.seconds);
+      if (env.storage?.maxTakeSeconds && Number.isFinite(seconds) && seconds > env.storage.maxTakeSeconds) return bad(`That recording is too long. The limit is ${Math.floor(env.storage.maxTakeSeconds / 60)} minutes.`, 413);
+      if (size > Math.max(LIMITS.jobBytes, maxTake) - repo.totalBytes()) return bad('This job has no room left for more audio.', 413);
+      if (env.storage) {
+        let refusal: string | null = null;
+        try { refusal = await env.storage.check(size); } catch { /* the registry is advisory; the real cap is the backstop */ }
+        if (refusal) return bad(refusal, 507);
+      }
       const id = env.newKey();
       repo.putUpload({ id, kind, name: safeName(clip(b.name, 120) || 'audio'), mime: safeMime(clip(b.mime, 60) || 'audio/wav'), who: clip(b.who, LIMITS.name).trim(), text: clip(b.text, LIMITS.text).trim(), thread: threadFor(role, new URL(`http://x/?thread=${b.thread === 'client' ? 'client' : 'talent'}`)), role, size, ts: now() });
       return json({ uploadId: id, chunkSize: CHUNK, chunks: Math.ceil(size / CHUNK) }, 201);
@@ -423,6 +442,8 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
         if (old) repo.deleteAtt(old);
         // A new final starts locked, so a replaced file is never released by accident
         repo.putJob(up.kind === 'preview' ? { ...job, previewAtt: up.id } : { ...job, finalAtt: up.id, released: false });
+        // A preview is also a message in the client thread, so the conversation reads in order and the client can answer it
+        if (up.kind === 'preview') repo.addMessage({ ts: now(), thread: 'client', role: 'producer', name: job.producer || 'Producer', text: eventText({ e: 'preview', n: 0 }), att: up.id });
         env.touch?.();
         return json({ attachment: att }, 201);
       }
@@ -436,6 +457,24 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
   if (route === 'audio' && (req.method === 'GET' || req.method === 'HEAD') && rest[1]) {
     if (!mayHear(role, job, repo, rest[1])) return fail(403, role === 'client' ? 'That file has not been released yet.' : 'Not allowed.');
     return serveAudio(req, repo, rest[1]);
+  }
+
+  if (route === 'preview' && req.method === 'POST' && (rest[1] === 'approve' || rest[1] === 'changes')) {
+    if (role !== 'client') return fail(403, 'Only the client can do that.');
+    let b: Record<string, unknown> = {};
+    try { b = (await req.json()) as Record<string, unknown>; } catch { /* approve needs no body */ }
+    const cur = job.previewAtt ? repo.messageWithAtt(job.previewAtt) : null;
+    if (!cur || cur.id !== Number(b.n)) return fail(409, 'A newer preview was added. Listen to it first.');
+    if (repo.messageCount() >= LIMITS.messages) return fail(429, 'This thread is full.');
+    const who = clip(b.name, LIMITS.name).trim() || 'Client';
+    if (rest[1] === 'approve') repo.addMessage({ ts: now(), thread: 'client', role: 'client', name: who, text: eventText({ e: 'pvapproved', n: cur.id }), att: null });
+    else {
+      const note = clip(b.text, LIMITS.text).trim();
+      if (!note) return fail(400, 'Say what should change.');
+      repo.addMessage({ ts: now(), thread: 'client', role: 'client', name: who, text: eventText({ e: 'pvchanges', n: cur.id }, note), att: null });
+    }
+    env.touch?.('client');
+    return json({ ok: true });
   }
 
   if (route === 'release' && req.method === 'POST') {
@@ -477,4 +516,16 @@ export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): 
   }
 
   return fail(404, 'Not found.');
+};
+
+/** Handles one request for one job, then tells the storage guard the job's new size when it may have changed */
+export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): Promise<Response> => {
+  const res = await run(req, rest, env);
+  // Audio size changes only when a file is stored or replaced (a finished upload, a direct upload, a reference).
+  // Single pieces are skipped: the total is reported once, when the upload completes.
+  const stores = req.method === 'PUT' ? rest[0] === 'attachments' || rest[0] === 'reference' : req.method === 'POST' && rest[0] === 'uploads' && rest[2] === 'complete';
+  if (env.storage && stores && res.status < 500) {
+    try { await env.storage.report(env.repo.totalBytes()); } catch { /* advisory */ }
+  }
+  return res;
 };

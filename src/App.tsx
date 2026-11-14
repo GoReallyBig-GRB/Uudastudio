@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { isTypingTarget } from './utils/typing';
 import {
   Project,
   Track,
@@ -1509,7 +1510,7 @@ const MainStudio: React.FC = () => {
     const handleProjectShortcuts = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || currentView !== 'studio') return;
       const target = event.target as HTMLElement | null;
-      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+      if (isTypingTarget(target)) return;
       const key = event.key.toLowerCase();
       if (key === 's') {
         event.preventDefault();
@@ -3737,12 +3738,7 @@ const MainStudio: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if typing inside text input
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
-        return;
-      }
+      if (isTypingTarget(e.target)) return;
 
       // End: playhead to the end of the audio
       if (e.code === 'End' && !e.ctrlKey && !e.metaKey && !e.altKey) {

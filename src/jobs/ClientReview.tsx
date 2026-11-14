@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Lock, Unlock, Upload } from 'lucide-react';
 import { Button } from '../components/ui';
-import { ApiError, sendFinal, sendPreview, setReleased, type Attachment, type JobInfo } from './api';
+import { ApiError, AUDIO_ACCEPT, sendFinal, sendPreview, setReleased, type Attachment, type JobInfo } from './api';
 import { expiryLine } from './saveFile';
 
 interface Props {
@@ -49,7 +49,7 @@ export const ClientFiles: React.FC<Props> = ({ jobId, producerKey, info, reload 
       <div className={`${row} border-b border-line`}>
         <div className="min-w-0 text-sm"><div className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">Preview for the client</div>{meta(info?.preview, 'None yet')}</div>
         <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => previewInput.current?.click()} leftIcon={<Upload className="h-3.5 w-3.5" />}>{info?.preview ? 'Replace' : 'Add'}</Button>
-        <input ref={previewInput} type="file" accept="audio/*" hidden aria-label="Preview file" onChange={(e) => { void upload('preview', e.target.files?.[0]); e.target.value = ''; }} />
+        <input ref={previewInput} type="file" accept={AUDIO_ACCEPT} hidden aria-label="Preview file" onChange={(e) => { void upload('preview', e.target.files?.[0]); e.target.value = ''; }} />
       </div>
       <div className={row}>
         <div className="min-w-0 text-sm"><div className="mb-0.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">{released ? <Unlock className="h-3 w-3 text-ok" aria-hidden /> : <Lock className="h-3 w-3" aria-hidden />}Final file{released ? ' · released' : info?.final ? ' · locked' : ''}</div>{meta(info?.final, 'None yet')}</div>
@@ -59,7 +59,7 @@ export const ClientFiles: React.FC<Props> = ({ jobId, producerKey, info, reload 
             : <Button size="sm" variant={armed ? 'danger' : 'primary'} onClick={() => void release(true)}>{armed ? 'Tap again to release' : 'Release'}</Button>)}
           <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => finalInput.current?.click()} leftIcon={<Upload className="h-3.5 w-3.5" />}>{info?.final ? 'Replace' : 'Add'}</Button>
         </div>
-        <input ref={finalInput} type="file" accept="audio/*" hidden aria-label="Final file" onChange={(e) => { void upload('final', e.target.files?.[0]); e.target.value = ''; }} />
+        <input ref={finalInput} type="file" accept={AUDIO_ACCEPT} hidden aria-label="Final file" onChange={(e) => { void upload('final', e.target.files?.[0]); e.target.value = ''; }} />
       </div>
       {busy && <div role="status" className="text-xs text-ink-dim">{busy}</div>}
       {error && <div role="alert" className="mt-1 text-xs text-danger">{error}</div>}

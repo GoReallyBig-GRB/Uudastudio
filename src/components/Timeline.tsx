@@ -9,6 +9,7 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
+import { isTypingTarget } from '../utils/typing';
 import { isClipLocked } from './clipLock';
 import { getPlayhead, subscribePlayhead, usePlayhead } from '../playback/playheadStore';
 import { MARKER_NAME_MAX, markerColor, markersOf, recolorMarker, removeMarker, renameMarker } from '../audio/markers';
@@ -646,10 +647,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   // Keyboard navigation & Shortcuts (S=split, Ctrl+C=copy, etc.)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
-        return;
-      }
+      if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
 
       if (e.key === 's' || e.key === 'S') {
         if (!e.ctrlKey && !e.metaKey && selectionUnitCount(project.tracks, selectedClipIds) === 1) {

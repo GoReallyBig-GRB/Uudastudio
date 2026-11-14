@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { RETENTION_MS, handleJob } from './handler';
 import { SqlRepo } from './repo';
+import { DEFAULT_MAX_TAKE_BYTES, DEFAULT_MAX_TAKE_SECONDS, parseSetting, type StorageGuard } from './storage';
 
 const newKey = (): string => {
   const b = crypto.getRandomValues(new Uint8Array(24));
@@ -12,9 +13,13 @@ const newKey = (): string => {
 /** One voice-talent job: its script, keys, message thread and audio. One of these exists per job; it deletes itself after 60 days without activity. */
 type Th = 'talent' | 'client';
 
+type RoomEnv = { JOB_REGISTRY?: DurableObjectNamespace; MAX_TAKE_BYTES?: string; MAX_TAKE_SECONDS?: string };
+
 export class JobRoom extends DurableObject {
+  private roomEnv: RoomEnv;
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx, env as never);
+    this.roomEnv = (env ?? {}) as RoomEnv;
     // Answered by the runtime without waking this object, so a quiet open page costs nothing
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
   }
@@ -36,6 +41,22 @@ export class JobRoom extends DurableObject {
     }
   }
 
+  /** Talks to the account-wide registry; absent when the binding is not configured */
+  private guard(jobId: string): StorageGuard | undefined {
+    const ns = this.roomEnv.JOB_REGISTRY;
+    if (!ns) return undefined;
+    const stub = ns.get(ns.idFromName('main'));
+    const post = (path: string, body: object) => stub.fetch(new Request(`https://registry${path}`, { method: 'POST', body: JSON.stringify(body) }));
+    return {
+      maxTakeBytes: parseSetting(this.roomEnv.MAX_TAKE_BYTES, DEFAULT_MAX_TAKE_BYTES),
+      maxTakeSeconds: parseSetting(this.roomEnv.MAX_TAKE_SECONDS, DEFAULT_MAX_TAKE_SECONDS),
+      check: async (size) => ((await (await post('/check', { size })).json()) as { refusal: string | null }).refusal,
+      report: async (bytes) => { if (bytes !== this.lastReported) { this.lastReported = bytes; await post('/set', { id: jobId, bytes }); } },
+    };
+  }
+  private lastReported = -1;
+  private jobId = '';
+
   async fetch(request: Request): Promise<Response> {
     const repo = new SqlRepo(this.ctx.storage.sql);
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
@@ -49,13 +70,17 @@ export class JobRoom extends DurableObject {
     }
     const parts = new URL(request.url).pathname.split('/').filter(Boolean); // api, jobs, <id>, ...rest
     const rest = parts.slice(3);
+    const id = parts[2] ?? '';
+    if (id && this.jobId !== id) { this.jobId = id; this.ctx.storage.kv.put('jobId', id); } // kept so the alarm knows which job to report as emptied
+    const guard = this.guard(id);
     return handleJob(request, rest, {
+      storage: guard,
       repo,
       now: () => Date.now(),
       newKey,
       touch: (thread) => { void this.ctx.storage.setAlarm(Date.now() + RETENTION_MS); this.broadcast(thread); },
       closeLive: (role) => this.closeSockets(role),
-      wipe: async () => { await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll(); },
+      wipe: async () => { await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll(); this.lastReported = -1; try { await guard?.report(0); } catch { /* advisory */ } },
     });
   }
 
@@ -64,6 +89,9 @@ export class JobRoom extends DurableObject {
 
   async alarm(): Promise<void> {
     this.closeSockets();
+    const id = this.jobId || String(this.ctx.storage.kv.get('jobId') ?? '');
     await this.ctx.storage.deleteAll();
+    this.lastReported = -1;
+    try { if (id) await this.guard(id)?.report(0); } catch { /* advisory */ }
   }
 }
