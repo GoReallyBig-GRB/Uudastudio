@@ -560,7 +560,10 @@ export const GuestPage: React.FC = () => {
                     )}
                     <div className="flex flex-wrap gap-2">
                       {remote ? (
-                        <Button size="md" variant="primary" disabled={busySending} onClick={() => void send()} leftIcon={<Send className="h-4 w-4" />}>{busySending ? `Sending ${Math.round((sending ?? 0) * 100)}%` : 'Send to producer'}</Button>
+                        <>
+                          <Button size="md" variant="primary" disabled={busySending} onClick={() => void send()} leftIcon={<Send className="h-4 w-4" />}>{busySending ? `Sending ${Math.round((sending ?? 0) * 100)}%` : 'Send to producer'}</Button>
+                          <SaveMenu look="button" label="Save WAV" folder={['Jobs', view.title || 'Recording']} name={fileFor(take)} getBlob={async () => take.blob} />
+                        </>
                       ) : (
                         <>
                           <SaveMenu look="button" label="Save WAV" folder={['Jobs', view.title || 'Recording']} name={fileFor(take)} getBlob={async () => take.blob} />
