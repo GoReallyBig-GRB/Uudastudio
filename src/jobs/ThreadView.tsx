@@ -99,19 +99,30 @@ export const ThreadView: React.FC<Props> = ({ messages, self, audioSrc, folder, 
           const joinsNext = !!next && dayKey(next.ts) === dayKey(m.ts) && next.role === m.role && next.ts - m.ts < GROUP_MS;
           if (m.event && m.event.type !== 'preview') {
             const who = m.role === self ? 'You' : m.name;
+            const t = m.event.type;
+            const good = t === 'approved' || t === 'pvapproved', ask = t === 'changes' || t === 'pvchanges';
+            const tone = good ? { chip: 'bg-ok/15 text-ok', text: 'text-ok', bar: 'border-ok/50' } : ask ? { chip: 'bg-warn/15 text-warn', text: 'text-warn', bar: 'border-warn/50' } : { chip: 'bg-accent-soft text-accent', text: 'text-accent', bar: 'border-accent/50' };
+            const icon = good ? <Check className="h-3.5 w-3.5" /> : ask ? <MessageSquareWarning className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />;
+            const label = t === 'shared' ? `${who === 'You' ? 'You shared' : `${who} shared`} the script (v${m.event.n})` : t === 'approved' ? `${who} approved v${m.event.n}` : t === 'pvapproved' ? `${who} approved the preview` : t === 'pvchanges' ? `${who} asked for changes to the preview` : `${who} asked for changes to v${m.event.n}`;
+            const note = ask ? m.text : '';
             return (
               <React.Fragment key={m.id}>
                 {newDay && <li className="my-3 self-center rounded-full bg-surface-2 px-3 py-0.5 text-[11px] font-medium text-ink-dim" aria-hidden>{dayLabel(m.ts)}</li>}
-                <li className="my-2 w-full max-w-md self-center rounded-card border border-line bg-surface-1 px-3 py-2 text-xs">
-                  <div className="flex items-center gap-2">
-                    {m.event.type === 'approved' || m.event.type === 'pvapproved' ? <Check className="h-4 w-4 shrink-0 text-ok" aria-hidden /> : m.event.type === 'changes' || m.event.type === 'pvchanges' ? <MessageSquareWarning className="h-4 w-4 shrink-0 text-warn" aria-hidden /> : <FileText className="h-4 w-4 shrink-0 text-accent" aria-hidden />}
-                    <span className="min-w-0 flex-1 font-semibold text-ink">
-                      {m.event.type === 'shared' ? `${who === 'You' ? 'You shared' : `${who} shared`} the script (version ${m.event.n})` : m.event.type === 'approved' ? `${who} approved version ${m.event.n}` : m.event.type === 'pvapproved' ? `${who} approved the preview` : m.event.type === 'pvchanges' ? `${who} asked for changes to the preview` : `${who} asked for changes to version ${m.event.n}`}
-                    </span>
-                    <span className="shrink-0 font-num text-[10px] text-ink-dim">{hm(m.ts)}</span>
+                <li className="my-3 w-full self-stretch" aria-label={`Update: ${label}`}>
+                  {/* A status update, not a message: no bubble, a coloured round icon, small text, and a hairline either side */}
+                  <div className="flex items-center gap-2.5">
+                    <span aria-hidden className="h-px flex-1 bg-line" />
+                    <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${tone.chip}`}>{icon}</span>
+                    <span className="max-w-[70%] text-center text-[11px] font-medium uppercase tracking-wide text-ink-dim"><span className={tone.text}>{label}</span><span className="ml-2 font-num normal-case text-ink-faint">{hm(m.ts)}</span></span>
+                    <span aria-hidden className="h-px flex-1 bg-line" />
                   </div>
-                  {(m.event.type === 'changes' || m.event.type === 'pvchanges') && m.text && <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-ink">{m.text}</p>}
-                  {m.event.type === 'shared' && onOpenScript && <button type="button" onClick={() => onOpenScript(m.event!.n)} className="mt-1.5 font-semibold text-accent hover:brightness-125">Read the script</button>}
+                  {note && (
+                    <div className="mx-auto mt-2 max-w-[84%]">
+                      <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Note from {m.role === self ? 'you' : m.name}</div>
+                      <p className={`whitespace-pre-wrap break-words rounded-md border-l-2 bg-surface-2/60 px-3 py-1.5 text-sm text-ink ${tone.bar}`}>{note}</p>
+                    </div>
+                  )}
+                  {m.event.type === 'shared' && onOpenScript && <div className="mt-1 text-center"><button type="button" onClick={() => onOpenScript(m.event!.n)} className="text-[11px] font-semibold text-accent hover:brightness-125">Read the script</button></div>}
                 </li>
               </React.Fragment>
             );
