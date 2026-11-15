@@ -1655,19 +1655,37 @@ export const Timeline: React.FC<TimelineProps> = ({
         className="flex-1 overflow-y-auto overflow-x-auto relative"
       >
         {project.tracks.length === 0 ? (
-          /* Empty Timeline State */
-          <div className="flex flex-col items-center justify-center h-full min-h-[360px] text-zinc-500 p-6 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-zinc-900/80 border border-zinc-800 flex items-center justify-center mb-4 text-cyan-400/80">
-              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-              </svg>
-            </div>
-            <h3 className="text-sm font-semibold text-zinc-200 mb-1">Timeline is empty</h3>
-            <p className="text-xs text-zinc-500 max-w-sm mb-4">
-              Drop audio files (.wav, .mp3, .m4a) anywhere or click <strong className="text-zinc-300">Import Audio</strong> in the top bar.
-            </p>
-            <div className="text-[11px] font-mono text-zinc-600 bg-zinc-900/60 px-3 py-1.5 rounded border border-zinc-800/80">
-              New tracks are added below the existing ones
+          /* Empty timeline: the same add button as under the last track, in the controls column and in the middle */
+          <div className="flex h-full min-h-[360px]">
+            {onAddTrack && (
+              <div className="flex shrink-0 flex-col items-center border-r border-line bg-surface-1 pt-1" style={{ width: `${currentHeaderWidth}px` }}>
+                <button
+                  type="button"
+                  onClick={onAddTrack}
+                  title="Add file"
+                  aria-label="Add file"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-ink-dim hover:bg-white/5 hover:text-accent cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+            <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
+              {onAddTrack ? (
+                <button
+                  type="button"
+                  onClick={onAddTrack}
+                  className="group flex flex-col items-center gap-2 rounded-card p-6 text-ink-faint/60 transition-colors hover:text-ink-dim cursor-pointer"
+                >
+                  <span className="flex h-14 w-14 items-center justify-center rounded-full border border-dashed border-current">
+                    <Plus className="h-6 w-6" />
+                  </span>
+                  <span className="text-sm font-medium">Add file</span>
+                  <span className="text-[11px] opacity-70">or drop audio here</span>
+                </button>
+              ) : (
+                <p className="text-sm text-ink-faint/60">Drop audio files here</p>
+              )}
             </div>
           </div>
         ) : (

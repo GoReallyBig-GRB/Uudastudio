@@ -3,7 +3,7 @@
  *
  * A template is the structure of a project with no audio in it: track names and order, volumes, plugin chains with
  * their settings, auto-duck settings, and a few labels. "New from template" turns it into an empty project ready
- * to record into. It travels as a small JSON file (.uuda-template.json) with a version number, so older files keep
+ * to record into. It travels as a small text file (.uuda-template) with a version number, so older files keep
  * opening as the format grows.
  *
  * Everything here is plain data in, plain data out: no audio, no browser APIs.
@@ -15,7 +15,7 @@ import { normalizeDucking } from '../audio/ducking';
 
 export const TEMPLATE_FORMAT = 'uuda-template';
 export const TEMPLATE_VERSION = 1;
-export const TEMPLATE_FILE_SUFFIX = '.uuda-template.json';
+export const TEMPLATE_FILE_SUFFIX = '.uuda-template';
 export const MAX_TEMPLATE_TRACKS = 64;
 export const MAX_PLUGINS_PER_CHAIN = 32;
 

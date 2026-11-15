@@ -156,7 +156,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({ isOpen, onClose,
           <input
             ref={fileRef}
             type="file"
-            accept=".json,application/json"
+            accept=".uuda-template,.json,application/vnd.uuda.template,application/json"
             className="hidden"
             onChange={(e) => {
               void handleFile(e.target.files?.[0]);

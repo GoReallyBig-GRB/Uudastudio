@@ -15,6 +15,9 @@ import { Asset, VoiceMetadata } from '../types';
 import { audioEngine } from '../audio/engine';
 import { saveAssetToDB } from '../storage/db';
 import { authService } from '../services/authService';
+import { synthesizeWithOwnKey, AUDITION_SENTENCE } from './geminiDirect';
+
+const NO_KEY_MESSAGE = 'Voice generation needs your own Gemini key. Open Settings, then Connections, and add it (it is free from Google).';
 
 export type VoiceJobStatus = 'idle' | 'sending' | 'decoding' | 'ready';
 export type VoiceJobOrigin = 'panel' | 'modal';
@@ -176,34 +179,43 @@ class VoiceJobStore {
     }, GENERATE_TIMEOUT_MS);
 
     try {
-      const response = await fetch('/api/voice/generate', {
-        method: 'POST',
-        headers: authService.getAuthHeaders(),
-        credentials: 'same-origin',
-        signal: controller.signal,
-        body: JSON.stringify({
-          script: cleanScript,
-          voiceName: req.voiceName,
-          modelId: req.modelId,
-          instruction: directorNotes,
-        }),
-      });
+      const ownKey = authService.getOwnGeminiKey();
+      let audioBytes: ArrayBuffer;
+      if (ownKey) {
+        audioBytes = await synthesizeWithOwnKey({ key: ownKey, script: cleanScript, voiceName: req.voiceName, modelId: req.modelId, instruction: directorNotes, signal: controller.signal });
+        this.set({ status: 'decoding', progressMsg: 'Preparing audio for the timeline...' });
+      } else {
+        const response = await fetch('/api/voice/generate', {
+          method: 'POST',
+          headers: authService.getAuthHeaders(),
+          credentials: 'same-origin',
+          signal: controller.signal,
+          body: JSON.stringify({
+            script: cleanScript,
+            voiceName: req.voiceName,
+            modelId: req.modelId,
+            instruction: directorNotes,
+          }),
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        if (response.status === 401) throw new Error('Sign in with Google is required to generate voiceovers.');
-        if (response.status === 403) throw new Error(errorData.error || 'This account has been blocked. Contact support.');
-        if (response.status === 429) {
-          throw new Error(errorData.error || 'Gemini TTS rate limit reached. Please wait a moment and retry.');
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          if (response.status === 503) throw new Error(NO_KEY_MESSAGE);
+          if (response.status === 401) throw new Error('Sign in with Google is required to generate voiceovers.');
+          if (response.status === 403) throw new Error(errorData.error || 'This account has been blocked. Contact support.');
+          if (response.status === 429) {
+            throw new Error(errorData.error || 'Gemini TTS rate limit reached. Please wait a moment and retry.');
+          }
+          throw new Error(errorData.error || `Voice synthesis failed (${response.status})`);
         }
-        throw new Error(errorData.error || `Voice synthesis failed (${response.status})`);
+
+        this.set({ status: 'decoding', progressMsg: 'Preparing audio for the timeline...' });
+        const result = await response.json();
+        if (!result.audioBase64) throw new Error('Engine returned empty audio payload.');
+        audioBytes = base64ToBytes(result.audioBase64).buffer as ArrayBuffer;
       }
 
-      this.set({ status: 'decoding', progressMsg: 'Preparing audio for the timeline...' });
-      const result = await response.json();
-      if (!result.audioBase64) throw new Error('Engine returned empty audio payload.');
-
-      const decoded = await audioEngine.decodeAudio(base64ToBytes(result.audioBase64).buffer as ArrayBuffer);
+      const decoded = await audioEngine.decodeAudio(audioBytes);
       if (!decoded || decoded.duration <= 0.2) {
         throw new Error('The voice engine returned empty audio. Nothing was added to the timeline. Please try again.');
       }
@@ -342,19 +354,27 @@ class VoiceJobStore {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), AUDITION_TIMEOUT_MS);
     try {
-      const res = await fetch(`/api/voice/preview?voice=${encodeURIComponent(voiceName)}`, {
-        headers: authService.getAuthHeaders(),
-        credentials: 'same-origin',
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Audition failed (${res.status})`);
+      const ownKey = authService.getOwnGeminiKey();
+      let bytes: ArrayBuffer;
+      if (ownKey) {
+        bytes = await synthesizeWithOwnKey({ key: ownKey, script: AUDITION_SENTENCE, voiceName, modelId: 'gemini-3.8-flash-lite-tts', signal: controller.signal, attempts: 2 });
+      } else {
+        const res = await fetch(`/api/voice/preview?voice=${encodeURIComponent(voiceName)}`, {
+          headers: authService.getAuthHeaders(),
+          credentials: 'same-origin',
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (res.status === 503) throw new Error(NO_KEY_MESSAGE);
+          throw new Error(body.error || `Audition failed (${res.status})`);
+        }
+        const data = await res.json();
+        if (!data.audioBase64) throw new Error('No audio returned for the audition.');
+        bytes = base64ToBytes(data.audioBase64).buffer as ArrayBuffer;
       }
-      const data = await res.json();
-      if (!data.audioBase64) throw new Error('No audio returned for the audition.');
 
-      const decoded = await audioEngine.decodeAudio(base64ToBytes(data.audioBase64).buffer as ArrayBuffer);
+      const decoded = await audioEngine.decodeAudio(bytes);
       if (token !== this.auditionToken) return; // stopped or replaced while loading
       const ctx = await audioEngine.init();
       const src = ctx.createBufferSource();

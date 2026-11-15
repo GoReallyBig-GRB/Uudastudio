@@ -3,6 +3,7 @@
  * Transport (Play, Pause, Stop), Timecode display, Edit Menu, Zoom, Settings, and Import Audio.
  */
 
+import { installApp, useCanInstallApp } from '../pwa/install';
 import React, { useRef, useState, useEffect } from 'react';
 import {
   Play,
@@ -239,6 +240,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [isEditMenuOpen, setIsEditMenuOpen] = useState(false);
   const [isEffectsMenuOpen, setIsEffectsMenuOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
+  const canInstall = useCanInstallApp();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
@@ -399,10 +401,12 @@ export const Header: React.FC<HeaderProps> = ({
               <FileMenuItem icon={<Save className="w-4 h-4" />} label="Save Project to Computer" onClick={onSaveProjectToFile} />
               {onSaveProjectAs && <FileMenuItem icon={<Save className="w-4 h-4" />} label="Save As..." onClick={onSaveProjectAs} />}
               {onSaveAsTemplate && <FileMenuItem icon={<LayoutTemplate className="w-4 h-4" />} label="Save as Template..." onClick={onSaveAsTemplate} />}
+              <FileMenuItem icon={<AudioWaveform className="w-4 h-4" />} label="Mixdown to Audio File..." title="Mix every track into one WAV or MP3 file" onClick={onOpenExport} />
               <FileMenuItem icon={<Edit3 className="w-4 h-4" />} label="Rename Project" onClick={() => window.dispatchEvent(new CustomEvent('uuda:rename-project'))} />
 
               <div className="h-px bg-line my-1" />
 
+              {canInstall && <FileMenuItem icon={<Download className="w-4 h-4" />} label="Install Uuda Studio App..." title="Opens saved .uuda files with a double-click, in this browser where you are already signed in" onClick={() => { void installApp(); }} />}
               {/* Set up */}
               {onChooseProjectRoot && <FileMenuItem icon={<FolderArchive className="w-4 h-4" />} label={projectRootDirectoryName ? `Uuda Studio Folder: ${projectRootDirectoryName}...` : 'Choose Uuda Studio Folder...'} onClick={onChooseProjectRoot} />}
               <FileMenuItem

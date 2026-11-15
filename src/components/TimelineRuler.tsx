@@ -27,7 +27,7 @@ const PlayheadTime: React.FC = () => <>{formatTimecode(usePlayhead())}</>;
 
 // The ruler is drawn on a canvas, which cannot use CSS classes, so read the design tokens once.
 // Fallbacks match the token values so a missing stylesheet still draws a sensible ruler.
-interface RulerColors { bg: string; bgBottom: string; border: string; tickMajor: string; tickMinor: string; label: string; labelStrong: string; accent: string; gold: string }
+interface RulerColors { bg: string; border: string; tickMajor: string; tickMinor: string; label: string; labelStrong: string; accent: string; gold: string }
 let rulerColorCache: RulerColors | null = null;
 function getRulerColors(): RulerColors {
   if (rulerColorCache) return rulerColorCache;
@@ -35,7 +35,6 @@ function getRulerColors(): RulerColors {
   const tok = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
   rulerColorCache = {
     bg: tok('--color-surface-1', '#101012'),
-    bgBottom: tok('--color-surface-0', '#0a0a0b'),
     border: tok('--color-line-strong', 'rgb(255 255 255 / 0.13)'),
     tickMajor: tok('--color-ink-faint', '#6b6b72'),
     tickMinor: tok('--color-line-strong', 'rgb(255 255 255 / 0.13)'),
@@ -88,11 +87,8 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     const colors = getRulerColors();
     ctx.clearRect(0, 0, width, height);
 
-    // Background: a soft step from the panel tone at the top to the app tone at the bottom
-    const bg = ctx.createLinearGradient(0, 0, 0, height);
-    bg.addColorStop(0, colors.bg);
-    bg.addColorStop(1, colors.bgBottom);
-    ctx.fillStyle = bg;
+    // One flat background colour for the whole ruler
+    ctx.fillStyle = colors.bg;
     ctx.fillRect(0, 0, width, height);
 
     // Calculate visible time window
@@ -102,18 +98,6 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     const firstMajorIndex = Math.floor(startTime / majorStepSec);
     const lastMajorIndex = Math.ceil(endTime / majorStepSec);
     const minuteStep = Math.max(1, Math.round(60 / majorStepSec)); // whole minutes, when the step divides a minute
-
-    // Time blocks: every other major interval gets a faint cyan wash, so the scale reads as blocks
-    ctx.globalAlpha = 0.07;
-    ctx.fillStyle = colors.accent;
-    for (let tickIndex = firstMajorIndex; tickIndex <= lastMajorIndex; tickIndex++) {
-      if (tickIndex % 2 !== 0) continue;
-      const x0 = tickIndex * majorStepSec * pixelsPerSecond - scrollLeft;
-      const x1 = (tickIndex + 1) * majorStepSec * pixelsPerSecond - scrollLeft;
-      if (x1 < 0 || x0 > width) continue;
-      ctx.fillRect(x0, 0, x1 - x0, height - 1);
-    }
-    ctx.globalAlpha = 1;
 
     // Bottom border
     ctx.fillStyle = colors.border;

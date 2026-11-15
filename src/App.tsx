@@ -112,7 +112,8 @@ import { withPluginStates, restorePluginStates, hasSavedPlugins, isRestoringPlug
 import { TemplatesModal } from './components/TemplatesModal';
 import { SaveTemplateModal } from './components/SaveTemplateModal';
 import { saveCloudTemplate, TemplateSyncError } from './templates/templateApi';
-import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, UudaTemplate } from './templates/template';
+import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, parseTemplate, UudaTemplate } from './templates/template';
+import { onLaunchedFiles } from './pwa/fileLaunch';
 import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
 import { VoiceoverModal } from './components/VoiceoverModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -152,7 +153,7 @@ function collectReferencedAssetIdsForUi(project: Project): Set<string> {
 
 const DEFAULT_PROJECT: Project = {
   id: 'project-default',
-  name: 'Broadcast Spot Session 1',
+  name: 'Untitled Project',
   tracks: [], // Starts EMPTY as per non-negotiable requirement
   sampleRate: 48000,
   settings: {
@@ -1274,6 +1275,19 @@ const MainStudio: React.FC = () => {
     [handleSaveProjectToFile, isPlaying, setProjectWithHistory, addToast],
   );
 
+  // Double-clicking a .uuda or .uuda-template file opens it here when Uuda Studio is installed as an app
+  const launchHandlersRef = useRef<{ openProject: (f: File) => unknown; useTemplate: (t: UudaTemplate, save: boolean) => unknown } | null>(null);
+  useEffect(() => {
+    onLaunchedFiles(async (file, kind) => {
+      const h = launchHandlersRef.current;
+      if (!h) return;
+      if (kind === 'project') { await h.openProject(file); return; }
+      const parsed = parseTemplate(await file.text());
+      if (!parsed.ok) { addToast({ type: 'error', title: 'Could Not Open Template', message: parsed.error }); return; }
+      h.useTemplate(parsed.template, false);
+    });
+  }, [addToast]);
+
   const handleSaveAsTemplate = useCallback(
     async (meta: { name: string; description: string; tags: string[]; toFile: boolean; toAccount: boolean }) => {
       try {
@@ -1292,7 +1306,7 @@ const MainStudio: React.FC = () => {
           }
         }
         if (meta.toFile) {
-          const blob = new Blob([serializeTemplate(template)], { type: 'application/json' });
+          const blob = new Blob([serializeTemplate(template)], { type: 'application/vnd.uuda.template' });
           const saved = await saveOrDownload(blob, templateFileName(template), ['Templates']);
           done.push(saved.inFolder ? `saved to ${saved.where}` : `downloaded as "${templateFileName(template)}"`);
         }
@@ -1467,6 +1481,8 @@ const MainStudio: React.FC = () => {
       return false;
     }
   }, [isPlaying, addToast, project, updateHistoryFlags]);
+
+  launchHandlersRef.current = { openProject: handleOpenProjectFromFile, useTemplate: handleUseTemplate };
 
 
   const [rootPicker, setRootPicker] = useState<{ folderName: string; handles: ProjectDirectoryFileHandle[] } | null>(null);
