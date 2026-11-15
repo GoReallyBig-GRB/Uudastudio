@@ -4,11 +4,10 @@ import { D1TemplateStore, MemoryTemplateStore, type D1Full } from './store';
 import { MemoryUserStore } from '../auth/users';
 import { issueSession } from '../auth/session';
 import { makeLimiter } from '../auth/rateLimit';
-import { BUILT_IN_TEMPLATES } from '../../src/templates/builtIn';
-import { serializeTemplate } from '../../src/templates/template';
 
 const SECRET = 'test-secret-test-secret-test-secret-0123456789';
-const good = () => JSON.parse(serializeTemplate(BUILT_IN_TEMPLATES[0]));
+// A small valid template, written out so this test does not pull the browser-only plugin code into the Worker type-check
+const good = () => ({ format: 'uuda-template', version: 1, id: 'tpl-base', name: 'Base', description: 'Two voices', tags: ['podcast'], createdAt: 1792713600000, tracks: [{ name: 'Host', customName: true, role: 'voice', volume: 1, pan: 0 }, { name: 'Guest', customName: true, role: 'voice', volume: 1, pan: 0 }] });
 const ORIGIN = 'https://uuda.test';
 
 const setup = async (extra: Partial<TemplateEnv> = {}) => {
