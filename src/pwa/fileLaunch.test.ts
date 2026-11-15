@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import { launchedKind } from './fileLaunch';
 describe('launched files', () => {
   it('tells projects from templates by extension', () => {

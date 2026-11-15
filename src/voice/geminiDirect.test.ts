@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import { explainGeminiFailure, pcmToWav, synthesizeWithOwnKey } from './geminiDirect';
 
 const pcmB64 = (n: number) => btoa(String.fromCharCode(...new Uint8Array(n).fill(3)));
