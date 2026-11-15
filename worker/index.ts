@@ -1,5 +1,9 @@
 export { JobRoom } from "./jobs/jobRoom";
 export { JobRegistry } from "./jobs/jobRegistry";
+import { handleAuth, type AuthEnv } from "./auth/handler";
+import { D1UserStore, type D1Like } from "./auth/users";
+import { makeLimiter } from "./auth/rateLimit";
+import { fetchGoogleKeys, keyCache } from "./auth/verifyIdToken";
 
 export interface Env {
   ASSETS: Fetcher;
@@ -13,6 +17,14 @@ export interface Env {
   MAX_TAKE_SECONDS?: string;
   /** Optional. If set, creating a job needs this code (typed once in the Jobs panel). */
   JOBS_CREATE_CODE?: string;
+  /** Accounts (Cloudflare D1). With FIREBASE_PROJECT_ID and SESSION_SECRET, this Worker handles sign-in itself. */
+  AUTH_DB?: D1Like;
+  /** The Firebase project the browser signs in with (a public id, not a secret) */
+  FIREBASE_PROJECT_ID?: string;
+  /** Secret that signs session tokens. Set with `wrangler secret put SESSION_SECRET` (or the dashboard). Never in the repository. */
+  SESSION_SECRET?: string;
+  /** This email becomes the admin account */
+  SUPER_ADMIN_EMAIL?: string;
   /**
    * Public origin of the existing Uuda Studio API service, e.g.
    * https://your-service-xxxxx-uc.a.run.app
@@ -24,6 +36,17 @@ export interface Env {
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 
+// Google's signing keys are kept for as long as Google allows, per isolate
+const googleKeys = keyCache(fetchGoogleKeys);
+// At most 10 sign-in attempts a minute per address, per Worker instance
+const signInLimiter = makeLimiter(10, 60_000);
+
+/** Sign-in is handled here only when its database, project id and secret are all set; otherwise /api/auth/* goes to API_ORIGIN as before */
+const authEnv = (env: Env): AuthEnv | null =>
+  env.AUTH_DB && env.FIREBASE_PROJECT_ID && env.SESSION_SECRET
+    ? { store: new D1UserStore(env.AUTH_DB), projectId: env.FIREBASE_PROJECT_ID, sessionSecret: env.SESSION_SECRET, superAdminEmail: env.SUPER_ADMIN_EMAIL, keys: googleKeys, now: Date.now, limiter: signInLimiter, caller: (r) => r.headers.get("cf-connecting-ip") ?? "unknown" }
+    : null;
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const incoming = new URL(request.url);
@@ -31,6 +54,14 @@ export default {
     // Voice-talent jobs live here, not on the Express API.
     if (incoming.pathname === "/api/jobs" || incoming.pathname.startsWith("/api/jobs/")) {
       return handleJobs(request, incoming, env);
+    }
+
+    // Sign-in
+    if (incoming.pathname.startsWith("/api/auth/")) {
+      const a = authEnv(env);
+      const rest = incoming.pathname.slice("/api/auth/".length).split("/").filter(Boolean);
+      // Routes this Worker implements; the rest (admin codes, tickets, account deletion) still go to API_ORIGIN
+      if (a && ["google", "session", "me", "signout", "profile"].includes(rest[0] ?? "") && rest.length === 1) return handleAuth(request, rest, a);
     }
 
     // Keep the existing Express API as the origin while Cloudflare serves the app.

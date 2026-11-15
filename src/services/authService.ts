@@ -27,6 +27,8 @@ class AuthService {
   private unreadTicketsCount = 0;
   private isAdminVerified = false;
   private isInitializing = true;
+  /** True while signInWithFirebaseGoogle is doing the sign-in, so the auth observer does not repeat it */
+  private popupSignInActive = false;
 
   // Credential Isolation: strictly scoped volatile memory to prevent third-party WAM scripts from reading sensitive tokens
   private volatileToken: string | null = null;
@@ -119,13 +121,14 @@ class AuthService {
     if (typeof window === 'undefined') return;
 
     onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser && this.popupSignInActive) return; // the sign-in in progress finishes itself and notifies
       if (fbUser) {
         try {
           const idToken = await fbUser.getIdToken();
           this.volatileToken = idToken;
 
-          // Sync with Firestore user document
-          await this.syncFirestoreUserProfile(fbUser);
+          // Background copy of the profile; the page does not wait for it
+          void this.syncFirestoreUserProfile(fbUser);
 
           // Authenticate with server to fetch user record & roles
           await this.syncWithBackend(idToken, {
@@ -360,29 +363,37 @@ class AuthService {
   }> {
     try {
       googleProvider.setCustomParameters({ prompt: 'select_account' });
-      let userCredential;
+      let fbUser: import('firebase/auth').User;
+      // While this runs it does the server sign-in itself, so the auth observer must not do a second one
+      this.popupSignInActive = true;
 
       try {
-        userCredential = await signInWithPopup(auth, googleProvider);
+        fbUser = (await signInWithPopup(auth, googleProvider)).user;
       } catch (popupErr: any) {
-        // If popup was blocked or failed due to iframe constraints, fall back to redirect
-        if (
-          popupErr.code === 'auth/popup-blocked' ||
-          popupErr.code === 'auth/popup-closed-by-user' ||
-          popupErr.code === 'auth/cancelled-popup-request'
-        ) {
-          console.info('Popup constrained, falling back to signInWithRedirect...');
+        if (popupErr.code === 'auth/popup-blocked') {
+          // Only a blocked popup falls back to a full-page redirect. A closed or cancelled popup must not open a second Google screen.
+          console.info('Popup blocked, falling back to signInWithRedirect...');
+          this.popupSignInActive = false;
           await signInWithRedirect(auth, googleProvider);
           throw new Error('Redirecting to Google Sign-In...');
         }
-        throw popupErr;
+        if (popupErr.code === 'auth/popup-closed-by-user') {
+          // Some browsers close the popup just as it finishes, so Firebase reports it closed although the sign-in went through.
+          // Give it a moment: if Firebase has the person signed in, carry on; otherwise they really closed it.
+          for (let i = 0; i < 10 && !auth.currentUser; i++) await new Promise((r) => setTimeout(r, 200));
+          if (!auth.currentUser) { this.popupSignInActive = false; throw popupErr; }
+          fbUser = auth.currentUser;
+        } else {
+          this.popupSignInActive = false;
+          throw popupErr;
+        }
       }
 
-      const fbUser = userCredential.user;
       const idToken = await fbUser.getIdToken();
       this.volatileToken = idToken;
 
-      await this.syncFirestoreUserProfile(fbUser);
+      // Not waited for: it is a background copy of the profile and used to hold the sign-in up by a full round trip
+      void this.syncFirestoreUserProfile(fbUser);
 
       // Authenticate with server
       const res = await fetch('/api/auth/google', {
@@ -422,6 +433,8 @@ class AuthService {
     } catch (err: unknown) {
       console.error('Firebase Google Sign-In Error:', err);
       throw err;
+    } finally {
+      this.popupSignInActive = false;
     }
   }
 

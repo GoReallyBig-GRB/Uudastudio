@@ -319,7 +319,7 @@ export const GuestPage: React.FC = () => {
     if (!view?.talent) writeStore(NAME_KEY, name.trim());
     setError(''); setSending(0);
     try {
-      const sent = await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: who(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n') }, (f) => setSending(f));
+      const sent = await sendAudio(remote.jobId, remote.key, take.blob, { name: fileFor(take), who: who(), text: [sendNote.trim(), take.capture].filter(Boolean).join('\n\n'), seconds: Math.ceil(take.seconds) }, (f) => setSending(f));
       await dropTake();
       setSendNote(''); setSentCount((n) => n + 1); const until = expiryLine(sent.attachment?.expiresAt);
       setNotice(`Sent. The producer can hear it now. You can record another take.${until ? ` ${until.text}` : ''}`);

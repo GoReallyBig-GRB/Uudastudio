@@ -97,6 +97,7 @@ import { analysisIsCurrent, masteringKey, mixFingerprint, normalizeMastering, ty
 import { toChainSettings } from './audio/masteringSettings';
 import { useAuth } from './hooks/useAuth';
 import { SignInPage } from './components/auth/SignInPage';
+import { MAX_AUTH_WAIT_MS, startView } from './auth/startView';
 import { UserDashboard } from './components/dashboard/UserDashboard';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { PluginsRackModal } from './components/PluginsRackModal';
@@ -166,17 +167,32 @@ const DEFAULT_PROJECT: Project = {
 const MainStudio: React.FC = () => {
   perfCount('App render');
   const { addToast, removeToast } = useToast();
-  const { user, isAdmin, unreadTicketsCount } = useAuth();
+  const { user, isAdmin, unreadTicketsCount, isLoading: authLoading } = useAuth();
 
-  const [currentView, setCurrentView] = useState<'studio' | 'auth' | 'dashboard' | 'admin'>(() => {
-    // If user has not signed in and has not dismissed guest mode in this session, start at auth
-    if (typeof window !== 'undefined') {
-      const hasToken = localStorage.getItem('uuda_session_token');
-      const isGuest = sessionStorage.getItem('uuda_guest_mode') === 'true';
-      if (!hasToken && !isGuest) return 'auth';
-    }
-    return 'studio';
-  });
+  // The sign-in page is shown only after the app has checked whether this browser is already signed in (see bootDone below)
+  const [currentView, setCurrentView] = useState<'studio' | 'auth' | 'dashboard' | 'admin'>('studio');
+  // Which screen to open on is decided once the saved login has been checked (see src/auth/startView.ts).
+  // Without this the sign-in page flashed on every reload, even when signed in.
+  const [bootDone, setBootDone] = useState(false);
+  const [waitedMs, setWaitedMs] = useState(0);
+  useEffect(() => {
+    if (bootDone) return;
+    const t = window.setTimeout(() => setWaitedMs(MAX_AUTH_WAIT_MS), MAX_AUTH_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [bootDone]);
+  useEffect(() => {
+    if (bootDone) return;
+    let guest = false;
+    try { guest = sessionStorage.getItem('uuda_guest_mode') === 'true'; } catch { /* storage unavailable */ }
+    const v = startView({ checking: authLoading, signedIn: !!user, guest, waitedMs });
+    if (v === 'wait') return;
+    setBootDone(true);
+    setCurrentView(v);
+  }, [authLoading, bootDone, user, waitedMs]);
+  // A check that finishes after the wait limit: leave the sign-in page for the studio once the login turns up
+  useEffect(() => {
+    if (bootDone && user && currentView === 'auth') setCurrentView('studio');
+  }, [bootDone, user, currentView]);
   const [adminCodePreview, setAdminCodePreview] = useState<string | undefined>(undefined);
 
   const [project, setProject] = useState<Project>(DEFAULT_PROJECT);
@@ -3953,6 +3969,10 @@ const MainStudio: React.FC = () => {
   const totalClips = project.tracks.reduce((acc, t) => acc + t.clips.length, 0);
 
   // Full-Page View Routing
+  if (!bootDone) {
+    // Checking the saved login: show nothing but the app background, so no sign-in page flashes
+    return <div className="fixed inset-0 bg-surface-0" aria-busy="true" />;
+  }
   if (currentView === 'auth') {
     return (
       <SignInPage

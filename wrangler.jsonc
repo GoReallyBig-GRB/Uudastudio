@@ -10,6 +10,11 @@
       "zone_name": "goreallybig.com"
     }
   ],
+  // The Firebase project the browser signs in with. A public id, not a secret.
+  // Sign-in on this Worker also needs the AUTH_DB (D1) binding and the SESSION_SECRET secret; until both exist it stays off.
+  "vars": { "FIREBASE_PROJECT_ID": "gen-lang-client-0557048278" },
+  // Accounts database (Cloudflare D1). The id is not a secret.
+  "d1_databases": [{ "binding": "AUTH_DB", "database_name": "uuda-auth", "database_id": "0d4edaa7-c1ba-4078-8cc5-d688978e9c44" }],
   "durable_objects": {
     "bindings": [
       { "name": "JOB_ROOM", "class_name": "JobRoom" },
