@@ -7,6 +7,7 @@
 import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { Asset, FreesoundItem } from '../types';
 import { audioEngine } from '../audio/engine';
+import { FREESOUND_CONNECTED_KEY, FREESOUND_STATE_KEY } from '../freesound/oauthReturn';
 import { saveAssetToDB } from '../storage/db';
 
 export interface SoundSource {
@@ -54,8 +55,6 @@ export interface SharedSoundState {
   isExchangingCode: boolean;
 }
 
-const TOKEN_STORAGE_KEY = 'xpro_freesound_token';
-
 // Singleton shared audio element for preview so only one preview plays at any time
 let sharedAudioPreview: HTMLAudioElement | null = null;
 
@@ -64,10 +63,9 @@ class SharedSoundStore {
   private listeners = new Set<() => void>();
 
   constructor() {
-    let token: string | null = null;
-    if (typeof window !== 'undefined') {
-      token = sessionStorage.getItem(TOKEN_STORAGE_KEY);
-    }
+    // The connection belongs to the signed-in Uuda account and is kept on the server, so the token is never written to
+    // browser storage: it is asked for after sign-in and forgotten on sign-out or when a different account signs in.
+    const token: string | null = null;
 
     this.state = {
       query: '',
@@ -93,10 +91,15 @@ class SharedSoundStore {
 
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', (e) => {
-        if (e.key === TOKEN_STORAGE_KEY) {
-          this.state = { ...this.state, userToken: e.newValue };
-          this.notify();
+        // A connection was just made in another tab (Freesound sends the person back to a new tab): pick it up here
+        if (e.key === FREESOUND_CONNECTED_KEY && e.newValue) {
+          this.setState({ isConnectModalOpen: false, connectError: null });
+          void this.restoreConnection(true);
         }
+      });
+      // Signing out, or a different account signing in: the previous person's connection must not carry over
+      window.addEventListener('uuda:auth-changed', (e) => {
+        void this.handleSignedInUser((e as CustomEvent).detail?.user?.id ?? null);
       });
     }
   }
@@ -118,13 +121,6 @@ class SharedSoundStore {
   }
 
   public setUserToken(token: string | null) {
-    if (typeof window !== 'undefined') {
-      if (token) {
-        sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-      } else {
-        sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-      }
-    }
     this.setState({ userToken: token });
   }
 
@@ -217,7 +213,8 @@ class SharedSoundStore {
       params.set('page', String(page));
       params.set('pageSize', String(pageSize));
 
-      const res = await fetch(`/api/freesound/search?${params.toString()}`);
+      // Connected: search with the person's own Freesound token (their own quota). Not connected: the server uses Uuda's shared key.
+      const res = await fetch(`/api/freesound/search?${params.toString()}`, this.state.userToken ? { headers: { Authorization: `Bearer ${this.state.userToken}` } } : undefined);
 
       if (res.status === 429) {
         const data = await res.json().catch(() => ({}));
@@ -259,6 +256,8 @@ class SharedSoundStore {
       if (res.ok) {
         const data = await res.json();
         if (data.authUrl) {
+          // Remembered so the return from Freesound can be checked against it (see src/freesound/oauthReturn.ts)
+          try { if (data.state) localStorage.setItem(FREESOUND_STATE_KEY, String(data.state)); } catch { /* storage unavailable */ }
           this.setState({ authUrl: data.authUrl });
           return data.authUrl;
         }
@@ -270,6 +269,46 @@ class SharedSoundStore {
       console.warn('Could not fetch Freesound OAuth URL', err);
     }
     return null;
+  }
+
+  private lastRestore = 0;
+  private signedInId: string | null = null;
+
+  /** Called whenever the signed-in account may have changed. Only a real change (sign-out, or a different account) does anything. */
+  public async handleSignedInUser(id: string | null): Promise<void> {
+    if (id === this.signedInId) return;
+    this.signedInId = id;
+    this.lastRestore = 0;
+    if (this.state.userToken) this.setState({ userToken: null });
+    if (id) await this.restoreConnection(true);
+  }
+
+  /**
+   * Asks the server for the person's Freesound connection. The server keeps it and renews it, so once connected nobody
+   * is asked again. Nothing happens for someone who is not signed in or not connected.
+   */
+  public async restoreConnection(force = false): Promise<string | null> {
+    const now = Date.now();
+    if (!force && now - this.lastRestore < 60_000) return this.state.userToken;
+    this.lastRestore = now;
+    try {
+      const res = await fetch('/api/freesound/oauth/session', { method: 'POST' });
+      if (res.status === 401) { if (this.state.userToken) this.setUserToken(null); return null; } // not signed in: no connection
+      if (!res.ok) return this.state.userToken;
+      const data = await res.json();
+      if (data.connected && data.access_token) {
+        if (data.access_token !== this.state.userToken) this.setUserToken(data.access_token);
+        return data.access_token as string;
+      }
+      if (this.state.userToken) this.setUserToken(null);
+    } catch { /* offline: keep what is there */ }
+    return null;
+  }
+
+  /** Disconnects here and on the server (the stored connection is deleted) */
+  public async disconnect(): Promise<void> {
+    this.setUserToken(null);
+    try { await fetch('/api/freesound/oauth/session', { method: 'DELETE' }); } catch { /* the server copy goes on the next try */ }
   }
 
   public async exchangeCode(code: string): Promise<boolean> {
@@ -327,11 +366,13 @@ class SharedSoundStore {
     });
 
     try {
-      const res = await fetch(`/api/freesound/download/${item.id}`, {
-        headers: {
-          Authorization: `Bearer ${this.state.userToken}`,
-        },
-      });
+      const get = (token: string) => fetch(`/api/freesound/download/${item.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      let res = await get(this.state.userToken);
+      if (res.status === 401) {
+        // The access token lasts 24 hours; the server renews it from the saved connection, so try once more before asking the person
+        const fresh = await this.restoreConnection(true);
+        if (fresh) res = await get(fresh);
+      }
 
       if (res.status === 401) {
         this.setUserToken(null);
@@ -399,8 +440,11 @@ export function useFreesound() {
     sharedSoundStore.getSnapshot
   );
 
+  useEffect(() => { void sharedSoundStore.restoreConnection(); }, []);
+
   return {
     ...state,
+    disconnect: () => sharedSoundStore.disconnect(),
     setQuery: (q: string) => sharedSoundStore.setState({ query: q }),
     setSelectedTag: (tag: string) => sharedSoundStore.setState({ selectedTag: tag }),
     setDurationFilter: (d: 'any' | 'short' | 'medium' | 'long') =>

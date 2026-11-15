@@ -417,6 +417,30 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Once recording starts, the setup window gets out of the way: a slim bar keeps the timeline in view
+  if (isRecording) {
+    return (
+      <div className="pointer-events-none fixed inset-x-0 bottom-14 z-[100] flex justify-center px-4">
+        <div role="status" className="pointer-events-auto flex items-center gap-4 rounded-full border border-danger/50 bg-surface-1/95 py-2 pl-4 pr-2 shadow-float backdrop-blur-sm">
+          <span className="flex items-center gap-2 text-[10px] font-semibold text-danger">
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-danger" />
+            RECORDING
+          </span>
+          <span className="font-mono text-base font-bold tabular-nums text-ink">{formatTimecode(elapsedSeconds)}</span>
+          <canvas ref={meterCanvasRef} width={160} height={10} className="h-2.5 w-40 rounded-full bg-surface-0" />
+          <button
+            type="button"
+            onClick={handleStopRecording}
+            className="flex items-center gap-2 rounded-full bg-danger px-4 py-2 text-xs font-bold text-white cursor-pointer hover:brightness-110"
+          >
+            <Square className="h-3.5 w-3.5 fill-current" />
+            <span>Stop</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 select-none animate-in fade-in duration-150">
       <div className="bg-[#101016] border border-line rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-ink max-h-[calc(100dvh-1.5rem)] md:h-[92dvh]">

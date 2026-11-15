@@ -165,8 +165,8 @@ describe('template files', () => {
   it('serializing leaves out the builtIn flag and names files safely', () => {
     const t: UudaTemplate = { ...BUILT_IN_TEMPLATES[0] };
     expect(serializeTemplate(t)).not.toContain('builtIn');
-    expect(templateFileName({ ...t, name: 'My / show: v2' })).toBe('My_show_v2.uuda-template.json');
-    expect(templateFileName({ ...t, name: '***' })).toBe('template.uuda-template.json');
+    expect(templateFileName({ ...t, name: 'My / show: v2' })).toBe('My_show_v2.uuda-template');
+    expect(templateFileName({ ...t, name: '***' })).toBe('template.uuda-template');
   });
 });
 

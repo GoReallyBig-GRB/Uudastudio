@@ -22,6 +22,17 @@ import {
   db as firestoreDb,
 } from './firebase';
 
+const GEMINI_KEY_PREFIX = 'uuda_gemini_key:';
+function readStoredGeminiKey(userId: string): string | null {
+  try { return window.localStorage.getItem(GEMINI_KEY_PREFIX + userId) || null; } catch { return null; }
+}
+function writeStoredGeminiKey(userId: string, key: string | null): void {
+  try {
+    if (key) window.localStorage.setItem(GEMINI_KEY_PREFIX + userId, key);
+    else window.localStorage.removeItem(GEMINI_KEY_PREFIX + userId);
+  } catch { /* storage unavailable: the key stays in memory for this visit */ }
+}
+
 class AuthService {
   private currentUser: UserRecord | null = null;
   private unreadTicketsCount = 0;
@@ -33,6 +44,7 @@ class AuthService {
   // Credential Isolation: strictly scoped volatile memory to prevent third-party WAM scripts from reading sensitive tokens
   private volatileToken: string | null = null;
   private volatileGeminiKey: string | null = null;
+  private keyOwnerId: string | null = null;
 
   constructor() {
     this.setupFirebaseObserver();
@@ -278,6 +290,7 @@ class AuthService {
 
   public setOwnGeminiKey(key: string | null) {
     this.volatileGeminiKey = key && key.trim() ? key.trim() : null;
+    if (this.keyOwnerId) writeStoredGeminiKey(this.keyOwnerId, this.volatileGeminiKey);
     this.notifyAuthChanged();
   }
 
@@ -297,6 +310,12 @@ class AuthService {
   }
 
   private notifyAuthChanged() {
+    // A personal Gemini key belongs to the account that added it: load that account's own key, or none after sign-out
+    const id = this.currentUser?.id ?? null;
+    if (id !== this.keyOwnerId) {
+      this.keyOwnerId = id;
+      this.volatileGeminiKey = id ? readStoredGeminiKey(id) : null;
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('uuda:auth-changed', {
@@ -469,6 +488,7 @@ class AuthService {
     } catch (e) {
       console.warn('Sign-out exception:', e);
     } finally {
+      if (this.keyOwnerId) writeStoredGeminiKey(this.keyOwnerId, null);
       this.volatileToken = null;
       this.volatileGeminiKey = null;
       this.currentUser = null;

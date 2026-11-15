@@ -12,7 +12,6 @@ import { Asset, FreesoundItem } from '../types';
 import { audioEngine } from '../audio/engine';
 import { useFreesound } from '../hooks/useFreesound';
 import { Button } from './ui/Button';
-import { Input } from './ui/Input';
 import { ModalShell } from './ui/ModalShell';
 import { FIELD, pill, notice, PanelHeader, ExpandRow } from './sidebarParts';
 
@@ -47,7 +46,7 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
     setSearchError,
     rateLimitInfo,
     userToken,
-    setUserToken,
+    disconnect,
     currentPlayingId,
     downloadingId,
     downloadStatusMsg,
@@ -55,16 +54,13 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
     setIsConnectModalOpen,
     authUrl,
     connectError,
-    isExchangingCode,
     search,
     togglePreview,
     stopPreview,
     fetchAuthUrl,
-    exchangeCode,
     addToTimeline,
   } = useFreesound();
 
-  const [authCodeInput, setAuthCodeInput] = useState('');
 
   // Close connect modal on Escape key
   useEffect(() => {
@@ -111,11 +107,6 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
     fetchAuthUrl();
   };
 
-  const handleExchangeCode = async () => {
-    const ok = await exchangeCode(authCodeInput.trim());
-    if (ok) setAuthCodeInput('');
-  };
-
   const handleAddToTimeline = (item: FreesoundItem) => {
     addToTimeline(item, onAddLibraryTrack);
   };
@@ -154,10 +145,7 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
             {userToken ? (
               <button
                 type="button"
-                onClick={() => {
-                  sessionStorage.removeItem('xpro_freesound_token');
-                  setUserToken(null);
-                }}
+                onClick={() => { void disconnect(); }}
                 className={pill()}
               >
                 Disconnect
@@ -287,14 +275,7 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
         title="Connect Freesound account"
         description="Needed to download the original, full-quality audio onto your timeline."
         size="sm"
-        footer={
-          <>
-            <Button variant="ghost" size="sm" onClick={() => setIsConnectModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" size="sm" disabled={isExchangingCode || !authCodeInput.trim()} onClick={handleExchangeCode}>
-              {isExchangingCode ? 'Connecting...' : 'Connect and enable downloads'}
-            </Button>
-          </>
-        }
+        footer={<Button variant="ghost" size="sm" onClick={() => setIsConnectModalOpen(false)}>Cancel</Button>}
       >
         <ol className="space-y-3 text-xs text-ink-dim">
           <li className="flex items-start gap-2.5">
@@ -306,27 +287,19 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
                   <span>Open the Freesound authorization page</span>
                 </a>
               ) : (
-                <span>Log in to your free Freesound.org account.</span>
+                <button type="button" onClick={fetchAuthUrl} className={pill(true, 'h-8')}>Load the authorization link</button>
               )}
             </div>
           </li>
           <li className="flex items-start gap-2.5">
             <span className="font-num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong text-[10px] text-ink">2</span>
-            <span>Choose <strong className="text-ink">Authorize</strong> to let Uuda Studio download CC0 sounds.</span>
+            <span>Log in to Freesound, or press <strong className="text-ink">Join</strong> to create a free account. Then choose <strong className="text-ink">Authorize</strong> to let Uuda Studio download CC0 sounds.</span>
           </li>
           <li className="flex items-start gap-2.5">
             <span className="font-num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong text-[10px] text-ink">3</span>
-            <span>Copy the code Freesound shows you and paste it here.</span>
+            <span>Freesound sends you back to Uuda and the connection is made for you. Return to this tab; downloads switch on by themselves.</span>
           </li>
         </ol>
-        <div className="mt-4">
-          <Input
-            label="Authorization code"
-            value={authCodeInput}
-            onChange={(e) => setAuthCodeInput(e.target.value)}
-            placeholder="Paste the code here"
-          />
-        </div>
         {connectError && <div className={`${notice('danger')} mt-3`} role="alert">{connectError}</div>}
       </ModalShell>,
       document.body,

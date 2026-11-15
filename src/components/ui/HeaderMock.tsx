@@ -30,7 +30,7 @@ export const HeaderMock: React.FC<{ variant: CapsuleVariant }> = ({ variant }) =
           <Capsule label="Project" variant={variant}>
             <CapsuleButton title="File menu" icon={<FolderOpen className={I} />}>File<ChevronDown className="h-3 w-3 text-ink-faint" /></CapsuleButton>
           </Capsule>
-          <span className="truncate text-sm font-medium text-ink">Broadcast Spot Session 1</span>
+          <span className="truncate text-sm font-medium text-ink">Untitled Project</span>
           <Capsule label="Edit and effects" variant={variant}>
             <CapsuleButton title="Edit menu">Edit<ChevronDown className="h-3 w-3 text-ink-faint" /></CapsuleButton>
             <CapsuleButton title="Effects menu" icon={<Sparkles className={I} />}>Effects<ChevronDown className="h-3 w-3 text-ink-faint" /></CapsuleButton>

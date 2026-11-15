@@ -7,9 +7,24 @@
  */
 
 import { parseTemplate } from '../src/templates/template';
-import type { DataStore, ServerTemplate } from './store';
 
-export type TemplateStore = Pick<DataStore, 'saveTemplate' | 'getTemplatesForUser' | 'deleteTemplate'>;
+/** One saved template as storage holds it. The Express store's `ServerTemplate` has the same shape. */
+export interface StoredTemplate {
+  id: string;
+  user_id: string;
+  name: string;
+  size_bytes: number;
+  data: any;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The three storage calls the rules need: implemented by the Express stores and by the Worker's D1 store */
+export interface TemplateStore {
+  saveTemplate(userId: string, templateId: string, name: string, data: unknown): Promise<StoredTemplate>;
+  getTemplatesForUser(userId: string): Promise<StoredTemplate[]>;
+  deleteTemplate(userId: string, templateId: string): Promise<boolean>;
+}
 
 export const MAX_TEMPLATES_PER_USER = 50;
 export const MAX_TEMPLATE_BYTES = 200_000;
@@ -29,7 +44,7 @@ export interface ServiceResult<T> {
   body: T | { error: string };
 }
 
-function toItem(t: ServerTemplate): TemplateItem {
+function toItem(t: StoredTemplate): TemplateItem {
   return { id: t.id, name: t.name, createdAt: t.created_at, updatedAt: t.updated_at, sizeBytes: t.size_bytes, template: t.data };
 }
 
@@ -51,7 +66,7 @@ export async function upsertUserTemplate(store: TemplateStore, userId: string, r
   const id = ID_PATTERN.test(template.id) ? template.id : `tpl-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
   const stored = { ...template, id };
 
-  const bytes = Buffer.byteLength(JSON.stringify(stored), 'utf8');
+  const bytes = new TextEncoder().encode(JSON.stringify(stored)).length;
   if (bytes > MAX_TEMPLATE_BYTES) {
     return { status: 413, body: { error: `That template is too large (limit ${Math.round(MAX_TEMPLATE_BYTES / 1000)} KB).` } };
   }

@@ -1,9 +1,13 @@
 export { JobRoom } from "./jobs/jobRoom";
 export { JobRegistry } from "./jobs/jobRegistry";
 import { handleAuth, type AuthEnv } from "./auth/handler";
-import { D1UserStore, type D1Like } from "./auth/users";
+import { D1UserStore } from "./auth/users";
 import { makeLimiter } from "./auth/rateLimit";
 import { fetchGoogleKeys, keyCache } from "./auth/verifyIdToken";
+import { handleTemplates } from "./templates/handler";
+import { D1TemplateStore, type D1Full } from "./templates/store";
+import { handleFreesound } from "./freesound/handler";
+import { D1TokenStore, makeSealer } from "./freesound/tokens";
 
 export interface Env {
   ASSETS: Fetcher;
@@ -18,7 +22,11 @@ export interface Env {
   /** Optional. If set, creating a job needs this code (typed once in the Jobs panel). */
   JOBS_CREATE_CODE?: string;
   /** Accounts (Cloudflare D1). With FIREBASE_PROJECT_ID and SESSION_SECRET, this Worker handles sign-in itself. */
-  AUTH_DB?: D1Like;
+  AUTH_DB?: D1Full;
+  /** Freesound sound library. FREESOUND_CLIENT_SECRET is a secret (Freesound's "Client Secret" and "API key" are the same string; FREESOUND_API_KEY also works); FREESOUND_CLIENT_ID is a plain variable. */
+  FREESOUND_API_KEY?: string;
+  FREESOUND_CLIENT_ID?: string;
+  FREESOUND_CLIENT_SECRET?: string;
   /** The Firebase project the browser signs in with (a public id, not a secret) */
   FIREBASE_PROJECT_ID?: string;
   /** Secret that signs session tokens. Set with `wrangler secret put SESSION_SECRET` (or the dashboard). Never in the repository. */
@@ -42,6 +50,9 @@ const googleKeys = keyCache(fetchGoogleKeys);
 const signInLimiter = makeLimiter(10, 60_000);
 
 /** Sign-in is handled here only when its database, project id and secret are all set; otherwise /api/auth/* goes to API_ORIGIN as before */
+const templateLimits = { list: makeLimiter(60, 60_000), write: makeLimiter(30, 60_000) };
+const freesoundLimits = { search: makeLimiter(50, 60_000), sharedSearch: makeLimiter(15, 60_000), other: makeLimiter(30, 60_000) };
+
 const authEnv = (env: Env): AuthEnv | null =>
   env.AUTH_DB && env.FIREBASE_PROJECT_ID && env.SESSION_SECRET
     ? { store: new D1UserStore(env.AUTH_DB), projectId: env.FIREBASE_PROJECT_ID, sessionSecret: env.SESSION_SECRET, superAdminEmail: env.SUPER_ADMIN_EMAIL, keys: googleKeys, now: Date.now, limiter: signInLimiter, caller: (r) => r.headers.get("cf-connecting-ip") ?? "unknown" }
@@ -62,6 +73,27 @@ export default {
       const rest = incoming.pathname.slice("/api/auth/".length).split("/").filter(Boolean);
       // Routes this Worker implements; the rest (admin codes, tickets, account deletion) still go to API_ORIGIN
       if (a && ["google", "session", "me", "signout", "profile"].includes(rest[0] ?? "") && rest.length === 1) return handleAuth(request, rest, a);
+    }
+
+    // Liveness only: which keys are set is not public information
+    if (incoming.pathname === "/api/health" && request.method === "GET") {
+      return new Response(JSON.stringify({ status: "ok", timestamp: Date.now() }), { headers: { ...jsonHeaders, "cache-control": "no-store" } });
+    }
+
+    // Templates and the sound library need sign-in, so they run here only when sign-in does; otherwise they go to API_ORIGIN as before
+    if (incoming.pathname === "/api/templates" || incoming.pathname.startsWith("/api/templates/")) {
+      const a = authEnv(env);
+      if (a && env.AUTH_DB) {
+        const rest = incoming.pathname.slice("/api/templates".length).split("/").filter(Boolean);
+        return handleTemplates(request, rest, { auth: a, templates: new D1TemplateStore(env.AUTH_DB), limits: templateLimits });
+      }
+    }
+    if (incoming.pathname.startsWith("/api/freesound/")) {
+      const a = authEnv(env);
+      if (a) {
+        const rest = incoming.pathname.slice("/api/freesound/".length).split("/").filter(Boolean);
+        return handleFreesound(request, rest, { auth: a, apiKey: env.FREESOUND_API_KEY, clientId: env.FREESOUND_CLIENT_ID, clientSecret: env.FREESOUND_CLIENT_SECRET, tokens: env.AUTH_DB ? new D1TokenStore(env.AUTH_DB, makeSealer(a.sessionSecret)) : undefined, limits: freesoundLimits });
+      }
     }
 
     // Keep the existing Express API as the origin while Cloudflare serves the app.

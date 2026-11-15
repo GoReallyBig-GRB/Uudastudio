@@ -1,0 +1,32 @@
+{
+  "name": "Uuda Studio",
+  "short_name": "Uuda Studio",
+  "description": "Browser-based audio studio for broadcast and podcast producers.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0b",
+  "theme_color": "#0a0a0b",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "file_handlers": [
+    {
+      "action": "/",
+      "name": "Uuda Studio project",
+      "accept": { "application/vnd.uuda.project": [".uuda"] },
+      "icons": [{ "src": "/icons/file-project.png", "sizes": "256x256", "type": "image/png" }],
+      "launch_type": "single-client"
+    },
+    {
+      "action": "/",
+      "name": "Uuda Studio template",
+      "accept": { "application/vnd.uuda.template": [".uuda-template"] },
+      "icons": [{ "src": "/icons/file-template.png", "sizes": "256x256", "type": "image/png" }],
+      "launch_type": "single-client"
+    }
+  ]
+}

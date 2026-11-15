@@ -112,7 +112,8 @@ import { withPluginStates, restorePluginStates, hasSavedPlugins, isRestoringPlug
 import { TemplatesModal } from './components/TemplatesModal';
 import { SaveTemplateModal } from './components/SaveTemplateModal';
 import { saveCloudTemplate, TemplateSyncError } from './templates/templateApi';
-import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, UudaTemplate } from './templates/template';
+import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, parseTemplate, UudaTemplate } from './templates/template';
+import { onLaunchedFiles } from './pwa/fileLaunch';
 import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
 import { VoiceoverModal } from './components/VoiceoverModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -152,7 +153,7 @@ function collectReferencedAssetIdsForUi(project: Project): Set<string> {
 
 const DEFAULT_PROJECT: Project = {
   id: 'project-default',
-  name: 'Broadcast Spot Session 1',
+  name: 'Untitled Project',
   tracks: [], // Starts EMPTY as per non-negotiable requirement
   sampleRate: 48000,
   settings: {
@@ -212,6 +213,7 @@ const MainStudio: React.FC = () => {
   const [trackImportProgress, setTrackImportProgress] = useState<{ progress: number; fileName: string } | null>(null);
   const [isTrackImportIndicatorDismissed, setIsTrackImportIndicatorDismissed] = useState<boolean>(false);
   const isTrackImportIndicatorDismissedRef = useRef<boolean>(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const trackImportProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const importCancelledRef = useRef<boolean>(false);
   const streamImportCancelRef = useRef<(() => void) | null>(null);
@@ -1274,6 +1276,19 @@ const MainStudio: React.FC = () => {
     [handleSaveProjectToFile, isPlaying, setProjectWithHistory, addToast],
   );
 
+  // Double-clicking a .uuda or .uuda-template file opens it here when Uuda Studio is installed as an app
+  const launchHandlersRef = useRef<{ openProject: (f: File) => unknown; useTemplate: (t: UudaTemplate, save: boolean) => unknown } | null>(null);
+  useEffect(() => {
+    onLaunchedFiles(async (file, kind) => {
+      const h = launchHandlersRef.current;
+      if (!h) return;
+      if (kind === 'project') { await h.openProject(file); return; }
+      const parsed = parseTemplate(await file.text());
+      if (!parsed.ok) { addToast({ type: 'error', title: 'Could Not Open Template', message: parsed.error }); return; }
+      h.useTemplate(parsed.template, false);
+    });
+  }, [addToast]);
+
   const handleSaveAsTemplate = useCallback(
     async (meta: { name: string; description: string; tags: string[]; toFile: boolean; toAccount: boolean }) => {
       try {
@@ -1292,7 +1307,7 @@ const MainStudio: React.FC = () => {
           }
         }
         if (meta.toFile) {
-          const blob = new Blob([serializeTemplate(template)], { type: 'application/json' });
+          const blob = new Blob([serializeTemplate(template)], { type: 'application/vnd.uuda.template' });
           const saved = await saveOrDownload(blob, templateFileName(template), ['Templates']);
           done.push(saved.inFolder ? `saved to ${saved.where}` : `downloaded as "${templateFileName(template)}"`);
         }
@@ -1467,6 +1482,8 @@ const MainStudio: React.FC = () => {
       return false;
     }
   }, [isPlaying, addToast, project, updateHistoryFlags]);
+
+  launchHandlersRef.current = { openProject: handleOpenProjectFromFile, useTemplate: handleUseTemplate };
 
 
   const [rootPicker, setRootPicker] = useState<{ folderName: string; handles: ProjectDirectoryFileHandle[] } | null>(null);
@@ -4193,31 +4210,14 @@ const MainStudio: React.FC = () => {
         onPick={(index) => void handlePickRootProject(index)}
         onClose={() => setRootPicker(null)}
       />
-      {trackImportProgress && !isTrackImportIndicatorDismissed && (
-        <ProgressIndicator
-          variant="floating"
-          fraction={Math.max(0, Math.min(100, trackImportProgress.progress)) / 100}
-          label={`Uploading ${trackImportProgress.fileName}`}
-          cancelLabel="Cancel upload"
-          onDismiss={() => {
-            isTrackImportIndicatorDismissedRef.current = true;
-            setIsTrackImportIndicatorDismissed(true);
-            if (trackImportProgressTimerRef.current) {
-              clearInterval(trackImportProgressTimerRef.current);
-              trackImportProgressTimerRef.current = null;
-            }
-          }}
-          onCancel={() => {
-            importCancelledRef.current = true;
-            streamImportCancelRef.current?.();
-            if (trackImportProgressTimerRef.current) {
-              clearInterval(trackImportProgressTimerRef.current);
-              trackImportProgressTimerRef.current = null;
-            }
-            setTrackImportProgress(null);
-          }}
-        />
-      )}
+      <input
+        ref={importInputRef}
+        type="file"
+        multiple
+        accept=".wav,.mp3,.m4a,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a"
+        onChange={(e) => { if (e.target.files?.length) void handleImportFiles(e.target.files); e.target.value = ''; }}
+        className="hidden"
+      />
           {isTimelineViewCollapsed ? (
             <div className="flex-1 flex flex-col h-full overflow-hidden p-3 bg-[#0c0c11]">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800">
@@ -4268,6 +4268,23 @@ const MainStudio: React.FC = () => {
           ) : (
             <Timeline
               onAddTrack={handleAddEmptyTrack}
+              onImportFile={() => importInputRef.current?.click()}
+              overlay={trackImportProgress && !isTrackImportIndicatorDismissed ? (
+        <ProgressIndicator
+          fraction={Math.max(0, Math.min(100, trackImportProgress.progress)) / 100}
+          label={`Uploading ${trackImportProgress.fileName}`}
+          cancelLabel="Cancel upload"
+          onCancel={() => {
+            importCancelledRef.current = true;
+            streamImportCancelRef.current?.();
+            if (trackImportProgressTimerRef.current) {
+              clearInterval(trackImportProgressTimerRef.current);
+              trackImportProgressTimerRef.current = null;
+            }
+            setTrackImportProgress(null);
+          }}
+        />
+              ) : undefined}
               project={project}
               pixelsPerSecond={pixelsPerSecond}
               onViewportWidthChange={setTimelineViewportWidth}

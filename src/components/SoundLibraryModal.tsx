@@ -10,7 +10,6 @@ import { Search, Play, Pause, ExternalLink, Download, Radio, ChevronLeft, Chevro
 import { Asset, FreesoundItem } from '../types';
 import { useFreesound, SoundSource } from '../hooks/useFreesound';
 import { Button } from './ui/Button';
-import { Input } from './ui/Input';
 import { ModalShell } from './ui/ModalShell';
 import { SegmentedControl } from './ui/SegmentedControl';
 import { FIELD, pill, notice } from './sidebarParts';
@@ -77,19 +76,16 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
     isConnectModalOpen,
     authUrl,
     connectError,
-    isExchangingCode,
     setIsConnectModalOpen,
     search,
     togglePreview,
     stopPreview,
     fetchAuthUrl,
-    exchangeCode,
     addToTimeline,
   } = useFreesound();
 
   const [localQuery, setLocalQuery] = useState(query);
   const [selectedItem, setSelectedItem] = useState<FreesoundItem | null>(null);
-  const [authCodeInput, setAuthCodeInput] = useState('');
   const [selectedSourceId, setSelectedSourceId] = useState('freesound');
 
   // Synchronize local search input if query changed externally
@@ -430,47 +426,32 @@ export const SoundLibraryModal: React.FC<SoundLibraryModalProps> = ({
         title="Connect Freesound account"
         description="Needed to download sounds onto your timeline. You can search and preview without it."
         size="sm"
-        footer={
-          <>
-            <Button variant="ghost" size="sm" onClick={() => setIsConnectModalOpen(false)}>Cancel</Button>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={isExchangingCode || !authCodeInput.trim()}
-              loading={isExchangingCode}
-              onClick={async () => {
-                const ok = await exchangeCode(authCodeInput.trim());
-                if (ok) setAuthCodeInput('');
-              }}
-            >
-              Authorize and save
-            </Button>
-          </>
-        }
+        footer={<Button variant="ghost" size="sm" onClick={() => setIsConnectModalOpen(false)}>Cancel</Button>}
       >
-        <p className="text-xs leading-relaxed text-ink-dim">
-          Freesound needs a free authorization code to give you the full-quality original file.
-        </p>
+        <ol className="space-y-3 text-xs text-ink-dim">
+          <li className="flex items-start gap-2.5">
+            <span className="font-num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong text-[10px] text-ink">1</span>
+            <div className="flex-1">
+              {authUrl ? (
+                <a href={authUrl} target="_blank" rel="noopener noreferrer" className={pill(true, 'h-8')}>
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Open the Freesound authorization page</span>
+                </a>
+              ) : (
+                <button type="button" onClick={fetchAuthUrl} className={pill(true, 'h-8')}>Load the authorization link</button>
+              )}
+            </div>
+          </li>
+          <li className="flex items-start gap-2.5">
+            <span className="font-num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong text-[10px] text-ink">2</span>
+            <span>Log in to Freesound, or press <strong className="text-ink">Join</strong> to create a free account. Then choose <strong className="text-ink">Authorize</strong> to let Uuda Studio download CC0 sounds.</span>
+          </li>
+          <li className="flex items-start gap-2.5">
+            <span className="font-num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong text-[10px] text-ink">3</span>
+            <span>Freesound sends you back to Uuda and the connection is made for you. Return to this tab; downloads switch on by themselves.</span>
+          </li>
+        </ol>
         {connectError && <div className={`${notice('danger')} mt-3`} role="alert">{connectError}</div>}
-        <div className="mt-4 space-y-4">
-          <div>
-            <span className={label}>Step 1</span>
-            {authUrl ? (
-              <a href={authUrl} target="_blank" rel="noopener noreferrer" className={pill(true, 'h-8')}>
-                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>Open the Freesound authorization page</span>
-              </a>
-            ) : (
-              <button type="button" onClick={fetchAuthUrl} className={pill(true, 'h-8')}>Load the authorization link</button>
-            )}
-          </div>
-          <Input
-            label="Step 2: paste the authorization code"
-            value={authCodeInput}
-            onChange={(e) => setAuthCodeInput(e.target.value)}
-            placeholder="Paste the code here"
-          />
-        </div>
       </ModalShell>
     </>
   );

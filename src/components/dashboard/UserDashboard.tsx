@@ -46,6 +46,8 @@ interface UserDashboardProps {
 
 export type TabType = 'account' | 'preferences' | 'connections' | 'usage' | 'projects' | 'support' | 'privacy';
 
+const maskKey = (k: string): string => (k.length > 8 ? `${k.slice(0, 4)}••••••••${k.slice(-4)}` : '••••••••');
+
 export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, onOpenProject, initialTab }) => {
   const { user, signOut, updateProfile, deleteAccount, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'account');
@@ -65,7 +67,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
   const [prefsSuccessMsg, setPrefsSuccessMsg] = useState<string | null>(null);
 
   // Connections State
-  const [ownKey, setOwnKey] = useState(authService.getOwnGeminiKey() || '');
+  const [ownKey, setOwnKey] = useState('');
+  const [hasOwnKey, setHasOwnKey] = useState(Boolean(authService.getOwnGeminiKey()));
   const [freesoundEnabled, setFreesoundEnabled] = useState(false);
   const [keySavedMsg, setKeySavedMsg] = useState<string | null>(null);
 
@@ -204,14 +207,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
   // 3. Own Gemini Key Save
   const handleSaveOwnKey = () => {
     authService.setOwnGeminiKey(ownKey);
-    setKeySavedMsg('Key saved strictly in this browser.');
+    setOwnKey('');
+    setHasOwnKey(true);
+    setKeySavedMsg('Gemini voice is connected.');
     setTimeout(() => setKeySavedMsg(null), 3000);
   };
 
   const handleRemoveOwnKey = () => {
     authService.setOwnGeminiKey(null);
     setOwnKey('');
-    setKeySavedMsg('Key removed. Using standard shared free quota.');
+    setHasOwnKey(false);
+    setKeySavedMsg('Gemini voice is disconnected.');
     setTimeout(() => setKeySavedMsg(null), 3000);
   };
 
@@ -696,49 +702,55 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
 
               {/* Own Gemini API Key */}
               <div className="bg-surface-2 border border-line rounded-card p-6 space-y-4">
-                <div className="flex items-center gap-2">
-                  <Key className="w-4 h-4 text-accent" />
-                  <h3 className="text-sm font-bold text-ink">Own Gemini API Key (Optional)</h3>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Key className="w-4 h-4 text-accent" />
+                    <h3 className="text-sm font-bold text-ink">Gemini Voice</h3>
+                  </div>
+                  {hasOwnKey ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-ok text-surface-0 border border-ok">Active</span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-ink-faint border border-line">Not connected</span>
+                  )}
                 </div>
                 <p className="text-xs text-ink-dim leading-relaxed">
-                  By default, signed-in users share Google's standard free-tier quotas. You can optionally paste your own Google Gemini API key to use your own personal quota.
+                  {hasOwnKey
+                    ? 'Voiceovers are made with your own Gemini key, using your own free quota.'
+                    : 'Paste your own free Gemini key from Google to generate voiceovers.'}
                 </p>
 
-                <div className="p-3 rounded-control bg-surface-1 border border-line/80 text-[11px] text-ink-dim">
-                  <strong className="text-ink-dim font-semibold">Security Policy: </strong>
-                  Your personal API key is stored <span className="text-accent font-medium">strictly in this browser</span>. It is sent per request over HTTPS and is never logged or stored on the server.
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-ink-dim mb-1">Gemini API Key</label>
-                  <input
-                    type="password"
-                    placeholder="AIzaSy..."
-                    value={ownKey}
-                    onChange={(e) => setOwnKey(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-surface-1 border border-line-strong rounded-control text-xs text-ink font-mono focus:outline-hidden focus:border-accent"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleSaveOwnKey}
-                    disabled={!ownKey.trim()}
-                    className="px-4 py-2 rounded-control bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    Save Key to Browser
-                  </button>
-                  {authService.getOwnGeminiKey() && (
+                {hasOwnKey ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-mono text-xs text-ink-dim">{maskKey(authService.getOwnGeminiKey() || '')}</span>
                     <button
                       type="button"
                       onClick={handleRemoveOwnKey}
-                      className="px-3 py-2 rounded-control bg-surface-2 hover:bg-danger/10 text-ink-dim hover:text-danger text-xs font-medium transition-colors cursor-pointer"
+                      className="px-3 py-2 rounded-control bg-surface-1 hover:bg-danger/10 text-ink-dim hover:text-danger text-xs font-medium transition-colors cursor-pointer"
                     >
-                      Remove Key
+                      Disconnect
                     </button>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <input
+                      type="password"
+                      aria-label="Gemini API key"
+                      placeholder="AIzaSy..."
+                      value={ownKey}
+                      onChange={(e) => setOwnKey(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-surface-1 border border-line-strong rounded-control text-xs text-ink font-mono focus:outline-hidden focus:border-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveOwnKey}
+                      disabled={!ownKey.trim()}
+                      className="px-4 py-2 rounded-control bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      Connect
+                    </button>
+                  </div>
+                )}
+
               </div>
 
               {/* Freesound Connection (Shown only when flag is ON) */}
