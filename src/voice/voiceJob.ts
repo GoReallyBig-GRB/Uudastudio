@@ -17,6 +17,22 @@ import { saveAssetToDB } from '../storage/db';
 import { authService } from '../services/authService';
 import { synthesizeWithOwnKey, AUDITION_SENTENCE } from './geminiDirect';
 
+// The same voice should sound the same every time it is auditioned, so each sample is kept once in this browser
+const AUDITION_CACHE = 'uuda-voice-auditions-v1';
+async function readAudition(voice: string): Promise<ArrayBuffer | null> {
+  try {
+    if (typeof caches === 'undefined') return null;
+    const hit = await (await caches.open(AUDITION_CACHE)).match(`/__audition/${encodeURIComponent(voice)}`);
+    return hit ? await hit.arrayBuffer() : null;
+  } catch { return null; }
+}
+async function keepAudition(voice: string, wav: ArrayBuffer): Promise<void> {
+  try {
+    if (typeof caches === 'undefined') return;
+    await (await caches.open(AUDITION_CACHE)).put(`/__audition/${encodeURIComponent(voice)}`, new Response(wav.slice(0)));
+  } catch { /* the sample is simply made again next time */ }
+}
+
 const NO_KEY_MESSAGE = 'Voice generation needs your own Gemini key. Open Settings, then Connections, and add it (it is free from Google).';
 
 export type VoiceJobStatus = 'idle' | 'sending' | 'decoding' | 'ready';
@@ -357,7 +373,13 @@ class VoiceJobStore {
       const ownKey = authService.getOwnGeminiKey();
       let bytes: ArrayBuffer;
       if (ownKey) {
-        bytes = await synthesizeWithOwnKey({ key: ownKey, script: AUDITION_SENTENCE, voiceName, modelId: 'gemini-3.8-flash-lite-tts', signal: controller.signal, attempts: 2 });
+        const kept = await readAudition(voiceName);
+        if (kept) {
+          bytes = kept;
+        } else {
+          bytes = await synthesizeWithOwnKey({ key: ownKey, script: AUDITION_SENTENCE, voiceName, modelId: 'gemini-3.8-flash-lite-tts', signal: controller.signal, attempts: 2 });
+          void keepAudition(voiceName, bytes);
+        }
       } else {
         const res = await fetch(`/api/voice/preview?voice=${encodeURIComponent(voiceName)}`, {
           headers: authService.getAuthHeaders(),

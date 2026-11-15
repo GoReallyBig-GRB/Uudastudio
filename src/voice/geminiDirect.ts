@@ -18,6 +18,55 @@ export interface GeminiSpeechRequest {
   fetchImpl?: typeof fetch;
 }
 
+/**
+ * Guards against a burst of static after the voice: if the clip ends with a short, noise-like stretch
+ * (many zero crossings) that follows a clear gap after the speech, it is cut off. The last 30 ms always
+ * fades out so the clip never ends on a click.
+ */
+export function cleanTail(pcm: Uint8Array, rate: number): Uint8Array {
+  const total = Math.floor(pcm.length / 2);
+  const view = new DataView(pcm.buffer, pcm.byteOffset, total * 2);
+  const win = Math.max(1, Math.round(rate * 0.01));
+  const count = Math.floor(total / win);
+  if (count < 20) return pcm.subarray(0, total * 2);
+  const rms: number[] = []; const zcr: number[] = [];
+  for (let w = 0; w < count; w++) {
+    let sum = 0; let cross = 0; let prev = view.getInt16(w * win * 2, true);
+    for (let i = 0; i < win; i++) {
+      const v = view.getInt16((w * win + i) * 2, true);
+      sum += v * v;
+      if ((v >= 0) !== (prev >= 0)) cross++;
+      prev = v;
+    }
+    rms.push(Math.sqrt(sum / win)); zcr.push(cross / win);
+  }
+  const loudest = Math.max(...rms);
+  const quiet = (w: number) => rms[w] < loudest * 0.03;
+  let end = count;
+  // trailing run of non-quiet windows = candidate burst
+  let k = 0;
+  while (end - k - 1 >= 0 && !quiet(end - k - 1)) k++;
+  if (k > 0 && k <= 40) {
+    const burstStart = end - k;
+    let gap = 0;
+    while (burstStart - gap - 1 >= 0 && quiet(burstStart - gap - 1)) gap++;
+    let meanZcr = 0;
+    for (let w = burstStart; w < end; w++) meanZcr += zcr[w];
+    meanZcr /= k;
+    if (gap >= 4 && burstStart - gap > 0 && meanZcr > 0.25) end = burstStart - gap;
+  }
+  let samples = Math.min(total, end * win);
+  // also drop a quiet tail longer than needed: keep up to 150 ms of silence
+  const out = new Uint8Array(pcm.subarray(0, samples * 2));
+  const dv = new DataView(out.buffer);
+  const fade = Math.min(samples, Math.round(rate * 0.03));
+  for (let i = 0; i < fade; i++) {
+    const at = (samples - fade + i) * 2;
+    dv.setInt16(at, Math.round(dv.getInt16(at, true) * (1 - (i + 1) / fade)), true);
+  }
+  return out;
+}
+
 /** Wraps raw 16-bit mono PCM in a WAV header so any decoder can read it */
 export function pcmToWav(pcm: Uint8Array, sampleRate: number, channels = 1): ArrayBuffer {
   const out = new ArrayBuffer(44 + pcm.length);
@@ -83,7 +132,7 @@ export async function synthesizeWithOwnKey(req: GeminiSpeechRequest): Promise<Ar
       const rate = Number(/rate=(\d+)/.exec(String(audio.mimeType ?? ''))?.[1]) || 24000;
       const pcm = base64ToBytes(audio.data);
       if (pcm.length < 2400) throw new Error('Gemini returned almost no audio.');
-      return pcmToWav(pcm, rate);
+      return pcmToWav(cleanTail(pcm, rate), rate);
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') throw e;
       last = e instanceof Error ? e : new Error(String(e));

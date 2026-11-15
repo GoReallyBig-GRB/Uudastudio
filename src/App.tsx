@@ -213,6 +213,7 @@ const MainStudio: React.FC = () => {
   const [trackImportProgress, setTrackImportProgress] = useState<{ progress: number; fileName: string } | null>(null);
   const [isTrackImportIndicatorDismissed, setIsTrackImportIndicatorDismissed] = useState<boolean>(false);
   const isTrackImportIndicatorDismissedRef = useRef<boolean>(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const trackImportProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const importCancelledRef = useRef<boolean>(false);
   const streamImportCancelRef = useRef<(() => void) | null>(null);
@@ -4209,31 +4210,14 @@ const MainStudio: React.FC = () => {
         onPick={(index) => void handlePickRootProject(index)}
         onClose={() => setRootPicker(null)}
       />
-      {trackImportProgress && !isTrackImportIndicatorDismissed && (
-        <ProgressIndicator
-          variant="floating"
-          fraction={Math.max(0, Math.min(100, trackImportProgress.progress)) / 100}
-          label={`Uploading ${trackImportProgress.fileName}`}
-          cancelLabel="Cancel upload"
-          onDismiss={() => {
-            isTrackImportIndicatorDismissedRef.current = true;
-            setIsTrackImportIndicatorDismissed(true);
-            if (trackImportProgressTimerRef.current) {
-              clearInterval(trackImportProgressTimerRef.current);
-              trackImportProgressTimerRef.current = null;
-            }
-          }}
-          onCancel={() => {
-            importCancelledRef.current = true;
-            streamImportCancelRef.current?.();
-            if (trackImportProgressTimerRef.current) {
-              clearInterval(trackImportProgressTimerRef.current);
-              trackImportProgressTimerRef.current = null;
-            }
-            setTrackImportProgress(null);
-          }}
-        />
-      )}
+      <input
+        ref={importInputRef}
+        type="file"
+        multiple
+        accept=".wav,.mp3,.m4a,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a"
+        onChange={(e) => { if (e.target.files?.length) void handleImportFiles(e.target.files); e.target.value = ''; }}
+        className="hidden"
+      />
           {isTimelineViewCollapsed ? (
             <div className="flex-1 flex flex-col h-full overflow-hidden p-3 bg-[#0c0c11]">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800">
@@ -4284,6 +4268,23 @@ const MainStudio: React.FC = () => {
           ) : (
             <Timeline
               onAddTrack={handleAddEmptyTrack}
+              onImportFile={() => importInputRef.current?.click()}
+              overlay={trackImportProgress && !isTrackImportIndicatorDismissed ? (
+        <ProgressIndicator
+          fraction={Math.max(0, Math.min(100, trackImportProgress.progress)) / 100}
+          label={`Uploading ${trackImportProgress.fileName}`}
+          cancelLabel="Cancel upload"
+          onCancel={() => {
+            importCancelledRef.current = true;
+            streamImportCancelRef.current?.();
+            if (trackImportProgressTimerRef.current) {
+              clearInterval(trackImportProgressTimerRef.current);
+              trackImportProgressTimerRef.current = null;
+            }
+            setTrackImportProgress(null);
+          }}
+        />
+              ) : undefined}
               project={project}
               pixelsPerSecond={pixelsPerSecond}
               onViewportWidthChange={setTimelineViewportWidth}

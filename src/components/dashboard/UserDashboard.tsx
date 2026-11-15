@@ -751,9 +751,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                   </div>
                 )}
 
-                <p className="text-[11px] text-ink-faint leading-relaxed">
-                  The key stays in this browser, tied to this account, and goes only to Google. It is removed when you sign out.
-                </p>
               </div>
 
               {/* Freesound Connection (Shown only when flag is ON) */}

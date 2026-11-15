@@ -40,6 +40,10 @@ import { planDragMove, selectionForPointerDown } from './clipDragPlan';
 interface TimelineProps {
   /** Adds an empty track under the last one */
   onAddTrack?: () => void;
+  /** Opens the file picker; used by the Add file buttons on an empty timeline */
+  onImportFile?: () => void;
+  /** Shown centred over the timeline (e.g. the import progress bar) */
+  overlay?: React.ReactNode;
   /** Join mode: the order in which clips were picked (clip id -> 1, 2, 3...). While onJoinPick is set, clicking a clip picks it instead of selecting or dragging. */
   joinBadges?: Map<string, number>;
   onJoinPick?: (clipId: string) => void;
@@ -318,6 +322,8 @@ const PlayheadOverlay: React.FC<{
 export const Timeline: React.FC<TimelineProps> = ({
   joinBadges,
   onAddTrack,
+  onImportFile,
+  overlay,
   onJoinPick,
   project,
   pixelsPerSecond,
@@ -1648,6 +1654,12 @@ export const Timeline: React.FC<TimelineProps> = ({
         onPointerDown={handlePlayheadPointerDown}
       />
 
+      {overlay && (
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center p-6">
+          <div className="pointer-events-auto w-full max-w-md rounded-card border border-line bg-surface-1 p-3 shadow-float">{overlay}</div>
+        </div>
+      )}
+
       {/* Main Track Rows Scroll Container */}
       <div
         ref={laneScrollContainerRef}
@@ -1657,11 +1669,11 @@ export const Timeline: React.FC<TimelineProps> = ({
         {project.tracks.length === 0 ? (
           /* Empty timeline: the same add button as under the last track, in the controls column and in the middle */
           <div className="flex h-full min-h-[360px]">
-            {onAddTrack && (
+            {(onImportFile ?? onAddTrack) && (
               <div className="flex shrink-0 flex-col items-center border-r border-line bg-surface-1 pt-1" style={{ width: `${currentHeaderWidth}px` }}>
                 <button
                   type="button"
-                  onClick={onAddTrack}
+                  onClick={onImportFile ?? onAddTrack}
                   title="Add file"
                   aria-label="Add file"
                   className="flex h-9 w-9 items-center justify-center rounded-full text-ink-dim hover:bg-white/5 hover:text-accent cursor-pointer"
@@ -1671,11 +1683,11 @@ export const Timeline: React.FC<TimelineProps> = ({
               </div>
             )}
             <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
-              {onAddTrack ? (
+              {(onImportFile ?? onAddTrack) ? (
                 <button
                   type="button"
-                  onClick={onAddTrack}
-                  className="group flex flex-col items-center gap-2 rounded-card p-6 text-ink-faint/60 transition-colors hover:text-ink-dim cursor-pointer"
+                  onClick={onImportFile ?? onAddTrack}
+                  className={`group flex flex-col items-center gap-2 ${overlay ? 'invisible' : ''} rounded-card p-6 text-ink-faint/60 transition-colors hover:text-ink-dim cursor-pointer`}
                 >
                   <span className="flex h-14 w-14 items-center justify-center rounded-full border border-dashed border-current">
                     <Plus className="h-6 w-6" />
