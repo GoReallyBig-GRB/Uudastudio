@@ -7,6 +7,7 @@ import { fetchGoogleKeys, keyCache } from "./auth/verifyIdToken";
 import { handleTemplates } from "./templates/handler";
 import { D1TemplateStore, type D1Full } from "./templates/store";
 import { handleFreesound } from "./freesound/handler";
+import { D1TokenStore, makeSealer } from "./freesound/tokens";
 
 export interface Env {
   ASSETS: Fetcher;
@@ -22,7 +23,7 @@ export interface Env {
   JOBS_CREATE_CODE?: string;
   /** Accounts (Cloudflare D1). With FIREBASE_PROJECT_ID and SESSION_SECRET, this Worker handles sign-in itself. */
   AUTH_DB?: D1Full;
-  /** Freesound sound library. FREESOUND_API_KEY and FREESOUND_CLIENT_SECRET are secrets; FREESOUND_CLIENT_ID is a plain variable. */
+  /** Freesound sound library. FREESOUND_CLIENT_SECRET is a secret (Freesound's "Client Secret" and "API key" are the same string; FREESOUND_API_KEY also works); FREESOUND_CLIENT_ID is a plain variable. */
   FREESOUND_API_KEY?: string;
   FREESOUND_CLIENT_ID?: string;
   FREESOUND_CLIENT_SECRET?: string;
@@ -91,7 +92,7 @@ export default {
       const a = authEnv(env);
       if (a) {
         const rest = incoming.pathname.slice("/api/freesound/".length).split("/").filter(Boolean);
-        return handleFreesound(request, rest, { auth: a, apiKey: env.FREESOUND_API_KEY, clientId: env.FREESOUND_CLIENT_ID, clientSecret: env.FREESOUND_CLIENT_SECRET, limits: freesoundLimits });
+        return handleFreesound(request, rest, { auth: a, apiKey: env.FREESOUND_API_KEY, clientId: env.FREESOUND_CLIENT_ID, clientSecret: env.FREESOUND_CLIENT_SECRET, tokens: env.AUTH_DB ? new D1TokenStore(env.AUTH_DB, makeSealer(a.sessionSecret)) : undefined, limits: freesoundLimits });
       }
     }
 

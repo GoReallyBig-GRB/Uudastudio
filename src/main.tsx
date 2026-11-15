@@ -4,6 +4,7 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { isJoinHash } from './guest/job';
 import { isClientHash, isTalentHash } from './jobs/links';
+import { FREESOUND_STATE_KEY, readFreesoundReturn } from './freesound/oauthReturn';
 import './index.css';
 
 // Dev-only design-system preview, loaded lazily so the normal app never fetches it. Open it with:
@@ -17,6 +18,13 @@ const galleryOnly =
 const GuestPage = lazy(() => import('./guest/GuestPage'));
 const ClientPage = lazy(() => import('./jobs/ClientPage'));
 const SelfTest = lazy(() => import('./jobs/SelfTest'));
+// Freesound sends the person back to the app's own address with ?code=...&state=...: that tab only finishes the connection
+const FreesoundReturn = lazy(() => import('./freesound/FreesoundReturn'));
+const freesoundReturn = (() => {
+  let expected: string | null = null;
+  try { expected = localStorage.getItem(FREESOUND_STATE_KEY); } catch { /* storage unavailable */ }
+  return readFreesoundReturn(window.location.search, expected).kind !== 'none';
+})();
 const selfTestOnly = window.location.hash === '#/selftest';
 const clientOnly = isClientHash(window.location.hash);
 const guestOnly = isJoinHash(window.location.hash) || isTalentHash(window.location.hash);
@@ -36,6 +44,8 @@ const Root = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  if (freesoundReturn) return <Suspense fallback={null}><FreesoundReturn /></Suspense>;
 
   if (selfTestOnly) {
     return (

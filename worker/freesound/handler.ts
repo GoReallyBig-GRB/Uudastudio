@@ -10,12 +10,17 @@
  */
 import { userFor, type AuthEnv } from '../auth/handler';
 import type { Limiter } from '../auth/rateLimit';
+import type { TokenStore, FreesoundTokens } from './tokens';
 
 export interface FreesoundEnv {
   auth: AuthEnv;
+  /** Freesound's "Client Secret" and "API key" are the same string. Either name works; if both are set the client secret wins. */
   apiKey?: string;
   clientId?: string;
   clientSecret?: string;
+  /** Where each person's connection (refresh token) is kept. Without it, connecting works but does not last. */
+  tokens?: TokenStore;
+  now?: () => number;
   enabled?: boolean;
   /** Test seam: defaults to the global fetch */
   fetchFn?: typeof fetch;
@@ -34,12 +39,14 @@ const num = (v: string | null, d: number) => { const n = Number(v); return v !==
 
 export const handleFreesound = async (req: Request, rest: string[], env: FreesoundEnv): Promise<Response> => {
   const f = env.fetchFn ?? fetch;
+  const secret = env.clientSecret || env.apiKey;
+  const now = env.now ?? Date.now;
   const url = new URL(req.url);
   const route = rest.join('/');
   const get = req.method === 'GET';
 
   if (route === 'config' && get) {
-    return send({ enabled: env.enabled ?? !!env.apiKey, hasApiKey: !!env.apiKey, clientId: env.clientId || null });
+    return send({ enabled: env.enabled ?? !!secret, hasApiKey: !!secret, clientId: env.clientId || null });
   }
 
   // Everything else needs a signed-in user. Cookie only: the Authorization header here is the user's Freesound token.
@@ -78,10 +85,10 @@ export const handleFreesound = async (req: Request, rest: string[], env: Freesou
       else via = 'user';
     }
     if (!r && via === 'shared') {
-      if (!env.apiKey) return userToken ? fail(401, 'Freesound did not accept your connection. Connect your account again.') : fail(503, 'The sound library is not set up on the server yet.');
+      if (!secret) return userToken ? fail(401, 'Freesound did not accept your connection. Connect your account again.') : fail(503, 'The sound library is not set up on the server yet.');
       const wait = env.limits?.sharedSearch.take(me.user.id) ?? 0;
       if (wait) return busy(wait);
-      r = await call(`Token ${env.apiKey}`);
+      r = await call(`Token ${secret}`);
     }
     if (!r) return fail(502, 'Could not reach Freesound. Try again shortly.');
     const remaining = r.headers.get('X-RateLimit-Remaining'); const reset = r.headers.get('X-RateLimit-Reset');
@@ -96,29 +103,70 @@ export const handleFreesound = async (req: Request, rest: string[], env: Freesou
 
   if (route === 'oauth/url' && get) {
     if (!env.clientId) return fail(500, 'Freesound sign-in is not set up on the server yet.');
-    return send({ authUrl: `https://freesound.org/apiv2/oauth2/authorize/?client_id=${encodeURIComponent(env.clientId)}&response_type=code` });
+    // `state` comes back unchanged on Freesound's redirect; the browser checks it so only a sign-in this person started is accepted
+    const state = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    return send({ authUrl: `https://freesound.org/apiv2/oauth2/authorize/?client_id=${encodeURIComponent(env.clientId)}&response_type=code&state=${state}`, state });
   }
+
+  // Freesound's token address, for both the first connection (code) and renewals (refresh token)
+  const tokenCall = async (params: Record<string, string>) => {
+    if (!env.clientId || !secret) return { kind: 'setup' as const };
+    let r: Response;
+    try { r = await f('https://freesound.org/apiv2/oauth2/access_token/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: env.clientId, client_secret: secret, ...params }).toString() }); } catch { return { kind: 'network' as const }; }
+    if (!r.ok) { let c = ''; try { c = String(((await r.json()) as { error?: unknown }).error ?? ''); } catch { /* not JSON */ } return { kind: 'refused' as const, status: r.status, code: c }; }
+    const t = (await r.json()) as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown; scope?: unknown };
+    if (typeof t.access_token !== 'string' || !t.access_token) return { kind: 'refused' as const, status: 502, code: '' };
+    const seconds = Number(t.expires_in) > 0 ? Number(t.expires_in) : 86400;
+    return { kind: 'ok' as const, access: t.access_token, refresh: typeof t.refresh_token === 'string' ? t.refresh_token : '', seconds, scope: t.scope };
+  };
 
   if (route === 'oauth/token' && req.method === 'POST') {
     if (!sameSite(req)) return fail(403, 'Not allowed.');
     let code = ''; try { const b = (await req.json()) as { code?: unknown }; code = typeof b.code === 'string' ? b.code.trim() : ''; } catch { /* empty */ }
     if (!code) return fail(400, 'Authorization code is required.');
-    if (!env.clientId || !env.clientSecret) return fail(500, 'Freesound sign-in is not set up on the server yet.');
-    const body = new URLSearchParams({ client_id: env.clientId, client_secret: env.clientSecret, grant_type: 'authorization_code', code });
-    let r: Response;
-    try { r = await f('https://freesound.org/apiv2/oauth2/access_token/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: body.toString() }); } catch { return fail(502, 'Could not reach Freesound. Try again shortly.'); }
-    if (!r.ok) {
+    const t = await tokenCall({ grant_type: 'authorization_code', code });
+    if (t.kind === 'setup') return fail(500, 'Freesound sign-in is not set up on the server yet.');
+    if (t.kind === 'network') return fail(502, 'Could not reach Freesound. Try again shortly.');
+    if (t.kind === 'refused') {
       // Freesound's own reply is never passed on: it becomes a sentence the user can act on
-      let c = ''; try { c = String(((await r.json()) as { error?: unknown }).error ?? ''); } catch { /* not JSON */ }
-      const message = c === 'invalid_grant'
+      const message = t.code === 'invalid_grant'
         ? 'Freesound did not accept that code. Codes work once and expire after a few minutes, and an API key cannot be used here. Press "Authorize on Freesound" for a fresh code and paste it right away.'
-        : c === 'invalid_client' || c === 'unauthorized_client'
+        : t.code === 'invalid_client' || t.code === 'unauthorized_client'
         ? "Freesound did not accept this app's credentials. The server administrator needs to check the Freesound client ID and secret."
         : 'Freesound could not connect your account. Please try again.';
-      return send({ error: message, code: c || undefined }, r.status === 400 ? 400 : 502);
+      return send({ error: message, code: t.code || undefined }, t.status === 400 ? 400 : 502);
     }
-    const t = (await r.json()) as { access_token?: unknown; expires_in?: unknown; scope?: unknown };
-    return send({ access_token: t.access_token, expires_in: t.expires_in, scope: t.scope });
+    // Remember the connection so it renews itself. The access token lasts a little less than Freesound says, so it is renewed early.
+    if (env.tokens && t.refresh) await env.tokens.put(me.user.id, { refresh: t.refresh, access: t.access, expires: now() + t.seconds * 1000 });
+    return send({ access_token: t.access, expires_in: t.seconds, scope: t.scope, lasting: !!(env.tokens && t.refresh) });
+  }
+
+  // The person's current connection. Gives a working access token, renewing it first if it is about to run out.
+  if (route === 'oauth/session' && req.method === 'POST') {
+    if (!sameSite(req)) return fail(403, 'Not allowed.');
+    if (!env.tokens) return send({ connected: false });
+    const rec = await env.tokens.get(me.user.id);
+    if (!rec) return send({ connected: false });
+    const left = rec.expires - now();
+    if (left > 5 * 60_000) return send({ connected: true, access_token: rec.access, expires_in: Math.floor(left / 1000) });
+    const t = await tokenCall({ grant_type: 'refresh_token', refresh_token: rec.refresh });
+    if (t.kind === 'network' || t.kind === 'setup') return fail(502, 'Could not reach Freesound. Try again shortly.');
+    if (t.kind === 'refused') {
+      // Two tabs may renew at the same moment; the second is refused because the first already replaced the refresh token.
+      const cur = await env.tokens.get(me.user.id);
+      if (cur && cur.refresh !== rec.refresh && cur.expires - now() > 60_000) return send({ connected: true, access_token: cur.access, expires_in: Math.floor((cur.expires - now()) / 1000) });
+      await env.tokens.delete(me.user.id); // revoked on Freesound, or too old: the person connects again
+      return send({ connected: false, expired: true });
+    }
+    const next: FreesoundTokens = { refresh: t.refresh || rec.refresh, access: t.access, expires: now() + t.seconds * 1000 };
+    await env.tokens.put(me.user.id, next);
+    return send({ connected: true, access_token: next.access, expires_in: t.seconds });
+  }
+
+  if (route === 'oauth/session' && req.method === 'DELETE') {
+    if (!sameSite(req)) return fail(403, 'Not allowed.');
+    if (env.tokens) await env.tokens.delete(me.user.id);
+    return send({ connected: false });
   }
 
   if (rest[0] === 'download' && rest.length === 2 && get) {

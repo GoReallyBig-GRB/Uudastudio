@@ -47,7 +47,7 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
     setSearchError,
     rateLimitInfo,
     userToken,
-    setUserToken,
+    disconnect,
     currentPlayingId,
     downloadingId,
     downloadStatusMsg,
@@ -154,10 +154,7 @@ export const SoundLibraryPanel: React.FC<SoundLibraryPanelProps> = ({
             {userToken ? (
               <button
                 type="button"
-                onClick={() => {
-                  sessionStorage.removeItem('xpro_freesound_token');
-                  setUserToken(null);
-                }}
+                onClick={() => { void disconnect(); }}
                 className={pill()}
               >
                 Disconnect
