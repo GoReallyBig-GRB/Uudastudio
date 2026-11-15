@@ -50,7 +50,7 @@ const signInLimiter = makeLimiter(10, 60_000);
 
 /** Sign-in is handled here only when its database, project id and secret are all set; otherwise /api/auth/* goes to API_ORIGIN as before */
 const templateLimits = { list: makeLimiter(60, 60_000), write: makeLimiter(30, 60_000) };
-const freesoundLimits = { search: makeLimiter(40, 60_000), other: makeLimiter(30, 60_000) };
+const freesoundLimits = { search: makeLimiter(50, 60_000), sharedSearch: makeLimiter(15, 60_000), other: makeLimiter(30, 60_000) };
 
 const authEnv = (env: Env): AuthEnv | null =>
   env.AUTH_DB && env.FIREBASE_PROJECT_ID && env.SESSION_SECRET

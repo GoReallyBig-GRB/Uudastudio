@@ -217,7 +217,8 @@ class SharedSoundStore {
       params.set('page', String(page));
       params.set('pageSize', String(pageSize));
 
-      const res = await fetch(`/api/freesound/search?${params.toString()}`);
+      // Connected: search with the person's own Freesound token (their own quota). Not connected: the server uses Uuda's shared key.
+      const res = await fetch(`/api/freesound/search?${params.toString()}`, this.state.userToken ? { headers: { Authorization: `Bearer ${this.state.userToken}` } } : undefined);
 
       if (res.status === 429) {
         const data = await res.json().catch(() => ({}));

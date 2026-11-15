@@ -1,7 +1,7 @@
 /**
  * Freesound on the Worker: a thin proxy so the API key and the OAuth client secret never reach the browser.
  *   GET  /api/freesound/config          public: is it on, and the public client id
- *   GET  /api/freesound/search          signed-in users only, CC0 sounds only
+ *   GET  /api/freesound/search          signed-in users only, CC0 sounds only. Uses the person's own Freesound token when they have connected one, else Uuda's shared key
  *   GET  /api/freesound/oauth/url       the page where the user approves Uuda on Freesound
  *   POST /api/freesound/oauth/token     swaps the one-time code for the user's own Freesound token
  *   GET  /api/freesound/download/:id    streams the original file, using the user's own Freesound token
@@ -19,7 +19,8 @@ export interface FreesoundEnv {
   enabled?: boolean;
   /** Test seam: defaults to the global fetch */
   fetchFn?: typeof fetch;
-  limits?: { search: Limiter; other: Limiter };
+  /** `search`: per person when they search with their own Freesound token; `sharedSearch`: tighter, when the request has to use Uuda's shared key */
+  limits?: { search: Limiter; sharedSearch: Limiter; other: Limiter };
 }
 
 const H = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' };
@@ -46,9 +47,10 @@ export const handleFreesound = async (req: Request, rest: string[], env: Freesou
   if (!me) return fail(401, 'Sign in to use the sound library.');
 
   if (route === 'search' && get) {
-    const wait = env.limits?.search.take(me.user.id) ?? 0;
-    if (wait) return fail(429, `Too many searches. Try again in ${wait} seconds.`, { rateLimited: true });
-    if (!env.apiKey) return fail(503, 'The sound library is not set up on the server yet.');
+    // A connected person searches with their own Freesound token: their own quota, tied to their own account.
+    // Anyone else (or an expired token) goes through Uuda's shared key, with a tighter per-person cap so one person cannot use up the shared quota.
+    const a = req.headers.get('authorization') ?? '';
+    const userToken = a.startsWith('Bearer ') && a.length > 10 ? a.slice(7).trim() : '';
     const q = url.searchParams;
     // Only CC0 (public domain) sounds are ever returned
     const filter = ['license:"Creative Commons 0"'];
@@ -63,13 +65,30 @@ export const handleFreesound = async (req: Request, rest: string[], env: Freesou
     u.searchParams.set('page', String(int(q.get('page'), 1, 1, 1000)));
     u.searchParams.set('page_size', String(int(q.get('pageSize'), 15, 1, 50)));
     u.searchParams.set('fields', FIELDS);
-    let r: Response;
-    try { r = await f(u.toString(), { headers: { Authorization: `Token ${env.apiKey}` } }); } catch { return fail(502, 'Could not reach Freesound. Try again shortly.'); }
+    const call = async (authorization: string) => { try { return await f(u.toString(), { headers: { Authorization: authorization } }); } catch { return null; } };
+    const busy = (wait: number) => fail(429, `Too many searches. Try again in ${wait} seconds.`, { rateLimited: true });
+
+    let r: Response | null = null;
+    let via: 'user' | 'shared' = 'shared';
+    if (userToken) {
+      const wait = env.limits?.search.take(me.user.id) ?? 0;
+      if (wait) return busy(wait);
+      r = await call(`Bearer ${userToken}`);
+      if (r && (r.status === 401 || r.status === 403)) r = null; // expired or revoked: fall back to the shared key
+      else via = 'user';
+    }
+    if (!r && via === 'shared') {
+      if (!env.apiKey) return userToken ? fail(401, 'Freesound did not accept your connection. Connect your account again.') : fail(503, 'The sound library is not set up on the server yet.');
+      const wait = env.limits?.sharedSearch.take(me.user.id) ?? 0;
+      if (wait) return busy(wait);
+      r = await call(`Token ${env.apiKey}`);
+    }
+    if (!r) return fail(502, 'Could not reach Freesound. Try again shortly.');
     const remaining = r.headers.get('X-RateLimit-Remaining'); const reset = r.headers.get('X-RateLimit-Reset');
     if (r.status === 429) return send({ error: 'Freesound is busy right now (60 searches a minute, 2,000 a day). Wait a moment and try again.', rateLimited: true, resetSeconds: reset ? parseInt(reset, 10) : 60 }, 429);
     if (!r.ok) return fail(r.status === 404 ? 404 : 502, 'Freesound could not complete that search.');
     const data = (await r.json()) as Record<string, unknown>;
-    return send({ ...data, rateLimitRemaining: remaining ? parseInt(remaining, 10) : null, rateLimitReset: reset ? parseInt(reset, 10) : null });
+    return send({ ...data, rateLimitRemaining: remaining ? parseInt(remaining, 10) : null, rateLimitReset: reset ? parseInt(reset, 10) : null, via });
   }
 
   const wait = env.limits?.other.take(me.user.id) ?? 0;
