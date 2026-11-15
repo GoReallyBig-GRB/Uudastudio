@@ -33,6 +33,7 @@ class AuthService {
   // Credential Isolation: strictly scoped volatile memory to prevent third-party WAM scripts from reading sensitive tokens
   private volatileToken: string | null = null;
   private volatileGeminiKey: string | null = null;
+  private keyOwnerId: string | null = null;
 
   constructor() {
     this.setupFirebaseObserver();
@@ -297,6 +298,12 @@ class AuthService {
   }
 
   private notifyAuthChanged() {
+    // A personal Gemini key belongs to the account that typed it: forget it whenever the signed-in account changes.
+    const id = this.currentUser?.id ?? null;
+    if (id !== this.keyOwnerId) {
+      if (this.keyOwnerId !== null || id === null) this.volatileGeminiKey = null;
+      this.keyOwnerId = id;
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('uuda:auth-changed', {
