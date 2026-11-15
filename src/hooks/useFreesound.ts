@@ -55,8 +55,6 @@ export interface SharedSoundState {
   isExchangingCode: boolean;
 }
 
-const TOKEN_STORAGE_KEY = 'xpro_freesound_token';
-
 // Singleton shared audio element for preview so only one preview plays at any time
 let sharedAudioPreview: HTMLAudioElement | null = null;
 
@@ -65,10 +63,9 @@ class SharedSoundStore {
   private listeners = new Set<() => void>();
 
   constructor() {
-    let token: string | null = null;
-    if (typeof window !== 'undefined') {
-      token = sessionStorage.getItem(TOKEN_STORAGE_KEY);
-    }
+    // The connection belongs to the signed-in Uuda account and is kept on the server, so the token is never written to
+    // browser storage: it is asked for after sign-in and forgotten on sign-out or when a different account signs in.
+    const token: string | null = null;
 
     this.state = {
       query: '',
@@ -94,15 +91,15 @@ class SharedSoundStore {
 
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', (e) => {
-        if (e.key === TOKEN_STORAGE_KEY) {
-          this.state = { ...this.state, userToken: e.newValue };
-          this.notify();
-        }
         // A connection was just made in another tab (Freesound sends the person back to a new tab): pick it up here
         if (e.key === FREESOUND_CONNECTED_KEY && e.newValue) {
           this.setState({ isConnectModalOpen: false, connectError: null });
           void this.restoreConnection(true);
         }
+      });
+      // Signing out, or a different account signing in: the previous person's connection must not carry over
+      window.addEventListener('uuda:auth-changed', (e) => {
+        void this.handleSignedInUser((e as CustomEvent).detail?.user?.id ?? null);
       });
     }
   }
@@ -124,13 +121,6 @@ class SharedSoundStore {
   }
 
   public setUserToken(token: string | null) {
-    if (typeof window !== 'undefined') {
-      if (token) {
-        sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-      } else {
-        sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-      }
-    }
     this.setState({ userToken: token });
   }
 
@@ -282,6 +272,16 @@ class SharedSoundStore {
   }
 
   private lastRestore = 0;
+  private signedInId: string | null = null;
+
+  /** Called whenever the signed-in account may have changed. Only a real change (sign-out, or a different account) does anything. */
+  public async handleSignedInUser(id: string | null): Promise<void> {
+    if (id === this.signedInId) return;
+    this.signedInId = id;
+    this.lastRestore = 0;
+    if (this.state.userToken) this.setState({ userToken: null });
+    if (id) await this.restoreConnection(true);
+  }
 
   /**
    * Asks the server for the person's Freesound connection. The server keeps it and renews it, so once connected nobody
@@ -293,6 +293,7 @@ class SharedSoundStore {
     this.lastRestore = now;
     try {
       const res = await fetch('/api/freesound/oauth/session', { method: 'POST' });
+      if (res.status === 401) { if (this.state.userToken) this.setUserToken(null); return null; } // not signed in: no connection
       if (!res.ok) return this.state.userToken;
       const data = await res.json();
       if (data.connected && data.access_token) {
