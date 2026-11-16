@@ -47,7 +47,7 @@ export const GuestCluster: React.FC<Props> = ({ live, onVoice, onClient, onManag
       {open && (
         <div role="menu" style={{ right: at.right, top: at.top }} className="fixed z-50 w-80 rounded-card border border-line-strong bg-surface-1 p-2 shadow-float">
           <div className="mb-1 flex gap-2 p-1">
-            <button type="button" role="menuitem" onClick={() => { setOpen(false); onQuick(); }} className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-control bg-ink text-xs font-semibold text-surface-0 hover:bg-white cursor-pointer"><Zap className="h-3.5 w-3.5" />Quick event</button>
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); onQuick(); }} className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-control border border-accent text-xs font-semibold text-accent transition-colors hover:bg-accent/10 active:bg-accent active:text-accent-ink cursor-pointer"><Zap className="h-3.5 w-3.5" />Quick event</button>
             <button type="button" role="menuitem" onClick={() => { setOpen(false); onManage(); }} className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-control border border-line-strong bg-surface-2 text-xs font-medium text-ink hover:bg-surface-3 cursor-pointer"><CalendarPlus className="h-3.5 w-3.5" />New event</button>
           </div>
           {live.service === 'signin' && <p className="px-3 py-4 text-center text-xs text-ink-dim">Sign in with Google to schedule live events.</p>}

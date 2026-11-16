@@ -5,7 +5,7 @@
  */
 import { userFor, type AuthEnv } from '../auth/handler';
 import type { Limiter } from '../auth/rateLimit';
-import { LIMITS, cleanFileName, fileKindOf, randomId, stateOf, validateEvent, type LiveEventRow } from './rules';
+import { LIMITS, cleanFileName, fileKindOf, liveElsewhere, randomId, stateOf, timeClash, validateEvent, type LiveEventRow } from './rules';
 import type { LiveStore } from './store';
 
 export interface LiveEnv {
@@ -63,6 +63,9 @@ export const handleLive = async (req: Request, rest: string[], env: LiveEnv): Pr
       const v = validateEvent(body, now);
       if (!v.ok) return fail(400, v.error);
       if ((await env.store.count(uid)) >= LIMITS.events) return fail(409, `You can keep up to ${LIMITS.events} events. Delete old ones first.`);
+      const others = await env.store.list(uid);
+      if (v.value.kind === 'quick') { const live = liveElsewhere(others, null, now); if (live) return fail(409, `"${live.title}" is live right now. End it before starting another.`); }
+      else if (v.value.startsAt !== null) { const c = timeClash(others, null, v.value.startsAt, v.value.durationMin, now); if (c) return fail(409, `That time overlaps "${c.title}". Two live events cannot run at the same time.`); }
       const row: LiveEventRow = { id: randomId(9), userId: uid, token: randomId(18), ...v.value, activatedAt: v.value.kind === 'quick' ? now : null, endedAt: null, hostName: me.user.display_name.slice(0, 80), createdAt: now, updatedAt: now };
       await env.store.save(row);
       return send(await view(row, env.store, now), 201);
@@ -77,6 +80,7 @@ export const handleLive = async (req: Request, rest: string[], env: LiveEnv): Pr
       let body: unknown; try { body = await req.json(); } catch { return fail(400, 'An event is required.'); }
       const v = validateEvent({ ...(body as object), kind: e.kind }, now);
       if (!v.ok) return fail(400, v.error);
+      if (e.kind === 'scheduled' && v.value.startsAt !== null && stateOf(e, now) !== 'ended') { const c = timeClash(await env.store.list(uid), e.id, v.value.startsAt, v.value.durationMin, now); if (c) return fail(409, `That time overlaps "${c.title}". Two live events cannot run at the same time.`); }
       const next = { ...e, title: v.value.title, description: v.value.description, notes: v.value.notes, startsAt: e.kind === 'quick' ? null : v.value.startsAt, durationMin: v.value.durationMin, participants: v.value.participants, updatedAt: now };
       await env.store.save(next);
       return send(await view(next, env.store, now));
@@ -84,6 +88,7 @@ export const handleLive = async (req: Request, rest: string[], env: LiveEnv): Pr
     if (rest.length === 2 && m === 'DELETE') { await env.store.remove(uid, id); return send({ ok: true }); }
     if (rest.length === 3 && rest[2] === 'activate' && m === 'POST') {
       let body: { open?: boolean } = {}; try { body = await req.json(); } catch { /* default: open */ }
+      if (body.open !== false) { const live = liveElsewhere(await env.store.list(uid), e.id, now); if (live) return fail(409, `"${live.title}" is live right now. End it before opening this one.`); }
       const next = body.open === false ? { ...e, endedAt: now, updatedAt: now } : { ...e, activatedAt: now, endedAt: null, updatedAt: now };
       await env.store.save(next);
       return send(await view(next, env.store, now));

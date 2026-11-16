@@ -48,7 +48,7 @@ export const DateTimePicker: React.FC<Props> = ({ id, label, value, onChange, mi
   const grid = monthGrid(shown.getFullYear(), shown.getMonth());
   const today = new Date();
   const text = value === null ? 'Pick a date and time' : `${new Date(value).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · ${new Date(value).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
-  const quick = (label2: string, ms: number) => <button key={label2} type="button" onClick={() => { pick(ms); setShown(new Date(ms)); }} className="rounded-full border border-line px-3 py-1 text-xs text-ink-dim hover:border-line-strong hover:text-ink cursor-pointer">{label2}</button>;
+  const quick = (label2: string, ms: number) => <button key={label2} type="button" onClick={() => { pick(ms); setShown(new Date(ms)); }} className="rounded-full border border-line px-3 py-1 text-xs text-ink-dim hover:border-accent/60 hover:text-accent cursor-pointer">{label2}</button>;
   const at = (days: number, h: number) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(h, 0, 0, 0); return d.getTime(); };
 
   return (
@@ -72,7 +72,7 @@ export const DateTimePicker: React.FC<Props> = ({ id, label, value, onChange, mi
               const selected = value !== null && sameDay(date, new Date(value));
               return (
                 <button key={date.toISOString()} type="button" role="gridcell" aria-selected={selected} disabled={disabled} onClick={() => pick(onDay(current, date))}
-                  className={`mx-auto grid h-9 w-9 place-items-center rounded-full text-sm transition-colors ${selected ? 'bg-ink font-bold text-surface-0' : sameDay(date, today) ? 'border border-ink-faint text-ink' : inMonth ? 'text-ink hover:bg-white/10' : 'text-ink-faint/50 hover:bg-white/5'} ${disabled ? 'cursor-not-allowed opacity-30 hover:bg-transparent' : 'cursor-pointer'}`}>
+                  className={`mx-auto grid h-9 w-9 place-items-center rounded-full text-sm transition-colors ${selected ? 'bg-accent font-bold text-accent-ink' : sameDay(date, today) ? 'border border-accent/60 text-accent' : inMonth ? 'text-ink hover:bg-white/10' : 'text-ink-faint/50 hover:bg-white/5'} ${disabled ? 'cursor-not-allowed opacity-30 hover:bg-transparent' : 'cursor-pointer'}`}>
                   {date.getDate()}
                 </button>
               );
@@ -86,13 +86,13 @@ export const DateTimePicker: React.FC<Props> = ({ id, label, value, onChange, mi
               {[...new Set([...MINUTES, new Date(current).getMinutes()])].sort((a, b) => a - b).map((m) => <option key={m} value={m}>{String(m).padStart(2, '0')}</option>)}
             </select>
             <div className="ml-auto inline-flex overflow-hidden rounded-control border border-line-strong" role="group" aria-label="AM or PM">
-              {(['AM', 'PM'] as const).map((p) => <button key={p} type="button" aria-pressed={(p === 'PM') === clock.pm} onClick={() => pick(withTime(current, clock.h, new Date(current).getMinutes(), p === 'PM'))} className={`h-10 px-3 text-xs font-semibold cursor-pointer ${(p === 'PM') === clock.pm ? 'bg-ink text-surface-0' : 'bg-surface-3 text-ink-dim hover:text-ink'}`}>{p}</button>)}
+              {(['AM', 'PM'] as const).map((p) => <button key={p} type="button" aria-pressed={(p === 'PM') === clock.pm} onClick={() => pick(withTime(current, clock.h, new Date(current).getMinutes(), p === 'PM'))} className={`h-10 px-3 text-xs font-semibold cursor-pointer ${(p === 'PM') === clock.pm ? 'bg-accent text-accent-ink' : 'bg-surface-3 text-ink-dim hover:text-ink'}`}>{p}</button>)}
             </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">{[quick('In 1 hour', nextHour()), quick('Today 6 PM', at(0, 18)), quick('Tomorrow 10 AM', at(1, 10)), quick('Next week', at(7, 10))]}</div>
           <div className="mt-4 flex items-center justify-between gap-3">
             <span className="min-w-0 truncate text-xs text-ink-dim">{text}</span>
-            <button type="button" onClick={() => { setOpen(false); trigger.current?.focus(); }} className="h-10 shrink-0 rounded-control bg-ink px-6 text-sm font-semibold text-surface-0 hover:bg-white cursor-pointer">OK</button>
+            <button type="button" onClick={() => { setOpen(false); trigger.current?.focus(); }} className="h-10 shrink-0 rounded-control border border-accent px-6 text-sm font-semibold text-accent transition-colors hover:bg-accent/10 active:bg-accent active:text-accent-ink cursor-pointer">OK</button>
           </div>
         </div>
       )}

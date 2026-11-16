@@ -70,7 +70,7 @@ const LiveJoinPage: React.FC = () => {
             </div>
             {info.description && <p className="whitespace-pre-wrap text-sm text-ink-dim">{info.description}</p>}
             {info.notes && (
-              <section aria-label="Event notes"><h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-faint">Notes</h2><NotesView notes={info.notes} /></section>
+              <section aria-label="Notes to help you prepare"><h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-faint">Notes (to help you prepare)</h2><NotesView notes={info.notes} /></section>
             )}
             {info.files.length > 0 && (
               <section aria-label="Files"><h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-faint">Files</h2>
