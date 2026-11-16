@@ -4,7 +4,7 @@
  */
 
 export type DeviceDirection = 'input' | 'output';
-export type DeviceKind = 'usb' | 'interface' | 'bluetooth' | 'headphones' | 'builtin';
+export type DeviceKind = 'usb' | 'interface' | 'mixer' | 'deck' | 'bluetooth' | 'headphones' | 'builtin';
 
 export interface AudioDevice {
   id: string;
@@ -46,7 +46,11 @@ export const withoutDefaultTwin = <T extends { direction: DeviceDirection; group
 export const kindOf = (label: string, direction: DeviceDirection): DeviceKind => {
   const l = label.toLowerCase();
   if (/bluetooth|airpods|buds|hands-?free|\bhfp\b|\bsco\b/.test(l)) return 'bluetooth';
-  if (/scarlett|focusrite|motu|behringer|presonus|steinberg|audient|universal audio|apollo|zoom|mixer|interface|ur\d{2}|umc|xr\d{2}|x32/.test(l)) return 'interface';
+  // DJ decks and controllers: they show up as USB sound cards named after the maker
+  if (/pioneer|\bddj\b|\bxdj\b|\bcdj\b|\bdjm\b|rekordbox|numark|denon|\bsc[56]\d{3}\b|prime ?(go|4|2)|traktor|native instruments|\bkontrol\b|\brane\b|reloop|hercules|\bdj ?(controller|console)|turntable|technics/.test(l)) return 'deck';
+  // Mixing desks: analogue or digital mixers with a USB return
+  if (/mixer|mixing|mackie|allen ?& ?heath|allen and heath|\bqu-?\d+|soundcraft|\bxr\d{2}|\bx32\b|\bm32\b|midas|yamaha (mg|tf|dm|cl|ql)|\bmg\d{2}|\btf[135]\b|rodec|rode ?caster|zoom (l-?\d|livetrak)|\bl-?(8|12|20)\b|tascam model|\bmodel ?(12|16|24)\b|dm-?\d{2}|\bpodtrak|goxlr|mix ?pre|studiolive|\bmg-?xu/.test(l)) return 'mixer';
+  if (/scarlett|focusrite|motu|behringer|presonus|steinberg|audient|universal audio|apollo|zoom|interface|ur\d{2}|umc|\bumc\d|clarett|babyface|\brme\b|fireface|\bvolt\b|\bsteinberg|usb audio codec|asio|\bio ?\d{1,2}|duet|quantum|saffire|komplete audio|\bid\d{1,2}\b/.test(l)) return 'interface';
   if (direction === 'output' && /headphone|headset|earphone|earbud/.test(l)) return 'headphones';
   if (/usb|samson|rode|røde|yeti|fifine|fduce|shure|audio-technica|at2020|q2u|\bblue\b|hyperx|elgato|wave/.test(l)) return 'usb';
   return 'builtin';
@@ -54,7 +58,9 @@ export const kindOf = (label: string, direction: DeviceDirection): DeviceKind =>
 
 export const KIND_TEXT: Record<DeviceKind, string> = {
   usb: 'USB',
-  interface: 'Audio interface / mixer',
+  interface: 'Audio interface',
+  mixer: 'Mixer',
+  deck: 'DJ deck or controller',
   bluetooth: 'Bluetooth',
   headphones: 'Headphones',
   builtin: 'Built-in',

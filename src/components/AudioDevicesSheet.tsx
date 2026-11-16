@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Bluetooth, Headphones, Laptop, Mic, Sliders, Usb, Volume2 } from 'lucide-react';
+import { Bluetooth, Disc3, Headphones, Laptop, Mic, Sliders, SlidersVertical, Usb, Volume2 } from 'lucide-react';
 import { Button, ModalShell } from './ui';
 import { audioEngine } from '../audio/engine';
 import { canChooseOutput, applyOutput, loadOutputId, saveOutputId } from '../audio/outputDevice';
 import { KIND_TEXT, withoutDefaultTwin, type AudioDevice, type DeviceKind, type SystemDefaults } from '../audio/deviceWatch';
 import { loadRecordingDeviceSettings, saveRecordingDeviceSettings } from '../storage/presets';
 
-const ICON: Record<DeviceKind, React.ComponentType<{ className?: string }>> = { usb: Usb, interface: Sliders, bluetooth: Bluetooth, headphones: Headphones, builtin: Laptop };
+const ICON: Record<DeviceKind, React.ComponentType<{ className?: string }>> = { usb: Usb, interface: Sliders, mixer: SlidersVertical, deck: Disc3, bluetooth: Bluetooth, headphones: Headphones, builtin: Laptop };
 
 interface Props {
   open: boolean;
