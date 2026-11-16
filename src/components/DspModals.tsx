@@ -40,6 +40,7 @@ import { formatVolumeDb } from '../utils/formatters';
 import { processBasicDenoise } from '../audio/dsp/denoiser';
 import { processCompression } from '../audio/dsp/compressor';
 import { NoisePrint, learnNoisePrint, quietestStretch } from '../audio/dsp/noisePrint';
+import { LOUD_SPREAD_DB } from '../audio/dsp/quietness';
 import { processPitchShift, processTimeStretch } from '../audio/dsp/wsola';
 import { PITCH_PRESETS, presetFor } from '../audio/dsp/pitchPresets';
 import { ProgressIndicator } from './ui';
@@ -863,7 +864,7 @@ export const DspModals: React.FC<DspModalsProps> = ({
                       <span>frequency</span>
                       <span>high</span>
                     </div>
-                    {noisePrint.loudnessSpreadDb > 6 && (
+                    {noisePrint.loudnessSpreadDb > LOUD_SPREAD_DB && (
                       <div className="text-[10px] text-warn">
                         This sample has loud moments in it. Speech or other sound in the sample is treated as noise; a stretch with only background noise works best.
                       </div>

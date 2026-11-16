@@ -188,3 +188,13 @@ describe('dialling it in', () => {
     expect(worst).toBeLessThan(1e-5);
   });
 });
+
+describe('room rumble is not "loud moments"', () => {
+  it('a sample whose low hum wanders in level is judged quiet, and a knock in it is not', () => {
+    const x = noise(SR * 3, 5).map((v, i) => v * 0.2 + 0.05 * (1 + 0.9 * Math.sin(2 * Math.PI * 0.7 * (i / SR))) * Math.sin(2 * Math.PI * 50 * (i / SR)));
+    expect(learnNoisePrint([x], SR).loudnessSpreadDb < 8).toBe(true);
+    const knock = x.slice();
+    for (let i = SR; i < SR + 6000; i++) knock[i] += 0.8 * Math.sin(2 * Math.PI * 600 * (i / SR));
+    expect(learnNoisePrint([knock], SR).loudnessSpreadDb > 8).toBe(true);
+  });
+});
