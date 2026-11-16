@@ -17,6 +17,14 @@ describe('device lists', () => {
   it('recognises kinds from labels', () => {
     expect(kindOf('Microphone (Fduce SL40X)', 'input')).toBe('usb');
     expect(kindOf('Scarlett 2i2 USB', 'input')).toBe('interface');
+    expect(kindOf('Mackie ProFX12v3 USB', 'input')).toBe('mixer');
+    expect(kindOf('Allen & Heath Qu-16', 'input')).toBe('mixer');
+    expect(kindOf('Behringer X32', 'input')).toBe('mixer');
+    expect(kindOf('RODECaster Pro II', 'input')).toBe('mixer');
+    expect(kindOf('Pioneer DJ DDJ-FLX4', 'output')).toBe('deck');
+    expect(kindOf('Numark Mixtrack Pro FX', 'output')).toBe('deck');
+    expect(kindOf('Traktor Kontrol Z1', 'output')).toBe('deck');
+    expect(kindOf('Internal Microphone (Realtek)', 'input')).toBe('builtin');
     expect(kindOf('AirPods Pro', 'output')).toBe('bluetooth');
     expect(kindOf('Headphones (Realtek)', 'output')).toBe('headphones');
     expect(kindOf('Internal Microphone', 'input')).toBe('builtin');

@@ -97,3 +97,79 @@ export const domToMarkup = (root: HTMLElement): string => {
 
 /** Lines (and headings, which are one line each) whose text an edit may change */
 export const kindLabel = (k: LineKind): string => (k === 'h1' ? 'Heading' : k === 'h2' ? 'Subheading' : k === 'ul' ? 'Bullet' : k === 'ol' ? 'Numbered' : 'Line');
+
+// ---- Pasting from other programs ---------------------------------------------------------------------------------------
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+const decode = (t: string): string => t.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+  if (e[0] === '#') { const c = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10); return Number.isFinite(c) && c > 0 ? String.fromCodePoint(c) : ''; }
+  return ENTITIES[e.toLowerCase()] ?? m;
+});
+
+interface Fmt { tag: string; b: boolean; i: boolean; u: boolean }
+const BLOCK = new Set(['p', 'div', 'li', 'tr', 'blockquote', 'pre', 'section', 'article', 'table', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+const SKIP = new Set(['script', 'style', 'head', 'title', 'template']);
+
+/**
+ * Turns text copied from Word, Google Docs, a web page or another Uuda notes box into the editor's lines, keeping bold, italic,
+ * underline, headings, bullets and numbered lists, and dropping everything else (fonts, colours, sizes). Returns '' when there is no text.
+ * Written without the browser's HTML parser so it can be tested anywhere.
+ */
+export const clipboardHtmlToLines = (html: string): string => {
+  const body = html.replace(/<!--StartFragment-->|<!--EndFragment-->/g, '');
+  const re = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z0-9]+)([^>]*)>|([^<]+)/g;
+  const lines: string[] = [];
+  const fmt: Fmt[] = [];
+  const lists: Array<'ul' | 'ol'> = [];
+  let cur = '', kind: LineKind = 'p', own: number | null = null, skipDepth = 0, m: RegExpExecArray | null;
+  const flush = () => {
+    if (cur.replace(/<[^>]+>/g, '').trim()) lines.push(lineHtml(kind, own ?? (kind === 'ul' || kind === 'ol' ? Math.min(MAX_INDENT, Math.max(0, lists.length - 1)) : 0), cur.trim()));
+    cur = ''; kind = 'p'; own = null;
+  };
+  const style = (attrs: string) => {
+    const st = /style\s*=\s*"([^"]*)"|style\s*=\s*'([^']*)'/i.exec(attrs); const css = (st?.[1] ?? st?.[2] ?? '').toLowerCase();
+    const w = /font-weight\s*:\s*([a-z0-9]+)/.exec(css)?.[1];
+    return {
+      b: w ? w === 'bold' || w === 'bolder' || Number(w) >= 600 : null,
+      i: /font-style\s*:\s*italic/.test(css) ? true : /font-style\s*:\s*normal/.test(css) ? false : null,
+      u: /text-decoration[^;]*underline/.test(css) ? true : /text-decoration[^;]*none/.test(css) ? false : null,
+    };
+  };
+  while ((m = re.exec(body))) {
+    if (m[4] !== undefined) {
+      if (skipDepth) continue;
+      const text = decode(m[4]).replace(/\s+/g, ' ');
+      if (!text.trim() && !cur) continue;
+      let h = esc(text);
+      const f = fmt[fmt.length - 1];
+      if (f?.u) h = `<u>${h}</u>`; if (f?.i) h = `<i>${h}</i>`; if (f?.b) h = `<b>${h}</b>`;
+      cur += h; continue;
+    }
+    if (!m[2]) continue;
+    const closing = m[1] === '/', tag = m[2].toLowerCase(), attrs = m[3] ?? '';
+    if (SKIP.has(tag)) { skipDepth = Math.max(0, skipDepth + (closing ? -1 : 1)); continue; }
+    if (skipDepth) continue;
+    if (tag === 'br') { flush(); continue; }
+    if (tag === 'ul' || tag === 'ol') { flush(); if (closing) lists.pop(); else lists.push(tag); continue; }
+    if (BLOCK.has(tag)) {
+      flush();
+      const mine = /data-k="(p|h1|h2|ul|ol)"/.exec(attrs);
+      if (!closing && mine) { kind = mine[1] as LineKind; const ind = /data-i="(\d)"/.exec(attrs); own = ind ? Math.min(MAX_INDENT, Number(ind[1])) : 0; continue; }
+      if (!closing) kind = tag === 'h1' ? 'h1' : /^h[2-6]$/.test(tag) ? 'h2' : tag === 'li' ? (lists[lists.length - 1] ?? 'ul') : 'p';
+      continue;
+    }
+    // Inline tags carry their formatting down to the text inside
+    const parent = fmt[fmt.length - 1] ?? { tag: '', b: false, i: false, u: false };
+    if (closing) { for (let k = fmt.length - 1; k >= 0; k--) if (fmt[k].tag === tag) { fmt.splice(k, 1); break; } continue; }
+    if (/\/\s*$/.test(attrs)) continue;
+    const s = style(attrs);
+    fmt.push({
+      tag,
+      b: s.b ?? (tag === 'b' || tag === 'strong' ? true : parent.b),
+      i: s.i ?? (tag === 'i' || tag === 'em' ? true : parent.i),
+      u: s.u ?? (tag === 'u' || tag === 'ins' ? true : parent.u),
+    });
+  }
+  flush();
+  return lines.join('');
+};

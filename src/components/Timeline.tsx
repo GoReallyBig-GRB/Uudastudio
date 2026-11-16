@@ -9,6 +9,7 @@
  * - Horizontal collision & overlap prevention (clips cannot overlap or cover each other)
  */
 
+import { LiveRecordingTrace } from './LiveRecordingTrace';
 import { isTypingTarget } from '../utils/typing';
 import { isClipLocked } from './clipLock';
 import { getPlayhead, subscribePlayhead, usePlayhead } from '../playback/playheadStore';
@@ -44,6 +45,8 @@ interface TimelineProps {
   onImportFile?: () => void;
   /** Shown centred over the timeline (e.g. the import progress bar) */
   overlay?: React.ReactNode;
+  /** A take being recorded: where it began and which track it goes to (null: a new track). Its waveform forms as the sound arrives. */
+  liveRecording?: { trackId: string | null; startSeconds: number } | null;
   /** Join mode: the order in which clips were picked (clip id -> 1, 2, 3...). While onJoinPick is set, clicking a clip picks it instead of selecting or dragging. */
   joinBadges?: Map<string, number>;
   onJoinPick?: (clipId: string) => void;
@@ -324,6 +327,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   onAddTrack,
   onImportFile,
   overlay,
+  liveRecording,
   onJoinPick,
   project,
   pixelsPerSecond,
@@ -1718,6 +1722,16 @@ export const Timeline: React.FC<TimelineProps> = ({
               />
             )}
 
+            {/* A take that will become a new track: its waveform forms here until recording stops */}
+            {liveRecording && liveRecording.trackId === null && (
+              <div className="flex w-full min-w-max border-b border-line bg-surface-1" style={{ height: `${rowHeight}px` }}>
+                <div className="sticky left-0 z-20 flex shrink-0 items-center gap-2 border-r border-line bg-surface-1 px-3 text-xs font-medium text-danger" style={{ width: `${currentHeaderWidth}px` }}>
+                  <span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-full bg-danger" />Recording to a new track
+                </div>
+                <div className="relative h-full" style={{ width: `${lanePixelWidth}px` }}><LiveRecordingTrace startSeconds={liveRecording.startSeconds} pixelsPerSecond={pixelsPerSecond} height={rowHeight} /></div>
+              </div>
+            )}
+
             {/* Track rows (Controls + Waveform in ONE grid container) */}
             {(focused ? [project.tracks[focusIndex]] : project.tracks).map((track, visibleIndex) => {
               const trackIndex = focused ? focusIndex : visibleIndex;
@@ -1748,6 +1762,7 @@ export const Timeline: React.FC<TimelineProps> = ({
                 onLaneDoubleClick={handleLaneDoubleClick}
                 onLaneContextMenu={handleLaneContextMenu}
                 joinBadges={joinBadges}
+                liveTraceStart={liveRecording && liveRecording.trackId === track.id ? liveRecording.startSeconds : null}
               />
               );
             })}
@@ -1927,6 +1942,8 @@ interface TrackRowContainerProps {
   onLaneDoubleClick: (e: React.MouseEvent<HTMLDivElement>, track: Track) => void;
   onLaneContextMenu: (e: React.MouseEvent<HTMLDivElement>, track: Track) => void;
   joinBadges?: Map<string, number>;
+  /** Where a take being recorded into this track began, or null */
+  liveTraceStart?: number | null;
   rowHeight: number;
 }
 
@@ -1955,6 +1972,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
   onLaneDoubleClick,
   onLaneContextMenu,
   joinBadges,
+  liveTraceStart,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -2012,6 +2030,7 @@ const TrackRowContainer = React.memo<TrackRowContainerProps>(({
           }}
           className="block pointer-events-none"
         />
+        {liveTraceStart != null && <LiveRecordingTrace startSeconds={liveTraceStart} pixelsPerSecond={pixelsPerSecond} height={rowHeight} />}
         {joinBadges && track.clips.filter((c) => joinBadges.has(c.id)).map((c) => (
           <span
             key={`join-${c.id}`}

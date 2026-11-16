@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Bold, Brackets, Heading, IndentDecrease, IndentIncrease, Italic, List, ListOrdered, PauseCircle, Redo2, Sparkles, Underline, Undo2 } from 'lucide-react';
 import { tidy } from '../../guest/scriptEdit';
-import { MAX_INDENT, domToMarkup, lineHtml, markupToHtml, type LineKind } from '../../guest/richScript';
+import { MAX_INDENT, clipboardHtmlToLines, domToMarkup, lineHtml, markupToHtml, type LineKind } from '../../guest/richScript';
 
 interface Props {
   id: string;
@@ -230,6 +230,9 @@ export const ScriptEditor: React.FC<Props> = ({ id, value, onChange, rows = 9, m
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
+    // Text copied from a document, a web page or another notes box keeps its bold, italics, headings and lists
+    const rich = clipboardHtmlToLines(e.clipboardData.getData('text/html'));
+    if (rich) { edit(() => { document.execCommand('insertHTML', false, rich); }); return; }
     if (!text) return;
     edit(() => {
       // Plain lines in, each as a line of its own; any markers in them are read as the script's own

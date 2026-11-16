@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { isJoinHash } from './guest/job';
+import { isLiveHash } from './live/events';
 import { isClientHash, isTalentHash } from './jobs/links';
 import { FREESOUND_STATE_KEY, readFreesoundReturn } from './freesound/oauthReturn';
 import './index.css';
@@ -17,6 +18,7 @@ const galleryOnly =
 // A voice talent's recording link (#/join/...) opens only the small recording page: no editor code, no sign-in.
 const GuestPage = lazy(() => import('./guest/GuestPage'));
 const ClientPage = lazy(() => import('./jobs/ClientPage'));
+const LiveJoinPage = lazy(() => import('./live/LiveJoinPage'));
 const SelfTest = lazy(() => import('./jobs/SelfTest'));
 // Freesound sends the person back to the app's own address with ?code=...&state=...: that tab only finishes the connection
 const FreesoundReturn = lazy(() => import('./freesound/FreesoundReturn'));
@@ -27,6 +29,7 @@ const freesoundReturn = (() => {
 })();
 const selfTestOnly = window.location.hash === '#/selftest';
 const clientOnly = isClientHash(window.location.hash);
+const liveOnly = isLiveHash(window.location.hash);
 const guestOnly = isJoinHash(window.location.hash) || isTalentHash(window.location.hash);
 
 const Root = () => {
@@ -51,6 +54,14 @@ const Root = () => {
     return (
       <Suspense fallback={null}>
         <SelfTest />
+      </Suspense>
+    );
+  }
+
+  if (liveOnly) {
+    return (
+      <Suspense fallback={null}>
+        <LiveJoinPage />
       </Suspense>
     );
   }

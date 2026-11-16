@@ -16,7 +16,22 @@ import {
 import { getFirestore, doc, getDocFromServer, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+/**
+ * Sign in through this site's own address (the Worker passes /__/auth/* to Firebase), so Google's account chooser
+ * names this site instead of the Firebase project. Switched on with ?ownauth=1 (remembered) and off with ?ownauth=0,
+ * because Google must first be told this address is allowed (see the owner steps).
+ */
+const ownAuthDomain = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const q = new URLSearchParams(window.location.search).get('ownauth');
+    if (q === '1') localStorage.setItem('uuda_own_auth', '1');
+    if (q === '0') localStorage.removeItem('uuda_own_auth');
+    if (localStorage.getItem('uuda_own_auth') === '1' && window.location.protocol === 'https:') return window.location.host;
+  } catch { /* storage blocked: use the standard Firebase address */ }
+  return null;
+};
+const app = getApps().length === 0 ? initializeApp({ ...firebaseConfig, authDomain: ownAuthDomain() ?? firebaseConfig.authDomain }) : getApps()[0];
 
 // CRITICAL: The app uses the configured firestoreDatabaseId
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
