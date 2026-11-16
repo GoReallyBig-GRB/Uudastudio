@@ -246,6 +246,8 @@ const MainStudio: React.FC = () => {
   const [isAutosaving, setIsAutosaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
+  /** Set while a take is being recorded, so the timeline can draw it forming */
+  const [liveRecording, setLiveRecording] = useState<{ trackId: string | null; startSeconds: number } | null>(null);
   // Track the next take is recorded into (null = a new top track) and where the playhead was when recording began.
   const [recordTargetTrackId, setRecordTargetTrackId] = useState<string | null>(null);
   const recordStartSecondsRef = useRef<number>(0);
@@ -4285,6 +4287,7 @@ const MainStudio: React.FC = () => {
             </div>
           ) : (
             <Timeline
+              liveRecording={liveRecording}
               onAddTrack={handleAddEmptyTrack}
               onImportFile={() => importInputRef.current?.click()}
               overlay={trackImportProgress && !isTrackImportIndicatorDismissed ? (
@@ -4503,8 +4506,9 @@ const MainStudio: React.FC = () => {
         onClose={() => {
           setIsRecordModalOpen(false);
           setRecordTargetTrackId(null);
+          setLiveRecording(null);
         }}
-        onFinishRecording={handleFinishRecording}
+        onFinishRecording={(buffer, takeName) => { setLiveRecording(null); handleFinishRecording(buffer, takeName); }}
         duckPlayingTracks={project.settings.duckPlayingTracks}
         duckingAmountDb={project.settings.duckingAmountDb}
         targetTrackName={(() => {
@@ -4513,6 +4517,7 @@ const MainStudio: React.FC = () => {
         })()}
         onRecordingStart={() => {
           recordStartSecondsRef.current = playheadSecondsRef.current;
+          setLiveRecording({ trackId: recordTargetTrackId, startSeconds: playheadSecondsRef.current });
         }}
       />
 
