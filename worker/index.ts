@@ -1,5 +1,6 @@
 export { JobRoom } from "./jobs/jobRoom";
 export { JobRegistry } from "./jobs/jobRegistry";
+import { isAuthProxyPath, proxyAuth } from "./authProxy";
 import { handleAuth, type AuthEnv } from "./auth/handler";
 import { D1UserStore } from "./auth/users";
 import { makeLimiter } from "./auth/rateLimit";
@@ -64,6 +65,9 @@ const authEnv = (env: Env): AuthEnv | null =>
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const incoming = new URL(request.url);
+
+    // Firebase's sign-in pages, served from our own address
+    if (isAuthProxyPath(incoming.pathname)) return proxyAuth(request, incoming, env.FIREBASE_PROJECT_ID);
 
     // Voice-talent jobs live here, not on the Express API.
     if (incoming.pathname === "/api/jobs" || incoming.pathname.startsWith("/api/jobs/")) {

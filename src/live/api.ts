@@ -10,7 +10,7 @@ const call = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
   return body as T;
 };
 
-export interface EventDraft { kind: 'scheduled' | 'quick'; title: string; description: string; notes: string; startsAt: number | null; participants: LiveParticipant[] }
+export interface EventDraft { kind: 'scheduled' | 'quick'; title: string; description: string; notes: string; startsAt: number | null; durationMin: number | null; participants: LiveParticipant[] }
 
 export const listEvents = () => call<{ now: number; events: LiveEvent[] }>('events');
 export const createEvent = (d: EventDraft) => call<LiveEvent>('events', { method: 'POST', body: JSON.stringify(d) });
@@ -20,7 +20,7 @@ export const setEventOpen = (id: string, open: boolean) => call<LiveEvent>(`even
 export const uploadEventFile = (id: string, file: File) => call<LiveFile>(`events/${id}/files?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, headers: { 'content-type': 'application/octet-stream' } });
 export const deleteEventFile = (id: string, fileId: string) => call<{ ok: true }>(`events/${id}/files/${fileId}`, { method: 'DELETE' });
 
-export interface JoinInfo { title: string; description: string; notes: string; startsAt: number | null; host: string; state: 'waiting' | 'open' | 'ended'; now: number; files: LiveFile[] }
+export interface JoinInfo { title: string; description: string; notes: string; startsAt: number | null; durationMin: number | null; host: string; state: 'waiting' | 'open' | 'ended'; now: number; files: LiveFile[] }
 export const getJoinInfo = async (token: string): Promise<JoinInfo> => {
   const res = await fetch(`/api/live/join/${encodeURIComponent(token)}`);
   const body = await res.json().catch(() => ({})) as JoinInfo & { error?: string };

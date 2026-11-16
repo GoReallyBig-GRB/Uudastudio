@@ -1,11 +1,13 @@
 /** Live events on the producer's side: ordering, wording and share links. No network, no screen. */
+import { parseBlocks } from '../guest/scriptFormat';
 
 export type EventState = 'waiting' | 'open' | 'ended';
-export interface LiveParticipant { name: string; contact: string }
+/** whatsapp is digits with the country code first; email is separate */
+export interface LiveParticipant { name: string; whatsapp: string; email: string }
 export interface LiveFile { id: string; name: string; mime: string; size: number; kind: 'doc' | 'audio' }
 export interface LiveEvent {
   id: string; token: string; kind: 'scheduled' | 'quick'; title: string; description: string; notes: string;
-  startsAt: number | null; activatedAt: number | null; endedAt: number | null; participants: LiveParticipant[];
+  startsAt: number | null; durationMin: number | null; activatedAt: number | null; endedAt: number | null; participants: LiveParticipant[];
   state: EventState; files: LiveFile[]; createdAt: number;
 }
 
@@ -57,20 +59,58 @@ export const countdown = (ms: number): string => {
   return `in ${Math.floor(h / 24)} days`;
 };
 
-export const inviteMessage = (e: Pick<LiveEvent, 'title' | 'description' | 'notes' | 'startsAt' | 'files'>, link: string, host: string): string => {
-  const lines = [`${host ? `${host} invites you` : 'You are invited'} to a live session: ${e.title}`];
-  lines.push(e.startsAt ? `When: ${formatWhen(e.startsAt)}` : 'Starting now');
-  if (e.description) lines.push('', e.description);
-  if (e.notes) lines.push('', 'Notes:', e.notes);
-  if (e.files.length) lines.push('', `Materials attached on the page: ${e.files.map((f) => f.name).join(', ')}`);
-  lines.push('', 'Join here:', link);
-  return lines.join('\n');
+/** The notes as plain text for a message: formatting marks removed, lists kept */
+export const markupToPlain = (markup: string): string =>
+  parseBlocks(markup).map((b) => {
+    if (b.type === 'blank') return '';
+    const text = b.runs.map((r) => (r.note ? `[${r.text}]` : r.text)).join('');
+    if (b.type === 'heading') return text;
+    const pad = '  '.repeat(b.indent);
+    return b.type === 'item' ? `${pad}${b.marker} ${text}` : `${pad}${text}`;
+  }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+
+export const durationLabel = (min: number): string => (min < 60 ? `${min} min` : min % 60 ? `${Math.floor(min / 60)} h ${min % 60} min` : `${min / 60} h`);
+
+/** "WAT, UTC+1" for the person's own zone */
+export const zoneLabel = (at: number, locale?: string): string => {
+  const parts = new Intl.DateTimeFormat(locale, { timeZoneName: 'short', hour: 'numeric' }).formatToParts(at);
+  const short = parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
+  const off = -new Date(at).getTimezoneOffset();
+  const sign = off >= 0 ? '+' : '-'; const h = Math.floor(Math.abs(off) / 60); const m = Math.abs(off) % 60;
+  const utc = `UTC${sign}${h}${m ? `:${String(m).padStart(2, '0')}` : ''}`;
+  return short && short !== utc && !short.startsWith('GMT') ? `${short}, ${utc}` : utc;
+};
+
+/** Date and time on separate lines of the invite: "Friday, 20 November 2026" and "2:00 PM (WAT, UTC+1)" */
+export const whenParts = (ms: number, locale?: string): { date: string; time: string } => ({
+  date: new Date(ms).toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+  time: `${new Date(ms).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })} (${zoneLabel(ms, locale)})`,
+});
+
+export const inviteMessage = (e: Pick<LiveEvent, 'title' | 'description' | 'notes' | 'startsAt' | 'durationMin' | 'files'>, link: string, host: string): string => {
+  const out: string[] = [`${host || 'Your host'} invites you to a live session on Uuda Studio.`, ''];
+  out.push(`Title: ${e.title}`);
+  if (e.description) out.push(`Description: ${e.description}`);
+  out.push('');
+  if (e.startsAt) {
+    const w = whenParts(e.startsAt);
+    out.push('When:', `  Date: ${w.date}`, `  Time: ${w.time}`);
+    if (e.durationMin) out.push(`  Duration: ${durationLabel(e.durationMin)}`);
+  } else {
+    out.push('When: starting now');
+    if (e.durationMin) out.push(`Duration: ${durationLabel(e.durationMin)}`);
+  }
+  const notes = markupToPlain(e.notes);
+  if (notes) out.push('', 'Notes:', notes);
+  if (e.files.length) out.push('', `Materials: ${e.files.map((f) => f.name).join(', ')} (download them on the join page)`);
+  out.push('', 'Join:', link);
+  return out.join('\n');
 };
 
 const digits = (s: string) => s.replace(/\D/g, '');
-export const whatsappUrl = (text: string, contact = ''): string => {
-  const d = digits(contact);
-  return `https://wa.me/${d.length >= 7 ? d : ''}?text=${encodeURIComponent(text)}`;
+export const whatsappUrl = (text: string, number = ''): string => {
+  const d = digits(number);
+  return `https://wa.me/${d.length >= 8 ? d : ''}?text=${encodeURIComponent(text)}`;
 };
 export const mailtoUrl = (subject: string, body: string, to = ''): string => `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 export const looksLikeEmail = (s: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());

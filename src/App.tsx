@@ -116,7 +116,7 @@ import { projectFromTemplate, templateFromProject, serializeTemplate, templateFi
 import { WorkspaceSetup, isSetupDone, markSetupDone, OPEN_SETUP_EVENT } from './setup/WorkspaceSetup';
 import { GeminiKeyDialog } from './voice/GeminiKeyDialog';
 import { useLiveEvents } from './live/useLiveEvents';
-import { LiveEventsPanel } from './live/LiveEventsPanel';
+import { LiveWorkspace } from './live/LiveWorkspace';
 import { GuestCluster } from './live/GuestCluster';
 import { onLaunchedFiles } from './pwa/fileLaunch';
 import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
@@ -2887,14 +2887,14 @@ const MainStudio: React.FC = () => {
   const [jobsWindow, setJobsWindow] = useState<{ open: boolean; target: JobsTarget; clientOnly?: boolean }>({ open: false, target: null });
   const liveState = useLiveEvents(Boolean(user));
   const [liveFocus, setLiveFocus] = useState<string | null>(null);
+  const [liveOpen, setLiveOpen] = useState(false);
   const openLivePanel = useCallback((eventId?: string) => {
-    setSidebarTab('live');
-    setIsLeftSidebarCollapsed(false);
+    setLiveOpen(true);
     setLiveFocus(eventId ? `${eventId}#${Date.now()}` : null);
   }, []);
   const startQuickEvent = useCallback(async () => {
     if (liveState.service !== 'ok') { openLivePanel(); return; }
-    try { const e = await liveState.create({ kind: 'quick', title: 'Quick event', description: '', notes: '', startsAt: null, participants: [] }); openLivePanel(e.id); }
+    try { const e = await liveState.create({ kind: 'quick', title: 'Quick event', description: '', notes: '', startsAt: null, durationMin: null, participants: [] }); openLivePanel(e.id); }
     catch { openLivePanel(); }
   }, [liveState, openLivePanel]);
   const [joinOrder, setJoinOrder] = useState<string[] | null>(null);
@@ -4071,7 +4071,6 @@ const MainStudio: React.FC = () => {
         onChooseProjectRoot={() => void handleChooseProjectRoot()}
         onOpenProjectFromRoot={() => void handleOpenProjectFromRoot()}
         onInviteGuest={() => setIsInviteGuestOpen(true)}
-        guestSlot={<GuestCluster live={liveState} onVoice={() => setJobsWindow({ open: true, target: null })} onClient={() => setJobsWindow({ open: true, target: null, clientOnly: true })} onManage={openLivePanel} onQuick={() => { void startQuickEvent(); }} />}
         projectRootDirectoryName={projectRootDirectoryName}
         onOpenProjectFromFile={handleOpenProjectFromFile}
         onOpenRecord={() => setIsRecordModalOpen(true)}
@@ -4124,6 +4123,7 @@ const MainStudio: React.FC = () => {
 
       {/* Selected Clip Toolbar (Permanent accessible fallback docked below Header) */}
       <ClipToolbar
+        guestSlot={<GuestCluster live={liveState} onVoice={() => setJobsWindow({ open: true, target: null })} onClient={() => setJobsWindow({ open: true, target: null, clientOnly: true })} onManage={openLivePanel} onQuick={() => { void startQuickEvent(); }} />}
         clip={selectedClip}
         selectedCount={selectedUnitCount}
         canPaste={canPasteAny}
@@ -4207,7 +4207,7 @@ const MainStudio: React.FC = () => {
           onAddLibraryTrack={handleAddLibraryTrack}
           jobsState={jobsState}
           onOpenJobsWindow={(target) => setJobsWindow({ open: true, target })}
-          liveNode={<LiveEventsPanel live={liveState} hostName={user?.display_name ?? ''} focusId={liveFocus} onClose={() => setIsLeftSidebarCollapsed(true)} />}
+          onOpenLive={() => openLivePanel()}
           groupsFooter={
             <GroupListPanel
               groups={groups}
@@ -4434,6 +4434,7 @@ const MainStudio: React.FC = () => {
       )}
       <AudioDevicesSheet {...audioDevices} open={audioDevices.open && (!setupOpen || devicesFromSetup)} onClose={() => { setDevicesFromSetup(false); audioDevices.close(); }} />
       <GeminiKeyDialog />
+      <LiveWorkspace open={liveOpen} onClose={() => setLiveOpen(false)} live={liveState} hostName={user?.display_name ?? ''} focusId={liveFocus} />
       <JobsModal open={jobsWindow.open} onClose={() => setJobsWindow((w) => ({ ...w, open: false }))} jobs={jobsState} target={jobsWindow.target} clientOnly={jobsWindow.clientOnly} onImportFile={handleImportJobFile} />
       <InviteGuestModal open={isInviteGuestOpen} onClose={() => setIsInviteGuestOpen(false)} defaultTitle={project.name ?? ''} />
       {joinOrder && (
