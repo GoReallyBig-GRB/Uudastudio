@@ -1,6 +1,7 @@
 export { JobRoom } from "./jobs/jobRoom";
 export { JobRegistry } from "./jobs/jobRegistry";
 import { isAuthProxyPath, proxyAuth } from "./authProxy";
+import { withOrigin } from "./pageMeta";
 import { handleAuth, type AuthEnv } from "./auth/handler";
 import { D1UserStore } from "./auth/users";
 import { makeLimiter } from "./auth/rateLimit";
@@ -151,6 +152,17 @@ export default {
           { status: 502, headers: jsonHeaders },
         );
       }
+    }
+
+    // The home page carries its own address in the link-preview tags (WhatsApp and others need a full address for the image)
+    if ((request.method === "GET" || request.method === "HEAD") && (incoming.pathname === "/" || incoming.pathname === "/index.html")) {
+      const page = await env.ASSETS.fetch(new Request(`${incoming.origin}/`, { headers: request.headers }));
+      if (page.ok && (page.headers.get("content-type") ?? "").includes("text/html")) {
+        const headers = new Headers(page.headers);
+        headers.delete("content-length"); headers.delete("etag"); headers.set("cache-control", "no-cache");
+        return new Response(request.method === "HEAD" ? null : withOrigin(await page.text(), incoming.origin), { status: 200, headers });
+      }
+      return page;
     }
 
     // Vite builds the React SPA to ./dist; Cloudflare serves and caches those assets.
