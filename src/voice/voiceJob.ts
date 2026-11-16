@@ -18,7 +18,7 @@ import { authService } from '../services/authService';
 import { synthesizeWithOwnKey, AUDITION_SENTENCE } from './geminiDirect';
 
 // The same voice should sound the same every time it is auditioned, so each sample is kept once in this browser
-const AUDITION_CACHE = 'uuda-voice-auditions-v2';
+const AUDITION_CACHE = 'uuda-voice-auditions-v3';
 async function readAudition(voice: string): Promise<ArrayBuffer | null> {
   try {
     if (typeof caches === 'undefined') return null;
@@ -295,7 +295,8 @@ class VoiceJobStore {
   // ---------------------------------------------------------------------------
   commit() {
     const { asset, meta } = this.state;
-    if (!asset || !meta || !this.commitHandler) return;
+    if (!asset || !meta) return;
+    if (!this.commitHandler) { this.set({ error: 'The timeline is not ready to take the voiceover yet. Try again in a moment.' }); return; }
     this.stopGenerated();
     this.commitHandler(asset, meta);
     this.set({ status: 'idle', asset: null, meta: null, notice: 'Voiceover added to the timeline.' });

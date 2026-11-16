@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { voiceJob } from './voice/voiceJob';
 import { isTypingTarget } from './utils/typing';
 import {
   Project,
@@ -1879,6 +1880,14 @@ const MainStudio: React.FC = () => {
       message: `Speech generated with ${voiceMeta.voiceName} (${asset.durationSeconds.toFixed(1)}s) docked on new top track.`,
     });
   };
+
+  // A finished voiceover reaches the timeline through this, whichever panel started it (registered once, always the latest handler)
+  const addVoiceRef = useRef(handleAddVoiceTrack);
+  addVoiceRef.current = handleAddVoiceTrack;
+  useEffect(() => {
+    voiceJob.setCommitHandler((asset, meta) => addVoiceRef.current(asset, meta));
+    return () => voiceJob.setCommitHandler(null);
+  }, []);
 
   const handleAddLibraryTrack = (asset: Asset) => {
     // Crucial: Register asset in audioEngine so timeline and playback can access audioBuffer
