@@ -73,7 +73,7 @@ export class D1LiveStore implements LiveStore {
   async file(id: string, fid: string) {
     await this.init();
     const r = await this.db.prepare('SELECT * FROM live_event_files WHERE event_id = ? AND id = ?').bind(id, fid).first();
-    return r ? { id: String(r.id), name: String(r.name), mime: String(r.mime), size: Number(r.size), kind: r.kind === 'audio' ? 'audio' : 'doc', data: fromB64(String(r.data)) } : null;
+    return r ? { id: String(r.id), name: String(r.name), mime: String(r.mime), size: Number(r.size), kind: r.kind === 'audio' ? ('audio' as const) : ('doc' as const), data: fromB64(String(r.data)) } : null;
   }
   async addFile(id: string, f: StoredFile) { await this.init(); await this.db.prepare('INSERT INTO live_event_files (event_id, id, name, mime, size, kind, data) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, f.id, f.name, f.mime, f.size, f.kind, toB64(f.data)).run(); }
   async removeFile(id: string, fid: string) { await this.init(); return (await this.db.prepare('DELETE FROM live_event_files WHERE event_id = ? AND id = ? RETURNING id').bind(id, fid).first()) !== null; }
