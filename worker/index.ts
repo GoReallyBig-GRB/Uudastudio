@@ -5,6 +5,8 @@ import { D1UserStore } from "./auth/users";
 import { makeLimiter } from "./auth/rateLimit";
 import { fetchGoogleKeys, keyCache } from "./auth/verifyIdToken";
 import { handleTemplates } from "./templates/handler";
+import { handleLive } from "./live/handler";
+import { D1LiveStore } from "./live/store";
 import { D1TemplateStore, type D1Full } from "./templates/store";
 import { handleFreesound } from "./freesound/handler";
 import { D1TokenStore, makeSealer } from "./freesound/tokens";
@@ -51,6 +53,7 @@ const signInLimiter = makeLimiter(10, 60_000);
 
 /** Sign-in is handled here only when its database, project id and secret are all set; otherwise /api/auth/* goes to API_ORIGIN as before */
 const templateLimits = { list: makeLimiter(60, 60_000), write: makeLimiter(30, 60_000) };
+const liveLimits = { producer: makeLimiter(60, 60_000), guest: makeLimiter(60, 60_000) };
 const freesoundLimits = { search: makeLimiter(50, 60_000), sharedSearch: makeLimiter(15, 60_000), other: makeLimiter(30, 60_000) };
 
 const authEnv = (env: Env): AuthEnv | null =>
@@ -86,6 +89,13 @@ export default {
       if (a && env.AUTH_DB) {
         const rest = incoming.pathname.slice("/api/templates".length).split("/").filter(Boolean);
         return handleTemplates(request, rest, { auth: a, templates: new D1TemplateStore(env.AUTH_DB), limits: templateLimits });
+      }
+    }
+    if (incoming.pathname.startsWith("/api/live/")) {
+      const a = authEnv(env);
+      if (a && env.AUTH_DB) {
+        const rest = incoming.pathname.slice("/api/live/".length).split("/").filter(Boolean);
+        return handleLive(request, rest, { auth: a, store: new D1LiveStore(env.AUTH_DB as unknown as D1Full), limits: liveLimits });
       }
     }
     if (incoming.pathname.startsWith("/api/freesound/")) {
