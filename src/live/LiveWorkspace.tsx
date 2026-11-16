@@ -45,7 +45,7 @@ const saveNewDraft = (f: Form | null) => { try { if (f) localStorage.setItem(DRA
 
 export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, focusId }) => {
   const [sel, setSel] = useState<string>('');
-  const [drafts, setDrafts] = useState<Record<string, Form>>(() => { const d = loadNewDraft(); return d ? { new: d } : {}; });
+  const [drafts, setDrafts] = useState<Record<string, Form>>(() => { const out: Record<string, Form> = {}; const d = loadNewDraft(); if (d) out.new = d; return out; });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [sharing, setSharing] = useState<string | null>(null);
