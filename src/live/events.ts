@@ -87,23 +87,20 @@ export const whenParts = (ms: number, locale?: string): { date: string; time: st
   time: `${new Date(ms).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })} (${zoneLabel(ms, locale)})`,
 });
 
+const indent = (t: string): string => t.split('\n').map((l) => (l ? `   ${l}` : l)).join('\n');
+
+/** The invite as sent by WhatsApp, email or copy: one labelled block per part, each with its own icon */
 export const inviteMessage = (e: Pick<LiveEvent, 'title' | 'description' | 'notes' | 'startsAt' | 'durationMin' | 'files'>, link: string, host: string): string => {
-  const out: string[] = [`${host || 'Your host'} invites you to a live session on Uuda Studio.`, ''];
-  out.push(`Title: ${e.title}`);
-  if (e.description) out.push(`Description: ${e.description}`);
-  out.push('');
-  if (e.startsAt) {
-    const w = whenParts(e.startsAt);
-    out.push('When:', `  Date: ${w.date}`, `  Time: ${w.time}`);
-    if (e.durationMin) out.push(`  Duration: ${durationLabel(e.durationMin)}`);
-  } else {
-    out.push('When: starting now');
-    if (e.durationMin) out.push(`Duration: ${durationLabel(e.durationMin)}`);
-  }
+  const out: string[] = [`🎙️ ${host || 'Your host'} invites you to a live session on Uuda Studio.`, '', '📌 Title', indent(e.title)];
+  if (e.description) out.push('', '💬 Description', indent(e.description));
+  const when: string[] = [];
+  if (e.startsAt) { const w = whenParts(e.startsAt); when.push(`Date: ${w.date}`, `Time: ${w.time}`); } else when.push('Starting now');
+  if (e.durationMin) when.push(`Duration: ${durationLabel(e.durationMin)}`);
+  out.push('', '📅 When', indent(when.join('\n')));
+  out.push('', '🔗 Join the session', indent(link));
   const notes = markupToPlain(e.notes);
-  if (notes) out.push('', 'Notes:', notes);
-  if (e.files.length) out.push('', `Materials: ${e.files.map((f) => f.name).join(', ')} (download them on the join page)`);
-  out.push('', 'Join:', link);
+  if (notes) out.push('', '📝 Notes (to help you prepare)', indent(notes));
+  if (e.files.length) out.push('', '📎 Materials', indent(`${e.files.map((f) => f.name).join(', ')} (download them on the join page)`));
   return out.join('\n');
 };
 

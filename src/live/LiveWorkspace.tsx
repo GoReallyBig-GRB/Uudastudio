@@ -13,14 +13,15 @@ interface Props { open: boolean; onClose: () => void; live: LiveState; hostName:
 interface PersonForm { name: string; iso: string; national: string; email: string }
 interface Form { title: string; description: string; notes: string; startsAt: number | null; duration: string; people: PersonForm[]; files: LiveFile[]; removed: string[]; added: File[] }
 
+const NOTES_MAX = 8000;
 const DRAFT_KEY = 'uuda_live_new_draft';
 const FILE_ACCEPT = '.pdf,.doc,.docx,.txt,.rtf,.md,.odt,.ppt,.pptx,.xls,.xlsx,.csv,.mp3,.wav,.m4a,.ogg,.aac,.flac';
 const DURATIONS = [15, 30, 45, 60, 90, 120, 180];
 const kb = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1000))} KB`);
 const FIELD = 'h-10 w-full rounded-control border border-line-strong bg-surface-3 px-3 text-sm text-ink placeholder:text-ink-faint hover:border-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50';
 const LABEL = 'mb-1.5 block text-xs font-medium text-ink-dim';
-const PRIMARY = 'inline-flex h-10 items-center justify-center gap-2 rounded-control bg-ink px-5 text-sm font-semibold text-surface-0 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
-const SECONDARY = 'inline-flex h-10 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface-2 px-4 text-sm font-medium text-ink transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
+const PRIMARY = 'inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-control border border-accent bg-transparent px-5 text-sm font-semibold text-accent transition-colors hover:bg-accent/10 active:bg-accent active:text-accent-ink disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
+const SECONDARY = 'inline-flex h-10 whitespace-nowrap items-center justify-center gap-2 rounded-control border border-line-strong bg-surface-2 px-4 text-sm font-medium text-ink transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
 const LIVEBTN = 'inline-flex h-10 items-center justify-center gap-2 rounded-control bg-ok px-5 text-sm font-semibold text-surface-0 transition-[filter] hover:brightness-110 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ok/60';
 
 const emptyForm = (): Form => ({ title: '', description: '', notes: '', startsAt: null, duration: '', people: [], files: [], removed: [], added: [] });
@@ -90,6 +91,7 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
     const kind = event?.kind ?? 'scheduled';
     if (!form.title.trim() && kind === 'scheduled') throw new Error('Give the event a title.');
     if (kind === 'scheduled' && form.startsAt === null) throw new Error('Pick a date and time.');
+    if (form.notes.length > NOTES_MAX) throw new Error(`The notes are ${(form.notes.length - NOTES_MAX).toLocaleString()} characters over the limit. Shorten them or attach the full text as a document.`);
     for (const p of form.people) {
       if (p.email.trim() && !looksLikeEmail(p.email)) throw new Error(`${p.name || 'A guest'} has an email address that does not look right.`);
       if (!isValidWhatsapp(joinNumber(p.iso, p.national))) throw new Error(`${p.name || 'A guest'} has a WhatsApp number that does not look right.`);
@@ -128,7 +130,7 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
             <ul className="flex flex-col gap-1.5">
               {sorted.map((e) => { const b = badge(e, live.now); const on = e.id === sel; return (
                 <li key={e.id}>
-                  <button type="button" onClick={() => { setSel(e.id); setError(''); }} aria-current={on} className={`w-full rounded-card border p-3 text-left transition-colors cursor-pointer ${on ? 'border-ink-faint bg-surface-3' : 'border-line bg-surface-2 hover:bg-surface-3'}`}>
+                  <button type="button" onClick={() => { setSel(e.id); setError(''); }} aria-current={on} className={`w-full rounded-card border p-3 text-left transition-colors cursor-pointer ${on ? 'border-accent/60 bg-surface-3' : 'border-line bg-surface-2 hover:bg-surface-3'}`}>
                     <span className="flex items-start justify-between gap-2"><span className="min-w-0 truncate text-sm font-semibold text-ink">{e.title}</span>{drafts[e.id] && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-warn" title="Unsaved changes" />}</span>
                     <span className="mt-0.5 block truncate text-[11px] text-ink-dim">{e.startsAt ? formatWhen(e.startsAt) : 'Quick event'}{e.durationMin ? ` · ${durationLabel(e.durationMin)}` : ''}</span>
                     <span className={`mt-2 inline-block rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${b.cls}`}>{b.text}</span>
@@ -180,9 +182,14 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
                   </div>
                 </div>
 
-                <div><p className={LABEL}>Event notes</p>
+                <div><p className={LABEL}>Notes (to help your guests prepare)</p>
                   <ScriptEditor id="lw-notes" rows={9} value={form.notes} onChange={(v) => edit({ notes: v })} maxLength={8000} placeholder="Discussion points, talking order and links to read before the session." />
-                  <p className="mt-1.5 text-[11px] text-ink-faint">Links you paste are clickable for your guests.</p></div>
+                  {form.notes.length > NOTES_MAX
+                    ? <div role="alert" className="mt-2 flex flex-wrap items-center gap-3 rounded-card border border-danger/50 bg-danger/10 p-3 text-xs text-ink">
+                        <span className="min-w-0 flex-1"><strong className="text-danger">{(form.notes.length - NOTES_MAX).toLocaleString()} characters over the {NOTES_MAX.toLocaleString()} limit.</strong> Shorten the notes, or attach the full text as a document and keep only the key points here.</span>
+                        <button type="button" className={SECONDARY} onClick={() => picker.current?.click()}><Paperclip className="h-4 w-4" />Attach a document</button>
+                      </div>
+                    : <p className="mt-1.5 text-[11px] text-ink-faint">Links you paste are clickable for your guests. {form.notes.length > NOTES_MAX * 0.8 ? `${form.notes.length.toLocaleString()} of ${NOTES_MAX.toLocaleString()} characters used. ` : ''}Long material is better attached as a document.</p>}</div>
 
                 <div>
                   <p className={LABEL}>Files for the guests</p>

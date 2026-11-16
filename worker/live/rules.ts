@@ -89,3 +89,23 @@ export const randomId = (bytes: number): string => {
   let s = ''; for (const x of a) s += String.fromCharCode(x);
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 };
+
+/** How long a session is taken to last when the producer did not say, for judging whether two sessions overlap */
+export const DEFAULT_SESSION_MIN = 60;
+
+const planned = (e: LiveEventRow, now: number): [number, number] | null => {
+  if (stateOf(e, now) === 'ended') return null;
+  const start = e.activatedAt ?? e.startsAt;
+  if (start === null) return null;
+  return [start, start + (e.durationMin ?? DEFAULT_SESSION_MIN) * 60_000];
+};
+
+/** Another event that already holds this time (two sessions cannot run or be booked at once), or null */
+export const timeClash = (others: LiveEventRow[], selfId: string | null, startsAt: number, durationMin: number | null, now: number): LiveEventRow | null => {
+  const end = startsAt + (durationMin ?? DEFAULT_SESSION_MIN) * 60_000;
+  return others.find((o) => { if (o.id === selfId) return false; const w = planned(o, now); return Boolean(w && w[0] < end && startsAt < w[1]); }) ?? null;
+};
+
+/** Another event that is live right now */
+export const liveElsewhere = (others: LiveEventRow[], selfId: string | null, now: number): LiveEventRow | null =>
+  others.find((o) => { if (o.id === selfId || stateOf(o, now) !== 'open') return false; const w = planned(o, now); return o.activatedAt !== null || Boolean(w && now < w[1]); }) ?? null;

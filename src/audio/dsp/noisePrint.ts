@@ -11,6 +11,7 @@
  * whole clip at once (see noisePrint.test.ts). Short clips use the same code. One stage per channel.
  */
 import type { Stage } from './wsolaStream';
+import { eventSpread } from './quietness';
 
 export const PRINT_FFT = 1024;
 const N = PRINT_FFT;
@@ -90,27 +91,28 @@ export const learnNoisePrint = (channels: Float32Array[], sampleRate: number, la
   const re = new Float64Array(N);
   const im = new Float64Array(N);
   const frameLevels: number[] = [];
+  const lowBin = Math.ceil((150 * N) / sampleRate);
   let count = 0;
   for (const ch of channels) {
     for (let start = 0; start + N <= ch.length; start += HOP) {
-      let energy = 0;
-      for (let i = 0; i < N; i++) { const v = ch[start + i] * WIN[i]; re[i] = v; im[i] = 0; energy += v * v; }
+      for (let i = 0; i < N; i++) { re[i] = ch[start + i] * WIN[i]; im[i] = 0; }
       fft(re, im);
-      for (let k = 0; k < BINS; k++) sum[k] += re[k] * re[k] + im[k] * im[k];
+      let above = 0;
+      for (let k = 0; k < BINS; k++) { const p = re[k] * re[k] + im[k] * im[k]; sum[k] += p; if (k >= lowBin) above += p; }
       count++;
-      frameLevels.push(10 * Math.log10(energy / N + 1e-12));
+      // Loudness above the room's low rumble, so rumble drifting up and down is not mistaken for sounds
+      frameLevels.push(10 * Math.log10(above / N + 1e-12));
     }
   }
   const power = Array.from(sum, (s) => s / Math.max(1, count));
-  frameLevels.sort((a, b) => a - b);
-  const q = (p: number) => frameLevels[Math.min(frameLevels.length - 1, Math.floor(p * frameLevels.length))];
+  const spread = eventSpread(frameLevels, Math.max(1, Math.round((0.12 * sampleRate) / HOP)));
   return {
     fftSize: N,
     sampleRate,
     power,
     seconds: frames / sampleRate,
     label,
-    loudnessSpreadDb: +(q(0.95) - q(0.5)).toFixed(1),
+    loudnessSpreadDb: +spread.spreadDb.toFixed(1),
   };
 };
 

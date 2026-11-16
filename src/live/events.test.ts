@@ -26,24 +26,26 @@ describe('links and invites', () => {
   it('finds clickable links in notes once each', () => {
     expect(linksIn('Read https://a.com/x, then https://a.com/x and http://b.org.')).toEqual(['https://a.com/x', 'http://b.org']);
   });
-  it('structures the invite: host line, title, description, when, duration, notes, link', () => {
+  it('structures the invite: labelled, icon-led blocks with the join link straight after the duration', () => {
     const m = inviteMessage(ev({ title: 'Panel', description: 'About radio', notes: '# Agenda\n- **Intro**\n- Q and A', startsAt: Date.UTC(2026, 10, 20, 14, 0), durationMin: 90 }), 'https://x/#/live/t', 'Ada');
-    expect(m.startsWith('Ada invites you to a live session on Uuda Studio.')).toBe(true);
-    expect(m).toContain('Title: Panel');
-    expect(m).toContain('Description: About radio');
-    expect(m).toMatch(/When:\n {2}Date: .*2026/);
-    expect(m).toMatch(/ {2}Time: .*\(/);
+    expect(m.startsWith('🎙️ Ada invites you to a live session on Uuda Studio.')).toBe(true);
+    expect(m).toContain('📌 Title\n   Panel');
+    expect(m).toContain('💬 Description\n   About radio');
+    expect(m).toMatch(/📅 When\n {3}Date: .*2026/);
+    expect(m).toMatch(/ {3}Time: .*\(/);
     expect(m).toContain('Duration: 1 h 30 min');
-    expect(m).toContain('Agenda');
-    expect(m).toContain('• Intro');
+    expect(m).toContain('📝 Notes (to help you prepare)');
+    expect(m).toContain('   • Intro');
     expect(m).not.toContain('**');
-    expect(m.endsWith('Join:\nhttps://x/#/live/t')).toBe(true);
+    expect(m.indexOf('🔗 Join the session')).toBeGreaterThan(m.indexOf('Duration:'));
+    expect(m.indexOf('🔗 Join the session')).toBeLessThan(m.indexOf('📝 Notes'));
+    expect(m).toContain('🔗 Join the session\n   https://x/#/live/t');
   });
   it('leaves out the duration when none is set, and says starting now for a quick event', () => {
     const m = inviteMessage(ev({ title: 'Quick', startsAt: null }), 'https://x/#/live/t', '');
     expect(m).not.toContain('Duration');
-    expect(m).toContain('When: starting now');
-    expect(m.startsWith('Your host invites you')).toBe(true);
+    expect(m).toContain('Starting now');
+    expect(m.startsWith('🎙️ Your host invites you')).toBe(true);
   });
   it('turns notes into plain text', () => {
     expect(markupToPlain('Read **this** first\n\n\n\n1. One\n2. Two')).toBe('Read this first\n\n1. One\n2. Two');

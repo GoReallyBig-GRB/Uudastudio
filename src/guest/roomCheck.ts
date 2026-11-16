@@ -4,9 +4,11 @@
  * Pure and unit-tested; the thresholds were set by running it on four real phone and USB-mic recordings.
  */
 
+import { eventSpread, highPass } from '../audio/dsp/quietness';
+
 export const FRAME_SECONDS = 0.05;
 /** The first moments after a microphone opens often hold a start-up click or a level settling. They are not the room, so they are ignored. */
-const SETTLE_SECONDS = 0.5;
+const SETTLE_SECONDS = 0.8;
 /** Speech never starts below this level. Without it a very quiet mic (noise near -85 dB) makes ordinary hiss look like speech. */
 const SPEECH_FLOOR_DB = -58;
 /** A noise in the quiet start only matters if it is audible at all */
@@ -19,6 +21,10 @@ export interface RoomMetrics {
   noiseDb: number;
   /** Loudest frame in the quiet start, dBFS */
   noiseMaxDb: number;
+  /** How far the loudest tenth of a second of the quiet start (above the room's rumble) stands above the typical one, dB */
+  eventDb: number;
+  /** Level of that loudest moment, dBFS */
+  eventMaxDb: number;
   /** Level of the speech (90th percentile frame), dBFS */
   speechDb: number;
   /** Speech minus noise, dB */
@@ -109,10 +115,19 @@ export const measure = (x: Float32Array, sampleRate: number): RoomMetrics | null
   const leadSorted = [...lead].sort((a, b) => a - b);
   const noiseDb = lead.length ? pct(leadSorted, 50) : floorGuess;
   const noiseMaxDb = lead.length ? leadSorted[leadSorted.length - 1] : floorGuess;
+  // Sounds in the quiet start are judged on the signal above the room's rumble, averaged over a moment, so a wandering hum is not a "bump"
+  const hp = highPass(x, sampleRate);
+  const hpLevel: number[] = [];
+  for (let f = settle; f < settle + lead.length; f++) {
+    let s = 0;
+    for (let i = f * n; i < (f + 1) * n; i++) s += hp[i] * hp[i];
+    hpLevel.push(db(Math.sqrt(s / n)));
+  }
+  const ev = eventSpread(hpLevel, 3);
   const after = level.slice(onset).sort((a, b) => a - b);
   const speechDb = pct(after, 90);
   return {
-    leadInSeconds: onset * FRAME_SECONDS, noiseDb, noiseMaxDb, speechDb, snrDb: speechDb - noiseDb, peakDb: db(peak), clippedSamples: clipped,
+    leadInSeconds: onset * FRAME_SECONDS, noiseDb, noiseMaxDb, eventDb: ev.spreadDb, eventMaxDb: ev.maxDb, speechDb, snrDb: speechDb - noiseDb, peakDb: db(peak), clippedSamples: clipped,
     lowShare: lowShareOf(x, onset * n, sampleRate), sampleRate, durationSeconds: x.length / sampleRate,
   };
 };
@@ -125,7 +140,7 @@ export const assess = (m: RoomMetrics | null): RoomReport => {
   const f: Finding[] = [];
   if (m.sampleRate <= 24000) f.push({ id: 'narrow', level: 'problem', text: 'This microphone records at phone-call quality (a Bluetooth headset does this). Use the phone or computer microphone, or a wired or USB mic.' });
   if (m.leadInSeconds < 1) f.push({ id: 'lead', level: 'warn', text: 'There was no quiet moment before you spoke. Stay silent for about 3 seconds first so the room can be measured.' });
-  if (m.leadInSeconds >= 1 && m.noiseMaxDb > EVENT_FLOOR_DB && m.noiseMaxDb - m.noiseDb >= 12) f.push({ id: 'event', level: 'warn', text: 'Something made a noise during the quiet part (a cough, a bump, a car). Try again and keep still and silent.' });
+  if (m.leadInSeconds >= 1 && m.eventMaxDb > EVENT_FLOOR_DB && m.eventDb >= 12) f.push({ id: 'event', level: 'warn', text: 'Something made a noise during the quiet part (a cough, a bump, a car). Try again and keep still and silent.' });
   if (m.clippedSamples >= 3 || m.peakDb > -1) f.push({ id: 'loud', level: m.clippedSamples >= 3 ? 'problem' : 'warn', text: m.clippedSamples >= 3 ? 'The sound is clipping (too loud, and the damage cannot be repaired). Move back from the microphone or turn its gain down.' : 'The loudest sounds reach the limit. Move a little further from the microphone or lower its gain.' });
   // A quiet voice is only a fault when the room noise is close behind it. A clean quiet take is fine: the producer raises the level
   // and nothing is lost, and a mic with its auto-gain off always records lower than a phone's own recorder app.

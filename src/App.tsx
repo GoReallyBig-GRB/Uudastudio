@@ -85,6 +85,7 @@ import { PEAK_BASE_SAMPLES_PER_PIXEL } from './waveform/peakMath';
 import { ChunkedCancelled, createVirtualSource, processedUndoLimit } from './audio/chunkedProcess';
 import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJob';
 import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
+import { LOUD_SPREAD_DB } from './audio/dsp/quietness';
 import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, studioSubfolder, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { saveOrDownload } from './jobs/studioFolder';
@@ -247,6 +248,8 @@ const MainStudio: React.FC = () => {
   const [isAutosaving, setIsAutosaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
+  /** Set while a take is being recorded, so the timeline can draw it forming */
+  const [liveRecording, setLiveRecording] = useState<{ trackId: string | null; startSeconds: number } | null>(null);
   // Track the next take is recorded into (null = a new top track) and where the playhead was when recording began.
   const [recordTargetTrackId, setRecordTargetTrackId] = useState<string | null>(null);
   const recordStartSecondsRef = useRef<number>(0);
@@ -3348,7 +3351,7 @@ const MainStudio: React.FC = () => {
       const print = learnNoisePrint(joined, sampleRate, `${track.name}, ${mmss(sel.startSeconds)} to ${mmss(sel.endSeconds)}`);
       setNoisePrint(print);
       addToast(
-        print.loudnessSpreadDb > 6
+        print.loudnessSpreadDb > LOUD_SPREAD_DB
           ? { type: 'warning', title: 'Noise sample taken, but it has loud moments', message: 'A stretch with only background noise works best. Speech in the sample will be treated as noise.' }
           : { type: 'success', title: 'Noise sample taken', message: `${print.seconds.toFixed(1)} s learned. Select the clip and open Denoise: it will remove only this noise.` },
       );
@@ -4291,6 +4294,7 @@ const MainStudio: React.FC = () => {
             </div>
           ) : (
             <Timeline
+              liveRecording={liveRecording}
               onAddTrack={handleAddEmptyTrack}
               onImportFile={() => importInputRef.current?.click()}
               overlay={trackImportProgress && !isTrackImportIndicatorDismissed ? (
@@ -4519,8 +4523,9 @@ const MainStudio: React.FC = () => {
         onClose={() => {
           setIsRecordModalOpen(false);
           setRecordTargetTrackId(null);
+          setLiveRecording(null);
         }}
-        onFinishRecording={handleFinishRecording}
+        onFinishRecording={(buffer, takeName) => { setLiveRecording(null); handleFinishRecording(buffer, takeName); }}
         duckPlayingTracks={project.settings.duckPlayingTracks}
         duckingAmountDb={project.settings.duckingAmountDb}
         targetTrackName={(() => {
@@ -4529,6 +4534,7 @@ const MainStudio: React.FC = () => {
         })()}
         onRecordingStart={() => {
           recordStartSecondsRef.current = playheadSecondsRef.current;
+          setLiveRecording({ trackId: recordTargetTrackId, startSeconds: playheadSecondsRef.current });
         }}
       />
 

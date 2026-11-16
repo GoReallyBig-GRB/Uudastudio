@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIMITS, fileKindOf, stateOf, validateEvent } from './rules';
+import { LIMITS, fileKindOf, liveElsewhere, stateOf, timeClash, validateEvent, type LiveEventRow } from './rules';
 import { MemoryLiveStore } from './store';
 import { handleLive, type LiveEnv } from './handler';
 
@@ -76,5 +76,25 @@ describe('guest routes', () => {
     expect(new Uint8Array(await ok.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
     expect((await handleLive(new Request('https://x/a'), ['join', 'nope-nope-nope-nope-nope'], env)).status).toBe(404);
     expect((await handleLive(new Request('https://x/a'), ['join', 'short'], env)).status).toBe(404);
+  });
+});
+
+describe('two events never share a time', () => {
+  const row = (o: Partial<LiveEventRow>): LiveEventRow => ({ id: 'a', userId: 'u', token: 't', kind: 'scheduled', title: 'A', description: '', notes: '', startsAt: 1_000_000, durationMin: 60, activatedAt: null, endedAt: null, participants: [], hostName: 'h', createdAt: 0, updatedAt: 0, ...o });
+  const now = 900_000;
+  it('refuses a time that overlaps another event, and allows one right after it', () => {
+    const a = row({});
+    expect(timeClash([a], null, 1_000_000 + 30 * 60_000, 30, now)?.id).toBe('a');
+    expect(timeClash([a], null, 1_000_000 + 60 * 60_000, 30, now)).toBeNull();
+    expect(timeClash([a], 'a', 1_000_000, 60, now)).toBeNull();
+  });
+  it('treats an unset length as an hour', () => {
+    expect(timeClash([row({ durationMin: null })], null, 1_000_000 + 50 * 60_000, null, now)?.id).toBe('a');
+  });
+  it('knows when another event is live', () => {
+    const live = row({ id: 'b', activatedAt: 800_000 });
+    expect(liveElsewhere([live], 'x', now)?.id).toBe('b');
+    expect(liveElsewhere([live], 'b', now)).toBeNull();
+    expect(liveElsewhere([row({ endedAt: 850_000 })], 'x', now)).toBeNull();
   });
 });
