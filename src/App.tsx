@@ -113,6 +113,8 @@ import { TemplatesModal } from './components/TemplatesModal';
 import { SaveTemplateModal } from './components/SaveTemplateModal';
 import { saveCloudTemplate, TemplateSyncError } from './templates/templateApi';
 import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, parseTemplate, UudaTemplate } from './templates/template';
+import { WorkspaceSetup, isSetupDone, markSetupDone, OPEN_SETUP_EVENT } from './setup/WorkspaceSetup';
+import { GeminiKeyDialog } from './voice/GeminiKeyDialog';
 import { onLaunchedFiles } from './pwa/fileLaunch';
 import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
 import { VoiceoverModal } from './components/VoiceoverModal';
@@ -120,7 +122,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { undoLeftProcessingInPlace } from './history/historyLimits';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
 import { calculateMinimumTimelineZoom } from './components/timelineZoom';
-import { ProgressIndicator } from './components/ui';
+import { Logo, ProgressIndicator } from './components/ui';
 import { RootProjectPicker } from './components/RootProjectPicker';
 import { blockedPickerMessage, isEmbeddedFrame, isPickerBlockedError, isPickerCancelled } from './storage/fsAccess';
 
@@ -2873,6 +2875,11 @@ const MainStudio: React.FC = () => {
   // ---- Join clips in the order picked (Join button): numbered badges, preview, then join ----
   const [isInviteGuestOpen, setIsInviteGuestOpen] = useState(false);
   const audioDevices = useAudioDevices();
+  // The first time someone reaches the studio, a setup panel comes before anything else
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [devicesFromSetup, setDevicesFromSetup] = useState(false);
+  useEffect(() => { if (bootDone && currentView === 'studio' && !isSetupDone()) setSetupOpen(true); }, [bootDone, currentView]);
+  useEffect(() => { const open = () => setSetupOpen(true); window.addEventListener(OPEN_SETUP_EVENT, open); return () => window.removeEventListener(OPEN_SETUP_EVENT, open); }, []);
   const jobsState = useJobs();
   const [jobsWindow, setJobsWindow] = useState<{ open: boolean; target: JobsTarget }>({ open: false, target: null });
   const [joinOrder, setJoinOrder] = useState<string[] | null>(null);
@@ -3988,7 +3995,7 @@ const MainStudio: React.FC = () => {
   // Full-Page View Routing
   if (!bootDone) {
     // Checking the saved login: show nothing but the app background, so no sign-in page flashes
-    return <div className="fixed inset-0 bg-surface-0" aria-busy="true" />;
+    return <div className="fixed inset-0 bg-surface-0 flex items-center justify-center" aria-busy="true"><Logo variant="mark" alt="Uuda Studio" className="h-16 w-16 opacity-80" /></div>;
   }
   if (currentView === 'auth') {
     return (
@@ -4399,7 +4406,17 @@ const MainStudio: React.FC = () => {
         <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => { setIsExportOpen(false); setTempClipLevels({}); }} selectedClipIds={exportClipIds} startWithSelection={exportSelectionFirst} tempClipLevels={tempClipLevels} onResetTempLevels={handleResetTempLevels} />
       )}
 
-      <AudioDevicesSheet {...audioDevices} onClose={audioDevices.close} />
+      {setupOpen && (
+        <WorkspaceSetup
+          devices={audioDevices.devices}
+          named={audioDevices.named}
+          requestAccess={audioDevices.requestAccess}
+          onChooseDevices={() => { setDevicesFromSetup(true); window.dispatchEvent(new CustomEvent('uuda:open-devices')); }}
+          onDone={() => { markSetupDone(); setSetupOpen(false); audioDevices.close(); }}
+        />
+      )}
+      <AudioDevicesSheet {...audioDevices} open={audioDevices.open && (!setupOpen || devicesFromSetup)} onClose={() => { setDevicesFromSetup(false); audioDevices.close(); }} />
+      <GeminiKeyDialog />
       <JobsModal open={jobsWindow.open} onClose={() => setJobsWindow((w) => ({ ...w, open: false }))} jobs={jobsState} target={jobsWindow.target} onImportFile={handleImportJobFile} />
       <InviteGuestModal open={isInviteGuestOpen} onClose={() => setIsInviteGuestOpen(false)} defaultTitle={project.name ?? ''} />
       {joinOrder && (

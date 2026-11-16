@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanTail, explainGeminiFailure, pcmToWav, synthesizeWithOwnKey } from './geminiDirect';
+import { explainGeminiFailure, pcmToWav, readAudioPayload, softenEdges, synthesizeWithOwnKey } from './geminiDirect';
 
 const pcmB64 = (n: number) => btoa(String.fromCharCode(...new Uint8Array(n).fill(3)));
 const ok = (n = 4800) => async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: pcmB64(n) } }] } }] }), { status: 200 });
@@ -7,26 +7,42 @@ const fail = (status: number, message: string) => async () => new Response(JSON.
 const req = (fetchImpl: typeof fetch) => ({ key: 'secret-key', script: 'Hello', voiceName: 'Zephyr', modelId: 'm', fetchImpl });
 
 const RATE = 24000;
-const tone = (secs: number, amp = 8000) => Array.from({ length: Math.round(secs * RATE) }, (_, i) => Math.round(Math.sin(i * 0.05) * amp));
-const noise = (secs: number) => Array.from({ length: Math.round(secs * RATE) }, (_, i) => (i % 2 ? 20000 : -20000));
-const quiet = (secs: number) => new Array(Math.round(secs * RATE)).fill(0);
 const toPcm = (samples: number[]) => { const b = new Uint8Array(samples.length * 2); const v = new DataView(b.buffer); samples.forEach((x, i) => v.setInt16(i * 2, x, true)); return b; };
+const tone = (n: number, amp = 8000) => Array.from({ length: n }, (_, i) => Math.round(Math.sin(i * 0.05) * amp));
+/** A WAV file the way the newer speech models send it: header, sound, then a metadata chunk */
+const wavFile = (pcm: Uint8Array, extra = new Uint8Array(0)) => {
+  const f = new Uint8Array(44 + pcm.length + extra.length); const v = new DataView(f.buffer);
+  const t = (at: number, s: string) => { for (let i = 0; i < 4; i++) f[at + i] = s.charCodeAt(i); };
+  t(0, 'RIFF'); v.setUint32(4, f.length - 8, true); t(8, 'WAVE'); t(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, RATE, true); v.setUint32(28, RATE * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); t(36, 'data'); v.setUint32(40, pcm.length, true);
+  f.set(pcm, 44); f.set(extra, 44 + pcm.length);
+  return f;
+};
 
-describe('static at the end of a voice clip', () => {
-  it('cuts a noise burst that follows a gap after the speech', () => {
-    const out = cleanTail(toPcm([...tone(1), ...quiet(0.1), ...noise(0.15)]), RATE);
-    expect(out.length / 2 / RATE).toBeLessThan(1.05);
-    expect(out.length / 2 / RATE).toBeGreaterThan(0.95);
+describe('audio from Gemini: no click at the start, no static at the end', () => {
+  it('plays only the sound of a WAV file, not its header or the metadata after it', () => {
+    const pcm = toPcm(tone(4800));
+    const meta = new Uint8Array([76, 73, 83, 84, 8, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255]); // a LIST chunk
+    const got = readAudioPayload(wavFile(pcm, meta), 'audio/wav');
+    expect(got.rate).toBe(RATE);
+    expect(got.pcm.length).toBe(pcm.length);
+    expect(Array.from(got.pcm.subarray(0, 8))).toEqual(Array.from(pcm.subarray(0, 8)));
   });
-  it('keeps real speech that ends without a burst, and fades its last 30 ms', () => {
-    const out = cleanTail(toPcm([...tone(1), ...quiet(0.1)]), RATE);
-    expect(out.length / 2 / RATE).toBeGreaterThan(1.0);
-    const last = new DataView(out.buffer, out.byteOffset).getInt16(out.length - 2, true);
-    expect(Math.abs(last)).toBeLessThan(200);
+  it('reads raw PCM with the rate from its type', () => {
+    const got = readAudioPayload(toPcm(tone(100)), 'audio/L16;codec=pcm;rate=16000');
+    expect(got.rate).toBe(16000);
+    expect(got.pcm.length).toBe(200);
   });
-  it('does not cut a short voiced word after a pause', () => {
-    const out = cleanTail(toPcm([...tone(1), ...quiet(0.1), ...tone(0.2)]), RATE);
-    expect(out.length / 2 / RATE).toBeGreaterThan(1.25);
+  it('refuses a format it cannot read instead of playing noise', () => {
+    const f = wavFile(toPcm(tone(100))); new DataView(f.buffer).setUint16(34, 8, true);
+    expect(() => readAudioPayload(f, 'audio/wav')).toThrow('cannot read');
+  });
+  it('starts and ends silent', () => {
+    const out = softenEdges(toPcm(tone(RATE)), RATE);
+    const v = new DataView(out.buffer);
+    expect(Math.abs(v.getInt16(0, true))).toBeLessThan(100);
+    expect(Math.abs(v.getInt16(out.length - 2, true))).toBeLessThan(100);
+    expect(out.length).toBe(RATE * 2);
   });
 });
 

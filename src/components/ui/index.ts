@@ -3,6 +3,7 @@ export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from '.
 export { Capsule, CapsuleButton, type CapsuleProps, type CapsuleButtonProps, type CapsuleVariant } from './Capsule';
 export { Card, type CardProps } from './Card';
 export { HoverTitle, type HoverTitleProps } from './HoverTitle';
+export { Logo, type LogoProps } from './Logo';
 export { Input, type InputProps } from './Input';
 export { ModalShell, type ModalShellProps } from './ModalShell';
 export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from './SegmentedControl';

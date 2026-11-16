@@ -37,7 +37,7 @@ describe('Voice Service - TTS Sanitization & Prompt Leakage Elimination', () => 
     // Audition payload verification
     const auditionSentence = AUDITION_SAMPLE_SENTENCE;
     const sanitizedAudition = sanitizeScriptText(auditionSentence);
-    expect(sanitizedAudition).toBe('Welcome to Uuda Studio. Your voiceover studio is ready.');
+    expect(sanitizedAudition).toBe('Welcome to Uuda Studio. Your high-precision AI voice functionality is ready.');
     expect(() => assertPayloadStrictEquality(sanitizedAudition, auditionSentence)).not.toThrow();
   });
 
