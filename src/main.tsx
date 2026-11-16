@@ -2,6 +2,7 @@ import {lazy, Suspense, useEffect, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Logo } from './components/ui/Logo';
 import { isJoinHash } from './guest/job';
 import { isLiveHash } from './live/events';
 import { isClientHash, isTalentHash } from './jobs/links';
@@ -32,6 +33,9 @@ const clientOnly = isClientHash(window.location.hash);
 const liveOnly = isLiveHash(window.location.hash);
 const guestOnly = isJoinHash(window.location.hash) || isTalentHash(window.location.hash);
 
+/** Shown while a page loads: the logo, breathing */
+const Loading = () => <div className="fixed inset-0 flex items-center justify-center bg-surface-0" aria-busy="true"><Logo variant="mark" alt="Uuda Studio" className="uuda-logo-pulse h-32 w-32 sm:h-40 sm:w-40" /></div>;
+
 const Root = () => {
   const [overlayOpen, setOverlayOpen] = useState(false);
 
@@ -48,11 +52,11 @@ const Root = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  if (freesoundReturn) return <Suspense fallback={null}><FreesoundReturn /></Suspense>;
+  if (freesoundReturn) return <Suspense fallback={<Loading />}><FreesoundReturn /></Suspense>;
 
   if (selfTestOnly) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<Loading />}>
         <SelfTest />
       </Suspense>
     );
@@ -68,7 +72,7 @@ const Root = () => {
 
   if (clientOnly) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<Loading />}>
         <ClientPage />
       </Suspense>
     );
@@ -76,7 +80,7 @@ const Root = () => {
 
   if (guestOnly) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<Loading />}>
         <GuestPage />
       </Suspense>
     );
@@ -84,7 +88,7 @@ const Root = () => {
 
   if (galleryOnly) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<Loading />}>
         <Gallery />
       </Suspense>
     );
@@ -95,7 +99,7 @@ const Root = () => {
       <App />
       {overlayOpen && (
         <div className="fixed inset-0 z-[200]">
-          <Suspense fallback={null}>
+          <Suspense fallback={<Loading />}>
             <Gallery />
           </Suspense>
         </div>
