@@ -18,7 +18,7 @@ import { authService } from '../services/authService';
 import { synthesizeWithOwnKey, AUDITION_SENTENCE } from './geminiDirect';
 
 // The same voice should sound the same every time it is auditioned, so each sample is kept once in this browser
-const AUDITION_CACHE = 'uuda-voice-auditions-v3';
+const AUDITION_CACHE = 'uuda-voice-auditions-v4';
 async function readAudition(voice: string): Promise<ArrayBuffer | null> {
   try {
     if (typeof caches === 'undefined') return null;

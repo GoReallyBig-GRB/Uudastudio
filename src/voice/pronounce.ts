@@ -3,7 +3,7 @@
  * the script on screen and in the saved project stays as written.
  */
 const SPOKEN: ReadonlyArray<readonly [RegExp, string]> = [
-  [/\bUuda\b/gi, 'Ooda'],
+  [/\bUuda\b/gi, 'Oo-dah'],
 ];
 
 export const asSpoken = (script: string): string => SPOKEN.reduce((text, [pattern, say]) => text.replace(pattern, say), script);
