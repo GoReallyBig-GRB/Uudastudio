@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Briefcase, Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Plug, Settings } from 'lucide-react';
+import { Briefcase, Radio, Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Plug, Settings } from 'lucide-react';
 import { TrackListPanel } from './TrackListPanel';
 import { VoicePanel } from './VoicePanel';
 import { SoundLibraryPanel } from './SoundLibraryPanel';
@@ -19,7 +19,7 @@ const RAIL_LAYOUT = 'flex h-9 w-9 shrink-0 cursor-pointer items-center justify-c
 const RAIL_IDLE = 'border-transparent text-ink-faint hover:bg-white/5 hover:text-ink';
 const RAIL_ON = 'border-accent/40 bg-accent-soft text-accent';
 
-export type SidebarTab = 'tracks' | 'voice' | 'library' | 'jobs';
+export type SidebarTab = 'tracks' | 'voice' | 'library' | 'jobs' | 'live';
 
 interface LeftSidebarProps {
   activeTab: SidebarTab;
@@ -56,6 +56,8 @@ interface LeftSidebarProps {
   // Jobs panel (voice-talent jobs)
   jobsState?: JobsState;
   onOpenJobsWindow?: (target: JobsTarget) => void;
+  /** The Live events panel, shown under Jobs in the rail */
+  liveNode?: React.ReactNode;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -86,6 +88,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onAddLibraryTrack,
   jobsState,
   onOpenJobsWindow,
+  liveNode,
 }) => {
   const handleTabClick = (tab: SidebarTab) => {
     window.dispatchEvent(new CustomEvent('xpro:close-popups'));
@@ -152,6 +155,18 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             >
               <Briefcase className="w-4 h-4" />
               {(jobsState?.unread ?? 0) > 0 && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-surface-0 bg-accent" />}
+            </button>
+          )}
+
+          {liveNode && (
+            <button
+              type="button"
+              onClick={() => handleTabClick('live')}
+              title="Live events: schedule sessions with live guests"
+              aria-label="Live events"
+              className={`${RAIL_LAYOUT} ${activeTab === 'live' && !isCollapsed ? RAIL_ON : RAIL_IDLE}`}
+            >
+              <Radio className="w-4 h-4" />
             </button>
           )}
 
@@ -257,6 +272,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           {activeTab === 'jobs' && jobsState && onOpenJobsWindow && (
             <JobsPanel jobs={jobsState} onClose={onToggleCollapse} onOpenWindow={onOpenJobsWindow} />
           )}
+
+          {activeTab === 'live' && liveNode}
 
           {activeTab === 'library' && (
             <SoundLibraryPanel

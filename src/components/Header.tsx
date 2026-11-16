@@ -114,6 +114,8 @@ interface HeaderProps {
   onNewProject?: () => void;
   /** File > Invite Voice Talent: opens the guest recording invite */
   onInviteGuest?: () => void;
+  /** Guest buttons (Live, Voice, Client) shown at the right of the top bar */
+  guestSlot?: React.ReactNode;
   onSaveAndNewProject?: () => void;
   onOpenNewProjectInTab?: () => void;
   onOpenProjectFromFile?: (file: File) => void;
@@ -187,6 +189,7 @@ export const Header: React.FC<HeaderProps> = ({
   onGoToEnd,
   onNewProject,
   onInviteGuest,
+  guestSlot,
   onSaveAndNewProject,
   onOpenNewProjectInTab,
   onOpenProjectFromFile,
@@ -801,6 +804,8 @@ export const Header: React.FC<HeaderProps> = ({
           <Mic className="w-3.5 h-3.5" />
           <span className="max-[1450px]:hidden">Voiceover</span>
         </button>
+
+        {guestSlot}
 
         {/* Sound Library Button: opens the Freesound search and preview window directly */}
         <button
