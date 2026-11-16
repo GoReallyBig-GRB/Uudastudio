@@ -14,9 +14,21 @@ describe('event rules', () => {
     expect(q.ok && q.value.startsAt).toBeNull();
   });
   it('trims long text and keeps only named participants', () => {
-    const v = validateEvent({ kind: 'scheduled', title: 'x'.repeat(500), startsAt: T0 + 1, participants: [{ name: 'Ada', contact: '+234' }, { name: '  ' }] }, T0);
+    const v = validateEvent({ kind: 'scheduled', title: 'x'.repeat(500), startsAt: T0 + 1, participants: [{ name: 'Ada', whatsapp: '+234 803 123 4567', email: 'ada@example.com' }, { name: '  ' }] }, T0);
     expect(v.ok && v.value.title.length).toBe(LIMITS.title);
-    expect(v.ok && v.value.participants).toEqual([{ name: 'Ada', contact: '+234' }]);
+    expect(v.ok && v.value.participants).toEqual([{ name: 'Ada', whatsapp: '2348031234567', email: 'ada@example.com' }]);
+  });
+  it('keeps WhatsApp and email apart, and reads the old single contact box', () => {
+    const v = validateEvent({ kind: 'scheduled', title: 'T', startsAt: T0 + 1, participants: [{ name: 'A', contact: 'a@x.com' }, { name: 'B', contact: '+234 803 111 2222' }] }, T0);
+    expect(v.ok && v.value.participants).toEqual([{ name: 'A', whatsapp: '', email: 'a@x.com' }, { name: 'B', whatsapp: '2348031112222', email: '' }]);
+  });
+  it('refuses a bad email, a short number and a silly duration', () => {
+    const base = { kind: 'scheduled', title: 'T', startsAt: T0 + 1 };
+    expect(validateEvent({ ...base, participants: [{ name: 'A', email: 'nope' }] }, T0).ok).toBe(false);
+    expect(validateEvent({ ...base, participants: [{ name: 'A', whatsapp: '123' }] }, T0).ok).toBe(false);
+    expect(validateEvent({ ...base, durationMin: 2 }, T0).ok).toBe(false);
+    const ok = validateEvent({ ...base, durationMin: 90 }, T0);
+    expect(ok.ok && ok.value.durationMin).toBe(90);
   });
   it('waits until the time, opens at the time, and can be opened early or ended', () => {
     const e = { startsAt: T0 + 60_000, activatedAt: null, endedAt: null };
@@ -38,7 +50,7 @@ describe('guest routes', () => {
   const store = new MemoryLiveStore();
   const env = { auth: {} as never, store, now: () => T0 } as LiveEnv;
   const seed = async () => {
-    await store.save({ id: 'e1', userId: 'u1', token: 'tok-1234567890abcdef', kind: 'scheduled', title: 'Panel', description: 'About radio', notes: 'Read https://example.com', startsAt: T0 + 3600_000, activatedAt: null, endedAt: null, participants: [], hostName: 'Host', createdAt: T0, updatedAt: T0 });
+    await store.save({ id: 'e1', userId: 'u1', token: 'tok-1234567890abcdef', kind: 'scheduled', title: 'Panel', description: 'About radio', notes: 'Read https://example.com', startsAt: T0 + 3600_000, durationMin: 60, activatedAt: null, endedAt: null, participants: [], hostName: 'Host', createdAt: T0, updatedAt: T0 });
     await store.addFile('e1', { id: 'f1', name: 'brief.pdf', mime: 'application/octet-stream', size: 3, kind: 'doc', data: new Uint8Array([1, 2, 3]) });
   };
   it('shows the details and says the room is not open yet', async () => {

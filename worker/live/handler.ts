@@ -19,7 +19,7 @@ const fail = (status: number, error: string, extra: Record<string, string> = {})
 const sameSite = (req: Request) => { const o = req.headers.get('origin'); return !o || o === new URL(req.url).origin; };
 
 const view = async (e: LiveEventRow, store: LiveStore, now: number) => ({
-  id: e.id, token: e.token, kind: e.kind, title: e.title, description: e.description, notes: e.notes, startsAt: e.startsAt,
+  id: e.id, token: e.token, kind: e.kind, title: e.title, description: e.description, notes: e.notes, startsAt: e.startsAt, durationMin: e.durationMin,
   activatedAt: e.activatedAt, endedAt: e.endedAt, participants: e.participants, state: stateOf(e, now), files: await store.files(e.id), createdAt: e.createdAt,
 });
 
@@ -41,7 +41,7 @@ export const handleLive = async (req: Request, rest: string[], env: LiveEnv): Pr
         if (!f) return fail(404, 'File not found.');
         return new Response(f.data, { headers: { 'content-type': 'application/octet-stream', 'content-disposition': `attachment; filename="${f.name.replace(/"/g, '')}"`, 'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=300' } });
       }
-      return send({ title: e.title, description: e.description, notes: e.notes, startsAt: e.startsAt, host: e.hostName, state: stateOf(e, now), now, files: await env.store.files(e.id) });
+      return send({ title: e.title, description: e.description, notes: e.notes, startsAt: e.startsAt, durationMin: e.durationMin, host: e.hostName, state: stateOf(e, now), now, files: await env.store.files(e.id) });
     } catch { return fail(500, 'Could not load this event.'); }
   }
 
@@ -77,7 +77,7 @@ export const handleLive = async (req: Request, rest: string[], env: LiveEnv): Pr
       let body: unknown; try { body = await req.json(); } catch { return fail(400, 'An event is required.'); }
       const v = validateEvent({ ...(body as object), kind: e.kind }, now);
       if (!v.ok) return fail(400, v.error);
-      const next = { ...e, title: v.value.title, description: v.value.description, notes: v.value.notes, startsAt: e.kind === 'quick' ? null : v.value.startsAt, participants: v.value.participants, updatedAt: now };
+      const next = { ...e, title: v.value.title, description: v.value.description, notes: v.value.notes, startsAt: e.kind === 'quick' ? null : v.value.startsAt, durationMin: v.value.durationMin, participants: v.value.participants, updatedAt: now };
       await env.store.save(next);
       return send(await view(next, env.store, now));
     }

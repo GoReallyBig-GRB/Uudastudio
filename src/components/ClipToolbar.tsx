@@ -83,6 +83,8 @@ interface ClipToolbarProps {
   onUndo?: () => void;
   onRedo?: () => void;
   onOpenEffect?: (type: import('../types').EffectType) => void;
+  /** The Live / Voice / Client guest buttons, shown beside the Effects Rack */
+  guestSlot?: React.ReactNode;
   onDeselect: () => void;
   /** Project title, shown at the left of this row; double-click it (or use File > Rename Project) to rename. */
   projectName: string;
@@ -232,6 +234,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
   onUpdateClip,
   onOpenDsp,
   onOpenEffect,
+  guestSlot,
   locked,
   onToggleLock,
   isGrouped = false,
@@ -411,6 +414,7 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          {guestSlot}
           {/* Panels that are opened from here: they choose what to work with, they do not change a clip */}
           <button
             type="button"

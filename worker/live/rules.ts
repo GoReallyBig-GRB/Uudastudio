@@ -5,7 +5,7 @@
 export const LIMITS = {
   title: 120,
   description: 1000,
-  notes: 4000,
+  notes: 8000,
   participants: 20,
   participantText: 120,
   events: 100,
@@ -16,17 +16,18 @@ export const LIMITS = {
   openMs: 12 * 3600_000,
 } as const;
 
-export interface Participant { name: string; contact: string }
+/** whatsapp is digits only, country code first (E.164 without the plus) */
+export interface Participant { name: string; whatsapp: string; email: string }
 export interface LiveEventRow {
   id: string; userId: string; token: string; kind: 'scheduled' | 'quick';
   title: string; description: string; notes: string;
-  startsAt: number | null; activatedAt: number | null; endedAt: number | null;
+  startsAt: number | null; durationMin: number | null; activatedAt: number | null; endedAt: number | null;
   participants: Participant[]; hostName: string; createdAt: number; updatedAt: number;
 }
 export interface FileMeta { id: string; name: string; mime: string; size: number; kind: 'doc' | 'audio' }
 export type EventState = 'waiting' | 'open' | 'ended';
 
-export interface EventInput { kind: 'scheduled' | 'quick'; title: string; description: string; notes: string; startsAt: number | null; participants: Participant[] }
+export interface EventInput { kind: 'scheduled' | 'quick'; title: string; description: string; notes: string; startsAt: number | null; durationMin: number | null; participants: Participant[] }
 
 const clean = (v: unknown, max: number): string => (typeof v === 'string' ? v.replace(/\u0000/g, '').trim().slice(0, max) : '');
 
@@ -48,9 +49,22 @@ export const validateEvent = (body: unknown, now: number): { ok: true; value: Ev
   for (const p of raw.slice(0, LIMITS.participants)) {
     const o = (p ?? {}) as Record<string, unknown>;
     const name = clean(o.name, LIMITS.participantText);
-    if (name) participants.push({ name, contact: clean(o.contact, LIMITS.participantText) });
+    // Older events kept one 'contact' box: an address with @ is an email, anything else a WhatsApp number
+    const legacy = clean(o.contact, LIMITS.participantText);
+    const email = clean(o.email, LIMITS.participantText) || (legacy.includes('@') ? legacy : '');
+    const whatsapp = (typeof o.whatsapp === 'string' ? o.whatsapp : legacy.includes('@') ? '' : legacy).replace(/\D/g, '').slice(0, 15);
+    if (!name) continue;
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: `${name}: that email address does not look right.` };
+    if (whatsapp && whatsapp.length < 8) return { ok: false, error: `${name}: the WhatsApp number is too short. Include the country code.` };
+    participants.push({ name, whatsapp, email });
   }
-  return { ok: true, value: { kind, title, description: clean(b.description, LIMITS.description), notes: clean(b.notes, LIMITS.notes), startsAt, participants } };
+  let durationMin: number | null = null;
+  if (b.durationMin !== null && b.durationMin !== undefined && b.durationMin !== '') {
+    const d = Math.round(Number(b.durationMin));
+    if (!Number.isFinite(d) || d < 5 || d > 720) return { ok: false, error: 'A session lasts between 5 minutes and 12 hours.' };
+    durationMin = d;
+  }
+  return { ok: true, value: { kind, title, description: clean(b.description, LIMITS.description), notes: clean(b.notes, LIMITS.notes), startsAt, durationMin, participants } };
 };
 
 /** Waiting until the time comes or the producer opens it; open until the producer ends it (or 12 hours after the due time) */

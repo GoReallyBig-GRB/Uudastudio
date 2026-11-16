@@ -13,11 +13,12 @@ interface Props {
   onQuick: () => void;
 }
 
-const BTN = 'flex h-9 items-center gap-1.5 px-3 text-xs font-medium text-ink-dim transition-colors hover:bg-white/5 hover:text-ink cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 max-[1450px]:px-2.5';
+const BTN = 'flex h-7 items-center gap-1.5 px-3 text-xs font-medium text-ink-dim transition-colors hover:bg-white/5 hover:text-ink cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 max-[1280px]:px-2.5';
 
 export const GuestCluster: React.FC<Props> = ({ live, onVoice, onClient, onManage, onQuick }) => {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement | null>(null);
+  const [at, setAt] = useState<{ right: number; top: number }>({ right: 8, top: 100 });
   useEffect(() => {
     if (!open) return;
     const away = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
@@ -32,22 +33,22 @@ export const GuestCluster: React.FC<Props> = ({ live, onVoice, onClient, onManag
 
   return (
     <div ref={box} className="relative flex shrink-0 items-center divide-x divide-line overflow-visible rounded-full border border-line-strong bg-surface-2" role="group" aria-label="Guests">
-      <button type="button" onClick={() => { window.dispatchEvent(new CustomEvent('xpro:close-popups')); setOpen((o) => !o); if (!open) void live.refresh(); }} aria-expanded={open} aria-haspopup="menu" title="Live guests: upcoming live events" className={`${BTN} rounded-l-full`}>
+      <button type="button" onClick={() => { window.dispatchEvent(new CustomEvent('xpro:close-popups')); const r = box.current?.getBoundingClientRect(); if (r) setAt({ right: Math.max(8, window.innerWidth - r.right), top: r.bottom + 8 }); setOpen((o) => !o); if (!open) void live.refresh(); }} aria-expanded={open} aria-haspopup="menu" title="Live guests: upcoming live events" className={`${BTN} rounded-l-full`}>
         <span className="relative"><Radio className="h-3.5 w-3.5" />{liveNow && <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-ok" aria-hidden />}</span>
-        <span className="max-[1450px]:hidden">Live</span>
+        <span className="max-[1280px]:hidden">Live</span>
       </button>
       <button type="button" onClick={() => { setOpen(false); onVoice(); }} title="Voice guests: open the jobs panel" className={BTN}>
-        <Mic className="h-3.5 w-3.5" /><span className="max-[1450px]:hidden">Voice</span>
+        <Mic className="h-3.5 w-3.5" /><span className="max-[1280px]:hidden">Voice</span>
       </button>
       <button type="button" onClick={() => { setOpen(false); onClient(); }} title="Client guests: jobs where a client has taken part" className={`${BTN} rounded-r-full`}>
-        <Users className="h-3.5 w-3.5" /><span className="max-[1450px]:hidden">Client</span>
+        <Users className="h-3.5 w-3.5" /><span className="max-[1280px]:hidden">Client</span>
       </button>
 
       {open && (
-        <div role="menu" className="absolute right-0 top-11 z-50 w-80 rounded-card border border-line-strong bg-surface-1 p-2 shadow-float">
+        <div role="menu" style={{ right: at.right, top: at.top }} className="fixed z-50 w-80 rounded-card border border-line-strong bg-surface-1 p-2 shadow-float">
           <div className="mb-1 flex gap-2 p-1">
-            <button type="button" role="menuitem" onClick={() => { setOpen(false); onQuick(); }} className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-control bg-accent text-xs font-semibold text-accent-ink hover:brightness-110 cursor-pointer"><Zap className="h-3.5 w-3.5" />Quick event</button>
-            <button type="button" role="menuitem" onClick={() => { setOpen(false); onManage(); }} className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-control border border-line-strong bg-surface-2 text-xs font-medium text-ink hover:bg-surface-3 cursor-pointer"><CalendarPlus className="h-3.5 w-3.5" />Schedule</button>
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); onQuick(); }} className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-control bg-ink text-xs font-semibold text-surface-0 hover:bg-white cursor-pointer"><Zap className="h-3.5 w-3.5" />Quick event</button>
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); onManage(); }} className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-control border border-line-strong bg-surface-2 text-xs font-medium text-ink hover:bg-surface-3 cursor-pointer"><CalendarPlus className="h-3.5 w-3.5" />New event</button>
           </div>
           {live.service === 'signin' && <p className="px-3 py-4 text-center text-xs text-ink-dim">Sign in with Google to schedule live events.</p>}
           {live.service === 'none' && <p className="px-3 py-4 text-center text-xs text-ink-dim">Live events are not available on this server yet.</p>}

@@ -19,7 +19,7 @@ const RAIL_LAYOUT = 'flex h-9 w-9 shrink-0 cursor-pointer items-center justify-c
 const RAIL_IDLE = 'border-transparent text-ink-faint hover:bg-white/5 hover:text-ink';
 const RAIL_ON = 'border-accent/40 bg-accent-soft text-accent';
 
-export type SidebarTab = 'tracks' | 'voice' | 'library' | 'jobs' | 'live';
+export type SidebarTab = 'tracks' | 'voice' | 'library' | 'jobs';
 
 interface LeftSidebarProps {
   activeTab: SidebarTab;
@@ -57,7 +57,8 @@ interface LeftSidebarProps {
   jobsState?: JobsState;
   onOpenJobsWindow?: (target: JobsTarget) => void;
   /** The Live events panel, shown under Jobs in the rail */
-  liveNode?: React.ReactNode;
+  /** Opens the Live events window (not a sidebar panel) */
+  onOpenLive?: () => void;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -88,7 +89,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onAddLibraryTrack,
   jobsState,
   onOpenJobsWindow,
-  liveNode,
+  onOpenLive,
 }) => {
   const handleTabClick = (tab: SidebarTab) => {
     window.dispatchEvent(new CustomEvent('xpro:close-popups'));
@@ -158,13 +159,13 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             </button>
           )}
 
-          {liveNode && (
+          {onOpenLive && (
             <button
               type="button"
-              onClick={() => handleTabClick('live')}
+              onClick={onOpenLive}
               title="Live events: schedule sessions with live guests"
               aria-label="Live events"
-              className={`${RAIL_LAYOUT} ${activeTab === 'live' && !isCollapsed ? RAIL_ON : RAIL_IDLE}`}
+              className={`${RAIL_LAYOUT} ${RAIL_IDLE}`}
             >
               <Radio className="w-4 h-4" />
             </button>
@@ -272,8 +273,6 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           {activeTab === 'jobs' && jobsState && onOpenJobsWindow && (
             <JobsPanel jobs={jobsState} onClose={onToggleCollapse} onOpenWindow={onOpenJobsWindow} />
           )}
-
-          {activeTab === 'live' && liveNode}
 
           {activeTab === 'library' && (
             <SoundLibraryPanel

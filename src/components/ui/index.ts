@@ -10,3 +10,4 @@ export { Slider, type SliderProps } from './Slider';
 export { Switch, type SwitchProps } from './Switch';
 export { ProgressIndicator, type ProgressIndicatorProps } from './ProgressIndicator';
 export { Menu, type MenuItem, type MenuProps } from './Menu';
+export { DateTimePicker } from './DateTimePicker';

@@ -2,12 +2,37 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { FileText, Music, Radio } from 'lucide-react';
 import { getJoinInfo, LiveApiError, type JoinInfo } from './api';
-import { countdown, formatWhen, linksIn, parseLiveHash } from './events';
+import { parseBlocks, type Run } from '../guest/scriptFormat';
+import { countdown, durationLabel, linksIn, parseLiveHash, whenParts } from './events';
 
 const Linked: React.FC<{ text: string }> = ({ text }) => {
   const parts = text.split(/(https?:\/\/[^\s<>"')]+)/g);
   return <>{parts.map((p, i) => (linksIn(p).length && /^https?:\/\//.test(p) ? <a key={i} href={p.replace(/[.,;:!?]+$/, '')} target="_blank" rel="noopener noreferrer" className="text-accent underline-offset-2 hover:underline">{p}</a> : <React.Fragment key={i}>{p}</React.Fragment>))}</>;
 };
+
+const RunView: React.FC<{ run: Run }> = ({ run }) => {
+  const body = <Linked text={run.text} />;
+  let out: React.ReactNode = body;
+  if (run.bold) out = <strong>{out}</strong>;
+  if (run.italic) out = <em>{out}</em>;
+  if (run.underline) out = <u>{out}</u>;
+  return run.note ? <span className="rounded border border-line-strong px-1 text-xs italic text-ink-dim">{out}</span> : <>{out}</>;
+};
+
+/** The producer's formatted notes, read only, with links you can tap */
+const NotesView: React.FC<{ notes: string }> = ({ notes }) => (
+  <div className="text-sm leading-relaxed text-ink">
+    {parseBlocks(notes).map((b, i) => {
+      if (b.type === 'blank') return <div key={i} className="h-3" />;
+      const runs = b.runs.map((r, j) => <RunView key={j} run={r} />);
+      if (b.type === 'heading') return <div key={i} className={b.level === 1 ? 'mt-2 text-lg font-bold' : 'mt-1 text-base font-semibold text-ink-dim'}>{runs}</div>;
+      const pad = { paddingLeft: `${b.indent * 1.5}em` };
+      return b.type === 'item'
+        ? <div key={i} style={pad} className="flex gap-2"><span className="w-5 shrink-0 text-right text-ink-faint">{b.marker}</span><span className="min-w-0">{runs}</span></div>
+        : <div key={i} style={pad}>{runs}</div>;
+    })}
+  </div>
+);
 
 const LiveJoinPage: React.FC = () => {
   const token = parseLiveHash(window.location.hash);
@@ -36,7 +61,7 @@ const LiveJoinPage: React.FC = () => {
             <div>
               <h1 className="text-2xl font-bold">{info.title}</h1>
               {info.host && <p className="mt-1 text-sm text-ink-dim">Hosted by {info.host}</p>}
-              {info.startsAt && <p className="mt-1 text-sm text-ink-dim">{formatWhen(info.startsAt)}</p>}
+              {info.startsAt && <p className="mt-1 text-sm text-ink-dim">{whenParts(info.startsAt).date} · {whenParts(info.startsAt).time}{info.durationMin ? ` · ${durationLabel(info.durationMin)}` : ''}</p>}
             </div>
             <div role="status" className={`rounded-card border p-4 text-sm ${info.state === 'open' ? 'border-ok/50 bg-ok/10' : 'border-line-strong bg-surface-2'}`}>
               {info.state === 'open' && 'The host has opened this session. The live room is coming soon: keep this page open and you will be let in when it is ready.'}
@@ -45,7 +70,7 @@ const LiveJoinPage: React.FC = () => {
             </div>
             {info.description && <p className="whitespace-pre-wrap text-sm text-ink-dim">{info.description}</p>}
             {info.notes && (
-              <section aria-label="Event notes"><h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-faint">Notes</h2><p className="whitespace-pre-wrap text-sm text-ink"><Linked text={info.notes} /></p></section>
+              <section aria-label="Event notes"><h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-faint">Notes</h2><NotesView notes={info.notes} /></section>
             )}
             {info.files.length > 0 && (
               <section aria-label="Files"><h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-faint">Files</h2>
