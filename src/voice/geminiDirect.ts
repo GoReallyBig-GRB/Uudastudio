@@ -3,6 +3,8 @@
  * The key goes to Google and nowhere else: Uuda's servers never see it.
  */
 
+import { asSpoken } from './pronounce';
+
 export const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 export { SAMPLE_SCRIPT as AUDITION_SENTENCE } from './sampleScript';
 
@@ -96,7 +98,7 @@ export async function synthesizeWithOwnKey(req: GeminiSpeechRequest): Promise<Ar
   let last: Error | null = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      const part: Record<string, unknown> = { text: req.script };
+      const part: Record<string, unknown> = { text: asSpoken(req.script) };
       if (req.instruction && attempt === 1) part.speechMetadata = { style: req.instruction };
       const res = await doFetch(`${GEMINI_ENDPOINT}/${encodeURIComponent(req.modelId)}:generateContent`, {
         method: 'POST',
