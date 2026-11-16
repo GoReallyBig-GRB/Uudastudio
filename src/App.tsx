@@ -3995,7 +3995,7 @@ const MainStudio: React.FC = () => {
   // Full-Page View Routing
   if (!bootDone) {
     // Checking the saved login: show nothing but the app background, so no sign-in page flashes
-    return <div className="fixed inset-0 bg-surface-0 flex items-center justify-center" aria-busy="true"><Logo variant="mark" alt="Uuda Studio" className="h-16 w-16 opacity-80" /></div>;
+    return <div className="fixed inset-0 bg-surface-0 flex items-center justify-center" aria-busy="true"><Logo variant="mark" alt="Uuda Studio" className="uuda-logo-pulse h-32 w-32 sm:h-40 sm:w-40" /></div>;
   }
   if (currentView === 'auth') {
     return (
