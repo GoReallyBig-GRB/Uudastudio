@@ -1,13 +1,14 @@
 /**
- * Uuda Pro - Unified Sign Up / Sign In Page
+ * Uuda Studio - Unified Sign Up / Sign In Page
  * Single dual page for all users and administrators.
  * Primary Action: 'Continue with Google'.
  * Signed-out fallback: 'Use the editor without an account'.
  */
 
 import React, { useEffect, useState } from 'react';
-import { Shield, Sparkles, AlertCircle, ArrowLeft, Lock, FlaskConical } from 'lucide-react';
+import { Shield, AlertCircle, ArrowLeft, Lock, FlaskConical } from 'lucide-react';
 import { authService } from '../../services/authService';
+import { Logo } from '../ui';
 
 interface SignInPageProps {
   onContinueAsGuest: () => void;
@@ -94,13 +95,11 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
       {/* Top Bar with Brand and Back Navigation */}
       <header className="h-16 px-6 border-b border-line/80 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-control bg-accent flex items-center justify-center ">
-            <span className="font-extrabold text-surface-0 text-sm tracking-wider">U</span>
-          </div>
+          <Logo variant="mark" alt="" className="h-9 w-9" />
           <div>
             <div className="flex items-center gap-2">
               <span className="font-black text-lg tracking-wider text-ink">UUDA</span>
-              <span className="text-[11px] uppercase font-bold tracking-widest text-accent">
+              <span className="text-[11px] uppercase font-bold tracking-widest text-gold">
                 STUDIO
               </span>
             </div>
@@ -126,12 +125,10 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
 
           {/* Header Title */}
           <div className="text-center mb-8 relative">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-card bg-surface-1 border border-line-strong/60 mb-4 shadow-inner">
-              <Sparkles className="w-6 h-6 text-accent" />
-            </div>
-            <h1 className="text-2xl font-bold text-ink tracking-tight">Sign in to Uuda Studio</h1>
+            <Logo variant="full" alt="Uuda Studio" className="mx-auto mb-5 h-20" />
+            <h1 className="text-2xl font-bold text-ink tracking-tight">Welcome to Uuda Studio</h1>
             <p className="text-sm text-ink-dim mt-2">
-              New or returning? <span className="text-ink font-medium">Continue with Google</span>
+              Start right away, or sign in to keep your templates and settings.
             </p>
           </div>
 
@@ -199,19 +196,19 @@ export const SignInPage: React.FC<SignInPageProps> = ({ onContinueAsGuest, onSuc
                 </div>
               )}
 
-              {/* Smaller link: Use the editor without an account */}
-              <div className="pt-3 text-center">
-                <button
-                  type="button"
-                  onClick={onContinueAsGuest}
-                  className="text-xs text-ink-dim hover:text-accent underline underline-offset-4 transition-colors cursor-pointer"
-                >
-                  Use the editor without an account
-                </button>
-                <p className="text-[11px] text-ink-faint mt-1">
-                  Offline recorder, library import & mastering remain free; voice generation requires sign-in.
-                </p>
+              <div className="flex items-center gap-3 text-[11px] uppercase tracking-widest text-ink-faint" aria-hidden>
+                <span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" />
               </div>
+
+              {/* No account needed: as large and as visible as signing in */}
+              <button
+                type="button"
+                onClick={onContinueAsGuest}
+                className="w-full rounded-card bg-accent px-4 py-3.5 text-surface-0 shadow-float transition-all hover:brightness-110 active:scale-[0.99] cursor-pointer"
+              >
+                <span className="block text-sm font-bold">Use the editor without an account</span>
+                <span className="mt-0.5 block text-[11px] font-medium opacity-80">Free. Record, import, edit and master right away.</span>
+              </button>
             </div>
           )}
 

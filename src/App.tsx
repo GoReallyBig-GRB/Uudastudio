@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { voiceJob } from './voice/voiceJob';
 import { isTypingTarget } from './utils/typing';
 import {
   Project,
@@ -114,6 +115,8 @@ import { TemplatesModal } from './components/TemplatesModal';
 import { SaveTemplateModal } from './components/SaveTemplateModal';
 import { saveCloudTemplate, TemplateSyncError } from './templates/templateApi';
 import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, parseTemplate, UudaTemplate } from './templates/template';
+import { WorkspaceSetup, isSetupDone, markSetupDone, OPEN_SETUP_EVENT } from './setup/WorkspaceSetup';
+import { GeminiKeyDialog } from './voice/GeminiKeyDialog';
 import { useLiveEvents } from './live/useLiveEvents';
 import { LiveWorkspace } from './live/LiveWorkspace';
 import { GuestCluster } from './live/GuestCluster';
@@ -124,7 +127,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { undoLeftProcessingInPlace } from './history/historyLimits';
 import { SoundLibraryModal } from './components/SoundLibraryModal';
 import { calculateMinimumTimelineZoom } from './components/timelineZoom';
-import { ProgressIndicator } from './components/ui';
+import { Logo, ProgressIndicator } from './components/ui';
 import { RootProjectPicker } from './components/RootProjectPicker';
 import { blockedPickerMessage, isEmbeddedFrame, isPickerBlockedError, isPickerCancelled } from './storage/fsAccess';
 
@@ -1884,6 +1887,14 @@ const MainStudio: React.FC = () => {
     });
   };
 
+  // A finished voiceover reaches the timeline through this, whichever panel started it (registered once, always the latest handler)
+  const addVoiceRef = useRef(handleAddVoiceTrack);
+  addVoiceRef.current = handleAddVoiceTrack;
+  useEffect(() => {
+    voiceJob.setCommitHandler((asset, meta) => addVoiceRef.current(asset, meta));
+    return () => voiceJob.setCommitHandler(null);
+  }, []);
+
   const handleAddLibraryTrack = (asset: Asset) => {
     // Crucial: Register asset in audioEngine so timeline and playback can access audioBuffer
     audioEngine.registerAsset(asset);
@@ -2879,6 +2890,11 @@ const MainStudio: React.FC = () => {
   // ---- Join clips in the order picked (Join button): numbered badges, preview, then join ----
   const [isInviteGuestOpen, setIsInviteGuestOpen] = useState(false);
   const audioDevices = useAudioDevices();
+  // The first time someone reaches the studio, a setup panel comes before anything else
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [devicesFromSetup, setDevicesFromSetup] = useState(false);
+  useEffect(() => { if (bootDone && currentView === 'studio' && !isSetupDone()) setSetupOpen(true); }, [bootDone, currentView]);
+  useEffect(() => { const open = () => setSetupOpen(true); window.addEventListener(OPEN_SETUP_EVENT, open); return () => window.removeEventListener(OPEN_SETUP_EVENT, open); }, []);
   const jobsState = useJobs();
   const [jobsWindow, setJobsWindow] = useState<{ open: boolean; target: JobsTarget; clientOnly?: boolean }>({ open: false, target: null });
   const liveState = useLiveEvents(Boolean(user));
@@ -4006,7 +4022,7 @@ const MainStudio: React.FC = () => {
   // Full-Page View Routing
   if (!bootDone) {
     // Checking the saved login: show nothing but the app background, so no sign-in page flashes
-    return <div className="fixed inset-0 bg-surface-0" aria-busy="true" />;
+    return <div className="fixed inset-0 bg-surface-0 flex items-center justify-center" aria-busy="true"><Logo variant="mark" alt="Uuda Studio" className="uuda-logo-pulse h-32 w-32 sm:h-40 sm:w-40" /></div>;
   }
   if (currentView === 'auth') {
     return (
@@ -4420,7 +4436,17 @@ const MainStudio: React.FC = () => {
         <ExportPanel project={project} mastering={mastering} mixKey={mixKey} onEditMastering={openMastering} onClose={() => { setIsExportOpen(false); setTempClipLevels({}); }} selectedClipIds={exportClipIds} startWithSelection={exportSelectionFirst} tempClipLevels={tempClipLevels} onResetTempLevels={handleResetTempLevels} />
       )}
 
-      <AudioDevicesSheet {...audioDevices} onClose={audioDevices.close} />
+      {setupOpen && (
+        <WorkspaceSetup
+          devices={audioDevices.devices}
+          named={audioDevices.named}
+          requestAccess={audioDevices.requestAccess}
+          onChooseDevices={() => { setDevicesFromSetup(true); window.dispatchEvent(new CustomEvent('uuda:open-devices')); }}
+          onDone={() => { markSetupDone(); setSetupOpen(false); audioDevices.close(); }}
+        />
+      )}
+      <AudioDevicesSheet {...audioDevices} open={audioDevices.open && (!setupOpen || devicesFromSetup)} onClose={() => { setDevicesFromSetup(false); audioDevices.close(); }} />
+      <GeminiKeyDialog />
       <LiveWorkspace open={liveOpen} onClose={() => setLiveOpen(false)} live={liveState} hostName={user?.display_name ?? ''} focusId={liveFocus} />
       <JobsModal open={jobsWindow.open} onClose={() => setJobsWindow((w) => ({ ...w, open: false }))} jobs={jobsState} target={jobsWindow.target} clientOnly={jobsWindow.clientOnly} onImportFile={handleImportJobFile} />
       <InviteGuestModal open={isInviteGuestOpen} onClose={() => setIsInviteGuestOpen(false)} defaultTitle={project.name ?? ''} />

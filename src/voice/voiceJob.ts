@@ -18,7 +18,7 @@ import { authService } from '../services/authService';
 import { synthesizeWithOwnKey, AUDITION_SENTENCE } from './geminiDirect';
 
 // The same voice should sound the same every time it is auditioned, so each sample is kept once in this browser
-const AUDITION_CACHE = 'uuda-voice-auditions-v1';
+const AUDITION_CACHE = 'uuda-voice-auditions-v4';
 async function readAudition(voice: string): Promise<ArrayBuffer | null> {
   try {
     if (typeof caches === 'undefined') return null;
@@ -33,7 +33,8 @@ async function keepAudition(voice: string, wav: ArrayBuffer): Promise<void> {
   } catch { /* the sample is simply made again next time */ }
 }
 
-const NO_KEY_MESSAGE = 'Voice generation needs your own Gemini key. Open Settings, then Connections, and add it (it is free from Google).';
+const NO_KEY_MESSAGE = 'Connect your free Gemini key to use AI voices.';
+const askForKey = () => { try { window.dispatchEvent(new CustomEvent('uuda:need-gemini-key')); } catch { /* no window */ } };
 
 export type VoiceJobStatus = 'idle' | 'sending' | 'decoding' | 'ready';
 export type VoiceJobOrigin = 'panel' | 'modal';
@@ -216,7 +217,7 @@ class VoiceJobStore {
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          if (response.status === 503) throw new Error(NO_KEY_MESSAGE);
+          if (response.status === 503) { askForKey(); throw new Error(NO_KEY_MESSAGE); }
           if (response.status === 401) throw new Error('Sign in with Google is required to generate voiceovers.');
           if (response.status === 403) throw new Error(errorData.error || 'This account has been blocked. Contact support.');
           if (response.status === 429) {
@@ -294,7 +295,8 @@ class VoiceJobStore {
   // ---------------------------------------------------------------------------
   commit() {
     const { asset, meta } = this.state;
-    if (!asset || !meta || !this.commitHandler) return;
+    if (!asset || !meta) return;
+    if (!this.commitHandler) { this.set({ error: 'The timeline is not ready to take the voiceover yet. Try again in a moment.' }); return; }
     this.stopGenerated();
     this.commitHandler(asset, meta);
     this.set({ status: 'idle', asset: null, meta: null, notice: 'Voiceover added to the timeline.' });
@@ -388,7 +390,7 @@ class VoiceJobStore {
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          if (res.status === 503) throw new Error(NO_KEY_MESSAGE);
+          if (res.status === 503) { askForKey(); throw new Error(NO_KEY_MESSAGE); }
           throw new Error(body.error || `Audition failed (${res.status})`);
         }
         const data = await res.json();

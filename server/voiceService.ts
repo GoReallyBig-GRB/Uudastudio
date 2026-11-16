@@ -9,7 +9,7 @@ import { GoogleGenAI } from '@google/genai';
 import crypto from 'crypto';
 
 // Fixed neutral audition sentence stored as a constant
-export const AUDITION_SAMPLE_SENTENCE = 'Welcome to Uuda Studio. Your voiceover studio is ready.';
+export const AUDITION_SAMPLE_SENTENCE = 'Welcome to Uuda Studio. Your high-precision AI voice functionality is ready.';
 
 // Banned phrases that must never be spoken or appear in ASR transcripts
 export const BANNED_INSTRUCTION_PHRASES = [

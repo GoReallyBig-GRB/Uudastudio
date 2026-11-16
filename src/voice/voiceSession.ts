@@ -5,6 +5,7 @@
  * Synchronizes across components in memory and cross-tab via the storage event.
  */
 
+import { SAMPLE_SCRIPT } from './sampleScript';
 import { useSyncExternalStore } from 'react';
 
 export interface CustomPrecept {
@@ -25,7 +26,7 @@ const PRIMARY_PRECEPTS_KEY = 'uuda_custom_precepts_v2';
 const LEGACY_PRECEPTS_KEY = 'uuda_voice_custom_precepts_v2';
 
 const DEFAULT_SCRIPT =
-  'Welcome to Uuda Studio. High-fidelity audio recording, multi-track editing, and broadcast-ready loudness mastering.';
+  SAMPLE_SCRIPT;
 
 function loadAndMigratePrecepts(): (CustomPrecept | null)[] {
   if (typeof window === 'undefined') return [null, null, null, null];

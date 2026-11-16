@@ -24,6 +24,7 @@ import {
   Sliders,
   AudioWaveform,
   Mic,
+  Monitor,
   Music,
   Download,
   SkipBack,
@@ -42,7 +43,7 @@ import {
   LayoutTemplate,
 } from 'lucide-react';
 import { Project } from '../types';
-import { ModalShell } from './ui';
+import { Logo, ModalShell } from './ui';
 import { audioEngine } from '../audio/engine';
 import { formatTimecode } from '../utils/formatters';
 
@@ -323,9 +324,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Brand, File Menu, and Project Name */}
       <div className="flex items-center gap-3 min-w-0 shrink-0">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-control bg-gold-soft text-gold flex items-center justify-center">
-            <AudioWaveform className="w-4 h-4 stroke-[2.5]" />
-          </div>
+          <Logo variant="mark" alt="" className="h-8 w-8" />
           <span className="font-bold tracking-tight text-sm text-ink flex items-center gap-1.5 max-[1150px]:hidden">
             UUDA <span className="text-gold font-semibold text-xs tracking-[0.18em]">STUDIO</span>
           </span>
@@ -407,6 +406,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               <div className="h-px bg-line my-1" />
 
+              <FileMenuItem icon={<Monitor className="w-4 h-4" />} label="Workspace Setup..." title="Browser, microphone, devices and your Uuda folder" onClick={() => window.dispatchEvent(new CustomEvent('uuda:open-setup'))} />
               {canInstall && <FileMenuItem icon={<Download className="w-4 h-4" />} label="Install Uuda Studio App..." title="Opens saved .uuda files with a double-click, in this browser where you are already signed in" onClick={() => { void installApp(); }} />}
               {/* Set up */}
               {onChooseProjectRoot && <FileMenuItem icon={<FolderArchive className="w-4 h-4" />} label={projectRootDirectoryName ? `Uuda Studio Folder: ${projectRootDirectoryName}...` : 'Choose Uuda Studio Folder...'} onClick={onChooseProjectRoot} />}

@@ -3,8 +3,10 @@
  * The key goes to Google and nowhere else: Uuda's servers never see it.
  */
 
+import { asSpoken } from './pronounce';
+
 export const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-export const AUDITION_SENTENCE = 'Welcome to Uuda Studio. Your voiceover studio is ready.';
+export { SAMPLE_SCRIPT as AUDITION_SENTENCE } from './sampleScript';
 
 export interface GeminiSpeechRequest {
   key: string;
@@ -19,51 +21,44 @@ export interface GeminiSpeechRequest {
 }
 
 /**
- * Guards against a burst of static after the voice: if the clip ends with a short, noise-like stretch
- * (many zero crossings) that follows a clear gap after the speech, it is cut off. The last 30 ms always
- * fades out so the clip never ends on a click.
+ * What Gemini sends back is either raw 16-bit PCM or a complete WAV file (the newer speech models send a file).
+ * A file's header and any trailing metadata must not be played as sound: they are heard as a click at the start and a burst of static at the end.
  */
-export function cleanTail(pcm: Uint8Array, rate: number): Uint8Array {
-  const total = Math.floor(pcm.length / 2);
-  const view = new DataView(pcm.buffer, pcm.byteOffset, total * 2);
-  const win = Math.max(1, Math.round(rate * 0.01));
-  const count = Math.floor(total / win);
-  if (count < 20) return pcm.subarray(0, total * 2);
-  const rms: number[] = []; const zcr: number[] = [];
-  for (let w = 0; w < count; w++) {
-    let sum = 0; let cross = 0; let prev = view.getInt16(w * win * 2, true);
-    for (let i = 0; i < win; i++) {
-      const v = view.getInt16((w * win + i) * 2, true);
-      sum += v * v;
-      if ((v >= 0) !== (prev >= 0)) cross++;
-      prev = v;
+export function readAudioPayload(bytes: Uint8Array, mime: string): { pcm: Uint8Array; rate: number; channels: number } {
+  const tag = (at: number) => String.fromCharCode(bytes[at] ?? 0, bytes[at + 1] ?? 0, bytes[at + 2] ?? 0, bytes[at + 3] ?? 0);
+  if (bytes.length >= 12 && tag(0) === 'RIFF' && tag(8) === 'WAVE') {
+    const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let rate = 0; let channels = 1; let bits = 16; let format = 1;
+    let at = 12;
+    while (at + 8 <= bytes.length) {
+      const id = tag(at); const size = v.getUint32(at + 4, true);
+      if (id === 'fmt ' && at + 24 <= bytes.length) { format = v.getUint16(at + 8, true); channels = v.getUint16(at + 10, true); rate = v.getUint32(at + 12, true); bits = v.getUint16(at + 22, true); }
+      if (id === 'data') {
+        if (!rate || bits !== 16 || (format !== 1 && format !== 0xfffe)) throw new Error('Gemini sent audio in a format Uuda cannot read.');
+        const end = Math.min(bytes.length, at + 8 + size);
+        return { pcm: bytes.subarray(at + 8, end - ((end - at - 8) % (2 * Math.max(1, channels)))), rate, channels: Math.max(1, channels) };
+      }
+      at += 8 + size + (size % 2);
     }
-    rms.push(Math.sqrt(sum / win)); zcr.push(cross / win);
+    throw new Error('Gemini sent an audio file without sound in it.');
   }
-  const loudest = Math.max(...rms);
-  const quiet = (w: number) => rms[w] < loudest * 0.03;
-  let end = count;
-  // trailing run of non-quiet windows = candidate burst
-  let k = 0;
-  while (end - k - 1 >= 0 && !quiet(end - k - 1)) k++;
-  if (k > 0 && k <= 40) {
-    const burstStart = end - k;
-    let gap = 0;
-    while (burstStart - gap - 1 >= 0 && quiet(burstStart - gap - 1)) gap++;
-    let meanZcr = 0;
-    for (let w = burstStart; w < end; w++) meanZcr += zcr[w];
-    meanZcr /= k;
-    if (gap >= 4 && burstStart - gap > 0 && meanZcr > 0.25) end = burstStart - gap;
-  }
-  let samples = Math.min(total, end * win);
-  // also drop a quiet tail longer than needed: keep up to 150 ms of silence
-  const out = new Uint8Array(pcm.subarray(0, samples * 2));
+  const rate = Number(/rate=(\d+)/.exec(mime)?.[1]) || 24000;
+  return { pcm: bytes.subarray(0, bytes.length - (bytes.length % 2)), rate, channels: 1 };
+}
+
+/** A 5 ms fade in and a 30 ms fade out, so a clip never starts or ends on a step in the signal */
+export function softenEdges(pcm: Uint8Array, rate: number, channels = 1): Uint8Array {
+  const out = new Uint8Array(pcm);
   const dv = new DataView(out.buffer);
-  const fade = Math.min(samples, Math.round(rate * 0.03));
-  for (let i = 0; i < fade; i++) {
-    const at = (samples - fade + i) * 2;
-    dv.setInt16(at, Math.round(dv.getInt16(at, true) * (1 - (i + 1) / fade)), true);
-  }
+  const frames = Math.floor(out.length / (2 * channels));
+  const ramp = (from: number, n: number, up: boolean) => {
+    for (let i = 0; i < n; i++) {
+      const g = up ? (i + 1) / n : 1 - (i + 1) / n;
+      for (let c = 0; c < channels; c++) { const at = ((from + i) * channels + c) * 2; dv.setInt16(at, Math.round(dv.getInt16(at, true) * g), true); }
+    }
+  };
+  const fin = Math.min(frames, Math.round(rate * 0.005)); const fout = Math.min(frames, Math.round(rate * 0.03));
+  ramp(0, fin, true); ramp(frames - fout, fout, false);
   return out;
 }
 
@@ -103,7 +98,7 @@ export async function synthesizeWithOwnKey(req: GeminiSpeechRequest): Promise<Ar
   let last: Error | null = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      const part: Record<string, unknown> = { text: req.script };
+      const part: Record<string, unknown> = { text: asSpoken(req.script) };
       if (req.instruction && attempt === 1) part.speechMetadata = { style: req.instruction };
       const res = await doFetch(`${GEMINI_ENDPOINT}/${encodeURIComponent(req.modelId)}:generateContent`, {
         method: 'POST',
@@ -129,10 +124,9 @@ export async function synthesizeWithOwnKey(req: GeminiSpeechRequest): Promise<Ar
         const why = body?.candidates?.[0]?.finishReason ?? body?.promptFeedback?.blockReason ?? 'no reason given';
         throw new Error(`Gemini returned no audio (${why}).`);
       }
-      const rate = Number(/rate=(\d+)/.exec(String(audio.mimeType ?? ''))?.[1]) || 24000;
-      const pcm = base64ToBytes(audio.data);
-      if (pcm.length < 2400) throw new Error('Gemini returned almost no audio.');
-      return pcmToWav(cleanTail(pcm, rate), rate);
+      const got = readAudioPayload(base64ToBytes(audio.data), String(audio.mimeType ?? ''));
+      if (got.pcm.length < 2400) throw new Error('Gemini returned almost no audio.');
+      return pcmToWav(softenEdges(got.pcm, got.rate, got.channels), got.rate, got.channels);
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') throw e;
       last = e instanceof Error ? e : new Error(String(e));
