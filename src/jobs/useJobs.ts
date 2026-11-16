@@ -6,7 +6,7 @@ import { usePolling } from './usePolling';
 
 const MAX_LIVE = 8;
 
-export interface JobSummary { status: JobStatus; /** Unread from the talent and the client together */ unread: number; clientUnread?: number; lastId: number; failed?: boolean }
+export interface JobSummary { status: JobStatus; /** Unread from the talent and the client together */ unread: number; clientUnread?: number; /** Messages the client has written; above 0 means the client has taken part */ clientCount?: number; lastId: number; failed?: boolean }
 
 /** The producer's jobs: the list kept in this browser, whether the server answers, and each job's status and unread count. Lives in the app so the sidebar badge stays current while no window is open. */
 export const useJobs = () => {
@@ -38,7 +38,7 @@ export const useJobs = () => {
           if (t.keys?.client) { try { client = (await getThread(j.id, j.producerKey, 0, 'client')).messages; } catch { /* the talent thread still counts */ } }
         }
         const clientUnread = unreadCount(client, j.lastReadClient ?? 0);
-        next[j.id] = { status: statusOf(talent), unread: unreadCount(talent, j.lastRead) + clientUnread, clientUnread, lastId };
+        next[j.id] = { status: statusOf(talent), unread: unreadCount(talent, j.lastRead) + clientUnread, clientUnread, clientCount: client.filter((m) => m.role === 'client').length, lastId };
       } catch { next[j.id] = { status: 'waiting', unread: 0, lastId: 0, failed: true }; }
     }));
     changed = JSON.stringify(seen.current) !== JSON.stringify(next);

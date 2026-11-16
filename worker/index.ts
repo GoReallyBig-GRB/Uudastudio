@@ -1,10 +1,14 @@
 export { JobRoom } from "./jobs/jobRoom";
 export { JobRegistry } from "./jobs/jobRegistry";
+import { isAuthProxyPath, proxyAuth } from "./authProxy";
+import { withOrigin } from "./pageMeta";
 import { handleAuth, type AuthEnv } from "./auth/handler";
 import { D1UserStore } from "./auth/users";
 import { makeLimiter } from "./auth/rateLimit";
 import { fetchGoogleKeys, keyCache } from "./auth/verifyIdToken";
 import { handleTemplates } from "./templates/handler";
+import { handleLive } from "./live/handler";
+import { D1LiveStore } from "./live/store";
 import { D1TemplateStore, type D1Full } from "./templates/store";
 import { handleFreesound } from "./freesound/handler";
 import { D1TokenStore, makeSealer } from "./freesound/tokens";
@@ -51,6 +55,7 @@ const signInLimiter = makeLimiter(10, 60_000);
 
 /** Sign-in is handled here only when its database, project id and secret are all set; otherwise /api/auth/* goes to API_ORIGIN as before */
 const templateLimits = { list: makeLimiter(60, 60_000), write: makeLimiter(30, 60_000) };
+const liveLimits = { producer: makeLimiter(60, 60_000), guest: makeLimiter(60, 60_000) };
 const freesoundLimits = { search: makeLimiter(50, 60_000), sharedSearch: makeLimiter(15, 60_000), other: makeLimiter(30, 60_000) };
 
 const authEnv = (env: Env): AuthEnv | null =>
@@ -61,6 +66,9 @@ const authEnv = (env: Env): AuthEnv | null =>
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const incoming = new URL(request.url);
+
+    // Firebase's sign-in pages, served from our own address
+    if (isAuthProxyPath(incoming.pathname)) return proxyAuth(request, incoming, env.FIREBASE_PROJECT_ID);
 
     // Voice-talent jobs live here, not on the Express API.
     if (incoming.pathname === "/api/jobs" || incoming.pathname.startsWith("/api/jobs/")) {
@@ -86,6 +94,13 @@ export default {
       if (a && env.AUTH_DB) {
         const rest = incoming.pathname.slice("/api/templates".length).split("/").filter(Boolean);
         return handleTemplates(request, rest, { auth: a, templates: new D1TemplateStore(env.AUTH_DB), limits: templateLimits });
+      }
+    }
+    if (incoming.pathname.startsWith("/api/live/")) {
+      const a = authEnv(env);
+      if (a && env.AUTH_DB) {
+        const rest = incoming.pathname.slice("/api/live/".length).split("/").filter(Boolean);
+        return handleLive(request, rest, { auth: a, store: new D1LiveStore(env.AUTH_DB as unknown as D1Full), limits: liveLimits });
       }
     }
     if (incoming.pathname.startsWith("/api/freesound/")) {
@@ -137,6 +152,17 @@ export default {
           { status: 502, headers: jsonHeaders },
         );
       }
+    }
+
+    // The home page carries its own address in the link-preview tags (WhatsApp and others need a full address for the image)
+    if ((request.method === "GET" || request.method === "HEAD") && (incoming.pathname === "/" || incoming.pathname === "/index.html")) {
+      const page = await env.ASSETS.fetch(new Request(`${incoming.origin}/`, { headers: request.headers }));
+      if (page.ok && (page.headers.get("content-type") ?? "").includes("text/html")) {
+        const headers = new Headers(page.headers);
+        headers.delete("content-length"); headers.delete("etag"); headers.set("cache-control", "no-cache");
+        return new Response(request.method === "HEAD" ? null : withOrigin(await page.text(), incoming.origin), { status: 200, headers });
+      }
+      return page;
     }
 
     // Vite builds the React SPA to ./dist; Cloudflare serves and caches those assets.

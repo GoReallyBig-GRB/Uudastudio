@@ -49,6 +49,9 @@ export class AudioRecorder {
 
   // State
   private isRecording: boolean = false;
+  /** Loudness of the take so far, four values per capture block, for drawing the waveform while recording */
+  private livePeaks: number[] = [];
+  private livePeakRate = 48000 / (4096 / 4);
   private recordStartTime: number = 0;
   private recordTimerId: number | null = null;
   private meterBuffer: Float32Array = new Float32Array(512);
@@ -202,6 +205,13 @@ export class AudioRecorder {
       const inL = e.inputBuffer.getChannelData(0);
       const inR = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : inL;
 
+      const quarter = Math.floor(inL.length / 4);
+      for (let s = 0; s < 4; s++) {
+        let pk = 0;
+        for (let i = s * quarter; i < (s + 1) * quarter; i++) { const a = Math.abs(inL[i]); const b = Math.abs(inR[i]); if (a > pk) pk = a; if (b > pk) pk = b; }
+        this.livePeaks.push(pk);
+      }
+      this.livePeakRate = e.inputBuffer.sampleRate / quarter;
       this.pcmChunksLeft.push(new Float32Array(inL));
       this.pcmChunksRight.push(new Float32Array(inR));
       this.totalPcmSamples += inL.length;
@@ -243,6 +253,7 @@ export class AudioRecorder {
     this.recordedBlobs = [];
     this.pcmChunksLeft = [];
     this.pcmChunksRight = [];
+    this.livePeaks = [];
     this.totalPcmSamples = 0;
     this.isRecording = true;
     this.recordStartTime = ctx.currentTime;
@@ -396,6 +407,11 @@ export class AudioRecorder {
       noiseSuppression: Boolean(settings.noiseSuppression),
       autoGainControl: Boolean(settings.autoGainControl),
     };
+  }
+
+  /** What has been heard so far: loudest value per slice, and how many slices make a second */
+  public getLivePeaks(): { peaks: readonly number[]; perSecond: number } {
+    return { peaks: this.livePeaks, perSecond: this.livePeakRate };
   }
 
   public getIsRecording(): boolean {

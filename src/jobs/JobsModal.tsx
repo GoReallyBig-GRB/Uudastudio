@@ -13,11 +13,16 @@ interface Props {
   jobs: JobsState;
   /** What to show when the window opens: a job, the new-job form, or nothing selected */
   target: JobsTarget;
+  /** Show only the jobs where a client has taken part */
+  clientOnly?: boolean;
   onImportFile: (file: File) => Promise<void> | void;
 }
 
 /** The Jobs workspace: every job on the left; the new-job form, or one job with its script, notes, link and message thread, on the right. */
-export const JobsModal: React.FC<Props> = ({ open, onClose, jobs, target, onImportFile }) => {
+export const JobsModal: React.FC<Props> = ({ open, onClose, jobs, target, clientOnly = false, onImportFile }) => {
+  const [onlyClient, setOnlyClient] = useState(clientOnly);
+  useEffect(() => { if (open) setOnlyClient(clientOnly); }, [open, clientOnly]);
+  const shown = onlyClient ? jobs.jobs.filter((j) => (jobs.summaries[j.id]?.clientCount ?? 0) > 0) : jobs.jobs;
   const [view, setView] = useState<JobsTarget>(target);
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('uuda.jobs.sidebar') === 'closed'; } catch { return false; } });
   const toggle = () => setCollapsed((c) => { try { localStorage.setItem('uuda.jobs.sidebar', c ? 'open' : 'closed'); } catch { /* not saved */ } return !c; });
@@ -37,10 +42,16 @@ export const JobsModal: React.FC<Props> = ({ open, onClose, jobs, target, onImpo
               <Button variant="primary" disabled={jobs.service !== 'ok'} onClick={() => setView({ kind: 'new' })} leftIcon={<Plus className="h-4 w-4" />}>New job</Button>
               {jobs.service === 'none' && <div role="alert" className="rounded-card border border-warn/40 bg-warn/10 p-2.5 text-xs text-ink">The jobs server did not answer. Jobs work on the hosted site. Try again later.</div>}
               {jobs.temporary && <div className="rounded-card border border-line-strong bg-surface-2 p-2.5 text-xs text-ink-dim">This is a test server. Jobs made here disappear when it restarts.</div>}
-              {jobs.jobs.length === 0 ? (
-                <p className="rounded-card border border-dashed border-line px-3 py-6 text-center text-xs text-ink-faint">No jobs yet. A job is a script you send to a voice talent as a link. They record and send the take back here.</p>
+              {onlyClient && (
+                <div className="flex items-center justify-between gap-2 rounded-card border border-accent/40 bg-accent-soft px-3 py-2 text-xs text-ink">
+                  <span>Showing jobs with client activity</span>
+                  <button type="button" onClick={() => setOnlyClient(false)} className="font-semibold text-accent hover:underline">Show all</button>
+                </div>
+              )}
+              {shown.length === 0 ? (
+                <p className="rounded-card border border-dashed border-line px-3 py-6 text-center text-xs text-ink-faint">{onlyClient ? 'No client has taken part in a job yet. Share a job with a client from its page and their comments show up here.' : 'No jobs yet. A job is a script you send to a voice talent as a link. They record and send the take back here.'}</p>
               ) : (
-                <JobRows jobs={jobs.jobs} summaries={jobs.summaries} selectedId={current?.id} onOpen={(id) => setView({ kind: 'job', id })} />
+                <JobRows jobs={shown} summaries={jobs.summaries} selectedId={current?.id} onOpen={(id) => setView({ kind: 'job', id })} />
               )}
             </div>
           )}

@@ -81,3 +81,18 @@ describe('very quiet microphones (no false alarms)', () => {
   it('still catches a real bump in the quiet start', () => expect(ids(checkRoom(quietMic({ settle: true, bumpAt: 2 }), SR))).toContain('event'));
   it('still asks for a quiet start when speech begins at once', () => expect(ids(checkRoom(take({ leadSeconds: 0.7 }), SR))).toContain('lead'));
 });
+
+describe('room hum is not a bump', () => {
+  /** A room whose low rumble wanders by several dB and whose hiss flickers, with real speech after 4 s */
+  const humming = () => {
+    const x = take({ noiseDb: -58 });
+    for (let i = 0; i < SR * 4; i++) { const t = i / SR; x[i] += 0.0022 * (1 + 0.9 * Math.sin(2 * Math.PI * 0.7 * t)) * Math.sin(2 * Math.PI * 50 * t); }
+    return x;
+  };
+  it('a hum that wanders in level is not flagged', () => expect(ids(checkRoom(humming(), SR))).not.toContain('event'));
+  it('a real knock on top of the hum still is', () => {
+    const x = humming();
+    for (let i = Math.round(2 * SR); i < Math.round(2.15 * SR); i++) x[i] += 0.02 * Math.sin(2 * Math.PI * 400 * (i / SR));
+    expect(ids(checkRoom(x, SR))).toContain('event');
+  });
+});

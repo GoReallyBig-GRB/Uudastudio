@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Briefcase, Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Plug, Settings } from 'lucide-react';
+import { Briefcase, Radio, Layers, Mic, Music, ChevronLeft, ChevronRight, ShieldCheck, LogIn, Plug, Settings } from 'lucide-react';
 import { TrackListPanel } from './TrackListPanel';
 import { VoicePanel } from './VoicePanel';
 import { SoundLibraryPanel } from './SoundLibraryPanel';
@@ -56,6 +56,9 @@ interface LeftSidebarProps {
   // Jobs panel (voice-talent jobs)
   jobsState?: JobsState;
   onOpenJobsWindow?: (target: JobsTarget) => void;
+  /** The Live events panel, shown under Jobs in the rail */
+  /** Opens the Live events window (not a sidebar panel) */
+  onOpenLive?: () => void;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -86,6 +89,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onAddLibraryTrack,
   jobsState,
   onOpenJobsWindow,
+  onOpenLive,
 }) => {
   const handleTabClick = (tab: SidebarTab) => {
     window.dispatchEvent(new CustomEvent('xpro:close-popups'));
@@ -152,6 +156,18 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             >
               <Briefcase className="w-4 h-4" />
               {(jobsState?.unread ?? 0) > 0 && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-surface-0 bg-accent" />}
+            </button>
+          )}
+
+          {onOpenLive && (
+            <button
+              type="button"
+              onClick={onOpenLive}
+              title="Live events: schedule sessions with live guests"
+              aria-label="Live events"
+              className={`${RAIL_LAYOUT} ${RAIL_IDLE}`}
+            >
+              <Radio className="w-4 h-4" />
             </button>
           )}
 

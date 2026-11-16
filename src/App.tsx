@@ -86,6 +86,7 @@ import { PEAK_BASE_SAMPLES_PER_PIXEL } from './waveform/peakMath';
 import { ChunkedCancelled, createVirtualSource, processedUndoLimit } from './audio/chunkedProcess';
 import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJob';
 import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
+import { LOUD_SPREAD_DB } from './audio/dsp/quietness';
 import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, studioSubfolder, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { saveOrDownload } from './jobs/studioFolder';
@@ -116,6 +117,9 @@ import { saveCloudTemplate, TemplateSyncError } from './templates/templateApi';
 import { projectFromTemplate, templateFromProject, serializeTemplate, templateFileName, parseTemplate, UudaTemplate } from './templates/template';
 import { WorkspaceSetup, isSetupDone, markSetupDone, OPEN_SETUP_EVENT } from './setup/WorkspaceSetup';
 import { GeminiKeyDialog } from './voice/GeminiKeyDialog';
+import { useLiveEvents } from './live/useLiveEvents';
+import { LiveWorkspace } from './live/LiveWorkspace';
+import { GuestCluster } from './live/GuestCluster';
 import { onLaunchedFiles } from './pwa/fileLaunch';
 import { pluginSignature, collectLive, attachLive, applySnapshot } from './plugins/pluginHistory';
 import { VoiceoverModal } from './components/VoiceoverModal';
@@ -245,6 +249,8 @@ const MainStudio: React.FC = () => {
   const [isAutosaving, setIsAutosaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
+  /** Set while a take is being recorded, so the timeline can draw it forming */
+  const [liveRecording, setLiveRecording] = useState<{ trackId: string | null; startSeconds: number } | null>(null);
   // Track the next take is recorded into (null = a new top track) and where the playhead was when recording began.
   const [recordTargetTrackId, setRecordTargetTrackId] = useState<string | null>(null);
   const recordStartSecondsRef = useRef<number>(0);
@@ -2890,7 +2896,19 @@ const MainStudio: React.FC = () => {
   useEffect(() => { if (bootDone && currentView === 'studio' && !isSetupDone()) setSetupOpen(true); }, [bootDone, currentView]);
   useEffect(() => { const open = () => setSetupOpen(true); window.addEventListener(OPEN_SETUP_EVENT, open); return () => window.removeEventListener(OPEN_SETUP_EVENT, open); }, []);
   const jobsState = useJobs();
-  const [jobsWindow, setJobsWindow] = useState<{ open: boolean; target: JobsTarget }>({ open: false, target: null });
+  const [jobsWindow, setJobsWindow] = useState<{ open: boolean; target: JobsTarget; clientOnly?: boolean }>({ open: false, target: null });
+  const liveState = useLiveEvents(Boolean(user));
+  const [liveFocus, setLiveFocus] = useState<string | null>(null);
+  const [liveOpen, setLiveOpen] = useState(false);
+  const openLivePanel = useCallback((eventId?: string) => {
+    setLiveOpen(true);
+    setLiveFocus(eventId ? `${eventId}#${Date.now()}` : null);
+  }, []);
+  const startQuickEvent = useCallback(async () => {
+    if (liveState.service !== 'ok') { openLivePanel(); return; }
+    try { const e = await liveState.create({ kind: 'quick', title: 'Quick event', description: '', notes: '', startsAt: null, durationMin: null, participants: [] }); openLivePanel(e.id); }
+    catch { openLivePanel(); }
+  }, [liveState, openLivePanel]);
   const [joinOrder, setJoinOrder] = useState<string[] | null>(null);
   // Where the Join preview plays from / is up to, in timeline seconds (null: from the start)
   const [joinPos, setJoinPos] = useState<number | null>(null);
@@ -3342,7 +3360,7 @@ const MainStudio: React.FC = () => {
       const print = learnNoisePrint(joined, sampleRate, `${track.name}, ${mmss(sel.startSeconds)} to ${mmss(sel.endSeconds)}`);
       setNoisePrint(print);
       addToast(
-        print.loudnessSpreadDb > 6
+        print.loudnessSpreadDb > LOUD_SPREAD_DB
           ? { type: 'warning', title: 'Noise sample taken, but it has loud moments', message: 'A stretch with only background noise works best. Speech in the sample will be treated as noise.' }
           : { type: 'success', title: 'Noise sample taken', message: `${print.seconds.toFixed(1)} s learned. Select the clip and open Denoise: it will remove only this noise.` },
       );
@@ -4117,6 +4135,7 @@ const MainStudio: React.FC = () => {
 
       {/* Selected Clip Toolbar (Permanent accessible fallback docked below Header) */}
       <ClipToolbar
+        guestSlot={<GuestCluster live={liveState} onVoice={() => setJobsWindow({ open: true, target: null })} onClient={() => setJobsWindow({ open: true, target: null, clientOnly: true })} onManage={openLivePanel} onQuick={() => { void startQuickEvent(); }} />}
         clip={selectedClip}
         selectedCount={selectedUnitCount}
         canPaste={canPasteAny}
@@ -4200,6 +4219,7 @@ const MainStudio: React.FC = () => {
           onAddLibraryTrack={handleAddLibraryTrack}
           jobsState={jobsState}
           onOpenJobsWindow={(target) => setJobsWindow({ open: true, target })}
+          onOpenLive={() => openLivePanel()}
           groupsFooter={
             <GroupListPanel
               groups={groups}
@@ -4283,6 +4303,7 @@ const MainStudio: React.FC = () => {
             </div>
           ) : (
             <Timeline
+              liveRecording={liveRecording}
               onAddTrack={handleAddEmptyTrack}
               onImportFile={() => importInputRef.current?.click()}
               overlay={trackImportProgress && !isTrackImportIndicatorDismissed ? (
@@ -4426,7 +4447,8 @@ const MainStudio: React.FC = () => {
       )}
       <AudioDevicesSheet {...audioDevices} open={audioDevices.open && (!setupOpen || devicesFromSetup)} onClose={() => { setDevicesFromSetup(false); audioDevices.close(); }} />
       <GeminiKeyDialog />
-      <JobsModal open={jobsWindow.open} onClose={() => setJobsWindow((w) => ({ ...w, open: false }))} jobs={jobsState} target={jobsWindow.target} onImportFile={handleImportJobFile} />
+      <LiveWorkspace open={liveOpen} onClose={() => setLiveOpen(false)} live={liveState} hostName={user?.display_name ?? ''} focusId={liveFocus} />
+      <JobsModal open={jobsWindow.open} onClose={() => setJobsWindow((w) => ({ ...w, open: false }))} jobs={jobsState} target={jobsWindow.target} clientOnly={jobsWindow.clientOnly} onImportFile={handleImportJobFile} />
       <InviteGuestModal open={isInviteGuestOpen} onClose={() => setIsInviteGuestOpen(false)} defaultTitle={project.name ?? ''} />
       {joinOrder && (
         <JoinBar
@@ -4510,8 +4532,9 @@ const MainStudio: React.FC = () => {
         onClose={() => {
           setIsRecordModalOpen(false);
           setRecordTargetTrackId(null);
+          setLiveRecording(null);
         }}
-        onFinishRecording={handleFinishRecording}
+        onFinishRecording={(buffer, takeName) => { setLiveRecording(null); handleFinishRecording(buffer, takeName); }}
         duckPlayingTracks={project.settings.duckPlayingTracks}
         duckingAmountDb={project.settings.duckingAmountDb}
         targetTrackName={(() => {
@@ -4520,6 +4543,7 @@ const MainStudio: React.FC = () => {
         })()}
         onRecordingStart={() => {
           recordStartSecondsRef.current = playheadSecondsRef.current;
+          setLiveRecording({ trackId: recordTargetTrackId, startSeconds: playheadSecondsRef.current });
         }}
       />
 

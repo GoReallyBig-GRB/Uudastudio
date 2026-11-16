@@ -429,6 +429,16 @@ class VoiceJobStore {
 
 export const voiceJob = new VoiceJobStore();
 
+// Connecting a Gemini key settles whatever the missing key caused: clear the old error so it does not keep showing
+if (typeof window !== 'undefined') {
+  let hadKey = Boolean(authService.getOwnGeminiKey());
+  window.addEventListener('uuda:auth-changed', () => {
+    const has = Boolean(authService.getOwnGeminiKey());
+    if (has && !hadKey && voiceJob.getSnapshot().error) voiceJob.setError(null);
+    hadKey = has;
+  });
+}
+
 export function useVoiceJob(): VoiceJobState {
   return useSyncExternalStore(voiceJob.subscribe, voiceJob.getSnapshot, voiceJob.getSnapshot);
 }

@@ -114,6 +114,7 @@ interface HeaderProps {
   onNewProject?: () => void;
   /** File > Invite Voice Talent: opens the guest recording invite */
   onInviteGuest?: () => void;
+  /** Guest buttons (Live, Voice, Client) shown at the right of the top bar */
   onSaveAndNewProject?: () => void;
   onOpenNewProjectInTab?: () => void;
   onOpenProjectFromFile?: (file: File) => void;
@@ -682,7 +683,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Central Transport & Timecode Controls */}
-      <div className="flex items-center gap-3">
+      <div role="group" aria-label="Playback and recording" className="flex items-center gap-2 rounded-full border border-gold/60 p-1">
         {/* Transport: one capsule (back, play or pause, stop), then Record as its own pill */}
         <div role="group" aria-label="Transport" className="flex items-stretch divide-x divide-line overflow-hidden rounded-full border border-line bg-surface-1">
           {/* Return to Start / Rewind to Head Button */}
@@ -691,7 +692,7 @@ export const Header: React.FC<HeaderProps> = ({
             title="Return to Start / Rewind to Head (Home / 0)"
             className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
           >
-            <SkipBack className="w-4 h-4 fill-current" />
+            <SkipBack className="w-3 h-3 fill-current" />
           </button>
 
           <button
@@ -699,7 +700,7 @@ export const Header: React.FC<HeaderProps> = ({
             title={`Back ${SKIP_STEPS.find((s) => s.seconds === skipStep)?.label ?? ''} (change the jump beside the forward button)`}
             className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
           >
-            <Rewind className="w-4 h-4 fill-current" />
+            <Rewind className="w-3 h-3 fill-current" />
           </button>
 
           {isPlaying ? (
@@ -708,7 +709,7 @@ export const Header: React.FC<HeaderProps> = ({
               title="Pause (Space)"
               className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer bg-accent-soft text-accent hover:brightness-125"
             >
-              <Pause className="w-4 h-4 fill-current" />
+              <Pause className="w-3 h-3 fill-current" />
             </button>
           ) : (
             <button
@@ -716,7 +717,7 @@ export const Header: React.FC<HeaderProps> = ({
               title="Play (Space)"
               className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink hover:bg-white/5"
             >
-              <Play className="w-4 h-4 fill-current ml-0.5" />
+              <Play className="w-3 h-3 fill-current ml-0.5" />
             </button>
           )}
 
@@ -725,21 +726,21 @@ export const Header: React.FC<HeaderProps> = ({
             title={`Forward ${SKIP_STEPS.find((s) => s.seconds === skipStep)?.label ?? ''} (change the jump beside this button)`}
             className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
           >
-            <FastForward className="w-4 h-4 fill-current" />
+            <FastForward className="w-3 h-3 fill-current" />
           </button>
           <button
             onClick={onGoToEnd}
             title="Go to the end of the track (End)"
             className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
           >
-            <SkipForward className="w-4 h-4 fill-current" />
+            <SkipForward className="w-3 h-3 fill-current" />
           </button>
           <button
             onClick={onStop}
             title="Stop & Return to Start"
             className="flex h-8 w-9 items-center justify-center transition-colors duration-150 ease-premium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 cursor-pointer text-ink-dim hover:bg-white/5 hover:text-ink"
           >
-            <Square className="w-3.5 h-3.5 fill-current" />
+            <Square className="w-3 h-3 fill-current" />
           </button>
         </div>
 
@@ -801,6 +802,7 @@ export const Header: React.FC<HeaderProps> = ({
           <Mic className="w-3.5 h-3.5" />
           <span className="max-[1450px]:hidden">Voiceover</span>
         </button>
+
 
         {/* Sound Library Button: opens the Freesound search and preview window directly */}
         <button
