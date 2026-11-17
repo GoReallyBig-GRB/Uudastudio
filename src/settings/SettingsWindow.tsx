@@ -6,6 +6,7 @@ import { useAudioDevices } from '../audio/useAudioDevices';
 import { audioEngine } from '../audio/engine';
 import { authService } from '../services/authService';
 import { canUseStudioFolder, getStudioFolder, studioFolderLabel } from '../jobs/studioFolder';
+import { connectDrive, disconnectDrive, driveErrorText, isDriveConnected, listDriveProjects, onDriveChange, openFromDrive, type DriveProject } from '../cloud/googleDrive';
 import { useFreesound } from '../hooks/useFreesound';
 import { clearAllProjectData } from '../storage/db';
 import { shortcutGroups } from './shortcuts';
@@ -150,6 +151,12 @@ const ConnectionsTab: React.FC = () => {
   const [fsOn, setFsOn] = useState(false);
   const [fsMsg, setFsMsg] = useState('');
   useEffect(() => { fetch('/api/freesound/config').then((r) => r.json()).then((d) => setFsOn(Boolean(d.enabled))).catch(() => setFsOn(false)); }, []);
+  const [drive, setDrive] = useState(isDriveConnected());
+  const [driveMsg, setDriveMsg] = useState('');
+  const [driveList, setDriveList] = useState<DriveProject[] | null>(null);
+  const [driveBusy, setDriveBusy] = useState(false);
+  useEffect(() => onDriveChange(() => { setDrive(isDriveConnected()); if (!isDriveConnected()) setDriveList(null); }), []);
+  const driveRun = async (what: () => Promise<void>) => { setDriveBusy(true); setDriveMsg(''); try { await what(); } catch (e) { setDriveMsg(driveErrorText(e)); } finally { setDriveBusy(false); } };
   const connectFreesound = async () => {
     setFsMsg('');
     const url = await fs.fetchAuthUrl();
@@ -173,6 +180,30 @@ const ConnectionsTab: React.FC = () => {
         </Row>
       )}
       {fsMsg && <p role="status" className="mt-2 text-xs text-ink-dim">{fsMsg}</p>}
+      <Row title="Google Drive" hint={drive ? 'Connected for this visit. Uuda only sees the project files it saves in a "Uuda Studio" folder.' : 'Keep your projects in your own Google Drive. Uuda can only see the files it saves there, nothing else.'}>
+        {drive
+          ? <Button size="sm" variant="secondary" onClick={() => disconnectDrive()}>Disconnect</Button>
+          : <Button size="sm" variant="secondary" disabled={driveBusy} onClick={() => { void driveRun(connectDrive); }}>Connect</Button>}
+      </Row>
+      {drive && (
+        <div className="border-b border-line py-3">
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" disabled={driveBusy} onClick={() => { setDriveMsg('Saving to Google Drive…'); window.dispatchEvent(new CustomEvent('uuda:drive-save')); }}>Save project to Drive</Button>
+            <Button size="sm" variant="secondary" disabled={driveBusy} onClick={() => { void driveRun(async () => setDriveList(await listDriveProjects())); }}>Open from Drive</Button>
+          </div>
+          {driveList && (driveList.length === 0
+            ? <p className="mt-2 text-xs text-ink-dim">No projects in your Uuda Studio folder yet.</p>
+            : <ul className="mt-2 divide-y divide-line rounded-control border border-line">
+                {driveList.map((f) => (
+                  <li key={f.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                    <span className="min-w-0 truncate text-ink">{f.name}<span className="ml-2 text-xs text-ink-faint">{new Date(f.modifiedTime).toLocaleString()} · {formatBytes(f.size)}</span></span>
+                    <Button size="sm" variant="secondary" disabled={driveBusy} onClick={() => { void driveRun(async () => { setDriveMsg(`Downloading ${f.name}…`); const file = await openFromDrive(f); window.dispatchEvent(new CustomEvent('uuda:open-project-file', { detail: file })); setDriveMsg(''); }); }}>Open</Button>
+                  </li>
+                ))}
+              </ul>)}
+        </div>
+      )}
+      {driveMsg && <p role="status" className="mt-2 text-xs text-ink-dim">{driveMsg}</p>}
       <p className="mt-3 text-xs text-ink-faint">Your account details are in your dashboard.</p>
     </div>
   );
