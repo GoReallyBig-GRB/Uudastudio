@@ -87,7 +87,8 @@ import { ChunkedCancelled, createVirtualSource, processedUndoLimit } from './aud
 import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJob';
 import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
 import { LOUD_SPREAD_DB } from './audio/dsp/quietness';
-import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
+import { saveToDrive } from './cloud/googleDrive';
+import { decodeProjectFile, encodeProjectFileAsync, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, studioSubfolder, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { saveOrDownload } from './jobs/studioFolder';
 import { formatTimecode, formatVolumeDb } from './utils/formatters';
@@ -1227,7 +1228,7 @@ const MainStudio: React.FC = () => {
         });
       } else {
         // Non-Chromium fallback: downloads remain the supported save mechanism.
-        const blob = encodeProjectFile(fullProject, (assetId) => audioEngine.getAsset(assetId));
+        const blob = await encodeProjectFileAsync(fullProject, (assetId) => audioEngine.getAsset(assetId));
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -3766,6 +3767,27 @@ const MainStudio: React.FC = () => {
     setSelectedClipIds(new Set());
     setIsResetSessionModalOpen(false);
   }, [isPlaying, updateHistoryFlags]);
+
+  // Google Drive (started from Settings, Connections): save the open project there, or open one that was downloaded from there
+  useEffect(() => {
+    const onSave = () => {
+      void (async () => {
+        try {
+          const full = await withPluginStates(project);
+          const name = `${project.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Session'}.uuda`;
+          const blob = await encodeProjectFileAsync(full, (id) => audioEngine.getAsset(id));
+          await saveToDrive(name, blob);
+          addToast({ type: 'success', title: 'Saved to Google Drive', message: `"${name}" is in your Uuda Studio folder.` });
+        } catch (err) {
+          addToast({ type: 'error', title: 'Google Drive Save Failed', message: err instanceof Error ? err.message : 'Could not save to Google Drive.' });
+        }
+      })();
+    };
+    const onOpen = (e: Event) => { const f = (e as CustomEvent<File>).detail; if (f) void handleOpenProjectFromFile(f); };
+    window.addEventListener('uuda:drive-save', onSave);
+    window.addEventListener('uuda:open-project-file', onOpen);
+    return () => { window.removeEventListener('uuda:drive-save', onSave); window.removeEventListener('uuda:open-project-file', onOpen); };
+  }, [project, handleOpenProjectFromFile, addToast]);
 
   const handleClearSession = useCallback(() => {
     // If tracks or clips exist, prompt the user with modal to save their work before resetting

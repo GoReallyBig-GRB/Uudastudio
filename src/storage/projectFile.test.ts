@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Asset, Project } from '../types';
-import { decodeProjectFile, encodeProjectFile, isUudaProjectFile } from './projectFile';
+import { decodeProjectFile, encodeProjectFile, encodeProjectFileAsync, isUudaProjectFile, writeProjectFileToWritable, type StreamedHooks } from './projectFile';
 
 function fakeAudioBuffer(channelData: Float32Array[], sampleRate = 48000): AudioBuffer {
   const length = channelData[0]?.length || 0;
@@ -111,5 +111,60 @@ describe('UUDA project file', () => {
     const header = new Uint8Array([0x55, 0x55, 0x44, 0x41, 0x50, 0x4a, 0xff, 0xff, 0xff, 0x7f]);
     const file = new File([header as BlobPart], 'bad-manifest.uuda');
     await expect(decodeProjectFile(file, fakeContext())).rejects.toThrow(/manifest length is invalid/);
+  });
+
+  describe('long (streamed) audio', () => {
+    const store = new Map<string, Float32Array[]>([['long-1', [
+      Float32Array.from({ length: 10 }, (_, i) => i / 10),
+      Float32Array.from({ length: 10 }, (_, i) => -i / 10),
+    ]]]);
+    const restored = new Map<string, Float32Array[][]>();
+    const hooks: StreamedHooks = {
+      available: () => true,
+      readChannel: async (id, c, start, frames) => (store.get(id)?.[c] ?? new Float32Array(0)).slice(start, start + frames),
+      createWriter: async (id, _sr, ch) => {
+        const blocks: Float32Array[][] = [];
+        restored.set(id, blocks);
+        return {
+          write: async (chunk) => { blocks.push(chunk); },
+          finish: async () => ({ frames: blocks.reduce((n, b) => n + b[0].length, 0), peakBase: 256 }),
+          abort: async () => { restored.delete(id); },
+        };
+      },
+    };
+    const longAsset: Asset = {
+      id: 'long-1', name: 'long.wav', kind: 'import', source: { storeId: 'long-1', frames: 10, peakBaseSamplesPerPixel: 256 },
+      sampleRate: 48000, durationSeconds: 10 / 48000, numberOfChannels: 2,
+    };
+    const longProject: Project = {
+      ...project,
+      tracks: [{ ...project.tracks[0], clips: [{ ...project.tracks[0].clips[0], assetId: 'long-1', versionHistory: [] }] }],
+    };
+    const lookup = (id: string) => id === 'long-1' ? longAsset : undefined;
+
+    it('refuses the in-memory encoder for long audio but writes it in small pieces to a file', async () => {
+      expect(() => encodeProjectFile(longProject, lookup)).toThrow(/long audio/);
+      const written: Uint8Array[] = [];
+      await writeProjectFileToWritable(longProject, lookup, { write: async (d) => { written.push(d.slice()); } }, undefined, 16, hooks);
+      expect(written.length).toBeGreaterThan(4); // 16-byte pieces, not one block
+      const file = new File(written as BlobPart[], 'long.uuda');
+      const decoded = await decodeProjectFile(file, fakeContext(), hooks);
+      expect(decoded.missingAssetIds).toEqual([]);
+      expect(decoded.assets[0].source?.frames).toBe(10);
+      expect(decoded.assets[0].buffer).toBeUndefined();
+      const back = restored.get('long-1')!.flatMap((b) => Array.from(b[1]));
+      expect(back).toEqual(Array.from(store.get('long-1')![1]));
+    });
+
+    it('builds the same file as a Blob for browsers that download', async () => {
+      const blob = await encodeProjectFileAsync(longProject, lookup, undefined, hooks, 16);
+      const decoded = await decodeProjectFile(new File([blob as BlobPart], 'long.uuda'), fakeContext(), hooks);
+      expect(decoded.assets[0].source?.storeId).toBe('long-1');
+    });
+
+    it('stops with a clear message if the stored audio cannot be read back', async () => {
+      const broken: StreamedHooks = { ...hooks, readChannel: async () => new Float32Array(0) };
+      await expect(writeProjectFileToWritable(longProject, lookup, { write: async () => {} }, undefined, 16, broken)).rejects.toThrow(/could not be read back/);
+    });
   });
 });

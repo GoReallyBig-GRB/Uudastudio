@@ -1,4 +1,7 @@
 import type { Asset, AssetKind, Project, VoiceMetadata } from '../types';
+import { PEAK_BASE_SAMPLES_PER_PIXEL } from '../waveform/peakMath';
+import { createStreamedWriter, streamedWriterAvailable } from '../assets/streamedWriter';
+import { readStreamedChannelRange } from '../assets/streamedStore';
 
 /**
  * UUDA project container v1, following the PRD's binary-container contract.
@@ -25,7 +28,40 @@ interface ProjectAssetManifest {
   numberOfChannels: number;
   voiceMetadata?: VoiceMetadata;
   channels: ChannelDescriptor[];
+  /** Long audio that was kept in on-device file storage when saved; it is restored there on open. */
+  streamed?: boolean;
 }
+
+/** Where long (streamed) audio is read from and restored to. Replaceable so tests need no browser file system. */
+export interface StreamedHooks {
+  available(): boolean;
+  readChannel(storeId: string, channel: number, startFrame: number, frames: number): Promise<Float32Array>;
+  createWriter(storeId: string, sampleRate: number, channels: number): Promise<{
+    write(chunk: Float32Array[]): Promise<void>;
+    finish(): Promise<{ frames: number; peakBase: number }>;
+    abort(): Promise<void>;
+  }>;
+}
+
+const defaultHooks: StreamedHooks = {
+  available: streamedWriterAvailable,
+  readChannel: readStreamedChannelRange,
+  createWriter: createStreamedWriter,
+};
+
+/** One run of audio bytes in the payload, either already in memory or read from file storage when it is written. */
+interface AudioPart {
+  byteLength: number;
+  /** Present when the audio is already in memory */
+  bytes?: Uint8Array;
+  read(offset: number, length: number): Promise<Uint8Array>;
+}
+
+const memoryPart = (bytes: Uint8Array): AudioPart => ({
+  byteLength: bytes.byteLength,
+  bytes,
+  read: async (offset, length) => bytes.subarray(offset, Math.min(bytes.byteLength, offset + length)),
+});
 
 interface ProjectFileManifest {
   app: string;
@@ -67,17 +103,46 @@ interface ProjectFileWritable {
 /** Build metadata and zero-copy channel views shared by Blob and streaming writers. */
 function buildProjectFileParts(
   project: Project,
-  availableAssets: (id: string) => Asset | undefined
-): { header: Uint8Array; manifestBytes: Uint8Array; audioParts: Uint8Array[]; totalBytes: number } {
+  availableAssets: (id: string) => Asset | undefined,
+  streamed: StreamedHooks | null
+): { header: Uint8Array; manifestBytes: Uint8Array; audioParts: AudioPart[]; totalBytes: number } {
   const referencedIds = collectReferencedAssetIds(project);
-  const audioParts: Uint8Array[] = [];
+  const audioParts: AudioPart[] = [];
   const assets: ProjectAssetManifest[] = [];
   let payloadOffset = 0;
 
   for (const id of referencedIds) {
     const asset = availableAssets(id);
     if (asset?.source && !asset.buffer) {
-      throw new Error(`"${asset.name}" is long audio stored on this device and cannot be packed into a .uuda file yet. It stays saved in this browser.`);
+      if (!streamed) {
+        throw new Error(`"${asset.name}" is long audio. Save it with Save to Computer so it can be written in pieces.`);
+      }
+      const src = asset.source;
+      const channelCount = Math.max(1, asset.numberOfChannels || 1);
+      const byteLength = src.frames * Float32Array.BYTES_PER_ELEMENT;
+      const descriptors: ChannelDescriptor[] = [];
+      for (let c = 0; c < channelCount; c++) {
+        descriptors.push({ byteOffset: payloadOffset, byteLength });
+        audioParts.push({
+          byteLength,
+          read: async (offset, length) => {
+            const startFrame = offset / Float32Array.BYTES_PER_ELEMENT;
+            const frames = length / Float32Array.BYTES_PER_ELEMENT;
+            const got = await streamed.readChannel(src.storeId, c, startFrame, frames);
+            if (got.length !== frames) {
+              throw new Error(`"${asset.name}" could not be read back from this browser's storage. Nothing was saved.`);
+            }
+            return new Uint8Array(got.buffer, got.byteOffset, got.byteLength);
+          },
+        });
+        payloadOffset += byteLength;
+      }
+      assets.push({
+        id: asset.id, name: asset.name, kind: asset.kind, sampleRate: asset.sampleRate,
+        durationSeconds: asset.durationSeconds, numberOfChannels: channelCount,
+        voiceMetadata: asset.voiceMetadata, channels: descriptors, streamed: true,
+      });
+      continue;
     }
     if (!asset?.buffer) {
       throw new Error(`Cannot save a self-contained UUDA project: referenced audio asset "${id}" is unavailable.`);
@@ -87,7 +152,7 @@ function buildProjectFileParts(
       const samples = asset.buffer.getChannelData(channelIndex);
       const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
       channelDescriptors.push({ byteOffset: payloadOffset, byteLength: bytes.byteLength });
-      audioParts.push(bytes);
+      audioParts.push(memoryPart(bytes));
       payloadOffset += bytes.byteLength;
     }
     assets.push({
@@ -121,12 +186,41 @@ function buildProjectFileParts(
 
 /** Creates a single-file project archive. Audio samples are stored exactly as float32 PCM. */
 export function encodeProjectFile(project: Project, availableAssets: (id: string) => Asset | undefined): Blob {
-  const parts = buildProjectFileParts(project, availableAssets);
+  const parts = buildProjectFileParts(project, availableAssets, null);
   return new Blob([
     parts.header as BlobPart,
     parts.manifestBytes as BlobPart,
-    ...parts.audioParts.map((part) => part as BlobPart),
+    ...parts.audioParts.map((part) => part.bytes as BlobPart),
   ], { type: 'application/vnd.uuda.project' });
+}
+
+/**
+ * Same file as encodeProjectFile, but long audio is read from file storage in pieces and appended to a Blob that the browser
+ * can keep on disk. For browsers that cannot write straight into a chosen file (download fallback, Export panel).
+ */
+export async function encodeProjectFileAsync(
+  project: Project,
+  availableAssets: (id: string) => Asset | undefined,
+  onProgress?: (writtenBytes: number, totalBytes: number) => void,
+  hooks: StreamedHooks = defaultHooks,
+  chunkBytes = 4 * 1024 * 1024
+): Promise<Blob> {
+  const parts = buildProjectFileParts(project, availableAssets, hooks);
+  const blobParts: BlobPart[] = [parts.header as BlobPart, parts.manifestBytes as BlobPart];
+  let written = HEADER_BYTES + parts.manifestBytes.byteLength;
+  onProgress?.(written, parts.totalBytes);
+  for (const part of parts.audioParts) {
+    if (part.bytes) { blobParts.push(part.bytes as BlobPart); written += part.byteLength; continue; }
+    for (let offset = 0; offset < part.byteLength; offset += chunkBytes) {
+      const chunk = await part.read(offset, Math.min(chunkBytes, part.byteLength - offset));
+      // Copy: the reader's buffer is not reused, but a Blob must own bytes that will not change
+      blobParts.push(chunk.slice() as BlobPart);
+      written += chunk.byteLength;
+      onProgress?.(written, parts.totalBytes);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  return new Blob(blobParts, { type: 'application/vnd.uuda.project' });
 }
 
 /**
@@ -139,19 +233,20 @@ export async function writeProjectFileToWritable(
   availableAssets: (id: string) => Asset | undefined,
   writable: ProjectFileWritable,
   onProgress?: (writtenBytes: number, totalBytes: number) => void,
-  chunkBytes = 4 * 1024 * 1024
+  chunkBytes = 4 * 1024 * 1024,
+  hooks: StreamedHooks = defaultHooks
 ): Promise<void> {
   if (!Number.isSafeInteger(chunkBytes) || chunkBytes < Float32Array.BYTES_PER_ELEMENT || chunkBytes % Float32Array.BYTES_PER_ELEMENT !== 0) {
     throw new Error('Project write chunk size must be a positive Float32-aligned byte count.');
   }
-  const parts = buildProjectFileParts(project, availableAssets);
+  const parts = buildProjectFileParts(project, availableAssets, hooks);
   await writable.write(parts.header);
   await writable.write(parts.manifestBytes);
   let writtenBytes = HEADER_BYTES + parts.manifestBytes.byteLength;
   onProgress?.(writtenBytes, parts.totalBytes);
   for (const part of parts.audioParts) {
     for (let offset = 0; offset < part.byteLength; offset += chunkBytes) {
-      const chunk = part.subarray(offset, Math.min(part.byteLength, offset + chunkBytes));
+      const chunk = await part.read(offset, Math.min(chunkBytes, part.byteLength - offset));
       await writable.write(chunk);
       writtenBytes += chunk.byteLength;
       onProgress?.(writtenBytes, parts.totalBytes);
@@ -165,7 +260,11 @@ export async function writeProjectFileToWritable(
 }
 
 /** Reads UUDA v1 or legacy project JSON, reporting missing audio without crashing the project open. */
-export async function decodeProjectFile(file: File, context: AudioContext): Promise<DecodedProjectFile> {
+export async function decodeProjectFile(
+  file: File,
+  context: AudioContext,
+  hooks: StreamedHooks = defaultHooks
+): Promise<DecodedProjectFile> {
   // Inspect the header and manifest separately. Do not materialize a second full-file
   // ArrayBuffer for long audio projects; channel PCM is read in bounded chunks below.
   const headerBytes = await file.slice(0, HEADER_BYTES).arrayBuffer();
@@ -231,6 +330,38 @@ export async function decodeProjectFile(file: File, context: AudioContext): Prom
         throw new Error('UUDA asset sample rate is invalid.');
       }
       const length = Math.max(1, channelByteLength / Float32Array.BYTES_PER_ELEMENT);
+      if (entry.streamed && hooks.available()) {
+        // Long audio goes back into file storage, a block at a time, never into one big buffer.
+        const writer = await hooks.createWriter(entry.id, sampleRate, expectedChannels);
+        try {
+          const block = COPY_CHUNK_BYTES / Float32Array.BYTES_PER_ELEMENT;
+          for (let done = 0; done < length;) {
+            const n = Math.min(block, length - done);
+            const chunk: Float32Array[] = [];
+            for (let c = 0; c < expectedChannels; c++) {
+              const start = payloadStart + channels[c].byteOffset + done * Float32Array.BYTES_PER_ELEMENT;
+              chunk.push(new Float32Array(await file.slice(start, start + n * Float32Array.BYTES_PER_ELEMENT).arrayBuffer()));
+            }
+            await writer.write(chunk);
+            done += n;
+          }
+          const meta = await writer.finish();
+          assets.push({
+            id: entry.id,
+            name: entry.name || 'Recovered audio',
+            kind: entry.kind || 'import',
+            source: { storeId: entry.id, frames: meta.frames, peakBaseSamplesPerPixel: meta.peakBase || PEAK_BASE_SAMPLES_PER_PIXEL },
+            sampleRate,
+            durationSeconds: meta.frames / sampleRate,
+            numberOfChannels: expectedChannels,
+            voiceMetadata: entry.voiceMetadata,
+          });
+        } catch (err) {
+          await writer.abort();
+          throw err;
+        }
+        continue;
+      }
       const audioBuffer = context.createBuffer(expectedChannels, length, sampleRate);
       for (let channelIndex = 0; channelIndex < expectedChannels; channelIndex++) {
         const descriptor = channels[channelIndex];

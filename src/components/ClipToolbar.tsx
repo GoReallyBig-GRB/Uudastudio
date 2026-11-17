@@ -354,6 +354,20 @@ export const ClipToolbar: React.FC<ClipToolbarProps> = ({
           </Capsule>
           <button
             type="button"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              window.dispatchEvent(new CustomEvent('uuda:quick-actions', { detail: { x: r.left, y: r.bottom } }));
+            }}
+            disabled={none}
+            title={none ? 'Quick actions: select a clip, or highlight a range with the Range tool (X), to see its actions (Q)' : tool === 'range' || hasRange ? 'Quick actions for the highlighted range (Q)' : 'Quick actions for the selected clips (Q)'}
+            aria-label="Quick actions"
+            className={`${PILL} ${idle} disabled:opacity-40 disabled:pointer-events-none`}
+          >
+            <Zap className="h-3 w-3" />
+            <span className="max-[1150px]:hidden">Quick actions</span>
+          </button>
+          <button
+            type="button"
             onClick={onToggleMarker}
             disabled={!onToggleMarker}
             title={`Marker: add one at the playhead, or remove the one there (M).${markerCount ? ` ${markerCount} in this project.` : ''}`}

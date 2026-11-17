@@ -11,7 +11,7 @@ import { exportProjectToFile, measureExportedBlob, triggerFileDownload, type Lou
 import { masteringController } from '../audio/masteringController';
 import { planMixdown } from '../audio/blockMixdown';
 import { analysisIsCurrent, masteringKey, BROADCAST_PRESETS, type BroadcastPreset, type MasteringSettings } from '../audio/masteringSettings';
-import { encodeProjectFile } from '../storage/projectFile';
+import { encodeProjectFileAsync } from '../storage/projectFile';
 import { audioEngine } from '../audio/engine';
 import { formatTrackLength } from '../utils/formatters';
 import { ProgressIndicator } from './ui';
@@ -138,7 +138,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ project: fullProject, 
     try {
       let result: Finished;
       if (format === 'uuda') {
-        const blob = encodeProjectFile({ ...fullProject, name: title.trim() || safeBaseName(title) }, (id) => audioEngine.getAsset(id));
+        const blob = await encodeProjectFileAsync({ ...fullProject, name: title.trim() || safeBaseName(title) }, (id) => audioEngine.getAsset(id));
         result = { filename: `${safeBaseName(title)}.uuda`, blob, verifiedFromFile: false, mastered: false };
       } else {
         result = await exportAudio();
