@@ -3,12 +3,14 @@ import { RoomClient } from './roomClient';
 import { initialView, type RoomView } from './roomState';
 
 /** Opens the room connection while `active` is true and gives back what the room looks like plus a way to send. */
-export function useLiveRoom(token: string, active: boolean, name?: string) {
+export function useLiveRoom(token: string, active: boolean, name?: string, onMessage?: (m: Record<string, unknown>) => void) {
   const [view, setView] = useState<RoomView>(initialView());
   const client = useRef<RoomClient | null>(null);
+  const handler = useRef(onMessage);
+  handler.current = onMessage;
   useEffect(() => {
     if (!active || !token) return;
-    const c = new RoomClient({ token, name, onView: setView });
+    const c = new RoomClient({ token, name, onView: setView, onMessage: (m) => handler.current?.(m) });
     client.current = c;
     c.connect();
     return () => { c.close(); client.current = null; setView(initialView()); };
