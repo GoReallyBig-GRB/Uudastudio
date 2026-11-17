@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, Play, Pause, Trash2, Plus, Loader2, Check, X } from 'lucide-react';
+import { Mic, Play, Pause, Trash2, Plus, Loader2, Check, X, RotateCcw } from 'lucide-react';
 import { Asset, VoiceMetadata } from '../types';
 import { audioEngine } from '../audio/engine';
 import { saveAssetToDB } from '../storage/db';
@@ -115,7 +115,7 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
   }, []);
 
   const handleAuditionVoice = (voiceName: string) => {
-    void voiceJob.audition(voiceName);
+    void voiceJob.audition(voiceName, selectedModel);
   };
 
   const handleGenerate = () => {
@@ -272,6 +272,16 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
                 <Play className="h-3 w-3 fill-current" />
               )}
               <span>{isAuditioningSelected ? 'Stop' : 'Audition'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void voiceJob.resetVoice(selectedVoice, selectedModel)}
+              disabled={isAuditionLoading}
+              aria-label={`Reset ${selectedVoice}`}
+              title="Reset voice: forget its saved sample and read it fresh"
+              className={pill(false, 'h-8 w-8')}
+            >
+              <RotateCcw className="h-3 w-3" />
             </button>
           </div>
         </PanelSection>

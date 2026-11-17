@@ -25,6 +25,7 @@ import {
   Lock,
   ChevronUp,
   ChevronDown,
+  RotateCcw,
 } from 'lucide-react';
 import { Asset, VoiceMetadata } from '../types';
 import { audioEngine } from '../audio/engine';
@@ -135,7 +136,7 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
   if (!isOpen) return null;
 
   const handleAuditionVoice = (voiceName: string) => {
-    void voiceJob.audition(voiceName);
+    void voiceJob.audition(voiceName, selectedModel);
   };
 
   // Precept slot clicks
@@ -225,7 +226,7 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
     const next = at === -1 ? (direction === 1 ? 0 : count - 1) : (at + direction + count) % count;
     const name = filteredVoices[next].name;
     setSelectedVoice(name);
-    void voiceJob.audition(name);
+    void voiceJob.audition(name, selectedModel);
     requestAnimationFrame(() => {
       voiceListRef.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
     });
@@ -583,6 +584,16 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                       <Play className="h-3.5 w-3.5" aria-hidden="true" />
                     )}
                     <span>{selectedAuditioning ? 'Stop' : 'Audition'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void voiceJob.resetVoice(selectedVoice, selectedModel)}
+                    disabled={isAuditionLoading}
+                    aria-label={`Reset ${selectedVoice}`}
+                    title="Reset voice: forget its saved sample and read it fresh"
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-line-strong bg-surface-3 text-ink transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                 </div>
               </div>

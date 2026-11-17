@@ -92,6 +92,9 @@ export function explainGeminiFailure(status: number, apiMessage: string): string
   return apiMessage || `Gemini answered with an error (${status}).`;
 }
 
+/** A fixed seed makes repeat reads of the same text come out the same. Switched off for good if the service refuses it. */
+let useSeed = true;
+
 export async function synthesizeWithOwnKey(req: GeminiSpeechRequest): Promise<ArrayBuffer> {
   const doFetch = req.fetchImpl ?? fetch;
   const attempts = Math.max(1, req.attempts ?? 3);
@@ -107,12 +110,13 @@ export async function synthesizeWithOwnKey(req: GeminiSpeechRequest): Promise<Ar
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [part] }],
           generationConfig: {
-            responseModalities: ['AUDIO'], temperature: 0, candidateCount: 1,
+            responseModalities: ['AUDIO'], temperature: 0, candidateCount: 1, ...(useSeed ? { seed: 1234 } : {}),
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: req.voiceName } } },
           },
         }),
       });
       const body = (await res.json().catch(() => ({}))) as any;
+      if (res.status === 400 && useSeed && /seed/i.test(String(body?.error?.message ?? ''))) { useSeed = false; attempt--; continue; }
       if (!res.ok) {
         const err = new Error(explainGeminiFailure(res.status, String(body?.error?.message ?? '')));
         // A key or quota problem will not fix itself on a retry
