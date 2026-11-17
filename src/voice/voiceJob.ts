@@ -34,6 +34,16 @@ async function keepAudition(voice: string, model: string, wav: ArrayBuffer): Pro
 }
 
 export const DEFAULT_VOICE_MODEL = 'gemini-3.8-flash-tts';
+/** Forgets every saved audition of one voice (any model), so the next audition is a fresh read */
+async function forgetAuditions(voice: string): Promise<void> {
+  try {
+    if (typeof caches === 'undefined') return;
+    const cache = await caches.open(AUDITION_CACHE);
+    const tail = `/${encodeURIComponent(voice)}`;
+    for (const req of await cache.keys()) if (new URL(req.url).pathname.endsWith(tail)) await cache.delete(req);
+  } catch { /* nothing saved, nothing to forget */ }
+}
+
 const NO_KEY_MESSAGE = 'Connect your free Gemini key to use AI voices.';
 const askForKey = () => { try { window.dispatchEvent(new CustomEvent('uuda:need-gemini-key')); } catch { /* no window */ } };
 
@@ -361,6 +371,13 @@ class VoiceJobStore {
   }
 
   /** The audition is made the same way as a real generation (same model, same settings), so what you hear is what you get */
+  /** Resets a voice: throws away its saved sample and reads it again fresh, for when a bad take got stuck */
+  async resetVoice(voiceName: string, modelId: string = DEFAULT_VOICE_MODEL): Promise<void> {
+    this.stopAudition();
+    await forgetAuditions(voiceName);
+    await this.audition(voiceName, modelId);
+  }
+
   async audition(voiceName: string, modelId: string = DEFAULT_VOICE_MODEL): Promise<void> {
     // Clicking the voice that is playing or loading stops it
     if (this.state.auditioningVoice === voiceName) {

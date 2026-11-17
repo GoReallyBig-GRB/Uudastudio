@@ -25,6 +25,7 @@ import {
   Lock,
   ChevronUp,
   ChevronDown,
+  RotateCcw,
 } from 'lucide-react';
 import { Asset, VoiceMetadata } from '../types';
 import { audioEngine } from '../audio/engine';
@@ -583,6 +584,16 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
                       <Play className="h-3.5 w-3.5" aria-hidden="true" />
                     )}
                     <span>{selectedAuditioning ? 'Stop' : 'Audition'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void voiceJob.resetVoice(selectedVoice, selectedModel)}
+                    disabled={isAuditionLoading}
+                    aria-label={`Reset ${selectedVoice}`}
+                    title="Reset voice: forget its saved sample and read it fresh"
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-line-strong bg-surface-3 text-ink transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                 </div>
               </div>
