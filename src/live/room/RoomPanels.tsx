@@ -57,7 +57,7 @@ const qualityFor = (call: CallView, id: string) => {
 /** The producer's side: who is in the room, let people in, start and stop together */
 export const ProducerRoomPanel: React.FC<{ token: string }> = ({ token }) => {
   const [on, setOn] = useState(false);
-  const signalRef = useRef<(from: string, data: unknown) => void>();
+  const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, on, undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
   const { call, join, leave, mute, onSignal } = useCall(token, view, send);
   signalRef.current = onSignal;
@@ -123,7 +123,7 @@ const CueBox: React.FC<{ onSend: (text: string) => void }> = ({ onSend }) => {
 export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
   const [name, setName] = useState('');
   const [joined, setJoined] = useState<string | null>(null);
-  const signalRef = useRef<(from: string, data: unknown) => void>();
+  const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, joined !== null, joined ?? undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
   const { call, join, leave, mute, onSignal } = useCall(token, view, send);
   signalRef.current = onSignal;
