@@ -18,21 +18,22 @@ import { authService } from '../services/authService';
 import { synthesizeWithOwnKey, AUDITION_SENTENCE } from './geminiDirect';
 
 // The same voice should sound the same every time it is auditioned, so each sample is kept once in this browser
-const AUDITION_CACHE = 'uuda-voice-auditions-v4';
-async function readAudition(voice: string): Promise<ArrayBuffer | null> {
+const AUDITION_CACHE = 'uuda-voice-auditions-v5';
+async function readAudition(voice: string, model: string): Promise<ArrayBuffer | null> {
   try {
     if (typeof caches === 'undefined') return null;
-    const hit = await (await caches.open(AUDITION_CACHE)).match(`/__audition/${encodeURIComponent(voice)}`);
+    const hit = await (await caches.open(AUDITION_CACHE)).match(`/__audition/${encodeURIComponent(model)}/${encodeURIComponent(voice)}`);
     return hit ? await hit.arrayBuffer() : null;
   } catch { return null; }
 }
-async function keepAudition(voice: string, wav: ArrayBuffer): Promise<void> {
+async function keepAudition(voice: string, model: string, wav: ArrayBuffer): Promise<void> {
   try {
     if (typeof caches === 'undefined') return;
-    await (await caches.open(AUDITION_CACHE)).put(`/__audition/${encodeURIComponent(voice)}`, new Response(wav.slice(0)));
+    await (await caches.open(AUDITION_CACHE)).put(`/__audition/${encodeURIComponent(model)}/${encodeURIComponent(voice)}`, new Response(wav.slice(0)));
   } catch { /* the sample is simply made again next time */ }
 }
 
+export const DEFAULT_VOICE_MODEL = 'gemini-3.8-flash-tts';
 const NO_KEY_MESSAGE = 'Connect your free Gemini key to use AI voices.';
 const askForKey = () => { try { window.dispatchEvent(new CustomEvent('uuda:need-gemini-key')); } catch { /* no window */ } };
 
@@ -359,7 +360,8 @@ class VoiceJobStore {
     this.set({ auditioningVoice: null, isAuditionLoading: false });
   }
 
-  async audition(voiceName: string): Promise<void> {
+  /** The audition is made the same way as a real generation (same model, same settings), so what you hear is what you get */
+  async audition(voiceName: string, modelId: string = DEFAULT_VOICE_MODEL): Promise<void> {
     // Clicking the voice that is playing or loading stops it
     if (this.state.auditioningVoice === voiceName) {
       this.stopAudition();
@@ -375,12 +377,12 @@ class VoiceJobStore {
       const ownKey = authService.getOwnGeminiKey();
       let bytes: ArrayBuffer;
       if (ownKey) {
-        const kept = await readAudition(voiceName);
+        const kept = await readAudition(voiceName, modelId);
         if (kept) {
           bytes = kept;
         } else {
-          bytes = await synthesizeWithOwnKey({ key: ownKey, script: AUDITION_SENTENCE, voiceName, modelId: 'gemini-3.8-flash-lite-tts', signal: controller.signal, attempts: 2 });
-          void keepAudition(voiceName, bytes);
+          bytes = await synthesizeWithOwnKey({ key: ownKey, script: AUDITION_SENTENCE, voiceName, modelId, signal: controller.signal, attempts: 3 });
+          void keepAudition(voiceName, modelId, bytes);
         }
       } else {
         const res = await fetch(`/api/voice/preview?voice=${encodeURIComponent(voiceName)}`, {

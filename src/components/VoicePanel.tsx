@@ -115,7 +115,7 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
   }, []);
 
   const handleAuditionVoice = (voiceName: string) => {
-    void voiceJob.audition(voiceName);
+    void voiceJob.audition(voiceName, selectedModel);
   };
 
   const handleGenerate = () => {

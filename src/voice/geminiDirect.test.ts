@@ -79,3 +79,18 @@ describe('Gemini voice with the own key', () => {
     expect(new DataView(pcmToWav(new Uint8Array(10), 24000)).getUint32(40, true)).toBe(10);
   });
 });
+
+describe('same reading every time', () => {
+  it('sends a fixed seed, and tries again without it if the service refuses the field', async () => {
+    const bodies: string[] = [];
+    let n = 0;
+    const impl = (async (_u: unknown, init: RequestInit) => {
+      bodies.push(String(init.body));
+      return n++ === 0 ? new Response(JSON.stringify({ error: { message: 'Unknown name "seed": Cannot find field.' } }), { status: 400 }) : await ok()();
+    }) as unknown as typeof fetch;
+    const out = await synthesizeWithOwnKey(req(impl));
+    expect(out.byteLength).toBeGreaterThan(0);
+    expect(bodies[0]).toContain('"seed"');
+    expect(bodies[1]).not.toContain('"seed"');
+  });
+});

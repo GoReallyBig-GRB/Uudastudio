@@ -135,7 +135,7 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
   if (!isOpen) return null;
 
   const handleAuditionVoice = (voiceName: string) => {
-    void voiceJob.audition(voiceName);
+    void voiceJob.audition(voiceName, selectedModel);
   };
 
   // Precept slot clicks
@@ -225,7 +225,7 @@ export const VoiceoverModal: React.FC<VoiceoverModalProps> = ({
     const next = at === -1 ? (direction === 1 ? 0 : count - 1) : (at + direction + count) % count;
     const name = filteredVoices[next].name;
     setSelectedVoice(name);
-    void voiceJob.audition(name);
+    void voiceJob.audition(name, selectedModel);
     requestAnimationFrame(() => {
       voiceListRef.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
     });
