@@ -88,6 +88,9 @@ import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJo
 import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
 import { LOUD_SPREAD_DB } from './audio/dsp/quietness';
 import { saveToDrive } from './cloud/googleDrive';
+import type { RecordedTake } from './audio/recorder';
+import { findUnfinishedRecordings, type UnfinishedRecording } from './audio/diskRecorder';
+import { RecoverRecordingDialog } from './components/RecoverRecordingDialog';
 import { decodeProjectFile, encodeProjectFileAsync, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, studioSubfolder, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { saveOrDownload } from './jobs/studioFolder';
@@ -1739,18 +1742,29 @@ const MainStudio: React.FC = () => {
   };
 
   // 5b. Recording Finish: Decodes into AudioBuffer asset of kind 'recording' on a NEW top track
-  const handleFinishRecording = async (audioBuffer: AudioBuffer, takeName: string) => {
+  const handleFinishRecording = async (take: RecordedTake, takeName: string) => {
     try {
-      const assetId = `asset-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-      const asset: Asset = {
-        id: assetId,
-        name: `${takeName}.wav`,
-        kind: 'recording',
-        buffer: audioBuffer,
-        sampleRate: audioBuffer.sampleRate,
-        durationSeconds: audioBuffer.duration,
-        numberOfChannels: audioBuffer.numberOfChannels,
-      };
+      const assetId = take.kind === 'streamed' ? take.meta.storeId : `asset-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+      const takeSeconds = take.kind === 'buffer' ? take.buffer.duration : take.meta.durationSeconds;
+      const asset: Asset = take.kind === 'buffer'
+        ? {
+            id: assetId,
+            name: `${takeName}.wav`,
+            kind: 'recording',
+            buffer: take.buffer,
+            sampleRate: take.buffer.sampleRate,
+            durationSeconds: take.buffer.duration,
+            numberOfChannels: take.buffer.numberOfChannels,
+          }
+        : {
+            id: assetId,
+            name: `${takeName}.wav`,
+            kind: 'recording',
+            source: { storeId: take.meta.storeId, frames: take.meta.frames, peakBaseSamplesPerPixel: take.meta.peakBase },
+            sampleRate: take.meta.sampleRate,
+            durationSeconds: take.meta.durationSeconds,
+            numberOfChannels: take.meta.channels,
+          };
 
       // Register asset and save to IndexedDB
       audioEngine.registerAsset(asset);
@@ -1769,7 +1783,7 @@ const MainStudio: React.FC = () => {
           name: takeName,
           startSeconds,
           offsetSeconds: 0,
-          durationSeconds: audioBuffer.duration,
+          durationSeconds: takeSeconds,
           gain: 1.0,
           fadeInSeconds: 0,
           fadeOutSeconds: 0,
@@ -1784,7 +1798,7 @@ const MainStudio: React.FC = () => {
         addToast({
           type: 'success',
           title: 'Recording Finished',
-          message: `${takeName} (${audioBuffer.duration.toFixed(2)}s) added to "${getTrackLabel(targetTrack, project.tracks.indexOf(targetTrack))}" at ${startSeconds.toFixed(2)}s.`,
+          message: `${takeName} (${takeSeconds.toFixed(2)}s) added to "${getTrackLabel(targetTrack, project.tracks.indexOf(targetTrack))}" at ${startSeconds.toFixed(2)}s.`,
         });
         return;
       }
@@ -1799,7 +1813,7 @@ const MainStudio: React.FC = () => {
         name: takeName,
         startSeconds: 0,
         offsetSeconds: 0,
-        durationSeconds: audioBuffer.duration,
+        durationSeconds: takeSeconds,
         gain: 1.0,
         fadeInSeconds: 0,
         fadeOutSeconds: 0,
@@ -1828,7 +1842,7 @@ const MainStudio: React.FC = () => {
       addToast({
         type: 'success',
         title: 'Recording Finished',
-        message: `${takeName} (${audioBuffer.duration.toFixed(2)}s) docked on new top track.`,
+        message: `${takeName} (${takeSeconds.toFixed(2)}s) docked on new top track.`,
       });
     } catch (err: unknown) {
       addToast({
@@ -1838,6 +1852,13 @@ const MainStudio: React.FC = () => {
       });
     }
   };
+
+  // A recording that was cut short last time (crash, closed tab): offer to bring it back
+  const [unfinishedRecordings, setUnfinishedRecordings] = useState<UnfinishedRecording[]>([]);
+  useEffect(() => {
+    const t = window.setTimeout(() => { void findUnfinishedRecordings().then((l) => { if (l.length) setUnfinishedRecordings(l); }); }, 2500);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const handleAddVoiceTrack = (asset: Asset, voiceMeta: VoiceMetadata) => {
     // Crucial: Register asset in audioEngine so timeline and playback can access audioBuffer
@@ -4548,6 +4569,14 @@ const MainStudio: React.FC = () => {
         onClose={() => setIsResetSessionModalOpen(false)}
       />
 
+      {unfinishedRecordings.length > 0 && (
+        <RecoverRecordingDialog
+          items={unfinishedRecordings}
+          onClose={() => setUnfinishedRecordings([])}
+          onRecovered={(take, name) => { void handleFinishRecording(take, name); }}
+        />
+      )}
+
       {/* Recording Studio Modal with 4-Band Input EQ */}
       <RecordingModal
         isOpen={isRecordModalOpen}
@@ -4556,7 +4585,7 @@ const MainStudio: React.FC = () => {
           setRecordTargetTrackId(null);
           setLiveRecording(null);
         }}
-        onFinishRecording={(buffer, takeName) => { setLiveRecording(null); handleFinishRecording(buffer, takeName); }}
+        onFinishRecording={(take, takeName) => { setLiveRecording(null); handleFinishRecording(take, takeName); }}
         duckPlayingTracks={project.settings.duckPlayingTracks}
         duckingAmountDb={project.settings.duckingAmountDb}
         targetTrackName={(() => {

@@ -7,6 +7,13 @@
 
 import { InputEQSettings, RecordingDeviceSettings } from '../types';
 import { audioEngine, MeterData } from './engine';
+import { diskRecordingAvailable, findUnfinishedRecordings, recoverRecording, startDiskRecording, type DiskRecording } from './diskRecorder';
+import { IN_MEMORY_TAKE_SECONDS, secondsThatFit } from './recordingJournal';
+import { deleteStreamedAsset, readStreamedFrames, type StreamedMeta } from '../assets/streamedStore';
+
+/** What a finished take is: an ordinary buffer for takes of normal length, or audio kept on disk for long ones. */
+export type RecordedTake = { kind: 'buffer'; buffer: AudioBuffer } | { kind: 'streamed'; meta: StreamedMeta };
+const MIN_SECONDS_TO_START = 60;
 
 export interface DeviceInfo {
   deviceId: string;
@@ -56,8 +63,13 @@ export class AudioRecorder {
   private recordTimerId: number | null = null;
   private meterBuffer: Float32Array = new Float32Array(512);
 
+  // Recording straight to disk (the normal way); the in-memory path below stays only as a fallback for browsers without file storage
+  private disk: DiskRecording | null = null;
+  private diskGain: GainNode | null = null;
+  private wakeLock: { release: () => Promise<void> } | null = null;
+
   // Callbacks
-  private onUnexpectedEndCallback: ((recoveredBuffer: AudioBuffer | null) => void) | null = null;
+  private onUnexpectedEndCallback: ((recovered: RecordedTake | null) => void) | null = null;
 
   /**
    * Enumerate available microphone / audio interface input devices
@@ -201,7 +213,7 @@ export class AudioRecorder {
     const bufferSize = 4096;
     this.pcmProcessor = ctx.createScriptProcessor(bufferSize, 2, 2);
     this.pcmProcessor.onaudioprocess = (e) => {
-      if (!this.isRecording) return;
+      if (!this.isRecording || this.disk) return;
       const inL = e.inputBuffer.getChannelData(0);
       const inR = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : inL;
 
@@ -243,7 +255,7 @@ export class AudioRecorder {
   /**
    * Start recording session
    */
-  public async startRecording(onTick?: (elapsedSeconds: number) => void): Promise<void> {
+  public async startRecording(onTick?: (elapsedSeconds: number) => void, takeName = 'Mic Take'): Promise<void> {
     const ctx = await audioEngine.init();
 
     if (!this.mediaStream || !this.streamDestination) {
@@ -255,24 +267,49 @@ export class AudioRecorder {
     this.pcmChunksRight = [];
     this.livePeaks = [];
     this.totalPcmSamples = 0;
+    this.disk = null;
+
+    if (diskRecordingAvailable() && this.highShelfFilter) {
+      const channels = Math.min(2, this.mediaStream.getAudioTracks()[0]?.getSettings().channelCount || 2);
+      try {
+        const est = await navigator.storage.estimate();
+        if (est.quota !== undefined && est.usage !== undefined) {
+          const fit = secondsThatFit(est.quota - est.usage, ctx.sampleRate, channels);
+          this.spaceSeconds = fit;
+          if (fit < MIN_SECONDS_TO_START) throw new Error('There is not enough free space on this device to record. Free some space, or use Settings, Storage, Clear browser and reset.');
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message.startsWith('There is not enough')) throw e;
+      }
+      this.livePeakRate = ctx.sampleRate / (4096 / 4);
+      this.disk = await startDiskRecording(ctx, channels, takeName, {
+        onPeaks: (pk) => { for (const v of pk) this.livePeaks.push(v); },
+        onError: (message) => { void this.onDiskFailure(message); },
+      });
+      this.diskGain = ctx.createGain();
+      this.diskGain.gain.value = 0; // keeps the capture node running without playing anything
+      this.highShelfFilter.connect(this.disk.node);
+      this.disk.node.connect(this.diskGain);
+      this.diskGain.connect(ctx.destination);
+    }
+
     this.isRecording = true;
     this.recordStartTime = ctx.currentTime;
+    try { this.wakeLock = await (navigator as unknown as { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock?.request('screen') ?? null; } catch { this.wakeLock = null; }
 
-    // Set up MediaRecorder
-    try {
-      const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
-      const supportedMime = mimeTypes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
-
-      this.mediaRecorder = new MediaRecorder(this.streamDestination.stream, supportedMime ? { mimeType: supportedMime } : undefined);
-      this.mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          this.recordedBlobs.push(e.data);
-        }
-      };
-      this.mediaRecorder.start(200); // 200ms slice for low memory overhead
-    } catch {
-      // If MediaRecorder throws, PCM processor fallback handles it cleanly
-      this.mediaRecorder = null;
+    // The compressed copy is only the fallback's safety net; with disk recording the raw samples are the take
+    if (!this.disk) {
+      try {
+        const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+        const supportedMime = mimeTypes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
+        this.mediaRecorder = new MediaRecorder(this.streamDestination.stream, supportedMime ? { mimeType: supportedMime } : undefined);
+        this.mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) this.recordedBlobs.push(e.data);
+        };
+        this.mediaRecorder.start(200);
+      } catch {
+        this.mediaRecorder = null;
+      }
     }
 
     // Elapsed timer
@@ -286,12 +323,71 @@ export class AudioRecorder {
     }
   }
 
+  /** Seconds of recording that fit on this device, worked out when the last recording started (null when the browser does not say) */
+  public spaceSeconds: number | null = null;
+
+  private releaseDiskNodes(): void {
+    try { this.highShelfFilter?.disconnect(this.disk!.node); } catch { /* already apart */ }
+    try { this.diskGain?.disconnect(); } catch { /* already apart */ }
+    this.diskGain = null;
+    void this.wakeLock?.release().catch(() => undefined);
+    this.wakeLock = null;
+  }
+
+  /** The writer stopped (device full or storage refused): keep everything written so far and hand it over like a normal take. */
+  private async onDiskFailure(message: string): Promise<void> {
+    if (!this.isRecording || !this.disk) return;
+    const id = this.disk.storeId;
+    this.isRecording = false;
+    if (this.recordTimerId !== null) { clearInterval(this.recordTimerId); this.recordTimerId = null; }
+    this.releaseDiskNodes();
+    this.disk = null;
+    let take: RecordedTake | null = null;
+    try {
+      const found = (await findUnfinishedRecordings(Date.now() + 10 * 60_000)).find((u) => u.journal.storeId === id);
+      if (found) take = await this.toTake(await recoverRecording(found));
+    } catch { /* nothing recoverable */ }
+    this.onDiskErrorCallback?.(message, take);
+  }
+  private onDiskErrorCallback: ((message: string, take: RecordedTake | null) => void) | null = null;
+  public setOnDiskError(cb: (message: string, take: RecordedTake | null) => void): void { this.onDiskErrorCallback = cb; }
+
+  /** Short takes come back as a normal buffer (the disk copy is then removed); long ones stay on disk. */
+  public async toTake(meta: StreamedMeta): Promise<RecordedTake> {
+    if (meta.durationSeconds > IN_MEMORY_TAKE_SECONDS) return { kind: 'streamed', meta };
+    const ctx = await audioEngine.init();
+    const planar = await readStreamedFrames(meta.storeId, meta.channels, 0, meta.frames);
+    const buffer = ctx.createBuffer(Math.max(1, meta.channels), Math.max(1, meta.frames), meta.sampleRate);
+    planar.forEach((chunk, c) => buffer.getChannelData(c).set(chunk));
+    await deleteStreamedAsset(meta.storeId);
+    return { kind: 'buffer', buffer };
+  }
+
+  /** Stop and return the take */
+  public async stopRecordingTake(): Promise<RecordedTake> {
+    if (!this.disk) return { kind: 'buffer', buffer: await this.stopRecording() };
+    this.isRecording = false;
+    if (this.recordTimerId !== null) { clearInterval(this.recordTimerId); this.recordTimerId = null; }
+    const disk = this.disk;
+    this.disk = null;
+    try {
+      const meta = await disk.stop();
+      return await this.toTake(meta);
+    } finally {
+      this.disk = disk;
+      this.releaseDiskNodes();
+      this.disk = null;
+    }
+  }
+
   /**
    * Stop recording and decode captured audio into an AudioBuffer
    */
   public async stopRecording(): Promise<AudioBuffer> {
     const ctx = await audioEngine.init();
     this.isRecording = false;
+    void this.wakeLock?.release().catch(() => undefined);
+    this.wakeLock = null;
 
     if (this.recordTimerId !== null) {
       clearInterval(this.recordTimerId);
@@ -333,9 +429,9 @@ export class AudioRecorder {
   /**
    * Emergency recovery when stream ends unexpectedly
    */
-  private async stopAndRecover(): Promise<AudioBuffer | null> {
+  private async stopAndRecover(): Promise<RecordedTake | null> {
     try {
-      return await this.stopRecording();
+      return await this.stopRecordingTake();
     } catch {
       return null;
     }
@@ -418,7 +514,7 @@ export class AudioRecorder {
     return this.isRecording;
   }
 
-  public setOnUnexpectedEnd(cb: (recoveredBuffer: AudioBuffer | null) => void): void {
+  public setOnUnexpectedEnd(cb: (recovered: RecordedTake | null) => void): void {
     this.onUnexpectedEndCallback = cb;
   }
 
