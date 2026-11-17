@@ -1,8 +1,9 @@
-/** What a guest sees at a live-event link: the event details and files, and whether the room is open. The room itself comes later. */
+/** What a guest sees at a live-event link: the event details and files, and the room once it is open. */
 import React, { useCallback, useEffect, useState } from 'react';
 import { FileText, Music, Radio } from 'lucide-react';
 import { getJoinInfo, LiveApiError, type JoinInfo } from './api';
 import { parseBlocks, type Run } from '../guest/scriptFormat';
+import { GuestRoomPanel } from './room/RoomPanels';
 import { countdown, durationLabel, linksIn, parseLiveHash, whenParts } from './events';
 
 const Linked: React.FC<{ text: string }> = ({ text }) => {
@@ -64,10 +65,11 @@ const LiveJoinPage: React.FC = () => {
               {info.startsAt && <p className="mt-1 text-sm text-ink-dim">{whenParts(info.startsAt).date} · {whenParts(info.startsAt).time}{info.durationMin ? ` · ${durationLabel(info.durationMin)}` : ''}</p>}
             </div>
             <div role="status" className={`rounded-card border p-4 text-sm ${info.state === 'open' ? 'border-ok/50 bg-ok/10' : 'border-line-strong bg-surface-2'}`}>
-              {info.state === 'open' && 'The host has opened this session. The live room is coming soon: keep this page open and you will be let in when it is ready.'}
+              {info.state === 'open' && 'The host has opened this session. Join the room below; the host will let you in.'}
               {info.state === 'waiting' && (info.startsAt && info.startsAt > now ? `This session is not open yet. It opens ${countdown(info.startsAt - now)}, or when the host opens it.` : 'This session is not open yet. It opens when the host starts it.')}
               {info.state === 'ended' && 'This session has ended.'}
             </div>
+            {info.state === 'open' && token && <GuestRoomPanel token={token} />}
             {info.description && <p className="whitespace-pre-wrap text-sm text-ink-dim">{info.description}</p>}
             {info.notes && (
               <section aria-label="Notes to help you prepare"><h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-faint">Notes (to help you prepare)</h2><NotesView notes={info.notes} /></section>

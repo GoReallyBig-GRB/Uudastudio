@@ -1,5 +1,7 @@
 export { JobRoom } from "./jobs/jobRoom";
 export { JobRegistry } from "./jobs/jobRegistry";
+export { LiveRoom } from "./live/liveRoom";
+import { handleRoomConnect } from "./live/roomEntry";
 import { isAuthProxyPath, proxyAuth } from "./authProxy";
 import { withOrigin } from "./pageMeta";
 import { handleAuth, type AuthEnv } from "./auth/handler";
@@ -19,6 +21,8 @@ export interface Env {
   JOB_ROOM: DurableObjectNamespace;
   /** One account-wide object that tracks audio bytes so uploads can be refused before Cloudflare's free 5 GB cap. Optional. */
   JOB_REGISTRY?: DurableObjectNamespace;
+  /** One Durable Object per live event: who is in the room, call signalling, record/stop moments. No audio passes through it. */
+  LIVE_ROOM?: DurableObjectNamespace;
   /** Optional settings (plain numbers as text): bytes allowed in total (default 4 GB), bytes and seconds per take */
   STORAGE_LIMIT_BYTES?: string;
   MAX_TAKE_BYTES?: string;
@@ -55,6 +59,7 @@ const signInLimiter = makeLimiter(10, 60_000);
 
 /** Sign-in is handled here only when its database, project id and secret are all set; otherwise /api/auth/* goes to API_ORIGIN as before */
 const templateLimits = { list: makeLimiter(60, 60_000), write: makeLimiter(30, 60_000) };
+const roomLimit = makeLimiter(30, 60_000);
 const liveLimits = { producer: makeLimiter(60, 60_000), guest: makeLimiter(60, 60_000) };
 const freesoundLimits = { search: makeLimiter(50, 60_000), sharedSearch: makeLimiter(15, 60_000), other: makeLimiter(30, 60_000) };
 
@@ -94,6 +99,13 @@ export default {
       if (a && env.AUTH_DB) {
         const rest = incoming.pathname.slice("/api/templates".length).split("/").filter(Boolean);
         return handleTemplates(request, rest, { auth: a, templates: new D1TemplateStore(env.AUTH_DB), limits: templateLimits });
+      }
+    }
+    if (incoming.pathname.startsWith("/api/live/room/") && env.LIVE_ROOM) {
+      const a = authEnv(env);
+      if (a && env.AUTH_DB) {
+        const token = incoming.pathname.slice("/api/live/room/".length).split("/")[0] ?? "";
+        return handleRoomConnect(request, token, { auth: a, store: new D1LiveStore(env.AUTH_DB as unknown as D1Full), rooms: env.LIVE_ROOM, limiter: roomLimit });
       }
     }
     if (incoming.pathname.startsWith("/api/live/")) {

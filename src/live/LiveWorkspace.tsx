@@ -1,6 +1,7 @@
 /** The producer's live-event workspace: every event on the left, the scheduler and details on the right. It stays mounted, so closing it or clicking away never loses what was typed. */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarPlus, Check, Copy, FileText, Mail, MessageCircle, Music, Paperclip, Play, Plus, Radio, Square, Trash2, X, Zap } from 'lucide-react';
+import { ProducerRoomPanel } from './room/RoomPanels';
 import { DateTimePicker } from '../components/ui/DateTimePicker';
 import { ScriptEditor } from '../components/ui/ScriptEditor';
 import { COUNTRIES, defaultCountry, isValidWhatsapp, joinNumber, splitNumber } from './phone';
@@ -150,6 +151,8 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
                   {event && event.state !== 'ended' && <button type="button" className={SECONDARY} onClick={() => setSharing(event.id)}><MessageCircle className="h-4 w-4" />Invite</button>}
                   {event && <button type="button" aria-label={`Delete ${event.title}`} title="Delete" onClick={() => { if (window.confirm(`Delete "${event.title}"? Its link stops working.`)) void act(async () => { await live.remove(event.id); clearDraft(event.id); setSel(''); }); }} className="grid h-10 w-10 place-items-center rounded-control text-ink-faint hover:bg-danger/10 hover:text-danger cursor-pointer"><Trash2 className="h-4 w-4" /></button>}
                 </div>
+
+                {event && event.state === 'open' && <ProducerRoomPanel token={event.token} />}
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="md:col-span-2"><label htmlFor="lw-title" className={LABEL}>Title</label><input id="lw-title" className={FIELD} value={form.title} maxLength={120} onChange={(e) => edit({ title: e.target.value })} placeholder="Friday panel with the guests" /></div>
