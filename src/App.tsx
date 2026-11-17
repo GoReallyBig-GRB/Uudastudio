@@ -87,7 +87,7 @@ import { ChunkedCancelled, createVirtualSource, processedUndoLimit } from './aud
 import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJob';
 import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
 import { LOUD_SPREAD_DB } from './audio/dsp/quietness';
-import { decodeProjectFile, encodeProjectFile, writeProjectFileToWritable } from './storage/projectFile';
+import { decodeProjectFile, encodeProjectFileAsync, writeProjectFileToWritable } from './storage/projectFile';
 import { chooseProjectRootDirectory, ensureProjectDirectoryPermission, loadProjectRootDirectory, studioSubfolder, ProjectDirectoryHandle, ProjectDirectoryFileHandle } from './storage/projectDirectory';
 import { saveOrDownload } from './jobs/studioFolder';
 import { formatTimecode, formatVolumeDb } from './utils/formatters';
@@ -1227,7 +1227,7 @@ const MainStudio: React.FC = () => {
         });
       } else {
         // Non-Chromium fallback: downloads remain the supported save mechanism.
-        const blob = encodeProjectFile(fullProject, (assetId) => audioEngine.getAsset(assetId));
+        const blob = await encodeProjectFileAsync(fullProject, (assetId) => audioEngine.getAsset(assetId));
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
