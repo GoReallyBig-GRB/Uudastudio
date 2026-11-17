@@ -3,6 +3,7 @@
  * Transport (Play, Pause, Stop), Timecode display, Edit Menu, Zoom, Settings, and Import Audio.
  */
 
+import { SettingsWindow } from '../settings/SettingsWindow';
 import { installApp, useCanInstallApp } from '../pwa/install';
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -19,7 +20,6 @@ import {
   Scissors,
   Copy,
   Trash2,
-  Check,
   RefreshCw,
   Sliders,
   AudioWaveform,
@@ -43,8 +43,7 @@ import {
   LayoutTemplate,
 } from 'lucide-react';
 import { Project } from '../types';
-import { Logo, ModalShell } from './ui';
-import { audioEngine } from '../audio/engine';
+import { Logo } from './ui';
 import { formatTimecode } from '../utils/formatters';
 
 type RecentProjectEntry = {
@@ -844,102 +843,17 @@ export const Header: React.FC<HeaderProps> = ({
           <span>Export</span>
         </button>
 
-        <ModalShell open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} title="Studio Settings" size="sm">
-          <div className="text-xs text-ink-dim">
-              {/* Auto Refresh Setting */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-ink">Auto-Refresh</div>
-                    <div className="text-[11px] text-ink-faint">Repaint the timeline as soon as you edit</div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      onToggleAutoRefresh();
-                    }}
-                    className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
-                      project.settings.autoRefresh ? 'bg-accent' : 'bg-surface-3'
-                    }`}
-                  >
-                    <div
-                      className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                        project.settings.autoRefresh ? 'translate-x-4' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* Auto Ducking Setting */}
-                <div className="flex items-center justify-between pt-2 border-t border-line">
-                  <div>
-                    <div className="font-medium text-ink">Duck Playing Tracks</div>
-                    <div className="text-[11px] text-ink-faint">Lower other tracks while another plays</div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      onToggleDucking();
-                    }}
-                    className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
-                      project.settings.duckPlayingTracks ? 'bg-accent' : 'bg-surface-3'
-                    }`}
-                  >
-                    <div
-                      className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                        project.settings.duckPlayingTracks ? 'translate-x-4' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {project.settings.duckPlayingTracks && (
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] text-ink-dim">
-                      <span>Ducking Gain</span>
-                      <span className="font-num text-accent font-semibold">{project.settings.duckingAmountDb} dB</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="-24"
-                      max="-3"
-                      step="1"
-                      value={project.settings.duckingAmountDb}
-                      onChange={(e) => onUpdateDuckingDb(parseInt(e.target.value, 10))}
-                      className="w-full h-1 bg-surface-3 rounded appearance-none cursor-pointer"
-                    />
-                  </div>
-                )}
-
-                <div className="pt-2 border-t border-line space-y-1 text-[11px]">
-                  <div className="flex justify-between text-ink-dim">
-                    <span>Sample Rate:</span>
-                    <span className="font-num text-ink">{audioEngine.getSampleRate()} Hz</span>
-                  </div>
-                  <div className="flex justify-between text-ink-dim">
-                    <span>Latency Hint:</span>
-                    <span className="font-num text-ink">interactive</span>
-                  </div>
-                  <div className="flex justify-between text-ink-dim">
-                    <span>IndexedDB Autosave:</span>
-                    <span className="text-ok flex items-center gap-0.5">
-                      <Check className="w-3 h-3" /> Active
-                    </span>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-line">
-                  <button
-                    onClick={() => {
-                      setIsSettingsOpen(false);
-                      onClearSession();
-                    }}
-                    className="w-full text-center py-1.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium border border-rose-500/30 transition-colors"
-                  >
-                    Clear Session & Reset
-                  </button>
-                </div>
-              </div>
-          </div>
-        </ModalShell>
+        <SettingsWindow
+          open={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          autoRefresh={project.settings.autoRefresh}
+          onToggleAutoRefresh={onToggleAutoRefresh}
+          ducking={project.settings.duckPlayingTracks}
+          duckingDb={project.settings.duckingAmountDb}
+          onToggleDucking={onToggleDucking}
+          onUpdateDuckingDb={onUpdateDuckingDb}
+          onClearSession={onClearSession}
+        />
       </div>
     </header>
   );

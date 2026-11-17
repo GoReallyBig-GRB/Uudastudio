@@ -19,10 +19,12 @@ interface Props {
   /** Whether device names are known (they need the microphone to be allowed once) */
   named: boolean;
   requestAccess: () => Promise<void>;
+  /** Show the pickers on their own, with no window around them (used inside Settings) */
+  inline?: boolean;
 }
 
 /** Shown when the app loads and whenever gear is plugged in: pick the microphone to record with and where to listen. */
-export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, defaults = {}, fresh, named, requestAccess }) => {
+export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, defaults = {}, fresh, named, requestAccess, inline = false }) => {
   const [micId, setMicId] = useState('');
   const [outId, setOutId] = useState('');
   const [error, setError] = useState('');
@@ -30,7 +32,7 @@ export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, def
   const [, bump] = useState(0);
   const sinkOk = canChooseOutput(audioEngine.getContext());
 
-  useEffect(() => { if (open) { setMicId(loadRecordingDeviceSettings().deviceId); setOutId(loadOutputId()); setError(''); } }, [open]);
+  useEffect(() => { if (open || inline) { setMicId(loadRecordingDeviceSettings().deviceId); setOutId(loadOutputId()); setError(''); } }, [open, inline]);
 
   const chooseMic = (id: string) => { setMicId(id); saveRecordingDeviceSettings({ ...loadRecordingDeviceSettings(), deviceId: id }); };
   const chooseOut = async (id: string) => {
@@ -71,9 +73,7 @@ export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, def
     );
   };
 
-  return (
-    <ModalShell open={open} onClose={onClose} title="Audio devices" description="Choose the microphone you record with and where you listen." size="sm"
-      footer={<Button variant="primary" size="md" onClick={onClose}>Done</Button>}>
+  const body = (
       <div className="space-y-5">
         {fresh && (
           <div role="status" className="rounded-card border border-accent/40 bg-accent-soft p-3">
@@ -110,6 +110,13 @@ export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, def
           {error && <div role="alert" className="mt-2 rounded-card border border-danger/40 bg-danger/10 p-2 text-sm text-ink">{error}</div>}
         </section>
       </div>
+  );
+
+  if (inline) return body;
+  return (
+    <ModalShell open={open} onClose={onClose} title="Audio devices" description="Choose the microphone you record with and where you listen." size="sm"
+      footer={<Button variant="primary" size="md" onClick={onClose}>Done</Button>}>
+      {body}
     </ModalShell>
   );
 };
