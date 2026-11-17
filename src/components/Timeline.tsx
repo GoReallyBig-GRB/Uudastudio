@@ -698,8 +698,15 @@ export const Timeline: React.FC<TimelineProps> = ({
       }
     };
 
+    // The Quick actions button in the top toolbar: same as pressing Q, placed under the button
+    const onQuickButton = (e: Event) => {
+      const at = (e as CustomEvent<{ x: number; y: number }>).detail;
+      if (at) lastPointerRef.current = { x: at.x, y: at.y };
+      handleKeyDown(new KeyboardEvent('keydown', { key: 'q' }));
+    };
+    window.addEventListener('uuda:quick-actions', onQuickButton);
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('uuda:quick-actions', onQuickButton); };
   }, [selectedClipIds, onSplitClip, onDeleteClip, onSelectClips, rangeSelection, project.tracks]);
 
   /**
