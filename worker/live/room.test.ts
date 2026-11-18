@@ -136,7 +136,7 @@ import { roomAccess } from './roomEntry';
 import type { LiveEventRow } from './rules';
 
 describe('who may enter the room', () => {
-  const ev = (o: Partial<LiveEventRow> = {}): LiveEventRow => ({ id: 'e', userId: 'owner', token: 'tok', kind: 'quick', title: 't', description: '', notes: '', startsAt: null, durationMin: null, activatedAt: 1000, endedAt: null, participants: [], hostName: 'h', createdAt: 0, updatedAt: 0, ...o });
+  const ev = (o: Partial<LiveEventRow> = {}): LiveEventRow => ({ id: 'e', userId: 'owner', token: 'tok', kind: 'quick', mode: 'conversation', title: 't', description: '', notes: '', startsAt: null, durationMin: null, activatedAt: 1000, endedAt: null, participants: [], hostName: 'h', createdAt: 0, updatedAt: 0, ...o });
   it('has no room for an unknown link', () => { expect(roomAccess(null, 5, null, '', 'x')).toMatchObject({ ok: false, status: 404 }); });
   it('makes the signed-in owner the producer, and anyone else a named guest', () => {
     expect(roomAccess(ev(), 5000, 'owner', 'Ada', '')).toEqual({ ok: true, role: 'producer', name: 'Ada', openedAt: 1000 });
