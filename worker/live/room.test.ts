@@ -29,12 +29,12 @@ describe('joining', () => {
     expect(decideJoin([], 'producer', freshMeta())).toEqual({ ok: true, admitted: true });
     expect(decideJoin([prod], 'guest', freshMeta())).toEqual({ ok: true, admitted: false });
   });
-  it('auto-admit seats guests until the call has 6 people, then they wait', () => {
+  it('auto-admit seats guests until the call has 4 people, then they wait', () => {
     const meta = { ...freshMeta(), autoAdmit: true };
-    const five = [prod, ...['a', 'b', 'c', 'd'].map((i) => peer(i, 'guest'))];
-    expect(decideJoin(five, 'guest', meta).admitted).toBe(true);
-    const six = [...five, peer('e', 'guest')];
-    expect(decideJoin(six, 'guest', meta)).toEqual({ ok: true, admitted: false });
+    const three = [prod, ...['a', 'b'].map((i) => peer(i, 'guest'))];
+    expect(decideJoin(three, 'guest', meta).admitted).toBe(true);
+    const four = [...three, peer('c', 'guest')];
+    expect(decideJoin(four, 'guest', meta)).toEqual({ ok: true, admitted: false });
   });
   it('refuses when the waiting room is full or the session ended', () => {
     const waiting = Array.from({ length: ROOM.waiting }, (_, i) => peer(`w${i}`, 'guest', false));
@@ -59,7 +59,7 @@ describe('who may do what', () => {
     const w = peer('w', 'guest', false);
     const ok = run(freshMeta(), [prod, w], prod, { t: 'admit', id: 'w' });
     expect(ok.peers.w).toEqual({ admitted: true });
-    const full = [prod, ...['a', 'b', 'c', 'd', 'e'].map((i) => peer(i, 'guest')), w];
+    const full = [prod, ...['a', 'b', 'c'].map((i) => peer(i, 'guest')), w];
     expect(run(freshMeta(), full, prod, { t: 'admit', id: 'w' }).out[0].msg.t).toBe('error');
   });
   it('auto-admit seats the waiting guests that fit', () => {
@@ -139,8 +139,8 @@ describe('who may enter the room', () => {
   const ev = (o: Partial<LiveEventRow> = {}): LiveEventRow => ({ id: 'e', userId: 'owner', token: 'tok', kind: 'quick', title: 't', description: '', notes: '', startsAt: null, durationMin: null, activatedAt: 1000, endedAt: null, participants: [], hostName: 'h', createdAt: 0, updatedAt: 0, ...o });
   it('has no room for an unknown link', () => { expect(roomAccess(null, 5, null, '', 'x')).toMatchObject({ ok: false, status: 404 }); });
   it('makes the signed-in owner the producer, and anyone else a named guest', () => {
-    expect(roomAccess(ev(), 5000, 'owner', 'Ada', '')).toEqual({ ok: true, role: 'producer', name: 'Ada' });
-    expect(roomAccess(ev(), 5000, 'someone-else', 'Bob', 'Chi')).toEqual({ ok: true, role: 'guest', name: 'Chi' });
+    expect(roomAccess(ev(), 5000, 'owner', 'Ada', '')).toEqual({ ok: true, role: 'producer', name: 'Ada', openedAt: 1000 });
+    expect(roomAccess(ev(), 5000, 'someone-else', 'Bob', 'Chi')).toEqual({ ok: true, role: 'guest', name: 'Chi', openedAt: 1000 });
     expect(roomAccess(ev(), 5000, null, '', '  ')).toMatchObject({ ok: false, status: 400 });
   });
   it('keeps guests out until the event is open, but lets the producer prepare', () => {
@@ -152,4 +152,36 @@ describe('who may enter the room', () => {
     expect(roomAccess(ended, 100_000 + 3600_000, null, '', 'Chi').ok).toBe(true);
     expect(roomAccess(ended, 100_000 + ROOM.deliveryMs + 1, null, '', 'Chi')).toMatchObject({ ok: false, status: 410 });
   });
+});
+
+import { clockStep } from './room';
+import { limitSchedule } from './plan';
+
+describe('the 3-hour session clock', () => {
+  const opened = 1_000_000; const s = limitSchedule(opened);
+  const meta = { ...freshMeta(), openedAt: opened };
+  it('waits, warns 15 minutes before, says time is up, then ends the room', () => {
+    expect(clockStep(meta, opened + 60_000)).toMatchObject({ out: [], nextAt: s.warnAt });
+    const soon = clockStep(meta, s.warnAt);
+    expect(soon.out[0].msg).toMatchObject({ t: 'limit', phase: 'soon', limitAt: s.limitAt });
+    expect(soon.nextAt).toBe(s.limitAt);
+    expect(clockStep(soon.meta, s.warnAt + 1000).out).toEqual([]); // not repeated
+    const over = clockStep(soon.meta, s.limitAt);
+    expect(over.out[0].msg).toMatchObject({ phase: 'over', hardAt: s.hardAt });
+    const end = clockStep(over.meta, s.hardAt);
+    expect(end.meta.endedAt).toBe(s.hardAt);
+    expect(end.out[0].msg).toMatchObject({ t: 'ended', reason: 'time' });
+    expect(end.nextAt).toBeNull();
+  });
+  it('stops a running take when time runs out, and does nothing before the room knows its start', () => {
+    const rec = { ...meta, take: { id: 't', startAt: opened + 1000, stopAt: null } };
+    expect(clockStep(rec, s.hardAt).meta.take?.stopAt).toBe(s.hardAt);
+    expect(clockStep(freshMeta(), 9e15).out).toEqual([]);
+  });
+  it('refuses a new take once time is up, and tells the host the limit is 3 hours', () => {
+    const r = step(meta, [prod], prod, { t: 'record' }, s.limitAt + 1, rnd);
+    expect(r.out[0].msg).toMatchObject({ t: 'error', message: expect.stringMatching(/3-hour/) });
+    expect(step(meta, [prod], prod, { t: 'record' }, s.limitAt - 1, rnd).out[0].msg.t).toBe('record');
+  });
+  it('limits a room to 4 people', () => { expect(ROOM.admitted).toBe(4); });
 });

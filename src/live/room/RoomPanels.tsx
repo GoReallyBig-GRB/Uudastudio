@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Headphones, Mic, MicOff, PhoneOff, Users } from 'lucide-react';
 import { useLiveRoom } from './useLiveRoom';
 import { useCall, type CallView } from './useCall';
+import { limitNotice } from './roomState';
 
 const BTN = 'inline-flex items-center gap-1.5 rounded-control border border-line-strong bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface-3 cursor-pointer disabled:opacity-40 disabled:pointer-events-none';
 const PRIMARY = 'inline-flex items-center gap-1.5 rounded-control border border-accent px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent hover:text-surface-0 cursor-pointer disabled:opacity-40 disabled:pointer-events-none';
@@ -41,7 +42,8 @@ const CallBar: React.FC<{ call: CallView; onJoin: () => void; onLeave: () => voi
           <button type="button" className={BTN} onClick={onLeave}><PhoneOff className="h-3.5 w-3.5" />Leave call</button>
           <div className="h-2 w-28 overflow-hidden rounded-full bg-surface-0" aria-label="Your microphone level" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(call.myLevel * 100)}><div className="h-full bg-ok transition-[width] duration-100" style={{ width: `${Math.round(call.myLevel * 100)}%` }} /></div>
         </div>
-        {!call.relay && <p className="text-[11px] text-ink-faint">Direct connections only. If someone cannot hear you, their network may need the relay, which is not switched on yet.</p>}
+        {call.relayFull && <p role="alert" className="text-[11px] text-gold">The relay service is full for this month, so calls connect directly. If someone cannot hear you, try switching networks (for example, mobile data). Your recordings are not affected.</p>}
+        {!call.relay && !call.relayFull && <p className="text-[11px] text-ink-faint">Direct connections only. If someone cannot hear you, their network may need the relay, which is not switched on yet.</p>}
       </>
     )}
     {call.error && <p role="alert" className="text-xs text-danger">{call.error}</p>}
@@ -76,6 +78,7 @@ export const ProducerRoomPanel: React.FC<{ token: string }> = ({ token }) => {
       </div>
       {on && (
         <div className="mt-3 flex flex-col gap-3 text-sm">
+          {limitNotice(view, clockMs()) && <p role="alert" className="rounded-control border border-gold/40 bg-gold/10 px-3 py-2 text-xs text-ink">{limitNotice(view, clockMs())}</p>}
           <p role="status" className="text-xs text-ink-dim">{view.closedReason ?? view.error ?? (view.connected ? 'Connected. Guests who open the link wait here until you let them in.' : 'Connecting…')}</p>
           {view.connected && (
             <>
@@ -85,7 +88,7 @@ export const ProducerRoomPanel: React.FC<{ token: string }> = ({ token }) => {
                   <ul className="flex flex-col gap-1.5">{waiting.map((p) => (
                     <li key={p.id} className="flex items-center justify-between gap-2 rounded-control border border-line bg-surface-2 px-3 py-2"><span className="truncate text-ink">{p.name}</span>
                       <span className="flex gap-2"><button type="button" className={PRIMARY} onClick={() => send({ t: 'admit', id: p.id })}>Let in</button><button type="button" className={BTN} onClick={() => send({ t: 'remove', id: p.id })}>Remove</button></span></li>))}</ul></div>)}
-              <div><p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-faint">In the room ({inCall.length + 1} of 6)</p>
+              <div><p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-faint">In the room ({inCall.length + 1} of 4)</p>
                 <ul className="flex flex-col gap-1.5">
                   <li className="flex items-center justify-between rounded-control border border-line bg-surface-2 px-3 py-2"><span className="text-ink">You</span></li>
                   {inCall.filter((p) => p.role === 'guest').map((p) => (
@@ -141,6 +144,7 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
   return (
     <section aria-label="Live room" className="flex flex-col gap-3 rounded-card border border-line-strong bg-surface-1 p-4 text-sm">
       <p role="status" className="font-medium text-ink">{status}</p>
+      {limitNotice(view, clockMs()) && <p role="alert" className="rounded-control border border-gold/40 bg-gold/10 px-3 py-2 text-xs text-ink">{limitNotice(view, clockMs())}</p>}
       {view.connected && view.me?.admitted && (
         <>
           <p className="text-xs"><TakeLine take={view.take} now={clockMs()} /></p>

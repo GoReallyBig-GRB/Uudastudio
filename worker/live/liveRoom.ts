@@ -18,10 +18,12 @@ export class LiveRoom extends DurableObject {
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('upgrade') !== 'websocket') return new Response('Expected a WebSocket.', { status: 426 });
     const role: Role = request.headers.get('x-room-role') === 'producer' ? 'producer' : 'guest';
-    const client = await this.host.connect(role, request.headers.get('x-room-name') ?? '', Date.now());
+    const opened = Number(request.headers.get('x-room-opened-at'));
+    const client = await this.host.connect(role, request.headers.get('x-room-name') ?? '', Date.now(), Number.isFinite(opened) && opened > 0 ? opened : null);
     return new Response(null, { status: 101, webSocket: client as unknown as WebSocket });
   }
 
+  async alarm(): Promise<void> { await this.host.alarm(Date.now()); }
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer): Promise<void> { await this.host.message(ws as unknown as HostSocket, data, Date.now()); }
   async webSocketClose(ws: WebSocket, code: number): Promise<void> { this.host.closed(ws as unknown as HostSocket, code); }
   async webSocketError(ws: WebSocket): Promise<void> { this.host.closed(ws as unknown as HostSocket, 1011); }

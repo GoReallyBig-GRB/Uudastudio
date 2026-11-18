@@ -147,10 +147,18 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
                   <h3 className="mr-auto min-w-0 truncate text-lg font-semibold text-ink">{event ? event.title : 'New live event'}</h3>
                   {event && event.state !== 'ended' && (event.state === 'open'
                     ? <button type="button" className={SECONDARY} onClick={() => act(() => live.setOpen(event.id, false))}><Square className="h-4 w-4" />End session</button>
-                    : <button type="button" className={LIVEBTN} onClick={() => act(() => live.setOpen(event.id, true))} title="Open the link now, before the scheduled time"><Play className="h-4 w-4" />Go live now</button>)}
+                    : <button type="button" className={LIVEBTN} disabled={live.quota?.left === 0} onClick={() => act(() => live.setOpen(event.id, true))} title={live.quota?.left === 0 ? 'No live sessions left this week' : 'Open the link now, before the scheduled time'}><Play className="h-4 w-4" />Go live now</button>)}
                   {event && event.state !== 'ended' && <button type="button" className={SECONDARY} onClick={() => setSharing(event.id)}><MessageCircle className="h-4 w-4" />Invite</button>}
                   {event && <button type="button" aria-label={`Delete ${event.title}`} title="Delete" onClick={() => { if (window.confirm(`Delete "${event.title}"? Its link stops working.`)) void act(async () => { await live.remove(event.id); clearDraft(event.id); setSel(''); }); }} className="grid h-10 w-10 place-items-center rounded-control text-ink-faint hover:bg-danger/10 hover:text-danger cursor-pointer"><Trash2 className="h-4 w-4" /></button>}
                 </div>
+                {live.quota && (
+                  <p className="-mt-3 text-xs text-ink-dim">
+                    {live.quota.left === 0
+                      ? `You have used all ${live.quota.limit} live sessions this week${live.quota.resetsAt ? ` — more from ${new Date(live.quota.resetsAt).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}` : ''}.`
+                      : `${live.quota.left} of ${live.quota.limit} live sessions left this week`}
+                    {` · up to ${live.quota.maxPeople} people · ${Math.round(live.quota.sessionMinutes / 60)} hours per session`}
+                  </p>
+                )}
 
                 {event && event.state === 'open' && <ProducerRoomPanel token={event.token} />}
 

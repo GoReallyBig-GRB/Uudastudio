@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { LiveApiError, createEvent, deleteEvent, listEvents, setEventOpen, updateEvent, uploadEventFile, deleteEventFile, type EventDraft } from './api';
+import { LiveApiError, createEvent, deleteEvent, listEvents, type LiveQuota, setEventOpen, updateEvent, uploadEventFile, deleteEventFile, type EventDraft } from './api';
 import { stateNow, type LiveEvent } from './events';
 
 export type LiveService = 'signin' | 'checking' | 'ok' | 'none';
@@ -9,10 +9,11 @@ export const useLiveEvents = (signedIn: boolean) => {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [service, setService] = useState<LiveService>(signedIn ? 'checking' : 'signin');
   const [now, setNow] = useState(() => Date.now());
+  const [quota, setQuota] = useState<LiveQuota | null>(null);
 
   const refresh = useCallback(async () => {
     if (!signedIn) { setService('signin'); setEvents([]); return; }
-    try { const r = await listEvents(); setEvents(r.events); setService('ok'); }
+    try { const r = await listEvents(); setEvents(r.events); setQuota(r.quota ?? null); setService('ok'); }
     catch (e) { setService(e instanceof LiveApiError && e.status === 401 ? 'signin' : 'none'); }
   }, [signedIn]);
 
@@ -25,7 +26,7 @@ export const useLiveEvents = (signedIn: boolean) => {
   const put = (e: LiveEvent) => setEvents((all) => (all.some((x) => x.id === e.id) ? all.map((x) => (x.id === e.id ? e : x)) : [e, ...all]));
 
   return {
-    events: live, service, now, refresh,
+    events: live, service, now, refresh, quota,
     create: async (d: EventDraft, files: File[] = []) => {
       let e = await createEvent(d);
       for (const f of files) { try { const meta = await uploadEventFile(e.id, f); e = { ...e, files: [...e.files, meta] }; } catch (err) { put(e); throw err; } }

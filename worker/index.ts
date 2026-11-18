@@ -2,7 +2,8 @@ export { JobRoom } from "./jobs/jobRoom";
 export { JobRegistry } from "./jobs/jobRegistry";
 export { LiveRoom } from "./live/liveRoom";
 import { handleRoomConnect } from "./live/roomEntry";
-import { iceServersFor } from "./live/turn";
+import { iceServersForEvent } from "./live/turn";
+import { D1RelayLedger } from "./live/relayLedger";
 import { stateOf } from "./live/rules";
 import { isAuthProxyPath, proxyAuth } from "./authProxy";
 import { withOrigin } from "./pageMeta";
@@ -112,7 +113,7 @@ export default {
       if (roomLimit.take(request.headers.get("cf-connecting-ip") ?? "local")) return new Response(JSON.stringify({ error: "Too many requests." }), { status: 429, headers: jsonHeaders });
       const e = /^[A-Za-z0-9_-]{8,64}$/.test(token) ? await new D1LiveStore(env.AUTH_DB as unknown as D1Full).byToken(token) : null;
       if (!e || stateOf(e, Date.now()) === "ended" && !(e.endedAt && Date.now() - e.endedAt < 12 * 3600_000)) return new Response(JSON.stringify({ error: "This link is not valid." }), { status: 404, headers: jsonHeaders });
-      return new Response(JSON.stringify(await iceServersFor(env)), { headers: { ...jsonHeaders, "cache-control": "no-store" } });
+      return new Response(JSON.stringify(await iceServersForEvent(env, new D1RelayLedger(env.AUTH_DB as unknown as D1Full), e.id, Date.now())), { headers: { ...jsonHeaders, "cache-control": "no-store" } });
     }
     if (incoming.pathname.startsWith("/api/live/room/") && env.LIVE_ROOM) {
       const a = authEnv(env);

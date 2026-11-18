@@ -1,4 +1,5 @@
-import { cleanName, decideJoin, freshMeta, parseClientMessage, roster, step, type Out, type Peer, type Role, type RoomMeta } from './room';
+import { limitSchedule } from './plan';
+import { clockStep, cleanName, decideJoin, freshMeta, parseClientMessage, roster, step, type Out, type Peer, type Role, type RoomMeta } from './room';
 
 /** The parts of a Durable Object state and of a WebSocket that the room uses, so the room can be tested without Cloudflare. */
 export interface HostSocket {
@@ -10,7 +11,7 @@ export interface HostSocket {
 export interface HostState {
   getWebSockets(): HostSocket[];
   acceptWebSocket(ws: HostSocket): void;
-  storage: { get<T>(k: string): Promise<T | undefined>; put(k: string, v: unknown): Promise<void> };
+  storage: { get<T>(k: string): Promise<T | undefined>; put(k: string, v: unknown): Promise<void>; setAlarm(at: number): Promise<void> };
 }
 
 /**
@@ -44,9 +45,16 @@ export class RoomHost {
   }
 
   /** A new connection. Returns the browser's end of the socket pair. */
-  async connect(role: Role, rawName: string, now: number): Promise<HostSocket> {
+  async connect(role: Role, rawName: string, now: number, openedAt: number | null = null): Promise<HostSocket> {
     const name = cleanName(rawName);
-    const meta = await this.meta();
+    let meta = await this.meta();
+    if (meta.openedAt === null && openedAt !== null) {
+      // The first connection tells the room when the session began, so its clock can start
+      meta = { ...meta, openedAt };
+      await this.ctx.storage.put('meta', meta);
+      const next = clockStep(meta, now).nextAt;
+      if (next) await this.ctx.storage.setAlarm(next);
+    }
     const list = this.peers();
     const { client, server } = this.makePair();
     this.ctx.acceptWebSocket(server);
@@ -64,7 +72,7 @@ export class RoomHost {
     const peer: Peer = { id, role, name, admitted: decision.admitted, muted: false, recording: false, joinedAt: now };
     server.serializeAttachment(peer);
     const others = list.filter((l) => !(role === 'producer' && l.peer.role === 'producer')).map((l) => l.peer);
-    this.send(server, { t: 'welcome', id, role, admitted: peer.admitted, now, autoAdmit: meta.autoAdmit, take: meta.take, endedAt: meta.endedAt, peers: roster(others) });
+    this.send(server, { t: 'welcome', id, role, admitted: peer.admitted, now, autoAdmit: meta.autoAdmit, take: meta.take, endedAt: meta.endedAt, limit: meta.openedAt === null ? null : { phase: meta.phase, ...limitSchedule(meta.openedAt) }, peers: roster(others) });
     this.deliver([{ to: 'all', msg: { t: 'joined', peer: roster([peer])[0] } }], list);
     return client;
   }
@@ -88,6 +96,15 @@ export class RoomHost {
       const l = list.find((x) => x.peer.id === k.id);
       if (l) { this.send(l.ws, { t: 'removed' }); try { l.ws.close(4002, k.reason); } catch { /* gone */ } }
     }
+  }
+
+  /** The session clock rang: warn, say time is up, or end the room */
+  async alarm(now: number): Promise<void> {
+    const meta = await this.meta();
+    const r = clockStep(meta, now);
+    if (r.meta !== meta) await this.ctx.storage.put('meta', r.meta);
+    this.deliver(r.out, this.peers());
+    if (r.nextAt) await this.ctx.storage.setAlarm(r.nextAt);
   }
 
   closed(ws: HostSocket, code: number): void {

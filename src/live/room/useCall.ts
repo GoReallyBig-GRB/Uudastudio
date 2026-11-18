@@ -9,11 +9,13 @@ export interface CallView {
   error: string | null;
   muted: boolean;
   relay: boolean;
+  /** The shared relay is full for this month, so only direct connections are possible */
+  relayFull: boolean;
   myLevel: number;
   streams: Record<string, MediaStream>;
   quality: Record<string, { q: Quality; label: string; relayed: boolean }>;
 }
-const empty: CallView = { joined: false, starting: false, error: null, muted: false, relay: false, myLevel: 0, streams: {}, quality: {} };
+const empty: CallView = { joined: false, starting: false, error: null, muted: false, relay: false, relayFull: false, myLevel: 0, streams: {}, quality: {} };
 
 const micError = (e: unknown): string => {
   const n = (e as { name?: string })?.name;
@@ -41,7 +43,7 @@ export function useCall(token: string, view: RoomView, send: (m: Record<string, 
     if (mgr.current || !meId) return;
     setCall({ ...empty, starting: true });
     try {
-      const r = await fetch(`/api/live/ice/${encodeURIComponent(token)}`).then((x) => (x.ok ? x.json() : null)).catch(() => null) as { iceServers: RTCIceServer[]; relay: boolean } | null;
+      const r = await fetch(`/api/live/ice/${encodeURIComponent(token)}`).then((x) => (x.ok ? x.json() : null)).catch(() => null) as { iceServers: RTCIceServer[]; relay: boolean; capped?: boolean } | null;
       const m = new CallManager({
         myId: meId,
         iceServers: r?.iceServers ?? [{ urls: 'stun:stun.cloudflare.com:3478' }],
@@ -54,7 +56,7 @@ export function useCall(token: string, view: RoomView, send: (m: Record<string, 
       const ac = new AudioContext();
       ctx.current = ac;
       stopLevel.current = watchLevel(ac, local, (v) => setCall((c) => (Math.abs(c.myLevel - v) > 0.03 ? { ...c, myLevel: v } : c)));
-      setCall({ ...empty, joined: true, relay: Boolean(r?.relay) });
+      setCall({ ...empty, joined: true, relay: Boolean(r?.relay), relayFull: Boolean(r?.capped) });
     } catch (e) {
       mgr.current?.close(); mgr.current = null;
       setCall({ ...empty, error: micError(e) });

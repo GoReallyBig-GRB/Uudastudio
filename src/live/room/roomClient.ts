@@ -50,11 +50,11 @@ export class RoomClient {
     ws.onopen = () => {
       this.attempt = 0;
       this.keepAlive = this.t.setInterval(() => { try { ws.send('ping'); } catch { /* closing */ } }, 25_000);
-      // Four quick readings of the clock, then one every 30 seconds
+      // Four quick readings of the clock, then one every 5 minutes (each one wakes the room's server, so more would use up the free allowance)
       let quick = 0;
       const tick = () => this.sync();
       tick();
-      this.syncTimer = this.t.setInterval(() => { tick(); if (++quick === 3 && this.syncTimer) { this.t.clearInterval(this.syncTimer); this.syncTimer = this.t.setInterval(tick, 30_000); } }, 400);
+      this.syncTimer = this.t.setInterval(() => { tick(); if (++quick === 3 && this.syncTimer) { this.t.clearInterval(this.syncTimer); this.syncTimer = this.t.setInterval(tick, 300_000); } }, 400);
     };
     ws.onmessage = (e) => {
       if (typeof e.data !== 'string' || e.data === 'pong') return;

@@ -10,11 +10,11 @@ class Sock implements HostSocket {
   last(t: string) { return [...this.got].reverse().find((m) => m.t === t); }
 }
 const setup = () => {
-  const socks: Sock[] = []; const store = new Map<string, unknown>(); let n = 0;
-  const state: HostState = { getWebSockets: () => socks.filter((s) => s.closedWith === null), acceptWebSocket: (s) => { socks.push(s as Sock); }, storage: { get: async <T,>(k: string) => store.get(k) as T | undefined, put: async (k, v) => { store.set(k, v); } } };
+  const socks: Sock[] = []; const store = new Map<string, unknown>(); const alarms: number[] = []; let n = 0;
+  const state: HostState = { getWebSockets: () => socks.filter((s) => s.closedWith === null), acceptWebSocket: (s) => { socks.push(s as Sock); }, storage: { get: async <T,>(k: string) => store.get(k) as T | undefined, put: async (k, v) => { store.set(k, v); }, setAlarm: async (at) => { alarms.push(at); } } };
   const host = new RoomHost(state, () => ({ client: new Sock(), server: new Sock() }), () => `id${++n}`);
-  const join = async (role: 'producer' | 'guest', name: string, now = 1000) => { await host.connect(role, name, now); return socks[socks.length - 1]; };
-  return { host, join, socks };
+  const join = async (role: 'producer' | 'guest', name: string, now = 1000, openedAt: number | null = null) => { await host.connect(role, name, now, openedAt); return socks[socks.length - 1]; };
+  return { host, join, socks, alarms };
 };
 
 describe('room host', () => {
@@ -79,5 +79,19 @@ describe('room host', () => {
     expect(extra.last('error')).toBeTruthy();
     await host.message(p, 'not json', 2000);
     expect(p.last('error')).toMatchObject({ message: expect.stringMatching(/not understood/) });
+  });
+  it('starts the session clock with the first connection and rings the warning, the limit and the end', async () => {
+    const { host, join, alarms } = setup();
+    const opened = 5_000_000;
+    const p = await join('producer', 'Ada', opened + 1000, opened);
+    expect(alarms[0]).toBe(opened + 165 * 60_000);
+    expect(p.last('welcome')).toMatchObject({ limit: { phase: 'none', limitAt: opened + 180 * 60_000 } });
+    await host.alarm(opened + 165 * 60_000);
+    expect(p.last('limit')).toMatchObject({ phase: 'soon' });
+    expect(alarms[1]).toBe(opened + 180 * 60_000);
+    await host.alarm(opened + 180 * 60_000);
+    expect(p.last('limit')).toMatchObject({ phase: 'over' });
+    await host.alarm(opened + 190 * 60_000);
+    expect(p.last('ended')).toMatchObject({ reason: 'time' });
   });
 });

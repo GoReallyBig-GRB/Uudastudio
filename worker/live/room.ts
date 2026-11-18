@@ -6,9 +6,11 @@
  * (or until the producer turns on auto-admit). Only admitted people can send each other call signalling. At most ROOM.admitted
  * people are in the call at once, the producer included.
  */
+import { FREE_PLAN, limitSchedule } from './plan';
+
 export const ROOM = {
   /** People in the call at once, producer included */
-  admitted: 6,
+  admitted: FREE_PLAN.maxPeople,
   /** Guests waiting to be let in */
   waiting: 8,
   /** One call-signalling message (offer, answer or ICE), in bytes of JSON */
@@ -25,8 +27,22 @@ export const ROOM = {
 export type Role = 'producer' | 'guest';
 export interface Peer { id: string; role: Role; name: string; admitted: boolean; muted: boolean; recording: boolean; joinedAt: number }
 export interface Take { id: string; startAt: number; stopAt: number | null }
-export interface RoomMeta { autoAdmit: boolean; take: Take | null; takes: number; markers: number; endedAt: number | null }
-export const freshMeta = (): RoomMeta => ({ autoAdmit: false, take: null, takes: 0, markers: 0, endedAt: null });
+/** `limitAt` is when the session's time is up (null until the room knows when it opened); `phase` is how far the clock has got */
+export interface RoomMeta { autoAdmit: boolean; take: Take | null; takes: number; markers: number; endedAt: number | null; openedAt: number | null; phase: 'none' | 'soon' | 'over' }
+export const freshMeta = (): RoomMeta => ({ autoAdmit: false, take: null, takes: 0, markers: 0, endedAt: null, openedAt: null, phase: 'none' });
+
+/** What the session clock should do at `now`: nothing, warn, say time is up, or end the room */
+export function clockStep(meta: RoomMeta, now: number): { meta: RoomMeta; out: Out[]; nextAt: number | null } {
+  if (meta.endedAt || meta.openedAt === null) return { meta, out: [], nextAt: null };
+  const s = limitSchedule(meta.openedAt);
+  if (now >= s.hardAt) {
+    const take = meta.take && meta.take.stopAt === null ? { ...meta.take, stopAt: Math.max(now, meta.take.startAt) } : meta.take;
+    return { meta: { ...meta, take, endedAt: now }, out: [{ to: 'all', msg: { t: 'ended', at: now, stopAt: take?.stopAt ?? null, take: take?.id ?? null, reason: 'time' } }], nextAt: null };
+  }
+  if (now >= s.limitAt) return meta.phase === 'over' ? { meta, out: [], nextAt: s.hardAt } : { meta: { ...meta, phase: 'over' }, out: [{ to: 'all', msg: { t: 'limit', phase: 'over', limitAt: s.limitAt, hardAt: s.hardAt } }], nextAt: s.hardAt };
+  if (now >= s.warnAt) return meta.phase === 'soon' ? { meta, out: [], nextAt: s.limitAt } : { meta: { ...meta, phase: 'soon' }, out: [{ to: 'all', msg: { t: 'limit', phase: 'soon', limitAt: s.limitAt, hardAt: s.hardAt } }], nextAt: s.limitAt };
+  return { meta, out: [], nextAt: s.warnAt };
+}
 
 export type ClientMsg =
   | { t: 'sync'; c: number }
@@ -153,6 +169,7 @@ export function step(meta: RoomMeta, peers: Peer[], from: Peer, msg: ClientMsg, 
     case 'record': {
       if (!producer) return only('start recording');
       if (meta.take && meta.take.stopAt === null) return err(meta, from.id, 'A take is already running.');
+      if (meta.openedAt !== null && now >= limitSchedule(meta.openedAt).limitAt) return err(meta, from.id, `The ${FREE_PLAN.sessionMinutes / 60}-hour session limit has been reached. Finish up; the room closes shortly.`);
       const lead = Math.min(ROOM.maxLeadMs, Math.max(ROOM.minLeadMs, msg.leadMs ?? 3000));
       const take: Take = { id: `take-${meta.takes + 1}-${rnd()}`, startAt: now + lead, stopAt: null };
       return { meta: { ...meta, take, takes: meta.takes + 1, markers: 0 }, peers: {}, out: [{ to: 'all', msg: { t: 'record', take: take.id, startAt: take.startAt, n: meta.takes + 1 } }], kick: [] };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RoomClock, estimateOffset } from './clockSync';
-import { applyServerMessage, initialView } from './roomState';
+import { applyServerMessage, initialView, limitNotice } from './roomState';
 import { RoomClient, backoffMs } from './roomClient';
 
 describe('clock sync', () => {
@@ -118,5 +118,20 @@ describe('room connection', () => {
     expect(c.send({ t: 'marker' })).toBe(false);
     sockets[0].open();
     expect(c.send({ t: 'marker' })).toBe(true);
+  });
+});
+
+describe('session time limit', () => {
+  const base = applyServerMessage(initialView(), { t: 'welcome', id: 'a', role: 'guest', admitted: true, peers: [], limit: { phase: 'none', warnAt: 1, limitAt: 10_000_000, hardAt: 10_600_000 } });
+  it('says nothing until the warning, then counts minutes down', () => {
+    expect(limitNotice(base, 0)).toBeNull();
+    const soon = applyServerMessage(base, { t: 'limit', phase: 'soon', limitAt: 10_000_000, hardAt: 10_600_000 });
+    expect(limitNotice(soon, 10_000_000 - 14 * 60_000)).toBe('14 min left in this session.');
+  });
+  it('tells people to finish when time is up and explains a close', () => {
+    const over = applyServerMessage(base, { t: 'limit', phase: 'over', limitAt: 10_000_000, hardAt: 10_600_000 });
+    expect(limitNotice(over, 10_000_000)).toContain('closes in 10 min');
+    const ended = applyServerMessage(over, { t: 'ended', at: 10_600_000, reason: 'time' });
+    expect(limitNotice(ended, 10_600_000)).toContain('recordings are saved');
   });
 });
