@@ -2,6 +2,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarPlus, Check, Copy, FileText, Mail, MessageCircle, Music, Paperclip, Play, Plus, Radio, Settings, Square, Trash2, X, Zap } from 'lucide-react';
 import { LiveSettingsPanel } from './settings/LiveSettingsPanel';
+import { SetupAssistant } from './setup/SetupAssistant';
+import { useLiveSettings } from './settings/useLiveSettings';
 import { liveSettings } from './settings/liveSettings';
 import { ProducerRoomPanel } from './room/RoomPanels';
 import type { RoomRecording } from './room/roomRecorder';
@@ -51,6 +53,11 @@ const saveNewDraft = (f: Form | null) => { try { if (f) localStorage.setItem(DRA
 export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, focusId, onRoomTake }) => {
   const [sel, setSel] = useState<string>('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const prefs = useLiveSettings();
+  // The first time someone opens Live, the setup assistant opens by itself, before any event, so there is time to get used to it
+  useEffect(() => { if (open && live.service === 'ok' && !prefs.setupDone) setSetupOpen(true); }, [open, live.service, prefs.setupDone]);
+  const closeSetup = () => { setSetupOpen(false); liveSettings.set({ setupDone: true }); };
   const [drafts, setDrafts] = useState<Record<string, Form>>(() => { const out: Record<string, Form> = {}; const d = loadNewDraft(); if (d) out.new = d; return out; });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -244,7 +251,8 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
 
         {shareEvent && <InvitePanel event={shareEvent} host={hostName} onClose={() => setSharing(null)} />}
       </section>
-      <LiveSettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} quota={live.quota} />
+      <LiveSettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} quota={live.quota} onRunSetup={() => setSetupOpen(true)} />
+      <SetupAssistant open={setupOpen} onClose={closeSetup} />
     </div>
   );
 };

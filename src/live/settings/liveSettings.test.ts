@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_LIVE_SETTINGS, LIVE_SETTINGS_KEY, clearLiveSettings, liveSettings, loadLiveSettings, sanitizeLiveSettings, saveLiveSettings } from './liveSettings';
+import { DEFAULT_LIVE_SETTINGS, MAX_PROFILES, type StudioProfile, LIVE_SETTINGS_KEY, clearLiveSettings, liveSettings, loadLiveSettings, sanitizeLiveSettings, saveLiveSettings } from './liveSettings';
 
 const mem = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, removeItem: (k: string) => { m.delete(k); }, m }; };
 
@@ -36,6 +36,33 @@ describe('live settings', () => {
     off();
     liveSettings.set({ quality: 'high' });
     expect(n).toBe(2);
+    liveSettings.reset();
+  });
+});
+
+describe('studio profiles', () => {
+  const prof = (id: string, over: Partial<StudioProfile> = {}): StudioProfile => ({ id, name: `Studio ${id}`, goal: 'radio', gear: 'usb-mixer', defaultMode: 'broadcast', inputDeviceId: 'dev', headphones: true, programContains: 'guests', ...over });
+  it('drops broken profiles when reading back', () => {
+    const s = sanitizeLiveSettings({ profiles: [prof('a'), { id: 'x' }, { ...prof('b'), gear: 'toaster' }, null, 'junk'], setupDone: true });
+    expect(s.profiles.map((p) => p.id)).toEqual(['a']);
+    expect(s.setupDone).toBe(true);
+    expect(sanitizeLiveSettings({ profiles: 'no' }).profiles).toEqual([]);
+  });
+  it('saves newest first, keeps at most five, and uses and deletes them', () => {
+    liveSettings.reset();
+    for (let i = 1; i <= 7; i++) liveSettings.saveProfile(prof(String(i)));
+    const ids = liveSettings.get().profiles.map((p) => p.id);
+    expect(ids).toHaveLength(MAX_PROFILES);
+    expect(ids[0]).toBe('7');
+    expect(liveSettings.get().activeProfileId).toBe('7');
+    liveSettings.saveProfile(prof('5', { name: 'Renamed' }));
+    expect(liveSettings.get().profiles.filter((p) => p.id === '5')).toHaveLength(1);
+    expect(liveSettings.useProfile('6')).toBe(true);
+    expect(liveSettings.get()).toMatchObject({ defaultMode: 'broadcast', inputDeviceId: 'dev', headphones: true, programContains: 'guests', activeProfileId: '6', setupDone: true });
+    expect(liveSettings.useProfile('nope')).toBe(false);
+    liveSettings.deleteProfile('6');
+    expect(liveSettings.get().activeProfileId).toBe('');
+    expect(liveSettings.get().profiles.some((p) => p.id === '6')).toBe(false);
     liveSettings.reset();
   });
 });

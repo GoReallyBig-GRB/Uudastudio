@@ -15,7 +15,7 @@ const Section: React.FC<{ title: string; hint?: string; children: React.ReactNod
   </section>
 );
 
-export const LiveSettingsPanel: React.FC<{ open: boolean; onClose: () => void; quota: LiveQuota | null }> = ({ open, onClose, quota }) => {
+export const LiveSettingsPanel: React.FC<{ open: boolean; onClose: () => void; quota: LiveQuota | null; onRunSetup: () => void }> = ({ open, onClose, quota, onRunSetup }) => {
   const s = useLiveSettings();
   const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
   const [outputs, setOutputs] = useState<MediaDeviceInfo[]>([]);
@@ -33,6 +33,21 @@ export const LiveSettingsPanel: React.FC<{ open: boolean; onClose: () => void; q
     <ModalShell open={open} onClose={onClose} above size="md" title="Live settings" description="These only affect live events, and are kept on this computer."
       footer={<Button variant="secondary" onClick={onClose}>Done</Button>}>
       <div className="flex flex-col gap-5">
+        <Section title="Your studio" hint="The setup assistant asks what equipment you have, shows how to connect it and checks your microphone.">
+          <div><Button variant="secondary" onClick={onRunSetup}>{s.profiles.length ? 'Run the setup assistant again' : 'Run the setup assistant'}</Button></div>
+          {s.profiles.length > 0 && (
+            <ul className="flex flex-col gap-1.5">
+              {s.profiles.map((p) => (
+                <li key={p.id} className="flex items-center justify-between gap-2 rounded-control border border-line bg-surface-2 px-3 py-2">
+                  <span className="min-w-0 truncate text-sm text-ink">{p.name}{p.id === s.activeProfileId ? <span className="ml-2 text-xs text-ok">in use</span> : null}</span>
+                  <span className="flex shrink-0 gap-1.5">
+                    {p.id !== s.activeProfileId && <Button variant="secondary" size="sm" onClick={() => { liveSettings.useProfile(p.id); }}>Use</Button>}
+                    <Button variant="secondary" size="sm" onClick={() => liveSettings.deleteProfile(p.id)} aria-label={`Delete ${p.name}`}>Delete</Button>
+                  </span>
+                </li>))}
+            </ul>)}
+        </Section>
+
         <Section title="New events" hint="What a new event starts as. You can still change it for each event.">
           <SegmentedControl<LiveMode> label="Start new events as" value={s.defaultMode} onChange={(v) => liveSettings.set({ defaultMode: v })}
             options={[{ value: 'conversation', label: 'Conversation' }, { value: 'broadcast', label: 'Broadcast' }]} />

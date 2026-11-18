@@ -1,4 +1,18 @@
 import type { LiveMode } from '../events';
+import { GEAR_IDS, GOAL_IDS, type Gear, type Goal } from '../setup/setupPlan';
+
+/** A saved studio: what the setup assistant worked out, so it can be used again in one click */
+export interface StudioProfile {
+  id: string;
+  name: string;
+  goal: Goal;
+  gear: Gear;
+  defaultMode: LiveMode;
+  inputDeviceId: string;
+  headphones: boolean;
+  programContains: 'all' | 'guests';
+}
+export const MAX_PROFILES = 5;
 
 /** Settings that belong to live events only. Kept on this device, because sound devices differ from computer to computer. */
 export type CallQuality = 'standard' | 'high';
@@ -17,14 +31,31 @@ export interface LiveSettings {
   guestStrip: { lowCut: boolean; compressor: boolean; presence: number };
   /** Standard or high bit rate for the call (high uses more data) */
   quality: CallQuality;
+  /** The setup assistant has been run (or skipped), so it does not open by itself again */
+  setupDone: boolean;
+  profiles: StudioProfile[];
+  activeProfileId: string;
 }
 
 export const DEFAULT_LIVE_SETTINGS: LiveSettings = {
   defaultMode: 'conversation', inputDeviceId: '', headphones: false, programDeviceId: '', programContains: 'all',
   guestStrip: { lowCut: true, compressor: true, presence: 0 }, quality: 'standard',
+  setupDone: false, profiles: [], activeProfileId: '',
 };
 
 export const LIVE_SETTINGS_KEY = 'uuda_live_settings';
+
+function sanitizeProfile(x: unknown): StudioProfile | null {
+  const o = (x && typeof x === 'object' ? x : null) as Record<string, unknown> | null;
+  if (!o || typeof o.id !== 'string' || !o.id || typeof o.name !== 'string') return null;
+  if (!GOAL_IDS.includes(o.goal as Goal) || !GEAR_IDS.includes(o.gear as Gear)) return null;
+  return {
+    id: o.id.slice(0, 60), name: o.name.trim().slice(0, 40) || 'My studio', goal: o.goal as Goal, gear: o.gear as Gear,
+    defaultMode: o.defaultMode === 'broadcast' ? 'broadcast' : 'conversation',
+    inputDeviceId: typeof o.inputDeviceId === 'string' ? o.inputDeviceId.slice(0, 300) : '',
+    headphones: o.headphones === true, programContains: o.programContains === 'guests' ? 'guests' : 'all',
+  };
+}
 
 /** Anything read back from storage is checked: wrong or missing values fall back to the defaults */
 export function sanitizeLiveSettings(x: unknown): LiveSettings {
@@ -40,6 +71,9 @@ export function sanitizeLiveSettings(x: unknown): LiveSettings {
     programContains: o.programContains === 'guests' ? 'guests' : 'all',
     guestStrip: { lowCut: typeof g.lowCut === 'boolean' ? g.lowCut : d.guestStrip.lowCut, compressor: typeof g.compressor === 'boolean' ? g.compressor : d.guestStrip.compressor, presence },
     quality: o.quality === 'high' ? 'high' : 'standard',
+    setupDone: o.setupDone === true,
+    profiles: Array.isArray(o.profiles) ? o.profiles.map(sanitizeProfile).filter((p): p is StudioProfile => p !== null).slice(0, MAX_PROFILES) : [],
+    activeProfileId: typeof o.activeProfileId === 'string' ? o.activeProfileId.slice(0, 60) : '',
   };
 }
 
@@ -68,6 +102,22 @@ export const liveSettings = {
     current = sanitizeLiveSettings({ ...prev, ...patch, guestStrip: { ...prev.guestStrip, ...patch.guestStrip } });
     saveLiveSettings(current);
     emit();
+  },
+  /** Saves a studio (newest first, at most five) and makes it the active one */
+  saveProfile(p: StudioProfile): void {
+    const rest = liveSettings.get().profiles.filter((x) => x.id !== p.id);
+    liveSettings.set({ profiles: [p, ...rest].slice(0, MAX_PROFILES), activeProfileId: p.id });
+  },
+  /** Uses a saved studio: its input, headphones, type and program contents become the current settings */
+  useProfile(id: string): boolean {
+    const p = liveSettings.get().profiles.find((x) => x.id === id);
+    if (!p) return false;
+    liveSettings.set({ defaultMode: p.defaultMode, inputDeviceId: p.inputDeviceId, headphones: p.headphones, programContains: p.programContains, activeProfileId: p.id, setupDone: true });
+    return true;
+  },
+  deleteProfile(id: string): void {
+    const s = liveSettings.get();
+    liveSettings.set({ profiles: s.profiles.filter((x) => x.id !== id), activeProfileId: s.activeProfileId === id ? '' : s.activeProfileId });
   },
   reset(): void { current = { ...DEFAULT_LIVE_SETTINGS, guestStrip: { ...DEFAULT_LIVE_SETTINGS.guestStrip } }; clearLiveSettings(); emit(); },
   subscribe(l: () => void): () => void { listeners.add(l); return () => { listeners.delete(l); }; },
