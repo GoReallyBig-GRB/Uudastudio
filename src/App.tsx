@@ -2928,7 +2928,7 @@ const MainStudio: React.FC = () => {
   }, []);
   const startQuickEvent = useCallback(async () => {
     if (liveState.service !== 'ok') { openLivePanel(); return; }
-    try { const e = await liveState.create({ kind: 'quick', title: 'Quick event', description: '', notes: '', startsAt: null, durationMin: null, participants: [] }); openLivePanel(e.id); }
+    try { const e = await liveState.create({ kind: 'quick', mode: 'conversation', title: 'Quick event', description: '', notes: '', startsAt: null, durationMin: null, participants: [] }); openLivePanel(e.id); }
     catch { openLivePanel(); }
   }, [liveState, openLivePanel]);
   const [joinOrder, setJoinOrder] = useState<string[] | null>(null);

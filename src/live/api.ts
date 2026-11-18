@@ -1,5 +1,5 @@
 import { authService } from '../services/authService';
-import type { LiveEvent, LiveFile, LiveParticipant } from './events';
+import type { LiveEvent, LiveFile, LiveMode, LiveParticipant } from './events';
 
 export class LiveApiError extends Error { constructor(public status: number, message: string) { super(message); } }
 

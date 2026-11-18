@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { countdown, durationLabel, inviteMessage, markupToPlain, joinLink, linksIn, orderEvents, parseLiveHash, stateNow, upcomingEvents, whatsappUrl, type LiveEvent } from './events';
 
-const ev = (o: Partial<LiveEvent>): LiveEvent => ({ id: 'x', token: 't'.repeat(20), kind: 'scheduled', title: 'T', description: '', notes: '', startsAt: 1000, durationMin: null, activatedAt: null, endedAt: null, participants: [], state: 'waiting', files: [], createdAt: 0, ...o });
+const ev = (o: Partial<LiveEvent>): LiveEvent => ({ id: 'x', token: 't'.repeat(20), kind: 'scheduled', mode: 'conversation', title: 'T', description: '', notes: '', startsAt: 1000, durationMin: null, activatedAt: null, endedAt: null, participants: [], state: 'waiting', files: [], createdAt: 0, ...o });
 
 describe('event order', () => {
   it('puts the live one first, then the next one, then past ones last', () => {
