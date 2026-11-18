@@ -3,6 +3,8 @@ import { Headphones, Mic, MicOff, PhoneOff, Users } from 'lucide-react';
 import { useLiveRoom } from './useLiveRoom';
 import { useCall, type CallView } from './useCall';
 import { DEFAULT_STRIP, type StripSettings } from './hostMixer';
+import { liveSettings } from '../settings/liveSettings';
+import { useLiveSettings } from '../settings/useLiveSettings';
 import { limitNotice } from './roomState';
 import { useRoomRecording } from './useRoomRecording';
 import { removeQueued } from './takeQueue';
@@ -33,9 +35,13 @@ const QUALITY_CLS: Record<string, string> = { good: 'text-ok', weak: 'text-gold'
 
 /** Join the voice call, mute, and see your own level and how each connection is doing */
 const CallBar: React.FC<{ call: CallView; mode: 'conversation' | 'broadcast'; role: 'producer' | 'guest'; onJoin: (headphones: boolean, deviceId?: string) => void; onLeave: () => void; onMute: (m: boolean) => void }> = ({ call, mode, role, onJoin, onLeave, onMute }) => {
-  const [headphones, setHeadphones] = useState(false);
-  const [inputId, setInputId] = useState('');
+  const prefs = useLiveSettings();
+  const headphones = prefs.headphones;
+  const setHeadphones = (v: boolean) => liveSettings.set({ headphones: v });
   const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
+  // A remembered input that is no longer plugged in is ignored rather than asked for by name
+  const inputId = inputs.some((d) => d.deviceId === prefs.inputDeviceId) ? prefs.inputDeviceId : '';
+  const setInputId = (id: string) => liveSettings.set({ inputDeviceId: id });
   useEffect(() => { if (role === 'producer' && mode === 'broadcast') void navigator.mediaDevices?.enumerateDevices().then((d) => setInputs(d.filter((x) => x.kind === 'audioinput'))).catch(() => undefined); }, [role, mode]);
   const broadcast = mode === 'broadcast';
   const needs = broadcast && role === 'producer' && !headphones;
@@ -84,9 +90,10 @@ const qualityFor = (call: CallView, id: string) => {
 /** Host's mixing desk for a broadcast: one strip per guest, plus where the finished mix goes */
 const DeskPanel: React.FC<{
   peers: Array<{ id: string; name: string }>; call: CallView; level: (id: string) => { level: number; clipping: boolean };
-  setStrip: (id: string, p: Partial<StripSettings>) => void; programDevice: string; setProgramDevice: (id: string) => Promise<void>; setProgramHost: (on: boolean) => void;
+  setStrip: (id: string, p: Partial<StripSettings>) => void; programDevice: string; setProgramDevice: (id: string) => Promise<boolean>; setProgramHost: (on: boolean) => void;
 }> = ({ peers, call, level, setStrip, programDevice, setProgramDevice, setProgramHost }) => {
-  const [hostOn, setHostOn] = useState(true);
+  const prefs = useLiveSettings();
+  const hostOn = prefs.programContains === 'all';
   useTick(120);
   const [outs, setOuts] = useState<MediaDeviceInfo[]>([]);
   useEffect(() => { void navigator.mediaDevices?.enumerateDevices().then((d) => setOuts(d.filter((x) => x.kind === 'audiooutput'))).catch(() => undefined); }, []);
@@ -116,12 +123,12 @@ const DeskPanel: React.FC<{
       })}
       <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2">
         <label htmlFor="program-out" className="text-xs text-ink">Program out</label>
-        <select id="program-out" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={programDevice} onChange={(e) => { void setProgramDevice(e.target.value); }}>
+        <select id="program-out" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={programDevice} onChange={(e) => { const id = e.target.value; void setProgramDevice(id).then((ok) => { if (ok) liveSettings.set({ programDeviceId: id }); }); }}>
           <option value="">Off</option>
-          {outs.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `Output ${i + 1}`}</option>)}
+          {outs.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{(d.label || `Output ${i + 1}`) + (d.deviceId === prefs.programDeviceId ? ' (last used)' : '')}</option>)}
         </select>
         <label htmlFor="program-content" className="text-xs text-ink">Program contains</label>
-        <select id="program-content" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={hostOn ? 'all' : 'guests'} onChange={(e) => { const on = e.target.value === 'all'; setHostOn(on); setProgramHost(on); }}>
+        <select id="program-content" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={hostOn ? 'all' : 'guests'} onChange={(e) => { const on = e.target.value === 'all'; liveSettings.set({ programContains: on ? 'all' : 'guests' }); setProgramHost(on); }}>
           <option value="all">Me and the guests</option>
           <option value="guests">Guests only (my microphone goes through a mixer)</option>
         </select>

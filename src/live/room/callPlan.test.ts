@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CALL_BITRATE, isPolite, micConstraints, planConnections, qualityOf, tuneOpus } from './callPlan';
+import { CALL_BITRATE, callBitrate, isPolite, micConstraints, planConnections, qualityOf, tuneOpus } from './callPlan';
 import type { RoomPeer } from './roomState';
 
 const peer = (id: string, admitted = true): RoomPeer => ({ id, role: 'guest', name: id, admitted, muted: false, recording: false });
@@ -51,6 +51,12 @@ describe('broadcast connections and settings', () => {
     expect(micConstraints('broadcast', true)).toMatchObject({ echoCancellation: false, noiseSuppression: false, autoGainControl: false });
     expect(micConstraints('broadcast', false)).toMatchObject({ echoCancellation: true, noiseSuppression: false, autoGainControl: false });
     expect(micConstraints('conversation', true)).toMatchObject({ echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+  });
+  it('picks the bit rate from the session type and the quality setting', () => {
+    expect(callBitrate('conversation')).toBe(48_000);
+    expect(callBitrate('broadcast', 'standard')).toBe(64_000);
+    expect(callBitrate('broadcast', 'high')).toBe(96_000);
+    expect(callBitrate('conversation', 'high')).toBe(64_000);
   });
   it('uses the broadcast bit rate', () => {
     const sdp = ['a=rtpmap:111 opus/48000/2', 'a=fmtp:111 minptime=10'].join('\r\n');

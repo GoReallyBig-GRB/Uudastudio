@@ -33,6 +33,9 @@ export function qualityOf(s: LinkStats): Quality {
  */
 /** Opus bit rate for the call's audio: broadcast sound is worth the extra data */
 export const CALL_BITRATE: Record<CallMode, number> = { conversation: 48_000, broadcast: 64_000 };
+const HIGH_BITRATE: Record<CallMode, number> = { conversation: 64_000, broadcast: 96_000 };
+/** "High" in the live settings: a cleaner call that uses more data */
+export const callBitrate = (mode: CallMode, quality: 'standard' | 'high' = 'standard'): number => (quality === 'high' ? HIGH_BITRATE[mode] : CALL_BITRATE[mode]);
 
 /**
  * Microphone settings for the call. In a conversation the browser cleans the sound up because people may be on speakers.

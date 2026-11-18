@@ -1,6 +1,8 @@
 /** The producer's live-event workspace: every event on the left, the scheduler and details on the right. It stays mounted, so closing it or clicking away never loses what was typed. */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarPlus, Check, Copy, FileText, Mail, MessageCircle, Music, Paperclip, Play, Plus, Radio, Square, Trash2, X, Zap } from 'lucide-react';
+import { CalendarPlus, Check, Copy, FileText, Mail, MessageCircle, Music, Paperclip, Play, Plus, Radio, Settings, Square, Trash2, X, Zap } from 'lucide-react';
+import { LiveSettingsPanel } from './settings/LiveSettingsPanel';
+import { liveSettings } from './settings/liveSettings';
 import { ProducerRoomPanel } from './room/RoomPanels';
 import type { RoomRecording } from './room/roomRecorder';
 import { DateTimePicker } from '../components/ui/DateTimePicker';
@@ -26,7 +28,7 @@ const PRIMARY = 'inline-flex h-10 items-center justify-center gap-2 whitespace-n
 const SECONDARY = 'inline-flex h-10 whitespace-nowrap items-center justify-center gap-2 rounded-control border border-line-strong bg-surface-2 px-4 text-sm font-medium text-ink transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
 const LIVEBTN = 'inline-flex h-10 items-center justify-center gap-2 rounded-control bg-ok px-5 text-sm font-semibold text-surface-0 transition-[filter] hover:brightness-110 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ok/60';
 
-const emptyForm = (): Form => ({ mode: 'conversation', title: '', description: '', notes: '', startsAt: null, duration: '', people: [], files: [], removed: [], added: [] });
+const emptyForm = (): Form => ({ mode: liveSettings.get().defaultMode, title: '', description: '', notes: '', startsAt: null, duration: '', people: [], files: [], removed: [], added: [] });
 const formOf = (e: LiveEvent): Form => {
   const fb = defaultCountry();
   return { mode: e.mode, title: e.title, description: e.description, notes: e.notes, startsAt: e.startsAt, duration: e.durationMin ? String(e.durationMin) : '', files: e.files, removed: [], added: [],
@@ -48,6 +50,7 @@ const saveNewDraft = (f: Form | null) => { try { if (f) localStorage.setItem(DRA
 
 export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, focusId, onRoomTake }) => {
   const [sel, setSel] = useState<string>('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, Form>>(() => { const out: Record<string, Form> = {}; const d = loadNewDraft(); if (d) out.new = d; return out; });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -76,7 +79,7 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
   const clearDraft = (id: string) => { setDrafts((d) => { const rest = { ...d }; delete rest[id]; return rest; }); if (id === 'new') saveNewDraft(null); };
   const act = async (fn: () => Promise<unknown>) => { setError(''); try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : 'That did not work. Try again.'); } };
 
-  const quick = () => act(async () => { setBusy(true); try { const e = await live.create({ kind: 'quick', mode: 'conversation', title: 'Quick event', description: '', notes: '', startsAt: null, durationMin: null, participants: [] }); setSel(e.id); setSharing(e.id); } finally { setBusy(false); } });
+  const quick = () => act(async () => { setBusy(true); try { const e = await live.create({ kind: 'quick', mode: liveSettings.get().defaultMode, title: 'Quick event', description: '', notes: '', startsAt: null, durationMin: null, participants: [] }); setSel(e.id); setSharing(e.id); } finally { setBusy(false); } });
 
   const addFiles = (list: FileList | null) => {
     if (!list) return;
@@ -116,7 +119,10 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
         <header className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">
           <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full border border-line-strong bg-surface-2"><Radio className="h-4 w-4 text-ink" /></span>
             <div><h2 className="text-base font-semibold text-ink">Live events</h2><p className="text-xs text-ink-dim">Schedule sessions, share the invite, open the link when you are ready</p></div></div>
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Live settings" title="Live settings" className="grid h-9 w-9 place-items-center rounded-full text-ink-dim hover:bg-white/5 hover:text-ink cursor-pointer"><Settings className="h-4 w-4" /></button>
           <button type="button" onClick={onClose} aria-label="Close live events" title="Close (your changes stay)" className="grid h-9 w-9 place-items-center rounded-full text-ink-dim hover:bg-white/5 hover:text-ink cursor-pointer"><X className="h-4 w-4" /></button>
+          </div>
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -238,6 +244,7 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
 
         {shareEvent && <InvitePanel event={shareEvent} host={hostName} onClose={() => setSharing(null)} />}
       </section>
+      <LiveSettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} quota={live.quota} />
     </div>
   );
 };

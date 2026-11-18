@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CallManager, watchLevel } from './callManager';
 import { LABEL, type LinkStats, type Quality } from './callPlan';
 import { HostMixer, type MixCtx, type StripSettings } from './hostMixer';
+import { liveSettings } from '../settings/liveSettings';
 import { DESK_MESSAGES, deskVerdict, measureDesk } from './deskCheck';
 import type { RoomView } from './roomState';
 
@@ -71,9 +72,11 @@ export function useCall(token: string, view: RoomView, send: (m: Record<string, 
       ctx.current = ac;
       const desk = mode === 'broadcast' && role === 'producer' ? new HostMixer(ac as unknown as MixCtx) : null;
       mixer.current = desk;
+      const prefs = liveSettings.get();
+      desk?.setProgramIncludesHost(prefs.programContains === 'all');
       const r = await fetch(`/api/live/ice/${encodeURIComponent(token)}`).then((x) => (x.ok ? x.json() : null)).catch(() => null) as { iceServers: RTCIceServer[]; relay: boolean; capped?: boolean } | null;
       const m = new CallManager({
-        myId: meId, role, mode, headphones, mixer: desk ?? undefined,
+        myId: meId, role, mode, headphones, mixer: desk ?? undefined, quality: prefs.quality, stripDefaults: prefs.guestStrip,
         iceServers: r?.iceServers ?? [{ urls: 'stun:stun.cloudflare.com:3478' }],
         signal: (to, data) => { send({ t: 'signal', to, data }); },
         onRemote: (id, stream) => setCall((c) => { const streams = { ...c.streams }; if (stream) streams[id] = stream; else delete streams[id]; return { ...c, streams }; }),
@@ -112,15 +115,15 @@ export function useCall(token: string, view: RoomView, send: (m: Record<string, 
   }, []);
   const level = useCallback((id: string) => mixer.current?.level(id) ?? { level: 0, clipping: false }, []);
   /** Sends the finished mix (what goes on air) to a chosen sound device. An empty id turns it off. */
-  const setProgramDevice = useCallback(async (deviceId: string) => {
+  const setProgramDevice = useCallback(async (deviceId: string): Promise<boolean> => {
     const m = mixer.current;
-    if (!m) return;
-    if (!deviceId) { if (programEl.current) { programEl.current.pause(); programEl.current.srcObject = null; } setProgramDeviceState(''); return; }
+    if (!m) return false;
+    if (!deviceId) { if (programEl.current) { programEl.current.pause(); programEl.current.srcObject = null; } setProgramDeviceState(''); return false; }
     const el = programEl.current ?? new Audio();
     programEl.current = el;
     el.srcObject = m.program;
-    try { await (el as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(deviceId); await el.play(); setProgramDeviceState(deviceId); }
-    catch { setCall((c) => ({ ...c, error: 'This browser cannot send sound to that device. Use Chrome or Edge on a computer.' })); }
+    try { await (el as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(deviceId); await el.play(); setProgramDeviceState(deviceId); return true; }
+    catch { setCall((c) => ({ ...c, error: 'This browser cannot send sound to that device. Use Chrome or Edge on a computer.' })); return false; }
   }, []);
 
   const mute = useCallback((m: boolean) => { mgr.current?.setMuted(m); setCall((c) => ({ ...c, muted: m })); send({ t: 'state', muted: m }); }, [send]);

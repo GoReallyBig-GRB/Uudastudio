@@ -22,6 +22,8 @@ export interface ModalShellProps {
   closeOnBackdrop?: boolean;
   /** Keep the editor's one-letter shortcuts (play, mute, split...) out of this window, so typing never moves the timeline. */
   blockShortcuts?: boolean;
+  /** Opens above another full-screen window (for example settings inside the live events window). */
+  above?: boolean;
   children: React.ReactNode;
 }
 
@@ -32,7 +34,7 @@ const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:n
  * Shared dialog frame: title, close button, scrollable body, footer.
  * Escape closes (when dismissible), Tab stays inside, focus moves in on open and returns to the opener on close.
  */
-export const ModalShell: React.FC<ModalShellProps> = ({ open, onClose, title, description, footer, size = 'md', variant = 'dialog', dismissible = true, closeOnBackdrop, blockShortcuts, children }) => {
+export const ModalShell: React.FC<ModalShellProps> = ({ open, onClose, title, description, footer, size = 'md', variant = 'dialog', dismissible = true, closeOnBackdrop, blockShortcuts, above = false, children }) => {
   const isWorkspace = variant === 'workspace';
   const titleId = useId();
   const descId = useId();
@@ -68,7 +70,7 @@ export const ModalShell: React.FC<ModalShellProps> = ({ open, onClose, title, de
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className={cn('fixed inset-0 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm', above ? 'z-[65]' : 'z-50')}
       data-no-shortcuts={blockShortcuts ? '' : undefined}
       onMouseDown={(e) => { if (dismissible && (closeOnBackdrop ?? true) && e.target === e.currentTarget) onClose(); }}
     >

@@ -2,7 +2,7 @@
  * The voice call: one audio connection to each other person in the call, using the browser's WebRTC. Audio only. Signalling travels
  * through the room. This is for talking and monitoring; recordings are made separately on each device at full quality.
  */
-import { CALL_BITRATE, isPolite, micConstraints, planConnections, qualityOf, tuneOpus, type CallMode, type LinkStats, type Quality } from './callPlan';
+import { callBitrate, isPolite, micConstraints, planConnections, qualityOf, tuneOpus, type CallMode, type LinkStats, type Quality } from './callPlan';
 import type { HostMixer } from './hostMixer';
 import type { RoomPeer } from './roomState';
 
@@ -12,6 +12,10 @@ export interface CallOptions {
   mode: CallMode;
   /** In a broadcast a guest on headphones sends a completely untouched microphone */
   headphones: boolean;
+  /** Standard or high bit rate (live settings) */
+  quality?: 'standard' | 'high';
+  /** Where each new guest's channel strip starts (live settings) */
+  stripDefaults?: { lowCut: boolean; compressor: boolean; presence: number };
   /** The host's desk in a broadcast: guests' sound goes through it and each guest is sent their own mix-minus */
   mixer?: HostMixer;
   iceServers: RTCIceServer[];
@@ -75,12 +79,12 @@ export class CallManager {
     // The host in a broadcast sends this guest's own mix-minus instead of the raw microphone
     const desk = this.desk;
     let outgoing: MediaStream | null = this.local;
-    if (desk) { desk.addGuest(id, null); outgoing = desk.mixMinusStream(id); }
+    if (desk) { desk.addGuest(id, null, this.o.stripDefaults); outgoing = desk.mixMinusStream(id); }
     for (const track of outgoing?.getAudioTracks() ?? []) {
       const sender = pc.addTrack(track, outgoing!);
       const p = sender.getParameters();
       if (!p.encodings?.length) p.encodings = [{}];
-      p.encodings[0].maxBitrate = CALL_BITRATE[this.o.mode];
+      p.encodings[0].maxBitrate = callBitrate(this.o.mode, this.o.quality);
       void sender.setParameters(p).catch(() => undefined);
     }
     pc.ontrack = (e) => {
@@ -103,7 +107,7 @@ export class CallManager {
         link.making = true;
         const offer = await pc.createOffer();
         if (pc.signalingState !== 'stable') return;
-        await pc.setLocalDescription({ type: 'offer', sdp: tuneOpus(offer.sdp ?? '', CALL_BITRATE[this.o.mode]) });
+        await pc.setLocalDescription({ type: 'offer', sdp: tuneOpus(offer.sdp ?? '', callBitrate(this.o.mode, this.o.quality)) });
         this.o.signal(id, { description: pc.localDescription });
       } catch { /* the next change of state tries again */ } finally { link.making = false; }
     };
@@ -136,7 +140,7 @@ export class CallManager {
         await pc.setRemoteDescription(m.description);
         if (m.description.type === 'offer') {
           const answer = await pc.createAnswer();
-          await pc.setLocalDescription({ type: 'answer', sdp: tuneOpus(answer.sdp ?? '', CALL_BITRATE[this.o.mode]) });
+          await pc.setLocalDescription({ type: 'answer', sdp: tuneOpus(answer.sdp ?? '', callBitrate(this.o.mode, this.o.quality)) });
           this.o.signal(from, { description: pc.localDescription });
         }
       } else if ('candidate' in m) {
