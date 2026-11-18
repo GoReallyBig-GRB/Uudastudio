@@ -46,7 +46,7 @@ const badge = (e: LiveEvent, now: number) =>
 const loadNewDraft = (): Form | null => { try { const r = localStorage.getItem(DRAFT_KEY); return r ? { ...emptyForm(), ...(JSON.parse(r) as Partial<Form>), files: [], removed: [], added: [] } : null; } catch { return null; } };
 const saveNewDraft = (f: Form | null) => { try { if (f) localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...f, added: [], files: [], removed: [] })); else localStorage.removeItem(DRAFT_KEY); } catch { /* storage may be blocked; the draft still lives in memory */ } };
 
-export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, focusId }) => {
+export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, focusId, onRoomTake }) => {
   const [sel, setSel] = useState<string>('');
   const [drafts, setDrafts] = useState<Record<string, Form>>(() => { const out: Record<string, Form> = {}; const d = loadNewDraft(); if (d) out.new = d; return out; });
   const [busy, setBusy] = useState(false);
