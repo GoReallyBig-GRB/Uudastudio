@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPolite, planConnections, qualityOf, tuneOpus } from './callPlan';
+import { CALL_BITRATE, isPolite, micConstraints, planConnections, qualityOf, tuneOpus } from './callPlan';
 import type { RoomPeer } from './roomState';
 
 const peer = (id: string, admitted = true): RoomPeer => ({ id, role: 'guest', name: id, admitted, muted: false, recording: false });
@@ -34,5 +34,26 @@ describe('audio settings', () => {
     expect(out).toMatch(/a=fmtp:111 [^\r\n]*minptime=20/);
     expect(out).toMatch(/maxaveragebitrate=48000/);
     expect(out).toContain('a=fmtp:63 111/111'); // other codecs untouched
+  });
+});
+
+describe('broadcast connections and settings', () => {
+  const host: RoomPeer = { ...peer('h'), role: 'producer' };
+  it('a guest in a broadcast connects to the host only; the host connects to every guest', () => {
+    expect(planConnections('g1', [host, peer('g2'), peer('g1')], true, [], 'broadcast', 'guest')).toEqual({ connect: ['h'], drop: [] });
+    expect(planConnections('g1', [host, peer('g2')], true, ['g2'], 'broadcast', 'guest')).toEqual({ connect: ['h'], drop: ['g2'] });
+    expect(planConnections('h', [peer('g1'), peer('g2')], true, [], 'broadcast', 'producer').connect).toEqual(['g1', 'g2']);
+  });
+  it('a conversation still connects everyone to everyone', () => {
+    expect(planConnections('g1', [host, peer('g2')], true, [], 'conversation', 'guest').connect).toEqual(['h', 'g2']);
+  });
+  it('turns the microphone clean-up off for a broadcast guest with headphones, keeps echo cancelling without them', () => {
+    expect(micConstraints('broadcast', true)).toMatchObject({ echoCancellation: false, noiseSuppression: false, autoGainControl: false });
+    expect(micConstraints('broadcast', false)).toMatchObject({ echoCancellation: true, noiseSuppression: false, autoGainControl: false });
+    expect(micConstraints('conversation', true)).toMatchObject({ echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+  });
+  it('uses the broadcast bit rate', () => {
+    const sdp = ['a=rtpmap:111 opus/48000/2', 'a=fmtp:111 minptime=10'].join('\r\n');
+    expect(tuneOpus(sdp, CALL_BITRATE.broadcast)).toContain('maxaveragebitrate=64000');
   });
 });

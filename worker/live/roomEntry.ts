@@ -47,6 +47,6 @@ export async function handleRoomConnect(req: Request, token: string, env: RoomEn
   const a = roomAccess(e, now, me?.user.id ?? null, me?.user.display_name ?? 'Host', new URL(req.url).searchParams.get('name') ?? '', q?.left ?? 1, q?.resetsAt ?? null);
   if (!a.ok) return fail(a.status, a.error);
   const stub = env.rooms.get(env.rooms.idFromName(e!.id));
-  const headers = new Headers({ upgrade: 'websocket', 'x-room-role': a.role, 'x-room-name': a.name, 'x-room-opened-at': String(a.openedAt ?? now) });
+  const headers = new Headers({ upgrade: 'websocket', 'x-room-role': a.role, 'x-room-name': a.name, 'x-room-opened-at': String(a.openedAt ?? now), 'x-room-mode': e!.mode });
   return stub.fetch(new Request('https://room/connect', { headers }));
 }

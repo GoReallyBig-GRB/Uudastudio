@@ -36,6 +36,7 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS live_events_user ON live_events (user_id)',
   // Added after the first release: ignored when the column already exists
   'ALTER TABLE live_events ADD COLUMN duration_min INTEGER',
+  "ALTER TABLE live_events ADD COLUMN mode TEXT NOT NULL DEFAULT 'conversation'",
   'CREATE TABLE IF NOT EXISTS live_event_files (event_id TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (event_id, id))',
 ];
 
@@ -49,7 +50,7 @@ const rowOf = (r: Record<string, unknown>): LiveEventRow => {
     participants = raw.map((p) => ({ name: p.name ?? '', whatsapp: p.whatsapp ?? (p.contact && !p.contact.includes('@') ? p.contact.replace(/\D/g, '') : ''), email: p.email ?? (p.contact?.includes('@') ? p.contact : '') }));
   } catch { /* none */ }
   const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
-  return { id: String(r.id), userId: String(r.user_id), token: String(r.token), kind: r.kind === 'quick' ? 'quick' : 'scheduled', title: String(r.title), description: String(r.description), notes: String(r.notes), startsAt: n(r.starts_at), durationMin: n(r.duration_min), activatedAt: n(r.activated_at), endedAt: n(r.ended_at), participants, hostName: String(r.host_name), createdAt: Number(r.created_at), updatedAt: Number(r.updated_at) };
+  return { id: String(r.id), userId: String(r.user_id), token: String(r.token), kind: r.kind === 'quick' ? 'quick' : 'scheduled', mode: r.mode === 'broadcast' ? 'broadcast' : 'conversation', title: String(r.title), description: String(r.description), notes: String(r.notes), startsAt: n(r.starts_at), durationMin: n(r.duration_min), activatedAt: n(r.activated_at), endedAt: n(r.ended_at), participants, hostName: String(r.host_name), createdAt: Number(r.created_at), updatedAt: Number(r.updated_at) };
 };
 
 /** Costs on D1's free plan: a list reads at most 100 rows; every change is one write; file bytes are only read on download */
@@ -64,8 +65,8 @@ export class D1LiveStore implements LiveStore {
   async byToken(t: string) { await this.init(); const r = await this.db.prepare('SELECT * FROM live_events WHERE token = ?').bind(t).first(); return r ? rowOf(r) : null; }
   async save(r: LiveEventRow) {
     await this.init();
-    await this.db.prepare('INSERT INTO live_events (id, user_id, token, kind, title, description, notes, starts_at, duration_min, activated_at, ended_at, participants, host_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET title = excluded.title, description = excluded.description, notes = excluded.notes, starts_at = excluded.starts_at, duration_min = excluded.duration_min, activated_at = excluded.activated_at, ended_at = excluded.ended_at, participants = excluded.participants, updated_at = excluded.updated_at')
-      .bind(r.id, r.userId, r.token, r.kind, r.title, r.description, r.notes, r.startsAt, r.durationMin, r.activatedAt, r.endedAt, JSON.stringify(r.participants), r.hostName, r.createdAt, r.updatedAt).run();
+    await this.db.prepare('INSERT INTO live_events (id, user_id, token, kind, mode, title, description, notes, starts_at, duration_min, activated_at, ended_at, participants, host_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET mode = excluded.mode, title = excluded.title, description = excluded.description, notes = excluded.notes, starts_at = excluded.starts_at, duration_min = excluded.duration_min, activated_at = excluded.activated_at, ended_at = excluded.ended_at, participants = excluded.participants, updated_at = excluded.updated_at')
+      .bind(r.id, r.userId, r.token, r.kind, r.mode, r.title, r.description, r.notes, r.startsAt, r.durationMin, r.activatedAt, r.endedAt, JSON.stringify(r.participants), r.hostName, r.createdAt, r.updatedAt).run();
   }
   async remove(u: string, id: string) {
     await this.init();

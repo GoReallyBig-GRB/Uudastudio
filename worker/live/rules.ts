@@ -18,8 +18,9 @@ export const LIMITS = {
 
 /** whatsapp is digits only, country code first (E.164 without the plus) */
 export interface Participant { name: string; whatsapp: string; email: string }
+export type LiveMode = 'conversation' | 'broadcast';
 export interface LiveEventRow {
-  id: string; userId: string; token: string; kind: 'scheduled' | 'quick';
+  id: string; userId: string; token: string; kind: 'scheduled' | 'quick'; mode: LiveMode;
   title: string; description: string; notes: string;
   startsAt: number | null; durationMin: number | null; activatedAt: number | null; endedAt: number | null;
   participants: Participant[]; hostName: string; createdAt: number; updatedAt: number;
@@ -27,7 +28,7 @@ export interface LiveEventRow {
 export interface FileMeta { id: string; name: string; mime: string; size: number; kind: 'doc' | 'audio' }
 export type EventState = 'waiting' | 'open' | 'ended';
 
-export interface EventInput { kind: 'scheduled' | 'quick'; title: string; description: string; notes: string; startsAt: number | null; durationMin: number | null; participants: Participant[] }
+export interface EventInput { kind: 'scheduled' | 'quick'; mode: LiveMode; title: string; description: string; notes: string; startsAt: number | null; durationMin: number | null; participants: Participant[] }
 
 const clean = (v: unknown, max: number): string => (typeof v === 'string' ? v.replace(/\u0000/g, '').trim().slice(0, max) : '');
 
@@ -64,7 +65,7 @@ export const validateEvent = (body: unknown, now: number): { ok: true; value: Ev
     if (!Number.isFinite(d) || d < 5 || d > 720) return { ok: false, error: 'A session lasts between 5 minutes and 12 hours.' };
     durationMin = d;
   }
-  return { ok: true, value: { kind, title, description: clean(b.description, LIMITS.description), notes: clean(b.notes, LIMITS.notes), startsAt, durationMin, participants } };
+  return { ok: true, value: { kind, mode: b.mode === 'broadcast' ? 'broadcast' : 'conversation', title, description: clean(b.description, LIMITS.description), notes: clean(b.notes, LIMITS.notes), startsAt, durationMin, participants } };
 };
 
 /** Waiting until the time comes or the producer opens it; open until the producer ends it (or 12 hours after the due time) */

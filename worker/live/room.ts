@@ -28,8 +28,8 @@ export type Role = 'producer' | 'guest';
 export interface Peer { id: string; role: Role; name: string; admitted: boolean; muted: boolean; recording: boolean; joinedAt: number }
 export interface Take { id: string; startAt: number; stopAt: number | null }
 /** `limitAt` is when the session's time is up (null until the room knows when it opened); `phase` is how far the clock has got */
-export interface RoomMeta { autoAdmit: boolean; take: Take | null; takes: number; markers: number; endedAt: number | null; openedAt: number | null; phase: 'none' | 'soon' | 'over' }
-export const freshMeta = (): RoomMeta => ({ autoAdmit: false, take: null, takes: 0, markers: 0, endedAt: null, openedAt: null, phase: 'none' });
+export interface RoomMeta { autoAdmit: boolean; take: Take | null; takes: number; markers: number; endedAt: number | null; openedAt: number | null; phase: 'none' | 'soon' | 'over'; mode: 'conversation' | 'broadcast' }
+export const freshMeta = (): RoomMeta => ({ autoAdmit: false, take: null, takes: 0, markers: 0, endedAt: null, openedAt: null, phase: 'none', mode: 'conversation' });
 
 /** What the session clock should do at `now`: nothing, warn, say time is up, or end the room */
 export function clockStep(meta: RoomMeta, now: number): { meta: RoomMeta; out: Out[]; nextAt: number | null } {
@@ -52,6 +52,7 @@ export type ClientMsg =
   | { t: 'admit'; id: string }
   | { t: 'remove'; id: string }
   | { t: 'auto'; on: boolean }
+  | { t: 'mode'; mode: 'conversation' }
   | { t: 'record'; leadMs?: number }
   | { t: 'stop' }
   | { t: 'marker' }
@@ -83,6 +84,8 @@ export function parseClientMessage(raw: string): ClientMsg | null {
     case 'cue': { const text = str(m.text, ROOM.text); return typeof m.to === 'string' && m.to && text ? { t: 'cue', to: m.to, text } : null; }
     case 'admit': case 'remove': return typeof m.id === 'string' && m.id ? { t: m.t, id: m.id } : null;
     case 'auto': return typeof m.on === 'boolean' ? { t: 'auto', on: m.on } : null;
+    // Only a step down is allowed in a live room: a broadcast that cannot keep up becomes a conversation
+    case 'mode': return m.mode === 'conversation' ? { t: 'mode', mode: 'conversation' } : null;
     case 'record': return { t: 'record', leadMs: typeof m.leadMs === 'number' && Number.isFinite(m.leadMs) ? m.leadMs : undefined };
     case 'stop': case 'marker': case 'end': return { t: m.t };
     default: return null;
@@ -131,6 +134,8 @@ export function step(meta: RoomMeta, peers: Peer[], from: Peer, msg: ClientMsg, 
     case 'signal': {
       const to = by.get(msg.to);
       if (!to || (!meta.endedAt && (!from.admitted || !to.admitted))) return err(meta, from.id, 'That person is not in the call.');
+      // In a broadcast guests are connected to the host only, never to each other
+      if (meta.mode === 'broadcast' && !producer && to.role !== 'producer') return err(meta, from.id, 'In a broadcast you are connected to the host only.');
       return { ...none(meta), out: [{ to: to.id, msg: { t: 'signal', from: from.id, data: msg.data } }] };
     }
 
@@ -155,6 +160,12 @@ export function step(meta: RoomMeta, peers: Peer[], from: Peer, msg: ClientMsg, 
       const p = by.get(msg.id);
       if (!p || p.role !== 'guest') return err(meta, from.id, 'That person is not in the room.');
       return { ...none(meta), kick: [{ id: p.id, reason: 'removed' }] };
+    }
+
+    case 'mode': {
+      if (!producer) return only('change the session type');
+      if (meta.mode === 'conversation') return none(meta);
+      return { meta: { ...meta, mode: 'conversation' }, peers: {}, out: [{ to: 'all', msg: { t: 'mode', mode: 'conversation' } }], kick: [] };
     }
 
     case 'auto': {

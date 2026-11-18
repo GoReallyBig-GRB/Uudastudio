@@ -135,3 +135,12 @@ describe('session time limit', () => {
     expect(limitNotice(ended, 10_600_000)).toContain('recordings are saved');
   });
 });
+
+describe('session type in the view', () => {
+  it('takes the type from the welcome and follows a step down', () => {
+    const w = applyServerMessage(initialView(), { t: 'welcome', id: 'a', role: 'guest', admitted: true, mode: 'broadcast', peers: [] });
+    expect(w.mode).toBe('broadcast');
+    expect(applyServerMessage(w, { t: 'mode', mode: 'conversation' }).mode).toBe('conversation');
+    expect(applyServerMessage(initialView(), { t: 'welcome', id: 'a', role: 'guest', admitted: true, peers: [] }).mode).toBe('conversation');
+  });
+});

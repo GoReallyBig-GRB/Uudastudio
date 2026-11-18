@@ -45,12 +45,13 @@ export class RoomHost {
   }
 
   /** A new connection. Returns the browser's end of the socket pair. */
-  async connect(role: Role, rawName: string, now: number, openedAt: number | null = null): Promise<HostSocket> {
+  async connect(role: Role, rawName: string, now: number, openedAt: number | null = null, mode: 'conversation' | 'broadcast' = 'conversation'): Promise<HostSocket> {
     const name = cleanName(rawName);
     let meta = await this.meta();
     if (meta.openedAt === null && openedAt !== null) {
       // The first connection tells the room when the session began, so its clock can start
-      meta = { ...meta, openedAt };
+      // The type is set once, when the room first opens; after that only the host can step it down
+      meta = { ...meta, openedAt, mode };
       await this.ctx.storage.put('meta', meta);
       const next = clockStep(meta, now).nextAt;
       if (next) await this.ctx.storage.setAlarm(next);
@@ -72,7 +73,7 @@ export class RoomHost {
     const peer: Peer = { id, role, name, admitted: decision.admitted, muted: false, recording: false, joinedAt: now };
     server.serializeAttachment(peer);
     const others = list.filter((l) => !(role === 'producer' && l.peer.role === 'producer')).map((l) => l.peer);
-    this.send(server, { t: 'welcome', id, role, admitted: peer.admitted, now, autoAdmit: meta.autoAdmit, take: meta.take, endedAt: meta.endedAt, limit: meta.openedAt === null ? null : { phase: meta.phase, ...limitSchedule(meta.openedAt) }, peers: roster(others) });
+    this.send(server, { t: 'welcome', id, role, mode: meta.mode, admitted: peer.admitted, now, autoAdmit: meta.autoAdmit, take: meta.take, endedAt: meta.endedAt, limit: meta.openedAt === null ? null : { phase: meta.phase, ...limitSchedule(meta.openedAt) }, peers: roster(others) });
     this.deliver([{ to: 'all', msg: { t: 'joined', peer: roster([peer])[0] } }], list);
     return client;
   }

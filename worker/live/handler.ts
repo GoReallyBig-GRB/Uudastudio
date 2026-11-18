@@ -20,7 +20,7 @@ const fail = (status: number, error: string, extra: Record<string, string> = {})
 const sameSite = (req: Request) => { const o = req.headers.get('origin'); return !o || o === new URL(req.url).origin; };
 
 const view = async (e: LiveEventRow, store: LiveStore, now: number) => ({
-  id: e.id, token: e.token, kind: e.kind, title: e.title, description: e.description, notes: e.notes, startsAt: e.startsAt, durationMin: e.durationMin,
+  id: e.id, token: e.token, kind: e.kind, mode: e.mode, title: e.title, description: e.description, notes: e.notes, startsAt: e.startsAt, durationMin: e.durationMin,
   activatedAt: e.activatedAt, endedAt: e.endedAt, participants: e.participants, state: stateOf(e, now), files: await store.files(e.id), createdAt: e.createdAt,
 });
 
@@ -84,7 +84,7 @@ export const handleLive = async (req: Request, rest: string[], env: LiveEnv): Pr
       const v = validateEvent({ ...(body as object), kind: e.kind }, now);
       if (!v.ok) return fail(400, v.error);
       if (e.kind === 'scheduled' && v.value.startsAt !== null && stateOf(e, now) !== 'ended') { const c = timeClash(await env.store.list(uid), e.id, v.value.startsAt, v.value.durationMin, now); if (c) return fail(409, `That time overlaps "${c.title}". Two live events cannot run at the same time.`); }
-      const next = { ...e, title: v.value.title, description: v.value.description, notes: v.value.notes, startsAt: e.kind === 'quick' ? null : v.value.startsAt, durationMin: v.value.durationMin, participants: v.value.participants, updatedAt: now };
+      const next = { ...e, mode: stateOf(e, now) === 'open' ? e.mode : v.value.mode, title: v.value.title, description: v.value.description, notes: v.value.notes, startsAt: e.kind === 'quick' ? null : v.value.startsAt, durationMin: v.value.durationMin, participants: v.value.participants, updatedAt: now };
       await env.store.save(next);
       return send(await view(next, env.store, now));
     }

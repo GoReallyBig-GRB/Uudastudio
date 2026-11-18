@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Headphones, Mic, MicOff, PhoneOff, Users } from 'lucide-react';
 import { useLiveRoom } from './useLiveRoom';
 import { useCall, type CallView } from './useCall';
+import { DEFAULT_STRIP, type StripSettings } from './hostMixer';
 import { limitNotice } from './roomState';
 import { useRoomRecording } from './useRoomRecording';
 import { removeQueued } from './takeQueue';
@@ -31,12 +32,20 @@ const RemoteAudio: React.FC<{ stream: MediaStream }> = ({ stream }) => {
 const QUALITY_CLS: Record<string, string> = { good: 'text-ok', weak: 'text-gold', poor: 'text-danger', unknown: 'text-ink-faint' };
 
 /** Join the voice call, mute, and see your own level and how each connection is doing */
-const CallBar: React.FC<{ call: CallView; onJoin: () => void; onLeave: () => void; onMute: (m: boolean) => void }> = ({ call, onJoin, onLeave, onMute }) => (
+const CallBar: React.FC<{ call: CallView; mode: 'conversation' | 'broadcast'; role: 'producer' | 'guest'; onJoin: (headphones: boolean) => void; onLeave: () => void; onMute: (m: boolean) => void }> = ({ call, mode, role, onJoin, onLeave, onMute }) => {
+  const [headphones, setHeadphones] = useState(false);
+  const broadcast = mode === 'broadcast';
+  const needs = broadcast && role === 'producer' && !headphones;
+  return (
   <div className="flex flex-col gap-2 rounded-control border border-line bg-surface-2 p-3">
     {!call.joined ? (
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={PRIMARY} disabled={call.starting} onClick={onJoin}><Headphones className="h-3.5 w-3.5" />{call.starting ? 'Starting…' : 'Join the voice call'}</button>
-        <span className="text-xs text-ink-dim">Wear headphones so the call does not leak into your recording.</span>
+      <div className="flex flex-col gap-2">
+        {broadcast && <p className="text-xs font-medium text-ink">{role === 'guest' ? 'Broadcast session: you are connected to the host, who mixes the sound.' : 'Broadcast session: guests connect to you and you mix their sound.'}</p>}
+        <label className="flex items-center gap-2 text-xs text-ink"><input type="checkbox" checked={headphones} onChange={(e) => setHeadphones(e.target.checked)} />I am wearing headphones</label>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={PRIMARY} disabled={call.starting || needs} onClick={() => onJoin(headphones)}><Headphones className="h-3.5 w-3.5" />{call.starting ? 'Starting…' : 'Join the voice call'}</button>
+          <span className="text-xs text-ink-dim">{needs ? 'Tick the box: a broadcast needs headphones on the host side.' : broadcast && role === 'guest' && !headphones ? 'Without headphones your sound is processed to avoid echo, so it will not be as clean.' : 'Headphones keep the call out of your recording.'}</span>
+        </div>
       </div>
     ) : (
       <>
@@ -50,13 +59,59 @@ const CallBar: React.FC<{ call: CallView; onJoin: () => void; onLeave: () => voi
       </>
     )}
     {call.error && <p role="alert" className="text-xs text-danger">{call.error}</p>}
+    {call.deskNote && <p role={call.deskNote.includes('switched') ? 'alert' : 'status'} className="text-[11px] text-gold">{call.deskNote}</p>}
     {Object.entries(call.streams).map(([id, s]) => <RemoteAudio key={id} stream={s} />)}
   </div>
-);
+  );
+};
 
 const qualityFor = (call: CallView, id: string) => {
   const q = call.quality[id];
   return call.joined && q ? <span className={`text-[11px] ${QUALITY_CLS[q.q]}`}>{q.label}{q.relayed ? ' (relayed)' : ''}</span> : null;
+};
+
+/** Host's mixing desk for a broadcast: one strip per guest, plus where the finished mix goes */
+const DeskPanel: React.FC<{
+  peers: Array<{ id: string; name: string }>; call: CallView; level: (id: string) => { level: number; clipping: boolean };
+  setStrip: (id: string, p: Partial<StripSettings>) => void; programDevice: string; setProgramDevice: (id: string) => Promise<void>;
+}> = ({ peers, call, level, setStrip, programDevice, setProgramDevice }) => {
+  useTick(120);
+  const [outs, setOuts] = useState<MediaDeviceInfo[]>([]);
+  useEffect(() => { void navigator.mediaDevices?.enumerateDevices().then((d) => setOuts(d.filter((x) => x.kind === 'audiooutput'))).catch(() => undefined); }, []);
+  return (
+    <div className="flex flex-col gap-3 rounded-control border border-line bg-surface-2 p-3" aria-label="Broadcast desk">
+      <p className="text-xs font-semibold text-ink">Broadcast desk</p>
+      {peers.length === 0 && <p className="text-xs text-ink-dim">Guests appear here once they are in the call.</p>}
+      {peers.map((p) => {
+        const s: StripSettings = call.strips[p.id] ?? DEFAULT_STRIP;
+        const l = level(p.id);
+        return (
+          <div key={p.id} className="flex flex-col gap-1.5 border-t border-line pt-2 first:border-t-0 first:pt-0">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-xs font-medium text-ink">{p.name}{qualityFor(call, p.id)}</span>
+              <button type="button" className={BTN} aria-pressed={s.muted} onClick={() => setStrip(p.id, { muted: !s.muted })}>{s.muted ? 'Unmute' : 'Mute'}</button>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-surface-0" role="meter" aria-label={`${p.name} level`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(l.level * 100)}><div className={`h-full transition-[width] duration-100 ${l.clipping ? 'bg-danger' : 'bg-ok'}`} style={{ width: `${Math.round(l.level * 100)}%` }} /></div>
+            {l.clipping && <p role="alert" className="text-[11px] text-danger">{p.name} is too loud: ask them to move back from the microphone or turn their input down.</p>}
+            <label className="flex items-center gap-2 text-[11px] text-ink-dim">Volume<input type="range" min={0} max={2} step={0.05} value={s.volume} onChange={(e) => setStrip(p.id, { volume: Number(e.target.value) })} aria-label={`${p.name} volume`} className="flex-1" /></label>
+            <label className="flex items-center gap-2 text-[11px] text-ink-dim">Presence<input type="range" min={-6} max={6} step={0.5} value={s.presence} onChange={(e) => setStrip(p.id, { presence: Number(e.target.value) })} aria-label={`${p.name} presence`} className="flex-1" /></label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-1.5 text-[11px] text-ink"><input type="checkbox" checked={s.lowCut} onChange={(e) => setStrip(p.id, { lowCut: e.target.checked })} />Low cut</label>
+              <label className="flex items-center gap-1.5 text-[11px] text-ink"><input type="checkbox" checked={s.compressor} onChange={(e) => setStrip(p.id, { compressor: e.target.checked })} />Compressor</label>
+            </div>
+          </div>
+        );
+      })}
+      <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2">
+        <label htmlFor="program-out" className="text-xs text-ink">Program out</label>
+        <select id="program-out" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={programDevice} onChange={(e) => { void setProgramDevice(e.target.value); }}>
+          <option value="">Off</option>
+          {outs.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `Output ${i + 1}`}</option>)}
+        </select>
+        <p className="w-full text-[11px] text-ink-faint">Sends the finished mix to a sound device. Pick your virtual audio cable to feed OBS, StreamYard or a transmitter chain. Works in Chrome and Edge on a computer.</p>
+      </div>
+    </div>
+  );
 };
 
 /** This device's own recording: whether it is running, what went wrong, what was saved */
@@ -73,7 +128,7 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
   const [on, setOn] = useState(false);
   const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, on, undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
-  const { call, join, leave, mute, onSignal } = useCall(token, view, send);
+  const { call, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice } = useCall(token, view, send);
   signalRef.current = onSignal;
   const mine = useRoomRecording(token, view, send, clockMs, (r) => { onTake?.(r); removeQueued(token, r.takeId); });
   useEffect(() => { if (!on) { leave(); void mine.stop(); } }, [on, leave, mine.stop]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -108,7 +163,8 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
                     <li key={p.id} className="flex items-center justify-between gap-2 rounded-control border border-line bg-surface-2 px-3 py-2"><span className="flex items-center gap-2 truncate text-ink">{p.muted ? <MicOff className="h-3.5 w-3.5 text-ink-faint" /> : <Mic className="h-3.5 w-3.5 text-ok" />}{p.name}{qualityFor(call, p.id)}{p.recording && <span className="text-[11px] text-danger">● recording</span>}</span>
                       <button type="button" className={BTN} onClick={() => send({ t: 'remove', id: p.id })}>Remove</button></li>))}
                 </ul></div>
-              <CallBar call={call} onJoin={() => { void join(); }} onLeave={leave} onMute={mute} />
+              <CallBar call={call} mode={view.mode} role="producer" onJoin={(h) => { void join(h); }} onLeave={leave} onMute={mute} />
+              {call.joined && view.mode === 'broadcast' && <DeskPanel peers={view.peers.filter((p) => p.admitted && p.role === 'guest')} call={call} level={level} setStrip={setStrip} programDevice={programDevice} setProgramDevice={setProgramDevice} />}
               <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
                 <button type="button" className={PRIMARY} disabled={Boolean(running)} onClick={() => send({ t: 'record', leadMs: 3000 })}>Record all</button>
                 <button type="button" className={BTN} disabled={!running} onClick={() => send({ t: 'stop' })}>Stop</button>
@@ -165,7 +221,7 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
           <p className="text-xs"><TakeLine take={view.take} now={clockMs()} /></p>
           <MyRecording mine={mine} />
           <p className="text-xs text-ink-dim">In the room: {view.peers.filter((p) => p.admitted).map((p) => p.name).join(', ') || 'just you'}</p>
-          <CallBar call={call} onJoin={() => { void join(); }} onLeave={leave} onMute={mute} />
+          <CallBar call={call} mode={view.mode} role="guest" onJoin={(h) => { void join(h); }} onLeave={leave} onMute={mute} />
         </>
       )}
       {view.cue && <p className="rounded-control border border-gold/50 bg-gold/10 px-3 py-2 text-gold">Host: {view.cue.text}</p>}

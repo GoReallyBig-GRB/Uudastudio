@@ -2,11 +2,18 @@
  * The voice call: one audio connection to each other person in the call, using the browser's WebRTC. Audio only. Signalling travels
  * through the room. This is for talking and monitoring; recordings are made separately on each device at full quality.
  */
-import { isPolite, planConnections, qualityOf, tuneOpus, type LinkStats, type Quality } from './callPlan';
+import { CALL_BITRATE, isPolite, micConstraints, planConnections, qualityOf, tuneOpus, type CallMode, type LinkStats, type Quality } from './callPlan';
+import type { HostMixer } from './hostMixer';
 import type { RoomPeer } from './roomState';
 
 export interface CallOptions {
   myId: string;
+  role: 'producer' | 'guest';
+  mode: CallMode;
+  /** In a broadcast a guest on headphones sends a completely untouched microphone */
+  headphones: boolean;
+  /** The host's desk in a broadcast: guests' sound goes through it and each guest is sent their own mix-minus */
+  mixer?: HostMixer;
   iceServers: RTCIceServer[];
   /** Send call set-up data to one person through the room */
   signal: (to: string, data: unknown) => void;
@@ -20,6 +27,8 @@ interface Link {
   making: boolean;
   ignore: boolean;
   last: { lost: number; received: number };
+  /** Keeps a guest's sound flowing into the desk (some browsers only deliver a remote stream that an audio element holds) */
+  keep?: HTMLAudioElement;
   timer: ReturnType<typeof setInterval>;
 }
 
@@ -32,12 +41,13 @@ export class CallManager {
 
   constructor(private readonly o: CallOptions) {}
 
-  /** Asks for the microphone, tuned for conversation: echo and noise handling on, because the call may be on speakers */
+  private get desk(): HostMixer | null { return this.o.mode === 'broadcast' && this.o.role === 'producer' ? this.o.mixer ?? null : null; }
+
+  /** Asks for the microphone. See micConstraints for what is switched on in each kind of session. */
   async start(deviceId?: string): Promise<MediaStream> {
-    this.local = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) },
-    });
+    this.local = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(this.o.mode, this.o.headphones, deviceId) });
     this.local.getAudioTracks().forEach((t) => { t.enabled = !this.muted; });
+    this.desk?.setHostMic(this.local);
     return this.local;
   }
 
@@ -46,12 +56,13 @@ export class CallManager {
   setMuted(m: boolean): void {
     this.muted = m;
     this.local?.getAudioTracks().forEach((t) => { t.enabled = !m; });
+    this.desk?.setHostMuted(m);
   }
 
   /** Brings the connections in line with who is in the call */
   sync(peers: RoomPeer[], meAdmitted: boolean): void {
     if (!this.local) return;
-    const plan = planConnections(this.o.myId, peers, meAdmitted, [...this.links.keys()]);
+    const plan = planConnections(this.o.myId, peers, meAdmitted, [...this.links.keys()], this.o.mode, this.o.role);
     for (const id of plan.drop) this.drop(id);
     for (const id of plan.connect) this.open(id);
   }
@@ -61,21 +72,38 @@ export class CallManager {
     const link: Link = { pc, polite: isPolite(this.o.myId, id), making: false, ignore: false, last: { lost: 0, received: 0 }, timer: setInterval(() => { void this.poll(id); }, 2000) };
     this.links.set(id, link);
 
-    for (const track of this.local?.getAudioTracks() ?? []) {
-      const sender = pc.addTrack(track, this.local!);
+    // The host in a broadcast sends this guest's own mix-minus instead of the raw microphone
+    const desk = this.desk;
+    let outgoing: MediaStream | null = this.local;
+    if (desk) { desk.addGuest(id, null); outgoing = desk.mixMinusStream(id); }
+    for (const track of outgoing?.getAudioTracks() ?? []) {
+      const sender = pc.addTrack(track, outgoing!);
       const p = sender.getParameters();
       if (!p.encodings?.length) p.encodings = [{}];
-      p.encodings[0].maxBitrate = 48_000;
+      p.encodings[0].maxBitrate = CALL_BITRATE[this.o.mode];
       void sender.setParameters(p).catch(() => undefined);
     }
-    pc.ontrack = (e) => this.o.onRemote(id, e.streams[0] ?? new MediaStream([e.track]));
+    pc.ontrack = (e) => {
+      const stream = e.streams[0] ?? new MediaStream([e.track]);
+      if (this.o.mode === 'broadcast') {
+        // A small steady buffer: a broadcast prefers smooth sound over the last few milliseconds of delay
+        try { (e.receiver as unknown as { jitterBufferTarget?: number }).jitterBufferTarget = 120; } catch { /* not supported */ }
+      }
+      if (desk) {
+        const el = new Audio(); el.srcObject = stream; el.muted = true; void el.play().catch(() => undefined);
+        link.keep = el;
+        desk.attachSource(id, stream);
+        return; // the host hears guests through the desk, not directly
+      }
+      this.o.onRemote(id, stream);
+    };
     pc.onicecandidate = (e) => this.o.signal(id, { candidate: e.candidate ? e.candidate.toJSON() : null });
     pc.onnegotiationneeded = async () => {
       try {
         link.making = true;
         const offer = await pc.createOffer();
         if (pc.signalingState !== 'stable') return;
-        await pc.setLocalDescription({ type: 'offer', sdp: tuneOpus(offer.sdp ?? '') });
+        await pc.setLocalDescription({ type: 'offer', sdp: tuneOpus(offer.sdp ?? '', CALL_BITRATE[this.o.mode]) });
         this.o.signal(id, { description: pc.localDescription });
       } catch { /* the next change of state tries again */ } finally { link.making = false; }
     };
@@ -87,6 +115,8 @@ export class CallManager {
     const l = this.links.get(id);
     if (!l) return;
     clearInterval(l.timer);
+    if (l.keep) { l.keep.srcObject = null; }
+    this.desk?.removeGuest(id);
     try { l.pc.close(); } catch { /* already closed */ }
     this.links.delete(id);
     this.o.onRemote(id, null);
@@ -106,7 +136,7 @@ export class CallManager {
         await pc.setRemoteDescription(m.description);
         if (m.description.type === 'offer') {
           const answer = await pc.createAnswer();
-          await pc.setLocalDescription({ type: 'answer', sdp: tuneOpus(answer.sdp ?? '') });
+          await pc.setLocalDescription({ type: 'answer', sdp: tuneOpus(answer.sdp ?? '', CALL_BITRATE[this.o.mode]) });
           this.o.signal(from, { description: pc.localDescription });
         }
       } else if ('candidate' in m) {

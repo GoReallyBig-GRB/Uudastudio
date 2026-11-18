@@ -19,7 +19,7 @@ export class LiveRoom extends DurableObject {
     if (request.headers.get('upgrade') !== 'websocket') return new Response('Expected a WebSocket.', { status: 426 });
     const role: Role = request.headers.get('x-room-role') === 'producer' ? 'producer' : 'guest';
     const opened = Number(request.headers.get('x-room-opened-at'));
-    const client = await this.host.connect(role, request.headers.get('x-room-name') ?? '', Date.now(), Number.isFinite(opened) && opened > 0 ? opened : null);
+    const client = await this.host.connect(role, request.headers.get('x-room-name') ?? '', Date.now(), Number.isFinite(opened) && opened > 0 ? opened : null, request.headers.get('x-room-mode') === 'broadcast' ? 'broadcast' : 'conversation');
     return new Response(null, { status: 101, webSocket: client as unknown as WebSocket });
   }
 

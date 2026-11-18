@@ -3,7 +3,7 @@ import { FREE_PLAN, limitSchedule, quotaFor, sessionStart, upcomingCount, weekly
 import type { LiveEventRow } from './rules';
 
 const NOW = 1_800_000_000_000, H = 3600_000, D = 24 * H;
-const ev = (id: string, o: Partial<LiveEventRow> = {}): LiveEventRow => ({ id, userId: 'u', token: id, kind: 'quick', title: id, description: '', notes: '', startsAt: null, durationMin: null, activatedAt: null, endedAt: null, participants: [], hostName: 'h', createdAt: 0, updatedAt: 0, ...o });
+const ev = (id: string, o: Partial<LiveEventRow> = {}): LiveEventRow => ({ id, userId: 'u', token: id, kind: 'quick', mode: 'conversation', title: id, description: '', notes: '', startsAt: null, durationMin: null, activatedAt: null, endedAt: null, participants: [], hostName: 'h', createdAt: 0, updatedAt: 0, ...o });
 const ran = (id: string, daysAgo: number, mins = 60) => ev(id, { activatedAt: NOW - daysAgo * D, endedAt: NOW - daysAgo * D + mins * 60_000 });
 
 describe('weekly sessions', () => {

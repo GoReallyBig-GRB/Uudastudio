@@ -10,7 +10,7 @@ const call = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
   return body as T;
 };
 
-export interface EventDraft { kind: 'scheduled' | 'quick'; title: string; description: string; notes: string; startsAt: number | null; durationMin: number | null; participants: LiveParticipant[] }
+export interface EventDraft { kind: 'scheduled' | 'quick'; mode: LiveMode; title: string; description: string; notes: string; startsAt: number | null; durationMin: number | null; participants: LiveParticipant[] }
 
 export interface LiveQuota { used: number; limit: number; left: number; resetsAt: number | null; sessionMinutes: number; maxPeople: number }
 export const listEvents = () => call<{ now: number; quota?: LiveQuota; events: LiveEvent[] }>('events');

@@ -185,3 +185,23 @@ describe('the 3-hour session clock', () => {
   });
   it('limits a room to 4 people', () => { expect(ROOM.admitted).toBe(4); });
 });
+
+describe('session type', () => {
+  const g1 = peer('g1', 'guest'), g2 = peer('g2', 'guest');
+  const bcast: RoomMeta = { ...freshMeta(), mode: 'broadcast' };
+  it('in a broadcast guests can signal the host but not each other', () => {
+    expect(run(bcast, [prod, g1, g2], g1, { t: 'signal', to: 'p', data: { a: 1 } }).out[0]).toMatchObject({ to: 'p' });
+    expect(run(bcast, [prod, g1, g2], g1, { t: 'signal', to: 'g2', data: { a: 1 } }).out[0].msg).toMatchObject({ t: 'error' });
+    expect(run(bcast, [prod, g1, g2], prod, { t: 'signal', to: 'g2', data: { a: 1 } }).out[0]).toMatchObject({ to: 'g2' });
+  });
+  it('in a conversation guests can signal each other', () => {
+    expect(run(freshMeta(), [prod, g1, g2], g1, { t: 'signal', to: 'g2', data: { a: 1 } }).out[0]).toMatchObject({ to: 'g2' });
+  });
+  it('only the host can step a broadcast down to a conversation, and never the other way', () => {
+    expect(parseClientMessage(JSON.stringify({ t: 'mode', mode: 'broadcast' }))).toBeNull();
+    const r = run(bcast, [prod, g1], prod, { t: 'mode', mode: 'conversation' });
+    expect(r.meta.mode).toBe('conversation');
+    expect(r.out[0]).toMatchObject({ to: 'all', msg: { t: 'mode', mode: 'conversation' } });
+    expect(run(bcast, [prod, g1], g1, { t: 'mode', mode: 'conversation' }).meta.mode).toBe('broadcast');
+  });
+});
