@@ -53,7 +53,7 @@ export function useCall(token: string, view: RoomView, send: (m: Record<string, 
     setCall(empty);
   }, []);
 
-  const join = useCallback(async (headphones = true) => {
+  const join = useCallback(async (headphones = true, deviceId?: string) => {
     if (mgr.current || !meId || !view.me) return;
     setCall({ ...empty, starting: true });
     try {
@@ -79,7 +79,7 @@ export function useCall(token: string, view: RoomView, send: (m: Record<string, 
         onRemote: (id, stream) => setCall((c) => { const streams = { ...c.streams }; if (stream) streams[id] = stream; else delete streams[id]; return { ...c, streams }; }),
         onQuality: (id, q, s: LinkStats) => setCall((c) => ({ ...c, quality: { ...c.quality, [id]: { q, label: LABEL[q], relayed: s.relayed } } })),
       });
-      const local = await m.start();
+      const local = await m.start(deviceId);
       mgr.current = m;
       joinedAs.current = { mode, headphones };
       stopLevel.current = watchLevel(ac, local, (v) => setCall((c) => (Math.abs(c.myLevel - v) > 0.03 ? { ...c, myLevel: v } : c)));
@@ -105,6 +105,7 @@ export function useCall(token: string, view: RoomView, send: (m: Record<string, 
     setTimeout(() => { again.current = false; void join(hp); }, 300);
   }, [call.joined, view.mode, leave, join]);
 
+  const setProgramHost = useCallback((on: boolean) => { mixer.current?.setProgramIncludesHost(on); }, []);
   const setStrip = useCallback((id: string, patch: Partial<StripSettings>) => {
     const s = mixer.current?.setStrip(id, patch);
     if (s) setCall((c) => ({ ...c, strips: { ...c.strips, [id]: s } }));
@@ -124,5 +125,5 @@ export function useCall(token: string, view: RoomView, send: (m: Record<string, 
 
   const mute = useCallback((m: boolean) => { mgr.current?.setMuted(m); setCall((c) => ({ ...c, muted: m })); send({ t: 'state', muted: m }); }, [send]);
   const onSignal = useCallback((from: string, data: unknown) => { void mgr.current?.handleSignal(from, data); }, []);
-  return { call, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, isDesk: () => mixer.current !== null };
+  return { call, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost, isDesk: () => mixer.current !== null };
 }

@@ -78,6 +78,26 @@ describe('mix-minus', () => {
   });
 });
 
+describe('program content', () => {
+  it('can leave the host out of the program, while guests and the guests\' own mixes still hear the host', () => {
+    const { ctx, sources, dests } = makeCtx();
+    const m = new HostMixer(ctx);
+    const host = stream('host'), a = stream('a');
+    m.setHostMic(host); m.addGuest('a', a);
+    const program = dests[0]; // the first destination the desk makes is the program
+    expect(m.program).toBe(program.stream);
+    expect(reaches(sources.get(host)!, program)).toBe(true);
+    m.setProgramIncludesHost(false);
+    expect(m.programIncludesHost).toBe(false);
+    expect(reaches(sources.get(host)!, program)).toBe(false);
+    expect(reaches(sources.get(a)!, program)).toBe(true);
+    const mixA = dests.find((d) => d.stream === m.mixMinusStream('a'))!;
+    expect(reaches(sources.get(host)!, mixA)).toBe(true);
+    m.setProgramIncludesHost(true);
+    expect(reaches(sources.get(host)!, program)).toBe(true);
+  });
+});
+
 describe('channel strips', () => {
   it('limits settings to safe ranges and applies them', () => {
     expect(clampStrip({ volume: 9, presence: -40, muted: true })).toEqual({ volume: 2, presence: -6, muted: true });

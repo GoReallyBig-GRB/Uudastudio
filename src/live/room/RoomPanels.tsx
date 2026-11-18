@@ -32,8 +32,11 @@ const RemoteAudio: React.FC<{ stream: MediaStream }> = ({ stream }) => {
 const QUALITY_CLS: Record<string, string> = { good: 'text-ok', weak: 'text-gold', poor: 'text-danger', unknown: 'text-ink-faint' };
 
 /** Join the voice call, mute, and see your own level and how each connection is doing */
-const CallBar: React.FC<{ call: CallView; mode: 'conversation' | 'broadcast'; role: 'producer' | 'guest'; onJoin: (headphones: boolean) => void; onLeave: () => void; onMute: (m: boolean) => void }> = ({ call, mode, role, onJoin, onLeave, onMute }) => {
+const CallBar: React.FC<{ call: CallView; mode: 'conversation' | 'broadcast'; role: 'producer' | 'guest'; onJoin: (headphones: boolean, deviceId?: string) => void; onLeave: () => void; onMute: (m: boolean) => void }> = ({ call, mode, role, onJoin, onLeave, onMute }) => {
   const [headphones, setHeadphones] = useState(false);
+  const [inputId, setInputId] = useState('');
+  const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
+  useEffect(() => { if (role === 'producer' && mode === 'broadcast') void navigator.mediaDevices?.enumerateDevices().then((d) => setInputs(d.filter((x) => x.kind === 'audioinput'))).catch(() => undefined); }, [role, mode]);
   const broadcast = mode === 'broadcast';
   const needs = broadcast && role === 'producer' && !headphones;
   return (
@@ -41,9 +44,17 @@ const CallBar: React.FC<{ call: CallView; mode: 'conversation' | 'broadcast'; ro
     {!call.joined ? (
       <div className="flex flex-col gap-2">
         {broadcast && <p className="text-xs font-medium text-ink">{role === 'guest' ? 'Broadcast session: you are connected to the host, who mixes the sound.' : 'Broadcast session: guests connect to you and you mix their sound.'}</p>}
+        {broadcast && role === 'producer' && (
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="host-input" className="text-xs text-ink">Your microphone or mixer input</label>
+            <select id="host-input" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={inputId} onChange={(e) => setInputId(e.target.value)}>
+              <option value="">Default</option>
+              {inputs.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `Input ${i + 1}`}</option>)}
+            </select>
+          </div>)}
         <label className="flex items-center gap-2 text-xs text-ink"><input type="checkbox" checked={headphones} onChange={(e) => setHeadphones(e.target.checked)} />I am wearing headphones</label>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className={PRIMARY} disabled={call.starting || needs} onClick={() => onJoin(headphones)}><Headphones className="h-3.5 w-3.5" />{call.starting ? 'Starting…' : 'Join the voice call'}</button>
+          <button type="button" className={PRIMARY} disabled={call.starting || needs} onClick={() => onJoin(headphones, inputId || undefined)}><Headphones className="h-3.5 w-3.5" />{call.starting ? 'Starting…' : 'Join the voice call'}</button>
           <span className="text-xs text-ink-dim">{needs ? 'Tick the box: a broadcast needs headphones on the host side.' : broadcast && role === 'guest' && !headphones ? 'Without headphones your sound is processed to avoid echo, so it will not be as clean.' : 'Headphones keep the call out of your recording.'}</span>
         </div>
       </div>
@@ -73,8 +84,9 @@ const qualityFor = (call: CallView, id: string) => {
 /** Host's mixing desk for a broadcast: one strip per guest, plus where the finished mix goes */
 const DeskPanel: React.FC<{
   peers: Array<{ id: string; name: string }>; call: CallView; level: (id: string) => { level: number; clipping: boolean };
-  setStrip: (id: string, p: Partial<StripSettings>) => void; programDevice: string; setProgramDevice: (id: string) => Promise<void>;
-}> = ({ peers, call, level, setStrip, programDevice, setProgramDevice }) => {
+  setStrip: (id: string, p: Partial<StripSettings>) => void; programDevice: string; setProgramDevice: (id: string) => Promise<void>; setProgramHost: (on: boolean) => void;
+}> = ({ peers, call, level, setStrip, programDevice, setProgramDevice, setProgramHost }) => {
+  const [hostOn, setHostOn] = useState(true);
   useTick(120);
   const [outs, setOuts] = useState<MediaDeviceInfo[]>([]);
   useEffect(() => { void navigator.mediaDevices?.enumerateDevices().then((d) => setOuts(d.filter((x) => x.kind === 'audiooutput'))).catch(() => undefined); }, []);
@@ -108,6 +120,12 @@ const DeskPanel: React.FC<{
           <option value="">Off</option>
           {outs.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `Output ${i + 1}`}</option>)}
         </select>
+        <label htmlFor="program-content" className="text-xs text-ink">Program contains</label>
+        <select id="program-content" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={hostOn ? 'all' : 'guests'} onChange={(e) => { const on = e.target.value === 'all'; setHostOn(on); setProgramHost(on); }}>
+          <option value="all">Me and the guests</option>
+          <option value="guests">Guests only (my microphone goes through a mixer)</option>
+        </select>
+        <p className="w-full text-[11px] text-ink-faint">Choose "Guests only" when your microphone is wired to a hardware mixer that already puts you on air. Otherwise you would go out twice and sound doubled. Guests still hear you.</p>
         <p className="w-full text-[11px] text-ink-faint">Sends the finished mix to a sound device. Pick your virtual audio cable to feed OBS, StreamYard or a transmitter chain. Works in Chrome and Edge on a computer.</p>
       </div>
     </div>
@@ -128,7 +146,7 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
   const [on, setOn] = useState(false);
   const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, on, undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
-  const { call, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice } = useCall(token, view, send);
+  const { call, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost } = useCall(token, view, send);
   signalRef.current = onSignal;
   const mine = useRoomRecording(token, view, send, clockMs, (r) => { onTake?.(r); removeQueued(token, r.takeId); });
   useEffect(() => { if (!on) { leave(); void mine.stop(); } }, [on, leave, mine.stop]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -163,8 +181,8 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
                     <li key={p.id} className="flex items-center justify-between gap-2 rounded-control border border-line bg-surface-2 px-3 py-2"><span className="flex items-center gap-2 truncate text-ink">{p.muted ? <MicOff className="h-3.5 w-3.5 text-ink-faint" /> : <Mic className="h-3.5 w-3.5 text-ok" />}{p.name}{qualityFor(call, p.id)}{p.recording && <span className="text-[11px] text-danger">● recording</span>}</span>
                       <button type="button" className={BTN} onClick={() => send({ t: 'remove', id: p.id })}>Remove</button></li>))}
                 </ul></div>
-              <CallBar call={call} mode={view.mode} role="producer" onJoin={(h) => { void join(h); }} onLeave={leave} onMute={mute} />
-              {call.joined && view.mode === 'broadcast' && <DeskPanel peers={view.peers.filter((p) => p.admitted && p.role === 'guest')} call={call} level={level} setStrip={setStrip} programDevice={programDevice} setProgramDevice={setProgramDevice} />}
+              <CallBar call={call} mode={view.mode} role="producer" onJoin={(h, d) => { void join(h, d); }} onLeave={leave} onMute={mute} />
+              {call.joined && view.mode === 'broadcast' && <DeskPanel peers={view.peers.filter((p) => p.admitted && p.role === 'guest')} call={call} level={level} setStrip={setStrip} programDevice={programDevice} setProgramDevice={setProgramDevice} setProgramHost={setProgramHost} />}
               <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
                 <button type="button" className={PRIMARY} disabled={Boolean(running)} onClick={() => send({ t: 'record', leadMs: 3000 })}>Record all</button>
                 <button type="button" className={BTN} disabled={!running} onClick={() => send({ t: 'stop' })}>Stop</button>

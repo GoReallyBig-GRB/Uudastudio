@@ -98,6 +98,19 @@ export class HostMixer {
 
   setHostMuted(m: boolean): void { this.hostFader.gain.value = m ? 0 : 1; }
 
+  private hostOnProgram = true;
+  /**
+   * Whether the host's own microphone is part of the program. Turn it off when the microphone is wired to a hardware mixer that already
+   * puts the host on air: otherwise the host would go out twice, slightly apart, and sound doubled. Guests still hear the host either way.
+   */
+  setProgramIncludesHost(on: boolean): void {
+    if (on === this.hostOnProgram) return;
+    this.hostOnProgram = on;
+    if (on) this.hostFader.connect(this.programSum);
+    else { try { this.hostFader.disconnect(this.programSum); } catch { /* already apart */ } }
+  }
+  get programIncludesHost(): boolean { return this.hostOnProgram; }
+
   has(id: string): boolean { return this.strips.has(id); }
 
   /** The strip and the guest's private mix exist from the moment the guest connects, so the host can start sending that mix before the guest's own sound arrives */
