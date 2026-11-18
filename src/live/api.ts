@@ -1,5 +1,5 @@
 import { authService } from '../services/authService';
-import type { LiveEvent, LiveFile, LiveParticipant } from './events';
+import type { LiveEvent, LiveFile, LiveMode, LiveParticipant } from './events';
 
 export class LiveApiError extends Error { constructor(public status: number, message: string) { super(message); } }
 
@@ -10,9 +10,10 @@ const call = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
   return body as T;
 };
 
-export interface EventDraft { kind: 'scheduled' | 'quick'; title: string; description: string; notes: string; startsAt: number | null; durationMin: number | null; participants: LiveParticipant[] }
+export interface EventDraft { kind: 'scheduled' | 'quick'; mode: LiveMode; title: string; description: string; notes: string; startsAt: number | null; durationMin: number | null; participants: LiveParticipant[] }
 
-export const listEvents = () => call<{ now: number; events: LiveEvent[] }>('events');
+export interface LiveQuota { used: number; limit: number; left: number; resetsAt: number | null; sessionMinutes: number; maxPeople: number }
+export const listEvents = () => call<{ now: number; quota?: LiveQuota; events: LiveEvent[] }>('events');
 export const createEvent = (d: EventDraft) => call<LiveEvent>('events', { method: 'POST', body: JSON.stringify(d) });
 export const updateEvent = (id: string, d: EventDraft) => call<LiveEvent>(`events/${id}`, { method: 'PUT', body: JSON.stringify(d) });
 export const deleteEvent = (id: string) => call<{ ok: true }>(`events/${id}`, { method: 'DELETE' });

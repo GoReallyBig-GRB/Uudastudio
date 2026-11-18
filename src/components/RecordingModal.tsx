@@ -22,7 +22,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { InputEQSettings, EQPreset, RecordingDeviceSettings } from '../types';
-import { audioRecorder, DeviceInfo, StreamStats } from '../audio/recorder';
+import { audioRecorder, DeviceInfo, StreamStats, type RecordedTake } from '../audio/recorder';
+import { fitLabel } from '../audio/recordingJournal';
 import { audioEngine } from '../audio/engine';
 import {
   loadEQPresets,
@@ -46,7 +47,7 @@ import {
 interface RecordingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onFinishRecording: (buffer: AudioBuffer, takeName: string) => void;
+  onFinishRecording: (take: RecordedTake, takeName: string) => void;
   /** Project "duck playing tracks" switch; only used as the first-time default for the choice below. */
   duckPlayingTracks: boolean;
   /** Level used when the choice is "Duck" (the project's existing ducking setting). */
@@ -148,16 +149,27 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
 
   // 2. Handle unexpected stream termination (mic unplugged)
   useEffect(() => {
-    audioRecorder.setOnUnexpectedEnd((recoveredBuffer) => {
+    audioRecorder.setOnUnexpectedEnd((recovered) => {
       setIsRecording(false);
       if (monitorDb !== null) {
         audioEngine.setDucking(false);
       }
-      if (recoveredBuffer && recoveredBuffer.duration > 0.2) {
-        onFinishRecording(recoveredBuffer, `Mic Take ${takeCount} (Recovered)`);
+      const seconds = recovered ? (recovered.kind === 'buffer' ? recovered.buffer.duration : recovered.meta.durationSeconds) : 0;
+      if (recovered && seconds > 0.2) {
+        onFinishRecording(recovered, `Mic Take ${takeCount} (Recovered)`);
         setTakeCount((prev) => prev + 1);
         onClose();
       }
+    });
+    audioRecorder.setOnDiskError((message, take) => {
+      setIsRecording(false);
+      if (monitorDb !== null) audioEngine.setDucking(false);
+      if (take) {
+        onFinishRecording(take, `Mic Take ${takeCount} (Stopped early)`);
+        setTakeCount((prev) => prev + 1);
+        onClose();
+      }
+      setPermissionError(`Recording stopped: ${message} ${take ? 'Everything recorded up to then was kept.' : ''}`);
     });
   }, [monitorDb, takeCount, onFinishRecording, onClose]);
 
@@ -374,6 +386,8 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
     await initStreamAndDevices(updated, eqSettings);
   };
 
+  const [spaceNote, setSpaceNote] = useState('');
+
   // Record Start
   const handleStartRecording = async () => {
     try {
@@ -383,7 +397,8 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
 
       await audioRecorder.startRecording((sec) => {
         setElapsedSeconds(sec);
-      });
+      }, `Mic Take ${takeCount}`);
+      setSpaceNote(audioRecorder.spaceSeconds !== null && audioRecorder.spaceSeconds < 3 * 3600 ? `This device has room for about ${fitLabel(audioRecorder.spaceSeconds)} more of recording.` : '');
       onRecordingStart?.();
       setIsRecording(true);
       setElapsedSeconds(0);
@@ -396,17 +411,18 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
   // Record Stop
   const handleStopRecording = async () => {
     try {
-      const audioBuffer = await audioRecorder.stopRecording();
+      const take = await audioRecorder.stopRecordingTake();
       setIsRecording(false);
 
       if (monitorDb !== null) {
         audioEngine.setDucking(false);
       }
 
-      if (audioBuffer && audioBuffer.duration > 0.1) {
+      const seconds = take.kind === 'buffer' ? take.buffer.duration : take.meta.durationSeconds;
+      if (seconds > 0.1) {
         const takeName = `Mic Take ${takeCount}`;
         setTakeCount((prev) => prev + 1);
-        onFinishRecording(audioBuffer, takeName);
+        onFinishRecording(take, takeName);
         onClose();
       }
     } catch (err: unknown) {
@@ -428,6 +444,7 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({
           </span>
           <span className="font-mono text-base font-bold tabular-nums text-ink">{formatTimecode(elapsedSeconds)}</span>
           <canvas ref={meterCanvasRef} width={160} height={10} className="h-2.5 w-40 rounded-full bg-surface-0" />
+          {spaceNote && <span className="max-w-[16rem] text-[10px] leading-tight text-gold">{spaceNote}</span>}
           <button
             type="button"
             onClick={handleStopRecording}

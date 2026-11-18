@@ -5,6 +5,7 @@
  */
 import { userFor, type AuthEnv } from '../auth/handler';
 import type { Limiter } from '../auth/rateLimit';
+import { FREE_PLAN, quotaFor, resetText, upcomingCount } from './plan';
 import { LIMITS, cleanFileName, fileKindOf, liveElsewhere, randomId, stateOf, timeClash, validateEvent, type LiveEventRow } from './rules';
 import type { LiveStore } from './store';
 
@@ -19,7 +20,7 @@ const fail = (status: number, error: string, extra: Record<string, string> = {})
 const sameSite = (req: Request) => { const o = req.headers.get('origin'); return !o || o === new URL(req.url).origin; };
 
 const view = async (e: LiveEventRow, store: LiveStore, now: number) => ({
-  id: e.id, token: e.token, kind: e.kind, title: e.title, description: e.description, notes: e.notes, startsAt: e.startsAt, durationMin: e.durationMin,
+  id: e.id, token: e.token, kind: e.kind, mode: e.mode, title: e.title, description: e.description, notes: e.notes, startsAt: e.startsAt, durationMin: e.durationMin,
   activatedAt: e.activatedAt, endedAt: e.endedAt, participants: e.participants, state: stateOf(e, now), files: await store.files(e.id), createdAt: e.createdAt,
 });
 
@@ -56,7 +57,7 @@ export const handleLive = async (req: Request, rest: string[], env: LiveEnv): Pr
     if (rest[0] !== 'events') return fail(404, 'Not found.');
     if (rest.length === 1 && m === 'GET') {
       const rows = await env.store.list(uid);
-      return send({ now, events: await Promise.all(rows.map((e) => view(e, env.store, now))) });
+      return send({ now, quota: quotaFor(rows, now), events: await Promise.all(rows.map((e) => view(e, env.store, now))) });
     }
     if (rest.length === 1 && m === 'POST') {
       let body: unknown; try { body = await req.json(); } catch { return fail(400, 'An event is required.'); }
@@ -64,6 +65,8 @@ export const handleLive = async (req: Request, rest: string[], env: LiveEnv): Pr
       if (!v.ok) return fail(400, v.error);
       if ((await env.store.count(uid)) >= LIMITS.events) return fail(409, `You can keep up to ${LIMITS.events} events. Delete old ones first.`);
       const others = await env.store.list(uid);
+      if (upcomingCount(others, now) >= FREE_PLAN.upcomingEvents) return fail(409, `You can hold ${FREE_PLAN.upcomingEvents} upcoming events. End or delete some first.`);
+      if (v.value.kind === 'quick') { const q = quotaFor(others, now); if (q.left === 0) return fail(409, `You have used your ${q.limit} live sessions for this week.${resetText(q.resetsAt)}`); }
       if (v.value.kind === 'quick') { const live = liveElsewhere(others, null, now); if (live) return fail(409, `"${live.title}" is live right now. End it before starting another.`); }
       else if (v.value.startsAt !== null) { const c = timeClash(others, null, v.value.startsAt, v.value.durationMin, now); if (c) return fail(409, `That time overlaps "${c.title}". Two live events cannot run at the same time.`); }
       const row: LiveEventRow = { id: randomId(9), userId: uid, token: randomId(18), ...v.value, activatedAt: v.value.kind === 'quick' ? now : null, endedAt: null, hostName: me.user.display_name.slice(0, 80), createdAt: now, updatedAt: now };
@@ -81,14 +84,19 @@ export const handleLive = async (req: Request, rest: string[], env: LiveEnv): Pr
       const v = validateEvent({ ...(body as object), kind: e.kind }, now);
       if (!v.ok) return fail(400, v.error);
       if (e.kind === 'scheduled' && v.value.startsAt !== null && stateOf(e, now) !== 'ended') { const c = timeClash(await env.store.list(uid), e.id, v.value.startsAt, v.value.durationMin, now); if (c) return fail(409, `That time overlaps "${c.title}". Two live events cannot run at the same time.`); }
-      const next = { ...e, title: v.value.title, description: v.value.description, notes: v.value.notes, startsAt: e.kind === 'quick' ? null : v.value.startsAt, durationMin: v.value.durationMin, participants: v.value.participants, updatedAt: now };
+      const next = { ...e, mode: stateOf(e, now) === 'open' ? e.mode : v.value.mode, title: v.value.title, description: v.value.description, notes: v.value.notes, startsAt: e.kind === 'quick' ? null : v.value.startsAt, durationMin: v.value.durationMin, participants: v.value.participants, updatedAt: now };
       await env.store.save(next);
       return send(await view(next, env.store, now));
     }
     if (rest.length === 2 && m === 'DELETE') { await env.store.remove(uid, id); return send({ ok: true }); }
     if (rest.length === 3 && rest[2] === 'activate' && m === 'POST') {
       let body: { open?: boolean } = {}; try { body = await req.json(); } catch { /* default: open */ }
-      if (body.open !== false) { const live = liveElsewhere(await env.store.list(uid), e.id, now); if (live) return fail(409, `"${live.title}" is live right now. End it before opening this one.`); }
+      if (body.open !== false) {
+        const all = await env.store.list(uid);
+        const live = liveElsewhere(all, e.id, now); if (live) return fail(409, `"${live.title}" is live right now. End it before opening this one.`);
+        if (e.endedAt) return fail(409, 'This event has ended. Create a new one to go live again.');
+        if (stateOf(e, now) !== 'open') { const q = quotaFor(all, now, e.id); if (q.left === 0) return fail(409, `You have used your ${q.limit} live sessions for this week.${resetText(q.resetsAt)}`); }
+      }
       const next = body.open === false ? { ...e, endedAt: now, updatedAt: now } : { ...e, activatedAt: now, endedAt: null, updatedAt: now };
       await env.store.save(next);
       return send(await view(next, env.store, now));

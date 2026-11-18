@@ -1,12 +1,13 @@
 /** Live events on the producer's side: ordering, wording and share links. No network, no screen. */
 import { parseBlocks } from '../guest/scriptFormat';
 
+export type LiveMode = 'conversation' | 'broadcast';
 export type EventState = 'waiting' | 'open' | 'ended';
 /** whatsapp is digits with the country code first; email is separate */
 export interface LiveParticipant { name: string; whatsapp: string; email: string }
 export interface LiveFile { id: string; name: string; mime: string; size: number; kind: 'doc' | 'audio' }
 export interface LiveEvent {
-  id: string; token: string; kind: 'scheduled' | 'quick'; title: string; description: string; notes: string;
+  id: string; token: string; kind: 'scheduled' | 'quick'; mode: LiveMode; title: string; description: string; notes: string;
   startsAt: number | null; durationMin: number | null; activatedAt: number | null; endedAt: number | null; participants: LiveParticipant[];
   state: EventState; files: LiveFile[]; createdAt: number;
 }

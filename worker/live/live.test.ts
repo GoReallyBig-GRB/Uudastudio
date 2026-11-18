@@ -50,7 +50,7 @@ describe('guest routes', () => {
   const store = new MemoryLiveStore();
   const env = { auth: {} as never, store, now: () => T0 } as LiveEnv;
   const seed = async () => {
-    await store.save({ id: 'e1', userId: 'u1', token: 'tok-1234567890abcdef', kind: 'scheduled', title: 'Panel', description: 'About radio', notes: 'Read https://example.com', startsAt: T0 + 3600_000, durationMin: 60, activatedAt: null, endedAt: null, participants: [], hostName: 'Host', createdAt: T0, updatedAt: T0 });
+    await store.save({ id: 'e1', userId: 'u1', token: 'tok-1234567890abcdef', kind: 'scheduled', mode: 'conversation', title: 'Panel', description: 'About radio', notes: 'Read https://example.com', startsAt: T0 + 3600_000, durationMin: 60, activatedAt: null, endedAt: null, participants: [], hostName: 'Host', createdAt: T0, updatedAt: T0 });
     await store.addFile('e1', { id: 'f1', name: 'brief.pdf', mime: 'application/octet-stream', size: 3, kind: 'doc', data: new Uint8Array([1, 2, 3]) });
   };
   it('shows the details and says the room is not open yet', async () => {
@@ -80,7 +80,7 @@ describe('guest routes', () => {
 });
 
 describe('two events never share a time', () => {
-  const row = (o: Partial<LiveEventRow>): LiveEventRow => ({ id: 'a', userId: 'u', token: 't', kind: 'scheduled', title: 'A', description: '', notes: '', startsAt: 1_000_000, durationMin: 60, activatedAt: null, endedAt: null, participants: [], hostName: 'h', createdAt: 0, updatedAt: 0, ...o });
+  const row = (o: Partial<LiveEventRow>): LiveEventRow => ({ id: 'a', userId: 'u', token: 't', kind: 'scheduled', mode: 'conversation', title: 'A', description: '', notes: '', startsAt: 1_000_000, durationMin: 60, activatedAt: null, endedAt: null, participants: [], hostName: 'h', createdAt: 0, updatedAt: 0, ...o });
   const now = 900_000;
   it('refuses a time that overlaps another event, and allows one right after it', () => {
     const a = row({});
