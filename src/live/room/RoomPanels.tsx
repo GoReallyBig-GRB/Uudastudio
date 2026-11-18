@@ -3,6 +3,9 @@ import { Headphones, Mic, MicOff, PhoneOff, Users } from 'lucide-react';
 import { useLiveRoom } from './useLiveRoom';
 import { useCall, type CallView } from './useCall';
 import { limitNotice } from './roomState';
+import { useRoomRecording } from './useRoomRecording';
+import { removeQueued } from './takeQueue';
+import type { RoomRecording } from './roomRecorder';
 
 const BTN = 'inline-flex items-center gap-1.5 rounded-control border border-line-strong bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface-3 cursor-pointer disabled:opacity-40 disabled:pointer-events-none';
 const PRIMARY = 'inline-flex items-center gap-1.5 rounded-control border border-accent px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent hover:text-surface-0 cursor-pointer disabled:opacity-40 disabled:pointer-events-none';
@@ -56,14 +59,24 @@ const qualityFor = (call: CallView, id: string) => {
   return call.joined && q ? <span className={`text-[11px] ${QUALITY_CLS[q.q]}`}>{q.label}{q.relayed ? ' (relayed)' : ''}</span> : null;
 };
 
+/** This device's own recording: whether it is running, what went wrong, what was saved */
+const MyRecording: React.FC<{ mine: ReturnType<typeof useRoomRecording> }> = ({ mine }) => (
+  <>
+    {mine.recording && <p className="text-xs text-danger">● Recording your microphone on this device</p>}
+    {mine.error && <p role="alert" className="text-xs text-danger">{mine.error}</p>}
+    {mine.saved.map((t) => <p key={t.takeId} className="text-xs text-ok">Take saved on this device ({clockText(t.seconds)}).</p>)}
+  </>
+);
+
 /** The producer's side: who is in the room, let people in, start and stop together */
-export const ProducerRoomPanel: React.FC<{ token: string }> = ({ token }) => {
+export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecording) => void }> = ({ token, onTake }) => {
   const [on, setOn] = useState(false);
   const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, on, undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
   const { call, join, leave, mute, onSignal } = useCall(token, view, send);
   signalRef.current = onSignal;
-  useEffect(() => { if (!on) leave(); }, [on, leave]);
+  const mine = useRoomRecording(token, view, send, clockMs, (r) => { onTake?.(r); removeQueued(token, r.takeId); });
+  useEffect(() => { if (!on) { leave(); void mine.stop(); } }, [on, leave, mine.stop]); // eslint-disable-line react-hooks/exhaustive-deps
   useTick();
   const waiting = view.peers.filter((p) => !p.admitted);
   const inCall = view.peers.filter((p) => p.admitted);
@@ -92,7 +105,7 @@ export const ProducerRoomPanel: React.FC<{ token: string }> = ({ token }) => {
                 <ul className="flex flex-col gap-1.5">
                   <li className="flex items-center justify-between rounded-control border border-line bg-surface-2 px-3 py-2"><span className="text-ink">You</span></li>
                   {inCall.filter((p) => p.role === 'guest').map((p) => (
-                    <li key={p.id} className="flex items-center justify-between gap-2 rounded-control border border-line bg-surface-2 px-3 py-2"><span className="flex items-center gap-2 truncate text-ink">{p.muted ? <MicOff className="h-3.5 w-3.5 text-ink-faint" /> : <Mic className="h-3.5 w-3.5 text-ok" />}{p.name}{qualityFor(call, p.id)}</span>
+                    <li key={p.id} className="flex items-center justify-between gap-2 rounded-control border border-line bg-surface-2 px-3 py-2"><span className="flex items-center gap-2 truncate text-ink">{p.muted ? <MicOff className="h-3.5 w-3.5 text-ink-faint" /> : <Mic className="h-3.5 w-3.5 text-ok" />}{p.name}{qualityFor(call, p.id)}{p.recording && <span className="text-[11px] text-danger">● recording</span>}</span>
                       <button type="button" className={BTN} onClick={() => send({ t: 'remove', id: p.id })}>Remove</button></li>))}
                 </ul></div>
               <CallBar call={call} onJoin={() => { void join(); }} onLeave={leave} onMute={mute} />
@@ -103,6 +116,7 @@ export const ProducerRoomPanel: React.FC<{ token: string }> = ({ token }) => {
                 <button type="button" className={BTN} onClick={() => send({ t: 'end' })} disabled={view.endedAt !== null}>End session</button>
                 <span className="text-xs"><TakeLine take={view.take} now={clockMs()} /></span>
               </div>
+              <MyRecording mine={mine} />
               <CueBox onSend={(text) => send({ t: 'cue', to: 'all', text })} />
             </>
           )}
@@ -130,6 +144,7 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
   const { view, send, clockMs } = useLiveRoom(token, joined !== null, joined ?? undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
   const { call, join, leave, mute, onSignal } = useCall(token, view, send);
   signalRef.current = onSignal;
+  const mine = useRoomRecording(token, view, send, clockMs);
   useTick();
   if (joined === null) {
     return (
@@ -148,6 +163,7 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
       {view.connected && view.me?.admitted && (
         <>
           <p className="text-xs"><TakeLine take={view.take} now={clockMs()} /></p>
+          <MyRecording mine={mine} />
           <p className="text-xs text-ink-dim">In the room: {view.peers.filter((p) => p.admitted).map((p) => p.name).join(', ') || 'just you'}</p>
           <CallBar call={call} onJoin={() => { void join(); }} onLeave={leave} onMute={mute} />
         </>

@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarPlus, Check, Copy, FileText, Mail, MessageCircle, Music, Paperclip, Play, Plus, Radio, Square, Trash2, X, Zap } from 'lucide-react';
 import { ProducerRoomPanel } from './room/RoomPanels';
+import type { RoomRecording } from './room/roomRecorder';
 import { DateTimePicker } from '../components/ui/DateTimePicker';
 import { ScriptEditor } from '../components/ui/ScriptEditor';
 import { COUNTRIES, defaultCountry, isValidWhatsapp, joinNumber, splitNumber } from './phone';
@@ -9,7 +10,7 @@ import { FILE_CAP_BYTES, FILE_CAP_COUNT, countdown, durationLabel, formatWhen, i
 import type { EventDraft } from './api';
 import type { LiveState } from './useLiveEvents';
 
-interface Props { open: boolean; onClose: () => void; live: LiveState; hostName: string; focusId?: string | null }
+interface Props { open: boolean; onClose: () => void; live: LiveState; hostName: string; focusId?: string | null; /** Called with the host's own raw recording when a room take finishes */ onRoomTake?: (r: RoomRecording) => void }
 
 interface PersonForm { name: string; iso: string; national: string; email: string }
 interface Form { title: string; description: string; notes: string; startsAt: number | null; duration: string; people: PersonForm[]; files: LiveFile[]; removed: string[]; added: File[] }
@@ -160,7 +161,7 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
                   </p>
                 )}
 
-                {event && event.state === 'open' && <ProducerRoomPanel token={event.token} />}
+                {event && event.state === 'open' && <ProducerRoomPanel token={event.token} onTake={onRoomTake} />}
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="md:col-span-2"><label htmlFor="lw-title" className={LABEL}>Title</label><input id="lw-title" className={FIELD} value={form.title} maxLength={120} onChange={(e) => edit({ title: e.target.value })} placeholder="Friday panel with the guests" /></div>

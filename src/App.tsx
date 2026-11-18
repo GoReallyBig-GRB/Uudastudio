@@ -88,7 +88,7 @@ import { ChunkTool, pieceFromClip, processClipsChunked } from './audio/chunkedJo
 import { NoisePrint, learnNoisePrint } from './audio/dsp/noisePrint';
 import { LOUD_SPREAD_DB } from './audio/dsp/quietness';
 import { saveToDrive } from './cloud/googleDrive';
-import type { RecordedTake } from './audio/recorder';
+import { audioRecorder, type RecordedTake } from './audio/recorder';
 import { findUnfinishedRecordings, type UnfinishedRecording } from './audio/diskRecorder';
 import { RecoverRecordingDialog } from './components/RecoverRecordingDialog';
 import { decodeProjectFile, encodeProjectFileAsync, writeProjectFileToWritable } from './storage/projectFile';
@@ -4490,7 +4490,7 @@ const MainStudio: React.FC = () => {
       )}
       <AudioDevicesSheet {...audioDevices} open={audioDevices.open && (!setupOpen || devicesFromSetup)} onClose={() => { setDevicesFromSetup(false); audioDevices.close(); }} />
       <GeminiKeyDialog />
-      <LiveWorkspace open={liveOpen} onClose={() => setLiveOpen(false)} live={liveState} hostName={user?.display_name ?? ''} focusId={liveFocus} />
+      <LiveWorkspace open={liveOpen} onClose={() => setLiveOpen(false)} live={liveState} hostName={user?.display_name ?? ''} focusId={liveFocus} onRoomTake={(r) => { void (async () => { const t = r.take.kind === 'streamed' ? await audioRecorder.toTake(r.take.meta) : r.take; await handleFinishRecording(t, r.name); })(); }} />
       <JobsModal open={jobsWindow.open} onClose={() => setJobsWindow((w) => ({ ...w, open: false }))} jobs={jobsState} target={jobsWindow.target} clientOnly={jobsWindow.clientOnly} onImportFile={handleImportJobFile} />
       <InviteGuestModal open={isInviteGuestOpen} onClose={() => setIsInviteGuestOpen(false)} defaultTitle={project.name ?? ''} />
       {joinOrder && (

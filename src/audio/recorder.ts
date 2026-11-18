@@ -364,7 +364,7 @@ export class AudioRecorder {
   }
 
   /** Stop and return the take */
-  public async stopRecordingTake(): Promise<RecordedTake> {
+  public async stopRecordingTake(keepOnDisk = false): Promise<RecordedTake> {
     if (!this.disk) return { kind: 'buffer', buffer: await this.stopRecording() };
     this.isRecording = false;
     if (this.recordTimerId !== null) { clearInterval(this.recordTimerId); this.recordTimerId = null; }
@@ -372,7 +372,7 @@ export class AudioRecorder {
     this.disk = null;
     try {
       const meta = await disk.stop();
-      return await this.toTake(meta);
+      return keepOnDisk ? { kind: 'streamed', meta } : await this.toTake(meta);
     } finally {
       this.disk = disk;
       this.releaseDiskNodes();
