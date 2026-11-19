@@ -11,7 +11,6 @@ import { removeQueued } from './takeQueue';
 import { useFileChannels, useGuestActivity, useSessionBackup, useTakeReceiver, useTakeSender, type ActivityLine, type BackupState, type ReceivedLine } from './useFileTransfer';
 import { DELIVERY_TEXT, alignmentNote, deliveryStatus } from './integrity';
 import { compareActivity, gapsFound } from './activity';
-import { useLiveSettings } from '../settings/useLiveSettings';
 import { pendingTakes } from './takeQueue';
 import type { RoomRecording } from './roomRecorder';
 
