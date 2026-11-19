@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createStreamedWriter } from '../../assets/streamedWriter';
 import { readStreamedFrames, type StreamedMeta } from '../../assets/streamedStore';
-import { SafetyCopy } from './safetyCopy';
+import { ActivityWatch } from './activityWatch';
+import { SessionBackup } from './sessionBackup';
+import { AlignedSink, padFramesFor } from './transfer';
 import { markDelivered, pendingTakes } from './takeQueue';
 import { TakeReceiver, TakeSender, type Control, type TakeOffer } from './transfer';
 import type { RoomView } from './roomState';
@@ -16,17 +18,19 @@ export function useFileChannels() {
   return { channels, onChannel };
 }
 
-export interface ReceivedLine { id: string; guestId: string; takeId: string; guest: string; name: string; fraction: number; done: boolean; error: string | null; offeredSeconds: number | null }
+export interface ReceivedLine { id: string; guestId: string; takeId: string; guest: string; name: string; fraction: number; done: boolean; error: string | null; offeredSeconds: number | null; roomStartMs: number; /** Loudness record of what the guest sent, once it is all here */ env: Uint8Array | null }
 
 /** The host's side: takes in each guest's full-quality recording and gives it to the workspace as soon as it is complete */
-export function useTakeReceiver(view: RoomView, channels: Record<string, RTCDataChannel>, onTake?: (r: RoomRecording) => void) {
+export function useTakeReceiver(view: RoomView, channels: Record<string, RTCDataChannel>, hostStartOf: (takeId: string) => number | null, onTake?: (r: RoomRecording) => void) {
+  const sinks = useRef(new Map<string, AlignedSink>());
+  const hostStart = useRef(hostStartOf); hostStart.current = hostStartOf;
   const receivers = useRef(new Map<string, { recv: TakeReceiver; dc: RTCDataChannel | null }>());
   const wired = useRef(new Map<string, RTCDataChannel>());
   const [lines, setLines] = useState<Record<string, ReceivedLine>>({});
   const peersRef = useRef(view.peers); peersRef.current = view.peers;
   const cb = useRef(onTake); cb.current = onTake;
   const nameOf = (id: string) => peersRef.current.find((p) => p.id === id)?.name ?? 'Guest';
-  const patch = useCallback((key: string, p: Partial<ReceivedLine>) => setLines((l) => ({ ...l, [key]: { ...(l[key] ?? { id: key, guestId: key.split(':')[0], takeId: key.split(':')[1] ?? '', guest: '', name: '', fraction: 0, done: false, error: null, offeredSeconds: null }), ...p } })), []);
+  const patch = useCallback((key: string, p: Partial<ReceivedLine>) => setLines((l) => ({ ...l, [key]: { ...(l[key] ?? { id: key, guestId: key.split(':')[0], takeId: key.split(':')[1] ?? '', guest: '', name: '', fraction: 0, done: false, error: null, offeredSeconds: null, roomStartMs: 0, env: null }), ...p } })), []);
 
   useEffect(() => {
     for (const [guestId, dc] of Object.entries(channels)) {
@@ -39,15 +43,17 @@ export function useTakeReceiver(view: RoomView, channels: Record<string, RTCData
           async (offer: TakeOffer) => {
             const storeId = `live-${offer.takeId}-${Math.random().toString(36).slice(2, 7)}`;
             const w = await createStreamedWriter(storeId, offer.sampleRate, offer.channels);
-            patch(`${guestId}:${offer.takeId}`, { guest: nameOf(guestId), name: offer.name, fraction: 0, done: false, error: null, offeredSeconds: offer.frames / offer.sampleRate });
-            return w;
+            const aligned = new AlignedSink(w, padFramesFor(offer.roomStartMs, hostStart.current(offer.takeId), offer.sampleRate), offer.sampleRate, offer.channels);
+            sinks.current.set(`${guestId}:${offer.takeId}`, aligned);
+            patch(`${guestId}:${offer.takeId}`, { guest: nameOf(guestId), name: offer.name, fraction: 0, done: false, error: null, offeredSeconds: offer.frames / offer.sampleRate, roomStartMs: offer.roomStartMs, env: null });
+            return aligned;
           },
           (c: Control) => {
             if (c.t === 'refuse') patch(`${guestId}:${c.takeId}`, { error: c.reason });
             try { if (e.dc?.readyState === 'open') e.dc.send(JSON.stringify(c)); } catch { /* the guest sends again when the channel returns */ }
           },
           (offer, meta) => {
-            patch(`${guestId}:${offer.takeId}`, { fraction: 1, done: true });
+            patch(`${guestId}:${offer.takeId}`, { fraction: 1, done: true, env: sinks.current.get(`${guestId}:${offer.takeId}`)?.envelope.bins ?? null });
             cb.current?.({ takeId: offer.takeId, name: `${nameOf(guestId)}: ${offer.name}`, startAt: offer.startAt, roomStartMs: offer.roomStartMs, take: { kind: 'streamed', meta } });
           },
         );
@@ -74,7 +80,7 @@ export function useTakeReceiver(view: RoomView, channels: Record<string, RTCData
 export interface SendState { sending: boolean; fraction: number; pending: number; error: string | null }
 
 /** The guest's side: hands each saved recording to the host in the background, between takes, and carries on if the connection drops */
-export function useTakeSender(token: string, view: RoomView, channels: Record<string, RTCDataChannel>, recording: boolean, savedCount: number): SendState {
+export function useTakeSender(token: string, view: RoomView, channels: Record<string, RTCDataChannel>, recording: boolean, savedCount: number, relayed: boolean): SendState {
   const [state, setState] = useState<SendState>({ sending: false, fraction: 0, pending: pendingTakes(token).length, error: null });
   const recordingRef = useRef(recording); recordingRef.current = recording;
   const host = view.peers.find((p) => p.role === 'producer' && p.admitted);
@@ -83,7 +89,8 @@ export function useTakeSender(token: string, view: RoomView, channels: Record<st
 
   useEffect(() => {
     setState((s) => ({ ...s, pending: pendingTakes(token).length }));
-    if (!dc || dc.readyState !== 'open' || recording) return;
+    // On the shared relay the big file waits for a direct connection, to protect the free relay allowance. It stays safe on this device.
+    if (!dc || dc.readyState !== 'open' || recording || relayed) return;
     let cancelled = false;
     let cur: ReturnType<typeof pendingTakes>[number] | null = null;
     const sender = new TakeSender(
@@ -108,7 +115,7 @@ export function useTakeSender(token: string, view: RoomView, channels: Record<st
     })();
     return () => { cancelled = true; sender.abort(); dc.onmessage = prev; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dc, dc?.readyState, recording, savedCount, token, ended]);
+  }, [dc, dc?.readyState, recording, relayed, savedCount, token, ended]);
 
   return state;
 }
@@ -121,40 +128,84 @@ export const sendLine = (s: SendState): string | null => {
   return null;
 };
 
-export interface CopyLine { id: string; takeId: string; guestId: string; guest: string; seconds: number; meta: StreamedMeta | null; running: boolean }
+export interface ActivityLine { id: string; takeId: string; guestId: string; guest: string; bins: Uint8Array | null; seconds: number; startMs: number; running: boolean }
 
-/** The host keeps its own copy of every guest's voice during a take, so a guest can never stop their words from reaching the host */
-export function useSafetyCopies(view: RoomView, streams: Record<string, MediaStream>) {
-  const live = useRef(new Map<string, { copy: SafetyCopy; takeId: string; guest: string }>());
-  const [lines, setLines] = useState<CopyLine[]>([]);
+/** The host's loudness record of each guest during a take. Ten numbers a second, no audio: used to check the guest's full recording is complete and lined up. */
+export function useGuestActivity(view: RoomView, streams: Record<string, MediaStream>, clockMs: () => number) {
+  const watch = useRef<ActivityWatch | null>(null);
+  const live = useRef(new Map<string, { takeId: string; guest: string }>());
+  const [lines, setLines] = useState<ActivityLine[]>([]);
   const takeId = view.take?.id ?? null;
-  const stopped = view.take ? view.take.stopAt !== null : false;
-  const ended = view.endedAt !== null;
-  const running = takeId !== null && !stopped && !ended;
+  const running = takeId !== null && view.take?.stopAt === null && view.endedAt === null;
   const peersRef = useRef(view.peers); peersRef.current = view.peers;
 
-  const stopAll = useCallback(async () => {
-    const all = [...live.current.entries()]; live.current.clear();
-    for (const [guestId, e] of all) {
-      const seconds = e.copy.seconds;
-      const meta = await e.copy.finish().catch(() => null);
-      setLines((l) => l.map((x) => (x.id === `${e.takeId}:${guestId}` ? { ...x, seconds, meta, running: false } : x)));
-    }
+  const stopAll = useCallback(() => {
+    const w = watch.current; watch.current = null;
+    if (!w) return;
+    const done = w.stopAll();
+    const info = new Map(live.current); live.current.clear();
+    setLines((l) => l.map((x) => { const r = done.get(x.guestId); return r && info.get(x.guestId)?.takeId === x.takeId ? { ...x, bins: r.bins, seconds: r.seconds, running: false } : x; }));
   }, []);
 
   useEffect(() => {
     if (!running || !takeId) return;
+    if (!watch.current) watch.current = new ActivityWatch();
+    const w = watch.current;
     for (const [guestId, stream] of Object.entries(streams)) {
       if (live.current.has(guestId)) continue;
       const guest = peersRef.current.find((p) => p.id === guestId)?.name ?? 'Guest';
-      const copy = new SafetyCopy();
-      live.current.set(guestId, { copy, takeId, guest });
-      setLines((l) => [...l.filter((x) => x.id !== `${takeId}:${guestId}`), { id: `${takeId}:${guestId}`, takeId, guestId, guest, seconds: 0, meta: null, running: true }]);
-      void copy.begin(stream).catch(() => { live.current.delete(guestId); });
+      const startMs = clockMs();
+      live.current.set(guestId, { takeId, guest });
+      setLines((l) => [...l.filter((x) => x.id !== `${takeId}:${guestId}`), { id: `${takeId}:${guestId}`, takeId, guestId, guest, bins: null, seconds: 0, startMs, running: true }]);
+      void w.add(guestId, stream, startMs).catch(() => { live.current.delete(guestId); });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running, takeId, streams]);
 
-  useEffect(() => { if (!running) void stopAll(); }, [running, stopAll]);
-  useEffect(() => () => { void stopAll(); }, [stopAll]);
+  useEffect(() => { if (!running) stopAll(); }, [running, stopAll]);
+  useEffect(() => () => stopAll(), [stopAll]);
   return lines;
+}
+
+export interface BackupState { running: boolean; seconds: number; result: { meta: StreamedMeta; seconds: number } | null }
+
+/** One file of the whole session on this computer: the host and every guest, mixed. Runs while the host is in the call. */
+export function useSessionBackup(enabled: boolean, inCall: boolean, ended: boolean, hostStream: () => MediaStream | null, heard: Record<string, MediaStream>): BackupState {
+  const backup = useRef<SessionBackup | null>(null);
+  const starting = useRef(false);
+  const [state, setState] = useState<BackupState>({ running: false, seconds: 0, result: null });
+  const active = enabled && inCall && !ended;
+
+  const stop = useCallback(async () => {
+    const b = backup.current; backup.current = null; starting.current = false;
+    if (!b) return;
+    const seconds = b.seconds;
+    const meta = await b.finish().catch(() => null);
+    setState({ running: false, seconds, result: meta ? { meta, seconds } : null });
+  }, []);
+
+  useEffect(() => {
+    if (!active) { void stop(); return; }
+    if (backup.current || starting.current) return;
+    starting.current = true;
+    const b = new SessionBackup();
+    void b.begin().then(() => { backup.current = b; starting.current = false; b.add('host', hostStream()); setState({ running: true, seconds: 0, result: null }); }).catch(() => { starting.current = false; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, stop]);
+
+  useEffect(() => {
+    const b = backup.current;
+    if (!b) return;
+    for (const [id, st] of Object.entries(heard)) b.add(id, st);
+    for (const id of b.ids()) if (id !== 'host' && !(id in heard)) b.remove(id);
+  }, [heard, state.running]);
+
+  useEffect(() => {
+    if (!state.running) return;
+    const t = setInterval(() => setState((s) => ({ ...s, seconds: backup.current?.seconds ?? s.seconds })), 5000);
+    return () => clearInterval(t);
+  }, [state.running]);
+
+  useEffect(() => () => { void stop(); }, [stop]);
+  return state;
 }

@@ -5,6 +5,7 @@
  * Nothing here touches the browser: the pieces are tested with a fake connection.
  */
 import type { StreamedMeta } from '../../assets/streamedStore';
+import { EnvelopeBuilder } from './activity';
 
 export interface TakeOffer { takeId: string; name: string; sampleRate: number; channels: number; frames: number; startAt: number; stopAt: number | null; roomStartMs: number }
 export type Control =
@@ -227,4 +228,38 @@ export class TakeSender {
     }
     return 'aborted';
   }
+}
+
+// ---- placing the file on the host's timeline -----------------------------------------------------------------------------------
+
+/** Room-time difference to frames: positive when the guest's recording began after the host's */
+export function padFramesFor(guestStartMs: number, hostStartMs: number | null, sampleRate: number, maxSeconds = 30): number {
+  if (hostStartMs === null || !Number.isFinite(guestStartMs) || !Number.isFinite(hostStartMs)) return 0;
+  const s = (guestStartMs - hostStartMs) / 1000;
+  return Math.abs(s) > maxSeconds ? 0 : Math.round(s * sampleRate);
+}
+
+/**
+ * Wraps the place the file is written so it lines up with the host's own recording:
+ * silence is added at the start when the guest began later, and the start is trimmed when the guest began earlier.
+ * It also builds the loudness record of what the guest sent, to compare with what the host heard.
+ */
+export class AlignedSink implements TakeSink {
+  private lead: number;
+  private skip: number;
+  readonly envelope: EnvelopeBuilder;
+  constructor(private readonly inner: TakeSink, padFrames: number, sampleRate: number, private readonly channels: number) {
+    this.lead = Math.max(0, padFrames); this.skip = Math.max(0, -padFrames); this.envelope = new EnvelopeBuilder(sampleRate);
+  }
+
+  async write(planar: Float32Array[]): Promise<void> {
+    this.envelope.push(planar[0]);
+    let data = planar;
+    if (this.skip > 0) { const cut = Math.min(this.skip, planar[0].length); data = planar.map((c) => c.subarray(cut)); this.skip -= cut; }
+    if (data[0].length === 0) return;
+    if (this.lead > 0) { const silence = Array.from({ length: this.channels }, () => new Float32Array(this.lead)); this.lead = 0; await this.inner.write(silence); }
+    await this.inner.write(data);
+  }
+  finish(): Promise<StreamedMeta> { return this.inner.finish(); }
+  abort(): Promise<void> { return this.inner.abort(); }
 }

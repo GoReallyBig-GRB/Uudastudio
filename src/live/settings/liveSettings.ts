@@ -31,6 +31,8 @@ export interface LiveSettings {
   guestStrip: { lowCut: boolean; compressor: boolean; presence: number };
   /** Standard or high bit rate for the call (high uses more data) */
   quality: CallQuality;
+  /** Keep one mixed file of the whole session on this computer while in the call */
+  sessionBackup: boolean;
   /** The setup assistant has been run (or skipped), so it does not open by itself again */
   setupDone: boolean;
   profiles: StudioProfile[];
@@ -39,7 +41,7 @@ export interface LiveSettings {
 
 export const DEFAULT_LIVE_SETTINGS: LiveSettings = {
   defaultMode: 'conversation', inputDeviceId: '', headphones: false, programDeviceId: '', programContains: 'all',
-  guestStrip: { lowCut: true, compressor: true, presence: 0 }, quality: 'standard',
+  guestStrip: { lowCut: true, compressor: true, presence: 0 }, quality: 'standard', sessionBackup: true,
   setupDone: false, profiles: [], activeProfileId: '',
 };
 
@@ -71,6 +73,7 @@ export function sanitizeLiveSettings(x: unknown): LiveSettings {
     programContains: o.programContains === 'guests' ? 'guests' : 'all',
     guestStrip: { lowCut: typeof g.lowCut === 'boolean' ? g.lowCut : d.guestStrip.lowCut, compressor: typeof g.compressor === 'boolean' ? g.compressor : d.guestStrip.compressor, presence },
     quality: o.quality === 'high' ? 'high' : 'standard',
+    sessionBackup: typeof o.sessionBackup === 'boolean' ? o.sessionBackup : d.sessionBackup,
     setupDone: o.setupDone === true,
     profiles: Array.isArray(o.profiles) ? o.profiles.map(sanitizeProfile).filter((p): p is StudioProfile => p !== null).slice(0, MAX_PROFILES) : [],
     activeProfileId: typeof o.activeProfileId === 'string' ? o.activeProfileId.slice(0, 60) : '',

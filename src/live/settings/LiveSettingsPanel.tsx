@@ -77,6 +77,10 @@ export const LiveSettingsPanel: React.FC<{ open: boolean; onClose: () => void; q
           <Slider label="Presence" value={s.guestStrip.presence} min={-6} max={6} step={0.5} unit="dB" onChange={(v) => liveSettings.set({ guestStrip: { presence: v } })} />
         </Section>
 
+        <Section title="Session backup" hint="While you are in the call, this computer keeps one file of the whole session: you and every guest mixed together. It is a safety copy in case something happens to the individual recordings. It uses about 700 MB per hour.">
+          <Switch checked={s.sessionBackup} onChange={(v) => liveSettings.set({ sessionBackup: v })} label="Keep a mixed backup of the session" />
+        </Section>
+
         <Section title="Call quality" hint="High sounds cleaner and uses more data. It applies the next time you join the call.">
           <SegmentedControl<CallQuality> label="Call quality" value={s.quality} onChange={(v) => liveSettings.set({ quality: v })}
             options={[{ value: 'standard', label: 'Standard' }, { value: 'high', label: 'High' }]} />

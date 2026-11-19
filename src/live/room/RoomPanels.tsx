@@ -8,8 +8,10 @@ import { useLiveSettings } from '../settings/useLiveSettings';
 import { limitNotice } from './roomState';
 import { useRoomRecording } from './useRoomRecording';
 import { removeQueued } from './takeQueue';
-import { useFileChannels, useSafetyCopies, useTakeReceiver, useTakeSender, type CopyLine, type ReceivedLine } from './useFileTransfer';
-import { DELIVERY_TEXT, deliveryStatus } from './integrity';
+import { useFileChannels, useGuestActivity, useSessionBackup, useTakeReceiver, useTakeSender, type ActivityLine, type BackupState, type ReceivedLine } from './useFileTransfer';
+import { DELIVERY_TEXT, alignmentNote, deliveryStatus } from './integrity';
+import { compareActivity, gapsFound } from './activity';
+import { useLiveSettings } from '../settings/useLiveSettings';
 import { pendingTakes } from './takeQueue';
 import type { RoomRecording } from './roomRecorder';
 
@@ -142,22 +144,36 @@ const DeskPanel: React.FC<{
   );
 };
 
-/** What the host sees for each guest: the safe copy of their voice, and whether their full-quality recording has arrived complete */
-const DeliveryList: React.FC<{ copies: CopyLine[]; received: ReceivedLine[]; added: string[]; onAdd: (c: CopyLine) => void }> = ({ copies, received, added, onAdd }) => (
+/** What the host sees for each guest: whether their full-quality recording has arrived complete and lined up */
+const DeliveryList: React.FC<{ activity: ActivityLine[]; received: ReceivedLine[]; relayed: Record<string, boolean> }> = ({ activity, received, relayed }) => (
   <>
-    {copies.filter((c) => !c.running).map((c) => {
+    {activity.filter((c) => !c.running).map((c) => {
       const r = received.find((x) => x.id === c.id);
       if (r?.error) return <p key={c.id} role="alert" className="text-xs text-danger">{c.guest}: {r.error}</p>;
-      const st = deliveryStatus({ copySeconds: c.seconds, offeredSeconds: r?.offeredSeconds ?? null, done: r?.done ?? false });
+      const match = r?.done && c.bins && r.env ? compareActivity(c.bins, r.env) : null;
+      const st = deliveryStatus({ copySeconds: c.seconds, offeredSeconds: r?.offeredSeconds ?? null, done: r?.done ?? false, relayed: relayed[c.guestId] === true, complete: match ? !gapsFound(match) : undefined });
+      const note = r ? alignmentNote(match, c.startMs - r.roomStartMs, c.guest) : null;
       const pct = r && !r.done && st === 'receiving' ? ` ${Math.round(r.fraction * 100)}%` : '';
+      const bad = st === 'short' || st === 'gaps';
       return (
-        <div key={c.id} className="flex flex-wrap items-center gap-2">
-          <p role={st === 'short' ? 'alert' : 'status'} className={`text-xs ${st === 'short' ? 'text-danger' : st === 'received' ? 'text-ok' : 'text-ink-dim'}`}>{DELIVERY_TEXT[st](c.guest)}{pct}</p>
-          {c.meta && !added.includes(c.id) && <button type="button" className={BTN} onClick={() => onAdd(c)}>Add {c.guest}'s call copy to the project</button>}
+        <div key={c.id} className="flex flex-col gap-0.5">
+          <p role={bad ? 'alert' : 'status'} className={`text-xs ${bad ? 'text-danger' : st === 'received' ? 'text-ok' : 'text-ink-dim'}`}>{DELIVERY_TEXT[st](c.guest)}{pct}</p>
+          {note && <p role="alert" className="text-xs text-gold">{note}</p>}
         </div>);
     })}
   </>
 );
+
+/** The host's mixed backup of the whole session */
+const BackupLine: React.FC<{ b: BackupState; added: boolean; onAdd: () => void }> = ({ b, added, onAdd }) => {
+  if (b.running) return <p className="text-xs text-ink-dim">Session backup is running on this computer ({Math.floor(b.seconds / 60)} min). It holds you and every guest in one file.</p>;
+  if (b.result) return (
+    <div className="flex flex-wrap items-center gap-2">
+      <p className="text-xs text-ok">Session backup saved on this computer ({Math.max(1, Math.round(b.result.seconds / 60))} min).</p>
+      {!added && <button type="button" className={BTN} onClick={onAdd}>Add the session backup to the project</button>}
+    </div>);
+  return null;
+};
 
 /** This device's own recording: whether it is running, what went wrong, what was saved */
 const MyRecording: React.FC<{ mine: ReturnType<typeof useRoomRecording> }> = ({ mine }) => (
@@ -174,12 +190,15 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
   const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, on, undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
   const files = useFileChannels();
-  const { call, heard, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost } = useCall(token, view, send, files.onChannel);
-  const received = useTakeReceiver(view, files.channels, onTake);
-  const copies = useSafetyCopies(view, heard);
-  const [added, setAdded] = useState<string[]>([]);
+  const { call, heard, hostStream, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost } = useCall(token, view, send, files.onChannel);
+  const myStarts = useRef(new Map<string, number>());
+  const received = useTakeReceiver(view, files.channels, (id) => myStarts.current.get(id) ?? null, onTake);
+  const activity = useGuestActivity(view, heard, clockMs);
+  const liveSet = useLiveSettings();
+  const backup = useSessionBackup(liveSet.sessionBackup, call.joined, view.endedAt !== null, hostStream, heard);
+  const [backupAdded, setBackupAdded] = useState(false);
   signalRef.current = onSignal;
-  const mine = useRoomRecording(token, view, send, clockMs, (r) => { onTake?.(r); removeQueued(token, r.takeId); });
+  const mine = useRoomRecording(token, view, send, clockMs, (r) => { myStarts.current.set(r.takeId, r.roomStartMs); onTake?.(r); removeQueued(token, r.takeId); });
   useEffect(() => { if (!on) { leave(); void mine.stop(); } }, [on, leave, mine.stop]); // eslint-disable-line react-hooks/exhaustive-deps
   useTick();
   const waiting = view.peers.filter((p) => !p.admitted);
@@ -222,7 +241,8 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
                 <span className="text-xs"><TakeLine take={view.take} now={clockMs()} /></span>
               </div>
               <MyRecording mine={mine} />
-              <DeliveryList copies={copies} received={received} added={added} onAdd={(c) => { if (!c.meta) return; setAdded((a) => [...a, c.id]); onTake?.({ takeId: c.takeId, name: `${c.guest} (call copy)`, startAt: view.take?.startAt ?? 0, roomStartMs: 0, take: { kind: 'streamed', meta: c.meta } }); }} />
+              <BackupLine b={backup} added={backupAdded} onAdd={() => { if (!backup.result) return; setBackupAdded(true); onTake?.({ takeId: `backup-${Date.now()}`, name: 'Session backup (everyone mixed)', startAt: 0, roomStartMs: 0, take: { kind: 'streamed', meta: backup.result.meta } }); }} />
+              <DeliveryList activity={activity} received={received} relayed={Object.fromEntries(Object.entries(call.quality).map(([k, v]) => [k, v.relayed]))} />
               <CueBox onSend={(text) => send({ t: 'cue', to: 'all', text })} />
             </>
           )}
@@ -252,7 +272,8 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
   const { call, holdingFiles, join, leave, mute, onSignal } = useCall(token, view, send, files.onChannel);
   signalRef.current = onSignal;
   const mine = useRoomRecording(token, view, send, clockMs);
-  const handOver = useTakeSender(token, view, files.channels, mine.recording, mine.saved.length);
+  const hostPeer = view.peers.find((p) => p.role === 'producer');
+  const handOver = useTakeSender(token, view, files.channels, mine.recording, mine.saved.length, hostPeer ? call.quality[hostPeer.id]?.relayed === true : false);
   const pendingNow = handOver.pending;
   // Once everything has been handed over, a connection kept only for that can close
   useEffect(() => { if (holdingFiles && pendingNow === 0 && !handOver.sending) leave(); }, [holdingFiles, pendingNow, handOver.sending, leave]);

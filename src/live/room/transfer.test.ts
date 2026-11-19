@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StreamedMeta } from '../../assets/streamedStore';
-import { TakeReceiver, TakeSender, crc32, decodeChunk, encodeChunk, pack24, unpack24, validOffer, type Control, type SinkFactory, type TakeOffer } from './transfer';
+import { AlignedSink, TakeReceiver, TakeSender, crc32, padFramesFor, decodeChunk, encodeChunk, pack24, unpack24, validOffer, type Control, type SinkFactory, type TakeOffer } from './transfer';
 
 const SR = 8000;
 const offerOf = (frames: number, id = 'tk1', channels = 1): TakeOffer => ({ takeId: id, name: 'Take', sampleRate: SR, channels, frames, startAt: 1000, stopAt: 5000, roomStartMs: 900 });
@@ -117,5 +117,35 @@ describe('hand-over', () => {
     (r.recv as unknown as { reply: (c: Control) => void }).reply = (c) => queueMicrotask(() => s2.onText(JSON.stringify(c)));
     expect(await s2.send(offerOf(1000))).toBe('done');
     expect(naps).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('placing the file on the host timeline', () => {
+  const sinkOf = () => { const got: Float32Array[][] = []; return { got, sink: { write: async (p: Float32Array[]) => { got.push(p.map((c) => Float32Array.from(c))); }, finish: async () => ({}) as StreamedMeta, abort: async () => undefined }, total: () => got.reduce((n, p) => n + p[0].length, 0) }; };
+  it('works out the gap from the two start times', () => {
+    expect(padFramesFor(1500, 1000, 8000)).toBe(4000);
+    expect(padFramesFor(900, 1000, 8000)).toBe(-800);
+    expect(padFramesFor(1500, null, 8000)).toBe(0);
+    expect(padFramesFor(100_000, 1000, 8000)).toBe(0);
+  });
+  it('adds silence at the start when the guest began later', async () => {
+    const o = sinkOf(); const a = new AlignedSink(o.sink, 500, 8000, 1);
+    await a.write(wave(1000)); await a.write(wave(1000));
+    expect(o.total()).toBe(2500);
+    expect(o.got[0][0].every((v) => v === 0)).toBe(true);
+    expect(o.got[1][0][0]).toBe(wave(1000)[0][0]);
+  });
+  it('trims the start when the guest began earlier, even across several pieces', async () => {
+    const o = sinkOf(); const a = new AlignedSink(o.sink, -1500, 8000, 1);
+    const src = wave(1000);
+    await a.write(src); await a.write(src); await a.write(src);
+    expect(o.total()).toBe(1500);
+    expect(o.got[0][0][0]).toBe(src[0][500]);
+  });
+  it('leaves an aligned file alone and still builds the loudness record', async () => {
+    const o = sinkOf(); const a = new AlignedSink(o.sink, 0, 8000, 1);
+    await a.write([new Float32Array(16000).fill(0.1)]);
+    expect(o.total()).toBe(16000);
+    expect(a.envelope.bins).toHaveLength(20);
   });
 });

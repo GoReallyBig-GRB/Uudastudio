@@ -147,5 +147,5 @@ export function useCall(token: string, view: RoomView, send: (m: Record<string, 
 
   const mute = useCallback((m: boolean) => { mgr.current?.setMuted(m); setCall((c) => ({ ...c, muted: m })); send({ t: 'state', muted: m }); }, [send]);
   const onSignal = useCallback((from: string, data: unknown) => { void mgr.current?.handleSignal(from, data); }, []);
-  return { call, heard, holdingFiles, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost, isDesk: () => mixer.current !== null };
+  return { call, heard, holdingFiles, hostStream: () => mgr.current?.stream ?? null, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost, isDesk: () => mixer.current !== null };
 }
