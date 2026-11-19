@@ -32,7 +32,8 @@ const micError = (e: unknown): string => {
 };
 
 /** The voice call for one person in the room */
-export function useCall(token: string, view: RoomView, send: (m: Record<string, unknown>) => boolean) {
+export function useCall(token: string, view: RoomView, send: (m: Record<string, unknown>) => boolean, onFiles?: (id: string, channel: RTCDataChannel | null) => void) {
+  const filesRef = useRef(onFiles); filesRef.current = onFiles;
   const [call, setCall] = useState<CallView>(empty);
   const mgr = useRef<CallManager | null>(null);
   const stopLevel = useRef<(() => void) | null>(null);
@@ -79,6 +80,7 @@ export function useCall(token: string, view: RoomView, send: (m: Record<string, 
         myId: meId, role, mode, headphones, mixer: desk ?? undefined, quality: prefs.quality, stripDefaults: prefs.guestStrip,
         iceServers: r?.iceServers ?? [{ urls: 'stun:stun.cloudflare.com:3478' }],
         signal: (to, data) => { send({ t: 'signal', to, data }); },
+        onFiles: (id, ch) => filesRef.current?.(id, ch),
         onRemote: (id, stream) => setCall((c) => { const streams = { ...c.streams }; if (stream) streams[id] = stream; else delete streams[id]; return { ...c, streams }; }),
         onQuality: (id, q, s: LinkStats) => setCall((c) => ({ ...c, quality: { ...c.quality, [id]: { q, label: LABEL[q], relayed: s.relayed } } })),
       });

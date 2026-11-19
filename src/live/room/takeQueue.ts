@@ -12,6 +12,8 @@ export interface QueuedTake {
   roomStartMs: number;
   meta: StreamedMeta;
   savedAt: number;
+  /** When the host confirmed it has the whole file. The recording stays on this device. */
+  deliveredAt?: number;
 }
 
 const KEY = 'uuda_room_takes';
@@ -36,3 +38,11 @@ export function addQueued(t: QueuedTake, store: Store | null = browserStore()): 
 export function removeQueued(token: string, takeId: string, store: Store | null = browserStore()): void {
   save(listQueued(undefined, store).filter((x) => !(x.token === token && x.takeId === takeId)), store);
 }
+
+/** The host has the whole file: stop trying to send it. The audio stays on this device. */
+export function markDelivered(token: string, takeId: string, store: Store | null = browserStore()): void {
+  save(listQueued(undefined, store).map((x) => (x.token === token && x.takeId === takeId ? { ...x, deliveredAt: Date.now() } : x)), store);
+}
+
+/** Takes still to be handed over, oldest first */
+export const pendingTakes = (token: string, store: Store | null = browserStore()): QueuedTake[] => listQueued(token, store).filter((t) => !t.deliveredAt).sort((a, b) => a.savedAt - b.savedAt);

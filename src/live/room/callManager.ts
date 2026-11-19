@@ -23,6 +23,8 @@ export interface CallOptions {
   signal: (to: string, data: unknown) => void;
   onRemote: (id: string, stream: MediaStream | null) => void;
   onQuality: (id: string, q: Quality, s: LinkStats) => void;
+  /** The data channel used to hand recordings over opened (or closed, with null) for one person */
+  onFiles?: (id: string, channel: RTCDataChannel | null) => void;
 }
 
 interface Link {
@@ -76,6 +78,12 @@ export class CallManager {
     const link: Link = { pc, polite: isPolite(this.o.myId, id), making: false, ignore: false, last: { lost: 0, received: 0 }, timer: setInterval(() => { void this.poll(id); }, 2000) };
     this.links.set(id, link);
 
+    // A second path on the same connection, for handing recordings over. Both sides make it with the same number, so it needs no extra set-up.
+    const files = pc.createDataChannel('files', { negotiated: true, id: 1, ordered: true });
+    files.binaryType = 'arraybuffer';
+    files.onopen = () => this.o.onFiles?.(id, files);
+    files.onclose = () => this.o.onFiles?.(id, null);
+
     // The host in a broadcast sends this guest's own mix-minus instead of the raw microphone
     const desk = this.desk;
     let outgoing: MediaStream | null = this.local;
@@ -121,6 +129,7 @@ export class CallManager {
     clearInterval(l.timer);
     if (l.keep) { l.keep.srcObject = null; }
     this.desk?.removeGuest(id);
+    this.o.onFiles?.(id, null);
     try { l.pc.close(); } catch { /* already closed */ }
     this.links.delete(id);
     this.o.onRemote(id, null);

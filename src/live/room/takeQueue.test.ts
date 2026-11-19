@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addQueued, listQueued, removeQueued, type QueuedTake } from './takeQueue';
+import { addQueued, listQueued, markDelivered, pendingTakes, removeQueued, type QueuedTake } from './takeQueue';
 
 const mem = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); } }; };
 const take = (token: string, takeId: string): QueuedTake => ({ token, takeId, name: 'Live take', startAt: 1, stopAt: 9, roomStartMs: 0, savedAt: 5, meta: { storeId: `s-${takeId}`, sampleRate: 48000, channels: 1, frames: 480000, durationSeconds: 10, peakBase: 256, complete: true, createdAt: 1 } });
@@ -17,5 +17,13 @@ describe('take queue', () => {
     expect(listQueued('a', { getItem: () => '{nope', setItem: () => {} })).toEqual([]);
     expect(listQueued('a', null)).toEqual([]);
     expect(() => addQueued(take('a', '1'), null)).not.toThrow();
+  });
+  it('marks a take as delivered and stops listing it as pending', () => {
+    const s = mem();
+    addQueued(take('a', '1'), s); addQueued({ ...take('a', '2'), savedAt: 3 }, s);
+    expect(pendingTakes('a', s).map((t) => t.takeId)).toEqual(['2', '1']);
+    markDelivered('a', '2', s);
+    expect(pendingTakes('a', s).map((t) => t.takeId)).toEqual(['1']);
+    expect(listQueued('a', s)).toHaveLength(2);
   });
 });

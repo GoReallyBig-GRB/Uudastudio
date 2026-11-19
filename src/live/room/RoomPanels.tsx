@@ -8,6 +8,7 @@ import { useLiveSettings } from '../settings/useLiveSettings';
 import { limitNotice } from './roomState';
 import { useRoomRecording } from './useRoomRecording';
 import { removeQueued } from './takeQueue';
+import { sendLine, useFileChannels, useTakeReceiver, useTakeSender } from './useFileTransfer';
 import type { RoomRecording } from './roomRecorder';
 
 const BTN = 'inline-flex items-center gap-1.5 rounded-control border border-line-strong bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface-3 cursor-pointer disabled:opacity-40 disabled:pointer-events-none';
@@ -153,7 +154,9 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
   const [on, setOn] = useState(false);
   const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, on, undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
-  const { call, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost } = useCall(token, view, send);
+  const files = useFileChannels();
+  const { call, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost } = useCall(token, view, send, files.onChannel);
+  const received = useTakeReceiver(view, files.channels, onTake);
   signalRef.current = onSignal;
   const mine = useRoomRecording(token, view, send, clockMs, (r) => { onTake?.(r); removeQueued(token, r.takeId); });
   useEffect(() => { if (!on) { leave(); void mine.stop(); } }, [on, leave, mine.stop]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -198,6 +201,7 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
                 <span className="text-xs"><TakeLine take={view.take} now={clockMs()} /></span>
               </div>
               <MyRecording mine={mine} />
+              {received.map((l) => <p key={l.id} className={`text-xs ${l.error ? 'text-danger' : l.done ? 'text-ok' : 'text-ink-dim'}`}>{l.error ? `${l.guest}: ${l.error}` : l.done ? `Full-quality recording from ${l.guest} received and added to your project.` : `Receiving ${l.guest}'s full-quality recording… ${Math.round(l.fraction * 100)}%`}</p>)}
               <CueBox onSend={(text) => send({ t: 'cue', to: 'all', text })} />
             </>
           )}
@@ -223,9 +227,12 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
   const [joined, setJoined] = useState<string | null>(null);
   const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, joined !== null, joined ?? undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
-  const { call, join, leave, mute, onSignal } = useCall(token, view, send);
+  const files = useFileChannels();
+  const { call, join, leave, mute, onSignal } = useCall(token, view, send, files.onChannel);
   signalRef.current = onSignal;
   const mine = useRoomRecording(token, view, send, clockMs);
+  const handOver = useTakeSender(token, view, files.channels, mine.recording, mine.saved.length);
+  const handOverLine = sendLine(handOver);
   useTick();
   if (joined === null) {
     return (
@@ -245,6 +252,7 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
         <>
           <p className="text-xs"><TakeLine take={view.take} now={clockMs()} /></p>
           <MyRecording mine={mine} />
+          {handOverLine && <p role="status" className={`text-xs ${handOver.error ? 'text-danger' : 'text-ink-dim'}`}>{handOverLine}</p>}
           <p className="text-xs text-ink-dim">In the room: {view.peers.filter((p) => p.admitted).map((p) => p.name).join(', ') || 'just you'}</p>
           <CallBar call={call} mode={view.mode} role="guest" onJoin={(h) => { void join(h); }} onLeave={leave} onMute={mute} />
         </>
