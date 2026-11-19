@@ -1,6 +1,9 @@
 export { JobRoom } from "./jobs/jobRoom";
 export { JobRegistry } from "./jobs/jobRegistry";
 export { LiveRoom } from "./live/liveRoom";
+export { LiveDrop } from "./live/drop/liveDrop";
+import { handleDrop } from "./live/drop/handler";
+import { handlePing } from "./live/ping";
 import { handleRoomConnect } from "./live/roomEntry";
 import { iceServersForEvent } from "./live/turn";
 import { D1RelayLedger } from "./live/relayLedger";
@@ -26,6 +29,11 @@ export interface Env {
   JOB_REGISTRY?: DurableObjectNamespace;
   /** One Durable Object per live event: who is in the room, call signalling, record/stop moments. No audio passes through it. */
   LIVE_ROOM?: DurableObjectNamespace;
+  /** Holds guest recordings for the host when they cannot go straight to them */
+  LIVE_DROP?: DurableObjectNamespace;
+  B2_ENDPOINT?: string; B2_BUCKET?: string; B2_REGION?: string; B2_KEY_ID?: string;
+  /** Backblaze B2 application key. A secret: set in the Cloudflare dashboard, never in the repository. */
+  B2_APP_KEY?: string;
   /** Cloudflare Realtime TURN key (id is a plain variable, TURN_API_TOKEN is a secret). Without them calls use STUN only. */
   TURN_KEY_ID?: string;
   TURN_API_TOKEN?: string;
@@ -66,6 +74,8 @@ const signInLimiter = makeLimiter(10, 60_000);
 /** Sign-in is handled here only when its database, project id and secret are all set; otherwise /api/auth/* goes to API_ORIGIN as before */
 const templateLimits = { list: makeLimiter(60, 60_000), write: makeLimiter(30, 60_000) };
 const roomLimit = makeLimiter(30, 60_000);
+// A recording goes up in 5 MB parts, so this allows a fast upload but not a flood
+const dropLimit = makeLimiter(600, 60_000);
 const liveLimits = { producer: makeLimiter(60, 60_000), guest: makeLimiter(60, 60_000) };
 const freesoundLimits = { search: makeLimiter(50, 60_000), sharedSearch: makeLimiter(15, 60_000), other: makeLimiter(30, 60_000) };
 
@@ -107,6 +117,8 @@ export default {
         return handleTemplates(request, rest, { auth: a, templates: new D1TemplateStore(env.AUTH_DB), limits: templateLimits });
       }
     }
+    // The network check in the live setup assistant: a small upload that is counted and thrown away
+    if (incoming.pathname === "/api/live/ping") return handlePing(request, jsonHeaders);
     // Connection servers for the voice call; anyone with an open event's link may ask (the credentials are short-lived)
     if (incoming.pathname.startsWith("/api/live/ice/") && request.method === "GET" && env.AUTH_DB) {
       const token = incoming.pathname.slice("/api/live/ice/".length).split("/")[0] ?? "";
@@ -114,6 +126,10 @@ export default {
       const e = /^[A-Za-z0-9_-]{8,64}$/.test(token) ? await new D1LiveStore(env.AUTH_DB as unknown as D1Full).byToken(token) : null;
       if (!e || stateOf(e, Date.now()) === "ended" && !(e.endedAt && Date.now() - e.endedAt < 12 * 3600_000)) return new Response(JSON.stringify({ error: "This link is not valid." }), { status: 404, headers: jsonHeaders });
       return new Response(JSON.stringify(await iceServersForEvent(env, new D1RelayLedger(env.AUTH_DB as unknown as D1Full), e.id, Date.now())), { headers: { ...jsonHeaders, "cache-control": "no-store" } });
+    }
+    if (incoming.pathname.startsWith("/api/live/drop/") && env.LIVE_DROP && env.AUTH_DB && env.SESSION_SECRET) {
+      const a = authEnv(env);
+      if (a) return handleDrop(request, incoming.pathname.slice("/api/live/drop/".length).split("/").filter(Boolean), { auth: a, store: new D1LiveStore(env.AUTH_DB as unknown as D1Full), drops: env.LIVE_DROP, secret: env.SESSION_SECRET, limit: (ip) => dropLimit.take(ip) });
     }
     if (incoming.pathname.startsWith("/api/live/room/") && env.LIVE_ROOM) {
       const a = authEnv(env);

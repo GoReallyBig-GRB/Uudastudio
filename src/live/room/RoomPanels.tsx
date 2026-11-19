@@ -3,9 +3,16 @@ import { Headphones, Mic, MicOff, PhoneOff, Users } from 'lucide-react';
 import { useLiveRoom } from './useLiveRoom';
 import { useCall, type CallView } from './useCall';
 import { DEFAULT_STRIP, type StripSettings } from './hostMixer';
+import { liveSettings } from '../settings/liveSettings';
+import { useLiveSettings } from '../settings/useLiveSettings';
 import { limitNotice } from './roomState';
 import { useRoomRecording } from './useRoomRecording';
 import { removeQueued } from './takeQueue';
+import { useDropCollector, useTakeUploader } from './useDrop';
+import { useFileChannels, useGuestActivity, useSessionBackup, useTakeReceiver, useTakeSender, type ActivityLine, type BackupState, type ReceivedLine } from './useFileTransfer';
+import { DELIVERY_TEXT, alignmentNote, deliveryStatus } from './integrity';
+import { compareActivity, gapsFound } from './activity';
+import { pendingTakes } from './takeQueue';
 import type { RoomRecording } from './roomRecorder';
 
 const BTN = 'inline-flex items-center gap-1.5 rounded-control border border-line-strong bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface-3 cursor-pointer disabled:opacity-40 disabled:pointer-events-none';
@@ -33,9 +40,13 @@ const QUALITY_CLS: Record<string, string> = { good: 'text-ok', weak: 'text-gold'
 
 /** Join the voice call, mute, and see your own level and how each connection is doing */
 const CallBar: React.FC<{ call: CallView; mode: 'conversation' | 'broadcast'; role: 'producer' | 'guest'; onJoin: (headphones: boolean, deviceId?: string) => void; onLeave: () => void; onMute: (m: boolean) => void }> = ({ call, mode, role, onJoin, onLeave, onMute }) => {
-  const [headphones, setHeadphones] = useState(false);
-  const [inputId, setInputId] = useState('');
+  const prefs = useLiveSettings();
+  const headphones = prefs.headphones;
+  const setHeadphones = (v: boolean) => liveSettings.set({ headphones: v });
   const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
+  // A remembered input that is no longer plugged in is ignored rather than asked for by name
+  const inputId = inputs.some((d) => d.deviceId === prefs.inputDeviceId) ? prefs.inputDeviceId : '';
+  const setInputId = (id: string) => liveSettings.set({ inputDeviceId: id });
   useEffect(() => { if (role === 'producer' && mode === 'broadcast') void navigator.mediaDevices?.enumerateDevices().then((d) => setInputs(d.filter((x) => x.kind === 'audioinput'))).catch(() => undefined); }, [role, mode]);
   const broadcast = mode === 'broadcast';
   const needs = broadcast && role === 'producer' && !headphones;
@@ -84,9 +95,10 @@ const qualityFor = (call: CallView, id: string) => {
 /** Host's mixing desk for a broadcast: one strip per guest, plus where the finished mix goes */
 const DeskPanel: React.FC<{
   peers: Array<{ id: string; name: string }>; call: CallView; level: (id: string) => { level: number; clipping: boolean };
-  setStrip: (id: string, p: Partial<StripSettings>) => void; programDevice: string; setProgramDevice: (id: string) => Promise<void>; setProgramHost: (on: boolean) => void;
+  setStrip: (id: string, p: Partial<StripSettings>) => void; programDevice: string; setProgramDevice: (id: string) => Promise<boolean>; setProgramHost: (on: boolean) => void;
 }> = ({ peers, call, level, setStrip, programDevice, setProgramDevice, setProgramHost }) => {
-  const [hostOn, setHostOn] = useState(true);
+  const prefs = useLiveSettings();
+  const hostOn = prefs.programContains === 'all';
   useTick(120);
   const [outs, setOuts] = useState<MediaDeviceInfo[]>([]);
   useEffect(() => { void navigator.mediaDevices?.enumerateDevices().then((d) => setOuts(d.filter((x) => x.kind === 'audiooutput'))).catch(() => undefined); }, []);
@@ -116,12 +128,12 @@ const DeskPanel: React.FC<{
       })}
       <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2">
         <label htmlFor="program-out" className="text-xs text-ink">Program out</label>
-        <select id="program-out" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={programDevice} onChange={(e) => { void setProgramDevice(e.target.value); }}>
+        <select id="program-out" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={programDevice} onChange={(e) => { const id = e.target.value; void setProgramDevice(id).then((ok) => { if (ok) liveSettings.set({ programDeviceId: id }); }); }}>
           <option value="">Off</option>
-          {outs.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `Output ${i + 1}`}</option>)}
+          {outs.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{(d.label || `Output ${i + 1}`) + (d.deviceId === prefs.programDeviceId ? ' (last used)' : '')}</option>)}
         </select>
         <label htmlFor="program-content" className="text-xs text-ink">Program contains</label>
-        <select id="program-content" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={hostOn ? 'all' : 'guests'} onChange={(e) => { const on = e.target.value === 'all'; setHostOn(on); setProgramHost(on); }}>
+        <select id="program-content" className="min-w-0 flex-1 rounded-control border border-line bg-surface-0 px-2 py-1 text-xs text-ink" value={hostOn ? 'all' : 'guests'} onChange={(e) => { const on = e.target.value === 'all'; liveSettings.set({ programContains: on ? 'all' : 'guests' }); setProgramHost(on); }}>
           <option value="all">Me and the guests</option>
           <option value="guests">Guests only (my microphone goes through a mixer)</option>
         </select>
@@ -130,6 +142,37 @@ const DeskPanel: React.FC<{
       </div>
     </div>
   );
+};
+
+/** What the host sees for each guest: whether their full-quality recording has arrived complete and lined up */
+const DeliveryList: React.FC<{ activity: ActivityLine[]; received: ReceivedLine[]; relayed: Record<string, boolean> }> = ({ activity, received, relayed }) => (
+  <>
+    {activity.filter((c) => !c.running).map((c) => {
+      const r = received.find((x) => x.id === c.id);
+      if (r?.error) return <p key={c.id} role="alert" className="text-xs text-danger">{c.guest}: {r.error}</p>;
+      const match = r?.done && c.bins && r.env ? compareActivity(c.bins, r.env) : null;
+      const st = deliveryStatus({ copySeconds: c.seconds, offeredSeconds: r?.offeredSeconds ?? null, done: r?.done ?? false, relayed: relayed[c.guestId] === true, complete: match ? !gapsFound(match) : undefined });
+      const note = r ? alignmentNote(match, c.startMs - r.roomStartMs, c.guest) : null;
+      const pct = r && !r.done && st === 'receiving' ? ` ${Math.round(r.fraction * 100)}%` : '';
+      const bad = st === 'short' || st === 'gaps';
+      return (
+        <div key={c.id} className="flex flex-col gap-0.5">
+          <p role={bad ? 'alert' : 'status'} className={`text-xs ${bad ? 'text-danger' : st === 'received' ? 'text-ok' : 'text-ink-dim'}`}>{DELIVERY_TEXT[st](c.guest)}{pct}</p>
+          {note && <p role="alert" className="text-xs text-gold">{note}</p>}
+        </div>);
+    })}
+  </>
+);
+
+/** The host's mixed backup of the whole session */
+const BackupLine: React.FC<{ b: BackupState; added: boolean; onAdd: () => void }> = ({ b, added, onAdd }) => {
+  if (b.running) return <p className="text-xs text-ink-dim">Session backup is running on this computer ({Math.floor(b.seconds / 60)} min). It holds you and every guest in one file.</p>;
+  if (b.result) return (
+    <div className="flex flex-wrap items-center gap-2">
+      <p className="text-xs text-ok">Session backup saved on this computer ({Math.max(1, Math.round(b.result.seconds / 60))} min).</p>
+      {!added && <button type="button" className={BTN} onClick={onAdd}>Add the session backup to the project</button>}
+    </div>);
+  return null;
 };
 
 /** This device's own recording: whether it is running, what went wrong, what was saved */
@@ -146,9 +189,17 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
   const [on, setOn] = useState(false);
   const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, on, undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
-  const { call, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost } = useCall(token, view, send);
+  const files = useFileChannels();
+  const { call, heard, hostStream, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost } = useCall(token, view, send, files.onChannel);
+  const myStarts = useRef(new Map<string, number>());
+  const received = useTakeReceiver(view, files.channels, (id) => myStarts.current.get(id) ?? null, onTake);
+  const fromServer = useDropCollector(token, on, (id) => received.some((r) => r.takeId === id && r.done), (id) => myStarts.current.get(id) ?? null, onTake);
+  const activity = useGuestActivity(view, heard, clockMs);
+  const liveSet = useLiveSettings();
+  const backup = useSessionBackup(liveSet.sessionBackup, call.joined, view.endedAt !== null, hostStream, heard);
+  const [backupAdded, setBackupAdded] = useState(false);
   signalRef.current = onSignal;
-  const mine = useRoomRecording(token, view, send, clockMs, (r) => { onTake?.(r); removeQueued(token, r.takeId); });
+  const mine = useRoomRecording(token, view, send, clockMs, (r) => { myStarts.current.set(r.takeId, r.roomStartMs); onTake?.(r); removeQueued(token, r.takeId); });
   useEffect(() => { if (!on) { leave(); void mine.stop(); } }, [on, leave, mine.stop]); // eslint-disable-line react-hooks/exhaustive-deps
   useTick();
   const waiting = view.peers.filter((p) => !p.admitted);
@@ -191,6 +242,9 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
                 <span className="text-xs"><TakeLine take={view.take} now={clockMs()} /></span>
               </div>
               <MyRecording mine={mine} />
+              <BackupLine b={backup} added={backupAdded} onAdd={() => { if (!backup.result) return; setBackupAdded(true); onTake?.({ takeId: `backup-${Date.now()}`, name: 'Session backup (everyone mixed)', startAt: 0, roomStartMs: 0, take: { kind: 'streamed', meta: backup.result.meta } }); }} />
+              {fromServer.map((l) => <p key={l.takeId} role={l.error ? 'alert' : 'status'} className={`text-xs ${l.error ? 'text-danger' : l.done ? 'text-ok' : 'text-ink-dim'}`}>{l.error ?? (l.done ? `${l.from}: ${l.name} collected from the safe place and added to your project.` : `Collecting ${l.from}'s ${l.name}… ${Math.round(l.fraction * 100)}%`)}</p>)}
+              <DeliveryList activity={activity} received={received} relayed={Object.fromEntries(Object.entries(call.quality).map(([k, v]) => [k, v.relayed]))} />
               <CueBox onSend={(text) => send({ t: 'cue', to: 'all', text })} />
             </>
           )}
@@ -216,15 +270,42 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
   const [joined, setJoined] = useState<string | null>(null);
   const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, joined !== null, joined ?? undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
-  const { call, join, leave, mute, onSignal } = useCall(token, view, send);
+  const files = useFileChannels();
+  const { call, holdingFiles, join, leave, mute, onSignal } = useCall(token, view, send, files.onChannel);
   signalRef.current = onSignal;
   const mine = useRoomRecording(token, view, send, clockMs);
+  const hostPeer = view.peers.find((p) => p.role === 'producer');
+  const hostRelayed = hostPeer ? call.quality[hostPeer.id]?.relayed === true : false;
+  const direct = useTakeSender(token, view, files.channels, mine.recording, mine.saved.length, hostRelayed);
+  const admittedHost = view.peers.find((p) => p.role === 'producer' && p.admitted);
+  const directReady = !!admittedHost && files.channels[admittedHost.id]?.readyState === 'open' && !hostRelayed;
+  const up = useTakeUploader(token, joined ?? '', mine.recording, mine.saved.length, directReady, view.connected);
+  const handOver = up.sending || up.error ? { ...up, pending: direct.pending } : direct;
+  const pendingNow = handOver.pending;
+  // Once everything has been handed over, a connection kept only for that can close
+  useEffect(() => { if (holdingFiles && ((pendingNow === 0 && !handOver.sending) || hostRelayed)) leave(); }, [holdingFiles, pendingNow, handOver.sending, hostRelayed, leave]);
+  // Back in the room with a recording still to hand over (for example after a reload): reconnect quietly, with the microphone off
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current || !view.connected || !view.me?.admitted || call.joined || call.starting || holdingFiles || pendingTakes(token).length === 0) return;
+    resumed.current = true;
+    void join(true).then(() => mute(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.connected, view.me?.admitted, call.joined, call.starting, holdingFiles]);
+  // Closing the page while a recording is still on its way: the browser asks first. It cannot be prevented, only made hard to do by accident.
+  useEffect(() => {
+    if (pendingNow === 0 && !handOver.sending) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, [pendingNow, handOver.sending]);
   useTick();
   if (joined === null) {
     return (
       <form className="flex flex-col gap-2 rounded-card border border-line-strong bg-surface-1 p-4" onSubmit={(e) => { e.preventDefault(); if (name.trim()) setJoined(name.trim()); }}>
         <label className="text-sm font-semibold text-ink" htmlFor="live-name">Your name</label>
         <input id="live-name" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} className="rounded-control border border-line bg-surface-0 px-3 py-2 text-sm text-ink" autoComplete="name" />
+        <p className="text-xs text-ink-dim">This session is recorded. By joining you agree that your voice is recorded and sent to the host.</p>
         <button type="submit" className={PRIMARY} disabled={!name.trim()}>Join the room</button>
       </form>
     );
@@ -238,8 +319,9 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
         <>
           <p className="text-xs"><TakeLine take={view.take} now={clockMs()} /></p>
           <MyRecording mine={mine} />
+          <p className="text-xs text-ink-faint">This session is recorded. Your microphone is recorded on this device and sent to the host automatically.</p>
           <p className="text-xs text-ink-dim">In the room: {view.peers.filter((p) => p.admitted).map((p) => p.name).join(', ') || 'just you'}</p>
-          <CallBar call={call} mode={view.mode} role="guest" onJoin={(h) => { void join(h); }} onLeave={leave} onMute={mute} />
+          <CallBar call={call} mode={view.mode} role="guest" onJoin={(h) => { void join(h); }} onLeave={() => leave(pendingTakes(token).length > 0)} onMute={mute} />
         </>
       )}
       {view.cue && <p className="rounded-control border border-gold/50 bg-gold/10 px-3 py-2 text-gold">Host: {view.cue.text}</p>}

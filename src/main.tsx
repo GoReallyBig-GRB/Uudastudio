@@ -5,6 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Logo } from './components/ui/Logo';
 import { isJoinHash } from './guest/job';
 import { isLiveHash } from './live/events';
+import { isSheetHash } from './live/setup/sheetLink';
 import { isClientHash, isTalentHash } from './jobs/links';
 import { FREESOUND_STATE_KEY, readFreesoundReturn } from './freesound/oauthReturn';
 import './index.css';
@@ -20,6 +21,7 @@ const galleryOnly =
 const GuestPage = lazy(() => import('./guest/GuestPage'));
 const ClientPage = lazy(() => import('./jobs/ClientPage'));
 const LiveJoinPage = lazy(() => import('./live/LiveJoinPage'));
+const EngineerSheetPage = lazy(() => import('./live/setup/EngineerSheetPage'));
 const SelfTest = lazy(() => import('./jobs/SelfTest'));
 // Freesound sends the person back to the app's own address with ?code=...&state=...: that tab only finishes the connection
 const FreesoundReturn = lazy(() => import('./freesound/FreesoundReturn'));
@@ -31,6 +33,7 @@ const freesoundReturn = (() => {
 const selfTestOnly = window.location.hash === '#/selftest';
 const clientOnly = isClientHash(window.location.hash);
 const liveOnly = isLiveHash(window.location.hash);
+const sheetOnly = isSheetHash(window.location.hash);
 const guestOnly = isJoinHash(window.location.hash) || isTalentHash(window.location.hash);
 
 /** Shown while a page loads: the logo, breathing */
@@ -58,6 +61,14 @@ const Root = () => {
     return (
       <Suspense fallback={<Loading />}>
         <SelfTest />
+      </Suspense>
+    );
+  }
+
+  if (sheetOnly) {
+    return (
+      <Suspense fallback={null}>
+        <EngineerSheetPage />
       </Suspense>
     );
   }

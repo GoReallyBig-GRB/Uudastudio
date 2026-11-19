@@ -18,13 +18,15 @@
     "bindings": [
       { "name": "JOB_ROOM", "class_name": "JobRoom" },
       { "name": "JOB_REGISTRY", "class_name": "JobRegistry" },
-      { "name": "LIVE_ROOM", "class_name": "LiveRoom" }
+      { "name": "LIVE_ROOM", "class_name": "LiveRoom" },
+      { "name": "LIVE_DROP", "class_name": "LiveDrop" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["JobRoom"] },
     { "tag": "v2", "new_sqlite_classes": ["JobRegistry"] },
-    { "tag": "v3", "new_sqlite_classes": ["LiveRoom"] }
+    { "tag": "v3", "new_sqlite_classes": ["LiveRoom"] },
+    { "tag": "v4", "new_sqlite_classes": ["LiveDrop"] }
   ],
   "assets": {
     "directory": "./dist",

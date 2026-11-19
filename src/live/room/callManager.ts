@@ -2,7 +2,7 @@
  * The voice call: one audio connection to each other person in the call, using the browser's WebRTC. Audio only. Signalling travels
  * through the room. This is for talking and monitoring; recordings are made separately on each device at full quality.
  */
-import { CALL_BITRATE, isPolite, micConstraints, planConnections, qualityOf, tuneOpus, type CallMode, type LinkStats, type Quality } from './callPlan';
+import { callBitrate, isPolite, micConstraints, planConnections, qualityOf, tuneOpus, type CallMode, type LinkStats, type Quality } from './callPlan';
 import type { HostMixer } from './hostMixer';
 import type { RoomPeer } from './roomState';
 
@@ -12,6 +12,10 @@ export interface CallOptions {
   mode: CallMode;
   /** In a broadcast a guest on headphones sends a completely untouched microphone */
   headphones: boolean;
+  /** Standard or high bit rate (live settings) */
+  quality?: 'standard' | 'high';
+  /** Where each new guest's channel strip starts (live settings) */
+  stripDefaults?: { lowCut: boolean; compressor: boolean; presence: number };
   /** The host's desk in a broadcast: guests' sound goes through it and each guest is sent their own mix-minus */
   mixer?: HostMixer;
   iceServers: RTCIceServer[];
@@ -19,6 +23,10 @@ export interface CallOptions {
   signal: (to: string, data: unknown) => void;
   onRemote: (id: string, stream: MediaStream | null) => void;
   onQuality: (id: string, q: Quality, s: LinkStats) => void;
+  /** The data channel used to hand recordings over opened (or closed, with null) for one person */
+  onFiles?: (id: string, channel: RTCDataChannel | null) => void;
+  /** The voice arriving from one person, as heard here (null when they leave). The host keeps its own copy of it. */
+  onHeard?: (id: string, stream: MediaStream | null) => void;
 }
 
 interface Link {
@@ -72,19 +80,26 @@ export class CallManager {
     const link: Link = { pc, polite: isPolite(this.o.myId, id), making: false, ignore: false, last: { lost: 0, received: 0 }, timer: setInterval(() => { void this.poll(id); }, 2000) };
     this.links.set(id, link);
 
+    // A second path on the same connection, for handing recordings over. Both sides make it with the same number, so it needs no extra set-up.
+    const files = pc.createDataChannel('files', { negotiated: true, id: 1, ordered: true });
+    files.binaryType = 'arraybuffer';
+    files.onopen = () => this.o.onFiles?.(id, files);
+    files.onclose = () => this.o.onFiles?.(id, null);
+
     // The host in a broadcast sends this guest's own mix-minus instead of the raw microphone
     const desk = this.desk;
     let outgoing: MediaStream | null = this.local;
-    if (desk) { desk.addGuest(id, null); outgoing = desk.mixMinusStream(id); }
+    if (desk) { desk.addGuest(id, null, this.o.stripDefaults); outgoing = desk.mixMinusStream(id); }
     for (const track of outgoing?.getAudioTracks() ?? []) {
       const sender = pc.addTrack(track, outgoing!);
       const p = sender.getParameters();
       if (!p.encodings?.length) p.encodings = [{}];
-      p.encodings[0].maxBitrate = CALL_BITRATE[this.o.mode];
+      p.encodings[0].maxBitrate = callBitrate(this.o.mode, this.o.quality);
       void sender.setParameters(p).catch(() => undefined);
     }
     pc.ontrack = (e) => {
       const stream = e.streams[0] ?? new MediaStream([e.track]);
+      this.o.onHeard?.(id, stream);
       if (this.o.mode === 'broadcast') {
         // A small steady buffer: a broadcast prefers smooth sound over the last few milliseconds of delay
         try { (e.receiver as unknown as { jitterBufferTarget?: number }).jitterBufferTarget = 120; } catch { /* not supported */ }
@@ -103,7 +118,7 @@ export class CallManager {
         link.making = true;
         const offer = await pc.createOffer();
         if (pc.signalingState !== 'stable') return;
-        await pc.setLocalDescription({ type: 'offer', sdp: tuneOpus(offer.sdp ?? '', CALL_BITRATE[this.o.mode]) });
+        await pc.setLocalDescription({ type: 'offer', sdp: tuneOpus(offer.sdp ?? '', callBitrate(this.o.mode, this.o.quality)) });
         this.o.signal(id, { description: pc.localDescription });
       } catch { /* the next change of state tries again */ } finally { link.making = false; }
     };
@@ -117,6 +132,8 @@ export class CallManager {
     clearInterval(l.timer);
     if (l.keep) { l.keep.srcObject = null; }
     this.desk?.removeGuest(id);
+    this.o.onFiles?.(id, null);
+    this.o.onHeard?.(id, null);
     try { l.pc.close(); } catch { /* already closed */ }
     this.links.delete(id);
     this.o.onRemote(id, null);
@@ -136,7 +153,7 @@ export class CallManager {
         await pc.setRemoteDescription(m.description);
         if (m.description.type === 'offer') {
           const answer = await pc.createAnswer();
-          await pc.setLocalDescription({ type: 'answer', sdp: tuneOpus(answer.sdp ?? '', CALL_BITRATE[this.o.mode]) });
+          await pc.setLocalDescription({ type: 'answer', sdp: tuneOpus(answer.sdp ?? '', callBitrate(this.o.mode, this.o.quality)) });
           this.o.signal(from, { description: pc.localDescription });
         }
       } else if ('candidate' in m) {
@@ -169,6 +186,13 @@ export class CallManager {
       const stats: LinkStats = { rttMs: rtt, lossPct, relayed, jitterMs: jitter };
       this.o.onQuality(id, qualityOf(stats), stats);
     } catch { /* connection closing */ }
+  }
+
+  /** Stops the microphone and the sound but keeps the connections, so recordings still being handed over can finish */
+  closeAudio(): void {
+    this.local?.getTracks().forEach((t) => t.stop());
+    this.local = null;
+    this.desk?.setHostMuted(true);
   }
 
   close(): void {
