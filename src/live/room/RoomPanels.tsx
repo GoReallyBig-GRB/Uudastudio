@@ -8,7 +8,9 @@ import { useLiveSettings } from '../settings/useLiveSettings';
 import { limitNotice } from './roomState';
 import { useRoomRecording } from './useRoomRecording';
 import { removeQueued } from './takeQueue';
-import { sendLine, useFileChannels, useTakeReceiver, useTakeSender } from './useFileTransfer';
+import { useFileChannels, useSafetyCopies, useTakeReceiver, useTakeSender, type CopyLine, type ReceivedLine } from './useFileTransfer';
+import { DELIVERY_TEXT, deliveryStatus } from './integrity';
+import { pendingTakes } from './takeQueue';
 import type { RoomRecording } from './roomRecorder';
 
 const BTN = 'inline-flex items-center gap-1.5 rounded-control border border-line-strong bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface-3 cursor-pointer disabled:opacity-40 disabled:pointer-events-none';
@@ -140,6 +142,23 @@ const DeskPanel: React.FC<{
   );
 };
 
+/** What the host sees for each guest: the safe copy of their voice, and whether their full-quality recording has arrived complete */
+const DeliveryList: React.FC<{ copies: CopyLine[]; received: ReceivedLine[]; added: string[]; onAdd: (c: CopyLine) => void }> = ({ copies, received, added, onAdd }) => (
+  <>
+    {copies.filter((c) => !c.running).map((c) => {
+      const r = received.find((x) => x.id === c.id);
+      if (r?.error) return <p key={c.id} role="alert" className="text-xs text-danger">{c.guest}: {r.error}</p>;
+      const st = deliveryStatus({ copySeconds: c.seconds, offeredSeconds: r?.offeredSeconds ?? null, done: r?.done ?? false });
+      const pct = r && !r.done && st === 'receiving' ? ` ${Math.round(r.fraction * 100)}%` : '';
+      return (
+        <div key={c.id} className="flex flex-wrap items-center gap-2">
+          <p role={st === 'short' ? 'alert' : 'status'} className={`text-xs ${st === 'short' ? 'text-danger' : st === 'received' ? 'text-ok' : 'text-ink-dim'}`}>{DELIVERY_TEXT[st](c.guest)}{pct}</p>
+          {c.meta && !added.includes(c.id) && <button type="button" className={BTN} onClick={() => onAdd(c)}>Add {c.guest}'s call copy to the project</button>}
+        </div>);
+    })}
+  </>
+);
+
 /** This device's own recording: whether it is running, what went wrong, what was saved */
 const MyRecording: React.FC<{ mine: ReturnType<typeof useRoomRecording> }> = ({ mine }) => (
   <>
@@ -155,8 +174,10 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
   const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, on, undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
   const files = useFileChannels();
-  const { call, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost } = useCall(token, view, send, files.onChannel);
+  const { call, heard, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost } = useCall(token, view, send, files.onChannel);
   const received = useTakeReceiver(view, files.channels, onTake);
+  const copies = useSafetyCopies(view, heard);
+  const [added, setAdded] = useState<string[]>([]);
   signalRef.current = onSignal;
   const mine = useRoomRecording(token, view, send, clockMs, (r) => { onTake?.(r); removeQueued(token, r.takeId); });
   useEffect(() => { if (!on) { leave(); void mine.stop(); } }, [on, leave, mine.stop]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -201,7 +222,7 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
                 <span className="text-xs"><TakeLine take={view.take} now={clockMs()} /></span>
               </div>
               <MyRecording mine={mine} />
-              {received.map((l) => <p key={l.id} className={`text-xs ${l.error ? 'text-danger' : l.done ? 'text-ok' : 'text-ink-dim'}`}>{l.error ? `${l.guest}: ${l.error}` : l.done ? `Full-quality recording from ${l.guest} received and added to your project.` : `Receiving ${l.guest}'s full-quality recording… ${Math.round(l.fraction * 100)}%`}</p>)}
+              <DeliveryList copies={copies} received={received} added={added} onAdd={(c) => { if (!c.meta) return; setAdded((a) => [...a, c.id]); onTake?.({ takeId: c.takeId, name: `${c.guest} (call copy)`, startAt: view.take?.startAt ?? 0, roomStartMs: 0, take: { kind: 'streamed', meta: c.meta } }); }} />
               <CueBox onSend={(text) => send({ t: 'cue', to: 'all', text })} />
             </>
           )}
@@ -228,17 +249,35 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
   const signalRef = useRef<((from: string, data: unknown) => void) | null>(null);
   const { view, send, clockMs } = useLiveRoom(token, joined !== null, joined ?? undefined, (m) => { if (m.t === 'signal') signalRef.current?.(String(m.from), m.data); });
   const files = useFileChannels();
-  const { call, join, leave, mute, onSignal } = useCall(token, view, send, files.onChannel);
+  const { call, holdingFiles, join, leave, mute, onSignal } = useCall(token, view, send, files.onChannel);
   signalRef.current = onSignal;
   const mine = useRoomRecording(token, view, send, clockMs);
   const handOver = useTakeSender(token, view, files.channels, mine.recording, mine.saved.length);
-  const handOverLine = sendLine(handOver);
+  const pendingNow = handOver.pending;
+  // Once everything has been handed over, a connection kept only for that can close
+  useEffect(() => { if (holdingFiles && pendingNow === 0 && !handOver.sending) leave(); }, [holdingFiles, pendingNow, handOver.sending, leave]);
+  // Back in the room with a recording still to hand over (for example after a reload): reconnect quietly, with the microphone off
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current || !view.connected || !view.me?.admitted || call.joined || call.starting || holdingFiles || pendingTakes(token).length === 0) return;
+    resumed.current = true;
+    void join(true).then(() => mute(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.connected, view.me?.admitted, call.joined, call.starting, holdingFiles]);
+  // Closing the page while a recording is still on its way: the browser asks first. It cannot be prevented, only made hard to do by accident.
+  useEffect(() => {
+    if (pendingNow === 0 && !handOver.sending) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, [pendingNow, handOver.sending]);
   useTick();
   if (joined === null) {
     return (
       <form className="flex flex-col gap-2 rounded-card border border-line-strong bg-surface-1 p-4" onSubmit={(e) => { e.preventDefault(); if (name.trim()) setJoined(name.trim()); }}>
         <label className="text-sm font-semibold text-ink" htmlFor="live-name">Your name</label>
         <input id="live-name" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} className="rounded-control border border-line bg-surface-0 px-3 py-2 text-sm text-ink" autoComplete="name" />
+        <p className="text-xs text-ink-dim">This session is recorded. By joining you agree that your voice is recorded and sent to the host.</p>
         <button type="submit" className={PRIMARY} disabled={!name.trim()}>Join the room</button>
       </form>
     );
@@ -252,9 +291,9 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
         <>
           <p className="text-xs"><TakeLine take={view.take} now={clockMs()} /></p>
           <MyRecording mine={mine} />
-          {handOverLine && <p role="status" className={`text-xs ${handOver.error ? 'text-danger' : 'text-ink-dim'}`}>{handOverLine}</p>}
+          <p className="text-xs text-ink-faint">This session is recorded. Your microphone is recorded on this device and sent to the host automatically.</p>
           <p className="text-xs text-ink-dim">In the room: {view.peers.filter((p) => p.admitted).map((p) => p.name).join(', ') || 'just you'}</p>
-          <CallBar call={call} mode={view.mode} role="guest" onJoin={(h) => { void join(h); }} onLeave={leave} onMute={mute} />
+          <CallBar call={call} mode={view.mode} role="guest" onJoin={(h) => { void join(h); }} onLeave={() => leave(pendingTakes(token).length > 0)} onMute={mute} />
         </>
       )}
       {view.cue && <p className="rounded-control border border-gold/50 bg-gold/10 px-3 py-2 text-gold">Host: {view.cue.text}</p>}

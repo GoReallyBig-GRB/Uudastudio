@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createStreamedWriter } from '../../assets/streamedWriter';
-import { readStreamedFrames } from '../../assets/streamedStore';
+import { readStreamedFrames, type StreamedMeta } from '../../assets/streamedStore';
+import { SafetyCopy } from './safetyCopy';
 import { markDelivered, pendingTakes } from './takeQueue';
 import { TakeReceiver, TakeSender, type Control, type TakeOffer } from './transfer';
 import type { RoomView } from './roomState';
@@ -15,7 +16,7 @@ export function useFileChannels() {
   return { channels, onChannel };
 }
 
-export interface ReceivedLine { id: string; guest: string; name: string; fraction: number; done: boolean; error: string | null }
+export interface ReceivedLine { id: string; guestId: string; takeId: string; guest: string; name: string; fraction: number; done: boolean; error: string | null; offeredSeconds: number | null }
 
 /** The host's side: takes in each guest's full-quality recording and gives it to the workspace as soon as it is complete */
 export function useTakeReceiver(view: RoomView, channels: Record<string, RTCDataChannel>, onTake?: (r: RoomRecording) => void) {
@@ -25,7 +26,7 @@ export function useTakeReceiver(view: RoomView, channels: Record<string, RTCData
   const peersRef = useRef(view.peers); peersRef.current = view.peers;
   const cb = useRef(onTake); cb.current = onTake;
   const nameOf = (id: string) => peersRef.current.find((p) => p.id === id)?.name ?? 'Guest';
-  const patch = useCallback((key: string, p: Partial<ReceivedLine>) => setLines((l) => ({ ...l, [key]: { ...(l[key] ?? { id: key, guest: '', name: '', fraction: 0, done: false, error: null }), ...p } })), []);
+  const patch = useCallback((key: string, p: Partial<ReceivedLine>) => setLines((l) => ({ ...l, [key]: { ...(l[key] ?? { id: key, guestId: key.split(':')[0], takeId: key.split(':')[1] ?? '', guest: '', name: '', fraction: 0, done: false, error: null, offeredSeconds: null }), ...p } })), []);
 
   useEffect(() => {
     for (const [guestId, dc] of Object.entries(channels)) {
@@ -38,7 +39,7 @@ export function useTakeReceiver(view: RoomView, channels: Record<string, RTCData
           async (offer: TakeOffer) => {
             const storeId = `live-${offer.takeId}-${Math.random().toString(36).slice(2, 7)}`;
             const w = await createStreamedWriter(storeId, offer.sampleRate, offer.channels);
-            patch(`${guestId}:${offer.takeId}`, { guest: nameOf(guestId), name: offer.name, fraction: 0, done: false, error: null });
+            patch(`${guestId}:${offer.takeId}`, { guest: nameOf(guestId), name: offer.name, fraction: 0, done: false, error: null, offeredSeconds: offer.frames / offer.sampleRate });
             return w;
           },
           (c: Control) => {
@@ -119,3 +120,41 @@ export const sendLine = (s: SendState): string | null => {
   if (s.pending > 0) return `Your recording is saved on this device and will be sent to the host${s.pending > 1 ? ` (${s.pending} takes)` : ''} when you are connected. Keep this page open.`;
   return null;
 };
+
+export interface CopyLine { id: string; takeId: string; guestId: string; guest: string; seconds: number; meta: StreamedMeta | null; running: boolean }
+
+/** The host keeps its own copy of every guest's voice during a take, so a guest can never stop their words from reaching the host */
+export function useSafetyCopies(view: RoomView, streams: Record<string, MediaStream>) {
+  const live = useRef(new Map<string, { copy: SafetyCopy; takeId: string; guest: string }>());
+  const [lines, setLines] = useState<CopyLine[]>([]);
+  const takeId = view.take?.id ?? null;
+  const stopped = view.take ? view.take.stopAt !== null : false;
+  const ended = view.endedAt !== null;
+  const running = takeId !== null && !stopped && !ended;
+  const peersRef = useRef(view.peers); peersRef.current = view.peers;
+
+  const stopAll = useCallback(async () => {
+    const all = [...live.current.entries()]; live.current.clear();
+    for (const [guestId, e] of all) {
+      const seconds = e.copy.seconds;
+      const meta = await e.copy.finish().catch(() => null);
+      setLines((l) => l.map((x) => (x.id === `${e.takeId}:${guestId}` ? { ...x, seconds, meta, running: false } : x)));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!running || !takeId) return;
+    for (const [guestId, stream] of Object.entries(streams)) {
+      if (live.current.has(guestId)) continue;
+      const guest = peersRef.current.find((p) => p.id === guestId)?.name ?? 'Guest';
+      const copy = new SafetyCopy();
+      live.current.set(guestId, { copy, takeId, guest });
+      setLines((l) => [...l.filter((x) => x.id !== `${takeId}:${guestId}`), { id: `${takeId}:${guestId}`, takeId, guestId, guest, seconds: 0, meta: null, running: true }]);
+      void copy.begin(stream).catch(() => { live.current.delete(guestId); });
+    }
+  }, [running, takeId, streams]);
+
+  useEffect(() => { if (!running) void stopAll(); }, [running, stopAll]);
+  useEffect(() => () => { void stopAll(); }, [stopAll]);
+  return lines;
+}

@@ -25,6 +25,8 @@ export interface CallOptions {
   onQuality: (id: string, q: Quality, s: LinkStats) => void;
   /** The data channel used to hand recordings over opened (or closed, with null) for one person */
   onFiles?: (id: string, channel: RTCDataChannel | null) => void;
+  /** The voice arriving from one person, as heard here (null when they leave). The host keeps its own copy of it. */
+  onHeard?: (id: string, stream: MediaStream | null) => void;
 }
 
 interface Link {
@@ -97,6 +99,7 @@ export class CallManager {
     }
     pc.ontrack = (e) => {
       const stream = e.streams[0] ?? new MediaStream([e.track]);
+      this.o.onHeard?.(id, stream);
       if (this.o.mode === 'broadcast') {
         // A small steady buffer: a broadcast prefers smooth sound over the last few milliseconds of delay
         try { (e.receiver as unknown as { jitterBufferTarget?: number }).jitterBufferTarget = 120; } catch { /* not supported */ }
@@ -130,6 +133,7 @@ export class CallManager {
     if (l.keep) { l.keep.srcObject = null; }
     this.desk?.removeGuest(id);
     this.o.onFiles?.(id, null);
+    this.o.onHeard?.(id, null);
     try { l.pc.close(); } catch { /* already closed */ }
     this.links.delete(id);
     this.o.onRemote(id, null);
@@ -182,6 +186,13 @@ export class CallManager {
       const stats: LinkStats = { rttMs: rtt, lossPct, relayed, jitterMs: jitter };
       this.o.onQuality(id, qualityOf(stats), stats);
     } catch { /* connection closing */ }
+  }
+
+  /** Stops the microphone and the sound but keeps the connections, so recordings still being handed over can finish */
+  closeAudio(): void {
+    this.local?.getTracks().forEach((t) => t.stop());
+    this.local = null;
+    this.desk?.setHostMuted(true);
   }
 
   close(): void {
