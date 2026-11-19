@@ -14,7 +14,14 @@ export interface QueuedTake {
   savedAt: number;
   /** When the host confirmed it has the whole file. The recording stays on this device. */
   deliveredAt?: number;
+  /** Lets this device put the file on the server for the host (good for 8 days). Asked for while still in the room. */
+  ticket?: string;
+  /** True once the file went to the server rather than straight to the host */
+  viaServer?: boolean;
 }
+
+/** Takes being sent over HTTPS right now, so the direct sender leaves them alone */
+export const uploading = new Set<string>();
 
 const KEY = 'uuda_room_takes';
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
@@ -40,8 +47,12 @@ export function removeQueued(token: string, takeId: string, store: Store | null 
 }
 
 /** The host has the whole file: stop trying to send it. The audio stays on this device. */
-export function markDelivered(token: string, takeId: string, store: Store | null = browserStore()): void {
-  save(listQueued(undefined, store).map((x) => (x.token === token && x.takeId === takeId ? { ...x, deliveredAt: Date.now() } : x)), store);
+export function markDelivered(token: string, takeId: string, store: Store | null = browserStore(), viaServer = false): void {
+  save(listQueued(undefined, store).map((x) => (x.token === token && x.takeId === takeId ? { ...x, deliveredAt: Date.now(), ...(viaServer ? { viaServer: true } : {}) } : x)), store);
+}
+
+export function setTicket(token: string, takeId: string, ticket: string, store: Store | null = browserStore()): void {
+  save(listQueued(undefined, store).map((x) => (x.token === token && x.takeId === takeId ? { ...x, ticket } : x)), store);
 }
 
 /** Takes still to be handed over, oldest first */

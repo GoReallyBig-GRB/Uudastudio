@@ -8,6 +8,7 @@ import { useLiveSettings } from '../settings/useLiveSettings';
 import { limitNotice } from './roomState';
 import { useRoomRecording } from './useRoomRecording';
 import { removeQueued } from './takeQueue';
+import { useDropCollector, useTakeUploader } from './useDrop';
 import { useFileChannels, useGuestActivity, useSessionBackup, useTakeReceiver, useTakeSender, type ActivityLine, type BackupState, type ReceivedLine } from './useFileTransfer';
 import { DELIVERY_TEXT, alignmentNote, deliveryStatus } from './integrity';
 import { compareActivity, gapsFound } from './activity';
@@ -192,6 +193,7 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
   const { call, heard, hostStream, join, leave, mute, onSignal, setStrip, level, setProgramDevice, programDevice, setProgramHost } = useCall(token, view, send, files.onChannel);
   const myStarts = useRef(new Map<string, number>());
   const received = useTakeReceiver(view, files.channels, (id) => myStarts.current.get(id) ?? null, onTake);
+  const fromServer = useDropCollector(token, on, (id) => received.some((r) => r.takeId === id && r.done), (id) => myStarts.current.get(id) ?? null, onTake);
   const activity = useGuestActivity(view, heard, clockMs);
   const liveSet = useLiveSettings();
   const backup = useSessionBackup(liveSet.sessionBackup, call.joined, view.endedAt !== null, hostStream, heard);
@@ -241,6 +243,7 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
               </div>
               <MyRecording mine={mine} />
               <BackupLine b={backup} added={backupAdded} onAdd={() => { if (!backup.result) return; setBackupAdded(true); onTake?.({ takeId: `backup-${Date.now()}`, name: 'Session backup (everyone mixed)', startAt: 0, roomStartMs: 0, take: { kind: 'streamed', meta: backup.result.meta } }); }} />
+              {fromServer.map((l) => <p key={l.takeId} role={l.error ? 'alert' : 'status'} className={`text-xs ${l.error ? 'text-danger' : l.done ? 'text-ok' : 'text-ink-dim'}`}>{l.error ?? (l.done ? `${l.from}: ${l.name} collected from the safe place and added to your project.` : `Collecting ${l.from}'s ${l.name}… ${Math.round(l.fraction * 100)}%`)}</p>)}
               <DeliveryList activity={activity} received={received} relayed={Object.fromEntries(Object.entries(call.quality).map(([k, v]) => [k, v.relayed]))} />
               <CueBox onSend={(text) => send({ t: 'cue', to: 'all', text })} />
             </>
@@ -272,10 +275,15 @@ export const GuestRoomPanel: React.FC<{ token: string }> = ({ token }) => {
   signalRef.current = onSignal;
   const mine = useRoomRecording(token, view, send, clockMs);
   const hostPeer = view.peers.find((p) => p.role === 'producer');
-  const handOver = useTakeSender(token, view, files.channels, mine.recording, mine.saved.length, hostPeer ? call.quality[hostPeer.id]?.relayed === true : false);
+  const hostRelayed = hostPeer ? call.quality[hostPeer.id]?.relayed === true : false;
+  const direct = useTakeSender(token, view, files.channels, mine.recording, mine.saved.length, hostRelayed);
+  const admittedHost = view.peers.find((p) => p.role === 'producer' && p.admitted);
+  const directReady = !!admittedHost && files.channels[admittedHost.id]?.readyState === 'open' && !hostRelayed;
+  const up = useTakeUploader(token, joined ?? '', mine.recording, mine.saved.length, directReady, view.connected);
+  const handOver = up.sending || up.error ? { ...up, pending: direct.pending } : direct;
   const pendingNow = handOver.pending;
   // Once everything has been handed over, a connection kept only for that can close
-  useEffect(() => { if (holdingFiles && pendingNow === 0 && !handOver.sending) leave(); }, [holdingFiles, pendingNow, handOver.sending, leave]);
+  useEffect(() => { if (holdingFiles && ((pendingNow === 0 && !handOver.sending) || hostRelayed)) leave(); }, [holdingFiles, pendingNow, handOver.sending, hostRelayed, leave]);
   // Back in the room with a recording still to hand over (for example after a reload): reconnect quietly, with the microphone off
   const resumed = useRef(false);
   useEffect(() => {

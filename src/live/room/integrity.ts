@@ -31,7 +31,7 @@ export function deliveryStatus(i: DeliveryInput): Delivery {
 
 export const DELIVERY_TEXT: Record<Delivery, (guest: string) => string> = {
   waiting: (g) => `${g}'s full-quality recording has not arrived yet. ${g}'s voice is in your session backup.`,
-  held: (g) => `${g} is connected through the shared relay, so the full-quality recording is held to protect the free relay allowance. It sends when a direct connection is possible. ${g}'s voice is in your session backup.`,
+  held: (g) => `${g} is connected through the shared relay, so the full-quality recording does not travel over the call. It goes up to a safe place instead and arrives here on its own, usually within a minute or two of the take ending. ${g}'s voice is also in your session backup.`,
   receiving: (g) => `Receiving ${g}'s full-quality recording…`,
   received: (g) => `Full-quality recording from ${g} received and added to your project.`,
   short: (g) => `${g}'s recording is shorter than what you heard in the call. Part of it may be missing. ${g}'s voice is in your session backup; compare the two.`,

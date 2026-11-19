@@ -4,7 +4,7 @@ import { readStreamedFrames, type StreamedMeta } from '../../assets/streamedStor
 import { ActivityWatch } from './activityWatch';
 import { SessionBackup } from './sessionBackup';
 import { AlignedSink, padFramesFor } from './transfer';
-import { markDelivered, pendingTakes } from './takeQueue';
+import { markDelivered, pendingTakes, uploading } from './takeQueue';
 import { TakeReceiver, TakeSender, type Control, type TakeOffer } from './transfer';
 import type { RoomView } from './roomState';
 import type { RoomRecording } from './roomRecorder';
@@ -77,7 +77,7 @@ export function useTakeReceiver(view: RoomView, channels: Record<string, RTCData
   return Object.values(lines);
 }
 
-export interface SendState { sending: boolean; fraction: number; pending: number; error: string | null }
+export interface SendState { sending: boolean; fraction: number; pending: number; error: string | null; /** Set when the recording is going up to the server rather than straight to the host */ viaServer?: boolean }
 
 /** The guest's side: hands each saved recording to the host in the background, between takes, and carries on if the connection drops */
 export function useTakeSender(token: string, view: RoomView, channels: Record<string, RTCDataChannel>, recording: boolean, savedCount: number, relayed: boolean): SendState {
@@ -89,7 +89,7 @@ export function useTakeSender(token: string, view: RoomView, channels: Record<st
 
   useEffect(() => {
     setState((s) => ({ ...s, pending: pendingTakes(token).length }));
-    // On the shared relay the big file waits for a direct connection, to protect the free relay allowance. It stays safe on this device.
+    // On the shared relay the big file does not travel over the call (that would use the free relay allowance): it goes up over HTTPS instead, see useDrop.ts
     if (!dc || dc.readyState !== 'open' || recording || relayed) return;
     let cancelled = false;
     let cur: ReturnType<typeof pendingTakes>[number] | null = null;
@@ -103,6 +103,7 @@ export function useTakeSender(token: string, view: RoomView, channels: Record<st
     void (async () => {
       for (const t of pendingTakes(token)) {
         if (cancelled) return;
+        if (uploading.has(t.takeId)) continue;
         cur = t;
         setState((s) => ({ ...s, sending: true, fraction: 0, error: null }));
         const offer: TakeOffer = { takeId: t.takeId, name: t.name, sampleRate: t.meta.sampleRate, channels: t.meta.channels, frames: t.meta.frames, startAt: t.startAt, stopAt: t.stopAt, roomStartMs: t.roomStartMs };
@@ -123,7 +124,7 @@ export function useTakeSender(token: string, view: RoomView, channels: Record<st
 /** Plain words for the guest's hand-over line */
 export const sendLine = (s: SendState): string | null => {
   if (s.error) return s.error;
-  if (s.sending) return `Sending your recording to the host… ${Math.round(s.fraction * 100)}%`;
+  if (s.sending) return s.viaServer ? `Sending your recording to a safe place for the host… ${Math.round(s.fraction * 100)}%` : `Sending your recording to the host… ${Math.round(s.fraction * 100)}%`;
   if (s.pending > 0) return `Your recording is saved on this device and will be sent to the host${s.pending > 1 ? ` (${s.pending} takes)` : ''} when you are connected. Keep this page open.`;
   return null;
 };

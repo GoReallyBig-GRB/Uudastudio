@@ -73,15 +73,13 @@ export class DropService {
       if (have.bytes !== i.bytes) return fail(409, 'A different recording is already held for this take.');
       return { ok: true, value: { partBytes: have.partBytes, parts: partsFor(have.bytes, have.partBytes), received: this.received(have), ready: have.status === 'ready' } };
     }
-    const prev = this.d.repo.all().find((t) => t.status === 'ready' || t.status === 'uploading')?.backing ?? 'do';
     const route = await this.d.route(i.bytes);
     if (!route.backing) return fail(507, route.refusal ?? 'No room.');
-    void prev;
     const blob = route.backing === 'b2' ? this.d.blobs.b2 : this.d.blobs.do;
     if (!blob) return fail(507, 'No room.');
     let handle: string;
     try { handle = await blob.begin(this.key(i.takeId)); } catch { return fail(503, 'The store is not available. Your recording is safe on your device.'); }
-    const t: DropTake = { ...i, backing: route.backing, handle, partBytes: PART_BYTES, status: 'uploading', uploadedAt: this.d.now(), collectedAt: null, tags: {} };
+    const t: DropTake = { ...i, backing: route.backing, handle, partBytes: Math.floor(PART_BYTES / (i.channels * 3)) * i.channels * 3, status: 'uploading', uploadedAt: this.d.now(), collectedAt: null, tags: {} };
     this.d.repo.put(t);
     return { ok: true, value: { partBytes: t.partBytes, parts: partsFor(t.bytes, t.partBytes), received: [], ready: false } };
   }

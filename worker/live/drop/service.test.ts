@@ -6,6 +6,7 @@ import { DropService, MemoryDropRepo, type InitInput } from './service';
 const sha = async (b: Uint8Array) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer))].map((x) => x.toString(16).padStart(2, '0')).join('');
 const frames = 2_000_000; // 6 MB of mono 24-bit: two parts
 const input = (id = 'take-1-a'): InitInput => ({ takeId: id, from: 'Ada', name: 'Take 1', bytes: frames * 3, frames, sampleRate: 48000, channels: 1, startAt: 10, stopAt: 99, roomStartMs: 12 });
+const PB = Math.floor(PART_BYTES / 3) * 3; // a part holds whole frames
 const payload = (n: number, size: number) => Uint8Array.from({ length: size }, (_, i) => (i * 7 + n) & 255);
 
 function rig(route: Route = { backing: 'do', mode: 'do', refusal: null }) {
@@ -17,7 +18,7 @@ function rig(route: Route = { backing: 'do', mode: 'do', refusal: null }) {
 }
 async function upload(r: ReturnType<typeof rig>, id = 'take-1-a') {
   const total = frames * 3;
-  const parts = [payload(0, PART_BYTES), payload(1, total - PART_BYTES)];
+  const parts = [payload(0, PB), payload(1, total - PB)];
   for (let n = 0; n < parts.length; n++) { const res = await r.svc.putPart(id, n, parts[n], await sha(parts[n])); expect(res.ok).toBe(true); }
   return parts;
 }
@@ -40,14 +41,14 @@ describe('holding a take for the host', () => {
   it('resumes: a repeat start says which parts it already has', async () => {
     const r = rig();
     await r.svc.init(input());
-    await r.svc.putPart('take-1-a', 0, payload(0, PART_BYTES), await sha(payload(0, PART_BYTES)));
+    await r.svc.putPart('take-1-a', 0, payload(0, PB), await sha(payload(0, PB)));
     expect(await r.svc.init(input())).toMatchObject({ ok: true, value: { received: [0], ready: false } });
     expect(await r.svc.complete('take-1-a')).toMatchObject({ ok: false, status: 409 });
   });
   it('refuses a damaged or wrongly sized part, and a take that does not add up', async () => {
     const r = rig();
     await r.svc.init(input());
-    expect(await r.svc.putPart('take-1-a', 0, payload(0, PART_BYTES), 'bad')).toMatchObject({ ok: false, status: 422 });
+    expect(await r.svc.putPart('take-1-a', 0, payload(0, PB), 'bad')).toMatchObject({ ok: false, status: 422 });
     expect(await r.svc.putPart('take-1-a', 0, payload(0, 100), await sha(payload(0, 100)))).toMatchObject({ ok: false, status: 422 });
     expect(await r.svc.putPart('take-1-a', 5, payload(0, 100), 'x')).toMatchObject({ ok: false, status: 400 });
     expect(await r.svc.init({ ...input('take-2-a'), bytes: 10 })).toMatchObject({ ok: false, status: 400 });
