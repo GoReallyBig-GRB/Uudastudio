@@ -7,8 +7,10 @@ import { useLiveSettings } from '../settings/useLiveSettings';
 import { GEARS, GOALS, SIGHTS, gearLabel, guessGear, inputWarning, isMixerGear, recommend, suggestInput, type Gear, type Goal, type Sight } from './setupPlan';
 import { SetupDiagram } from './SetupDiagram';
 import { useMicTest } from './useMicTest';
+import { ComputerCheck, NetworkCheck, RouteTest } from './SetupChecks';
+import { sheetLink } from './sheetLink';
 
-type Step = 'goal' | 'gear' | 'sight' | 'ask' | 'connect' | 'test' | 'finish' | 'done';
+type Step = 'goal' | 'gear' | 'sight' | 'ask' | 'connect' | 'test' | 'checks' | 'finish' | 'done';
 const SELECT = 'h-10 w-full rounded-control border border-line-strong bg-surface-3 px-3 text-sm text-ink hover:border-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
 
 const GOAL_ICON: Record<Goal, React.ReactNode> = { podcast: <Podcast className="h-5 w-5" />, radio: <Radio className="h-5 w-5" />, 'on-air': <Radio className="h-5 w-5" /> };
@@ -48,7 +50,9 @@ export const SetupAssistant: React.FC<{ open: boolean; onClose: () => void }> = 
 
   const needsAsk = gear !== null && goal !== 'podcast' && isMixerGear(gear);
   const plan = useMemo(() => (goal && gear ? recommend({ goal, gear, hostOnAirViaMixer: onAir === true }) : null), [goal, gear, onAir]);
-  const order: Step[] = ['goal', 'gear', ...(needsAsk ? ['ask' as Step] : []), 'connect', 'test', 'finish'];
+  const order: Step[] = ['goal', 'gear', ...(needsAsk ? ['ask' as Step] : []), 'connect', 'test', ...(plan?.mode === 'broadcast' ? ['checks' as Step] : []), 'finish'];
+  const afterTest: Step = plan?.mode === 'broadcast' ? 'checks' : 'finish';
+  const [copied, setCopied] = useState(false);
   const at = order.indexOf(step);
 
   // When the microphone opens, suggest the input that matches the equipment
@@ -64,7 +68,8 @@ export const SetupAssistant: React.FC<{ open: boolean; onClose: () => void }> = 
     else if (step === 'gear' || step === 'sight') setStep(needsAsk ? 'ask' : 'connect');
     else if (step === 'ask') setStep('connect');
     else if (step === 'connect') setStep('test');
-    else if (step === 'test') { mic.stop(); setStep('finish'); }
+    else if (step === 'test') { mic.stop(); setStep(afterTest); }
+    else if (step === 'checks') setStep('finish');
   };
   const goBack = () => {
     if (step === 'gear') setStep('goal');
@@ -72,7 +77,8 @@ export const SetupAssistant: React.FC<{ open: boolean; onClose: () => void }> = 
     else if (step === 'ask') setStep('gear');
     else if (step === 'connect') setStep(needsAsk ? 'ask' : 'gear');
     else if (step === 'test') { mic.stop(); setStep('connect'); }
-    else if (step === 'finish') setStep('test');
+    else if (step === 'checks') setStep('test');
+    else if (step === 'finish') setStep(afterTest);
   };
 
   const chosen = devices.find((d) => d.deviceId === deviceId);
@@ -167,6 +173,13 @@ export const SetupAssistant: React.FC<{ open: boolean; onClose: () => void }> = 
           </>)}
         </>)}
 
+        {step === 'checks' && gear && (<>
+          <p className="text-sm text-ink">Three quick checks for a broadcast. You can skip any of them.</p>
+          <ComputerCheck />
+          <NetworkCheck />
+          <RouteTest gear={gear} deviceId={deviceId} />
+        </>)}
+
         {step === 'finish' && plan && (<>
           <p className="text-sm text-ink">Ready to save this studio.</p>
           <label className="flex flex-col gap-1.5 text-xs text-ink-dim">Name
@@ -185,6 +198,10 @@ export const SetupAssistant: React.FC<{ open: boolean; onClose: () => void }> = 
         {step === 'done' && (<>
           <Notice tone="ok">Your studio is saved and in use. New events will use it.</Notice>
           <p className="text-xs text-ink-dim">You can change anything in Live settings, or run this assistant again whenever you change your equipment.</p>
+          {goal && gear && (<div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => window.open(sheetLink(window.location.origin, { goal, gear, hostOnAirViaMixer: onAir === true }, name.trim()), '_blank', 'noopener')}>Open the engineer sheet (print)</Button>
+            <Button variant="secondary" onClick={() => { void navigator.clipboard?.writeText(sheetLink(window.location.origin, { goal, gear, hostOnAirViaMixer: onAir === true }, name.trim())).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => undefined); }}>{copied ? 'Link copied' : 'Copy engineer sheet link'}</Button>
+          </div>)}
           <p className="flex items-center gap-2 text-xs text-ink-dim"><Headphones className="h-3.5 w-3.5" />Next: create an event, share the link, and open the room.</p>
         </>)}
       </div>

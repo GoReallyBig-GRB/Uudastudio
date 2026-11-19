@@ -1,6 +1,7 @@
 export { JobRoom } from "./jobs/jobRoom";
 export { JobRegistry } from "./jobs/jobRegistry";
 export { LiveRoom } from "./live/liveRoom";
+import { handlePing } from "./live/ping";
 import { handleRoomConnect } from "./live/roomEntry";
 import { iceServersForEvent } from "./live/turn";
 import { D1RelayLedger } from "./live/relayLedger";
@@ -107,6 +108,8 @@ export default {
         return handleTemplates(request, rest, { auth: a, templates: new D1TemplateStore(env.AUTH_DB), limits: templateLimits });
       }
     }
+    // The network check in the live setup assistant: a small upload that is counted and thrown away
+    if (incoming.pathname === "/api/live/ping") return handlePing(request, jsonHeaders);
     // Connection servers for the voice call; anyone with an open event's link may ask (the credentials are short-lived)
     if (incoming.pathname.startsWith("/api/live/ice/") && request.method === "GET" && env.AUTH_DB) {
       const token = incoming.pathname.slice("/api/live/ice/".length).split("/")[0] ?? "";

@@ -5,6 +5,7 @@ import type { LiveMode } from '../events';
 import type { LiveQuota } from '../api';
 import { liveSettings, type CallQuality } from './liveSettings';
 import { useLiveSettings } from './useLiveSettings';
+import { sheetLink } from '../setup/sheetLink';
 
 const SELECT = 'h-10 w-full rounded-control border border-line-strong bg-surface-3 px-3 text-sm text-ink hover:border-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
 
@@ -41,6 +42,7 @@ export const LiveSettingsPanel: React.FC<{ open: boolean; onClose: () => void; q
                 <li key={p.id} className="flex items-center justify-between gap-2 rounded-control border border-line bg-surface-2 px-3 py-2">
                   <span className="min-w-0 truncate text-sm text-ink">{p.name}{p.id === s.activeProfileId ? <span className="ml-2 text-xs text-ok">in use</span> : null}</span>
                   <span className="flex shrink-0 gap-1.5">
+                    <Button variant="secondary" size="sm" aria-label={`Engineer sheet for ${p.name}`} onClick={() => window.open(sheetLink(window.location.origin, { goal: p.goal, gear: p.gear, hostOnAirViaMixer: p.programContains === 'guests' }, p.name), '_blank', 'noopener')}>Sheet</Button>
                     {p.id !== s.activeProfileId && <Button variant="secondary" size="sm" onClick={() => { liveSettings.useProfile(p.id); }}>Use</Button>}
                     <Button variant="secondary" size="sm" onClick={() => liveSettings.deleteProfile(p.id)} aria-label={`Delete ${p.name}`}>Delete</Button>
                   </span>
