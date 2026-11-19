@@ -1,8 +1,10 @@
 /** The producer's live-event workspace: every event on the left, the scheduler and details on the right. It stays mounted, so closing it or clicking away never loses what was typed. */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarPlus, Check, Copy, FileText, Mail, MessageCircle, Music, Paperclip, Play, Plus, Radio, Settings, Square, Trash2, X, Zap } from 'lucide-react';
+import { BookOpen, CalendarPlus, Check, Copy, FileText, Mail, MessageCircle, Music, Paperclip, Play, Plus, Radio, Settings, Square, Trash2, X, Zap } from 'lucide-react';
 import { LiveSettingsPanel } from './settings/LiveSettingsPanel';
 import { SetupAssistant } from './setup/SetupAssistant';
+import { LiveGuide } from './guide/LiveGuide';
+import { installErrorLog } from './guide/errorLog';
 import { useLiveSettings } from './settings/useLiveSettings';
 import { liveSettings } from './settings/liveSettings';
 import { ProducerRoomPanel } from './room/RoomPanels';
@@ -53,6 +55,8 @@ const saveNewDraft = (f: Form | null) => { try { if (f) localStorage.setItem(DRA
 export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, focusId, onRoomTake }) => {
   const [sel, setSel] = useState<string>('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  useEffect(() => { installErrorLog(); }, []);
   const [setupOpen, setSetupOpen] = useState(false);
   const prefs = useLiveSettings();
   // The first time someone opens Live, the setup assistant opens by itself, before any event, so there is time to get used to it
@@ -127,6 +131,7 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
           <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full border border-line-strong bg-surface-2"><Radio className="h-4 w-4 text-ink" /></span>
             <div><h2 className="text-base font-semibold text-ink">Live events</h2><p className="text-xs text-ink-dim">Schedule sessions, share the invite, open the link when you are ready</p></div></div>
           <div className="flex items-center gap-1">
+            <button type="button" onClick={() => setGuideOpen(true)} aria-label="Live guide" title="Live guide" className="grid h-9 w-9 place-items-center rounded-full text-ink-dim hover:bg-white/5 hover:text-ink cursor-pointer"><BookOpen className="h-4 w-4" /></button>
             <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Live settings" title="Live settings" className="grid h-9 w-9 place-items-center rounded-full text-ink-dim hover:bg-white/5 hover:text-ink cursor-pointer"><Settings className="h-4 w-4" /></button>
           <button type="button" onClick={onClose} aria-label="Close live events" title="Close (your changes stay)" className="grid h-9 w-9 place-items-center rounded-full text-ink-dim hover:bg-white/5 hover:text-ink cursor-pointer"><X className="h-4 w-4" /></button>
           </div>
@@ -253,6 +258,7 @@ export const LiveWorkspace: React.FC<Props> = ({ open, onClose, live, hostName, 
       </section>
       <LiveSettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} quota={live.quota} onRunSetup={() => setSetupOpen(true)} />
       <SetupAssistant open={setupOpen} onClose={closeSetup} />
+      <LiveGuide open={guideOpen} onClose={() => setGuideOpen(false)} onRunSetup={() => setSetupOpen(true)} />
     </div>
   );
 };

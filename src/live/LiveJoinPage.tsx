@@ -4,6 +4,7 @@ import { FileText, Music, Radio } from 'lucide-react';
 import { getJoinInfo, LiveApiError, type JoinInfo } from './api';
 import { parseBlocks, type Run } from '../guest/scriptFormat';
 import { GuestRoomPanel } from './room/RoomPanels';
+import { GUEST_TIPS } from './guide/guideContent';
 import { countdown, durationLabel, linksIn, parseLiveHash, whenParts } from './events';
 
 const Linked: React.FC<{ text: string }> = ({ text }) => {
@@ -70,6 +71,12 @@ const LiveJoinPage: React.FC = () => {
               {info.state === 'ended' && 'This session has ended.'}
             </div>
             {info.state === 'open' && token && <GuestRoomPanel token={token} />}
+            {info.state !== 'ended' && (
+              <details className="rounded-card border border-line bg-surface-2 px-4 py-3">
+                <summary className="cursor-pointer text-sm font-medium text-ink">Quick tips for joining</summary>
+                <ul className="mt-2 list-disc pl-5 text-sm text-ink-dim">{GUEST_TIPS.map((t) => <li key={t} className="mb-1">{t}</li>)}</ul>
+              </details>
+            )}
             {info.description && <p className="whitespace-pre-wrap text-sm text-ink-dim">{info.description}</p>}
             {info.notes && (
               <section aria-label="Notes to help you prepare"><h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-faint">Notes (to help you prepare)</h2><NotesView notes={info.notes} /></section>

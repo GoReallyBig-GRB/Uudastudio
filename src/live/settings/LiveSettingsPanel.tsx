@@ -6,6 +6,7 @@ import type { LiveQuota } from '../api';
 import { liveSettings, type CallQuality } from './liveSettings';
 import { useLiveSettings } from './useLiveSettings';
 import { sheetLink } from '../setup/sheetLink';
+import { DiagnosticsPanel } from '../guide/DiagnosticsPanel';
 
 const SELECT = 'h-10 w-full rounded-control border border-line-strong bg-surface-3 px-3 text-sm text-ink hover:border-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
 
@@ -89,6 +90,10 @@ export const LiveSettingsPanel: React.FC<{ open: boolean; onClose: () => void; q
               <li>{quota.left} of {quota.limit} live sessions left this week</li>
             </ul>
           ) : <p className="text-xs text-ink-faint">Sign in to see your plan limits.</p>}
+        </Section>
+
+        <Section title="Diagnostics" hint="Check this computer and send a report if something is wrong.">
+          <DiagnosticsPanel />
         </Section>
 
         <Section title="Reset">
