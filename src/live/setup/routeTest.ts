@@ -3,7 +3,7 @@ import { isMixerGear, type Gear } from './setupPlan';
 /** The test sound for the echo-loop check: a short rising sweep. If it comes back into the microphone input, the output is feeding the input. */
 export const CHIRP = { startHz: 500, endHz: 2500, seconds: 0.5, level: 0.12 };
 
-export function makeChirp(sampleRate: number): Float32Array {
+export function makeChirp(sampleRate: number): Float32Array<ArrayBuffer> {
   const n = Math.round(sampleRate * CHIRP.seconds);
   const out = new Float32Array(n);
   const k = (CHIRP.endHz - CHIRP.startHz) / CHIRP.seconds;
