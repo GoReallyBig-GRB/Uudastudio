@@ -35,8 +35,6 @@ export interface Env {
   STORAGE_LIMIT_BYTES?: string;
   MAX_TAKE_BYTES?: string;
   MAX_TAKE_SECONDS?: string;
-  /** Optional. If set, creating a job needs this code (typed once in the Jobs panel). */
-  JOBS_CREATE_CODE?: string;
   /** Optional limits on creating jobs, per network address and in total, per UTC day (defaults 100 and 500) */
   JOBS_PER_ADDRESS_PER_DAY?: string;
   JOBS_PER_DAY?: string;
@@ -226,15 +224,15 @@ const hex = (n: number): string => {
 async function handleJobs(request: Request, url: URL, env: Env): Promise<Response> {
   const rest = url.pathname.split("/").filter(Boolean).slice(2); // after api, jobs
   if (rest[0] === "ping" && request.method === "GET") {
-    return new Response(JSON.stringify({ ok: true, createRequiresCode: !authEnv(env) && Boolean(env.JOBS_CREATE_CODE), needsSignIn: Boolean(authEnv(env)) }), { headers: jsonHeaders });
+    return new Response(JSON.stringify({ ok: true, createRequiresCode: false, needsSignIn: true }), { headers: jsonHeaders });
   }
   if (rest[0] === "_status" && request.method === "GET") {
     if (!env.JOB_REGISTRY) return new Response(JSON.stringify({ mode: "unguarded" }), { headers: jsonHeaders });
     return env.JOB_REGISTRY.get(env.JOB_REGISTRY.idFromName("main")).fetch(new Request("https://registry/status"));
   }
   if (rest.length === 0 && request.method === "POST") {
-    // With accounts available, creating a job needs a signed-in account; without them the older optional code applies
-    const access = await authorizeCreate(request, authEnv(env), env.JOBS_CREATE_CODE);
+    // Creating a job needs a signed-in account
+    const access = await authorizeCreate(request, authEnv(env));
     if (!access.ok) return new Response(JSON.stringify({ error: access.error }), { status: access.status, headers: jsonHeaders });
     const owner = access.owner;
     if (env.JOB_REGISTRY) {
