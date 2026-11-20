@@ -28,7 +28,7 @@ export const s3ConfigFrom = (env: { B2_ENDPOINT?: string; B2_BUCKET?: string; B2
   const secret = env.B2_APPLICATION_KEY || env.B2_APP_KEY;
   const endpoint = raw?.trim() ? (/^https?:\/\//i.test(raw.trim()) ? raw.trim() : `https://${raw.trim()}`) : '';
   if (!endpoint || !bucket || !keyId || !secret) return undefined;
-  try { new URL(endpoint); } catch { return undefined; }
+  if (!/^https?:\/\/[a-z0-9.-]+(:\d+)?\/*$/i.test(endpoint)) return undefined; // a bare host, no path
   return { endpoint: endpoint.replace(/\/+$/, ''), bucket, keyId, secret, region: env.B2_REGION };
 };
 
