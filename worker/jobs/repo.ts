@@ -32,11 +32,12 @@ export interface JobRow {
   share?: ShareState | null;
 }
 export interface KeyRow { role: Role; key: string; revoked: boolean }
-export interface AttRow { id: string; name: string; mime: string; bytes: number; ts: number }
+/** `store` says where the audio lives: the job's own database (default) or the overflow bucket */
+export interface AttRow { id: string; name: string; mime: string; bytes: number; ts: number; store?: 'do' | 'b2' }
 export interface MsgRow { id: number; ts: number; thread: string; role: Role; name: string; text: string; att: string | null }
 
 /** A file being sent piece by piece. Its pieces are stored as chunks under the same id the finished attachment will have. */
-export interface UploadRow { id: string; kind: 'attachment' | 'reference' | 'preview' | 'final'; name: string; mime: string; who: string; text: string; thread: string; role: Role; size: number; ts: number }
+export interface UploadRow { id: string; kind: 'attachment' | 'reference' | 'preview' | 'final'; name: string; mime: string; who: string; text: string; thread: string; role: Role; size: number; ts: number; store?: 'do' | 'b2' }
 
 export interface JobRepo {
   ensure(): void;
@@ -57,6 +58,15 @@ export interface JobRepo {
   putChunk(att: string, idx: number, data: Uint8Array): void;
   getChunk(att: string, idx: number): Uint8Array | null;
   deleteAtt(id: string): void;
+  /** Removes the staged pieces of a file but keeps its record */
+  dropChunks(att: string): void;
+  /** Total bytes of this job's files that live in the overflow bucket */
+  b2Bytes(): number;
+  /** Ids of this job's files in the bucket */
+  b2Ids(): string[];
+  /** Bucket files whose record was deleted and that still have to be removed from the bucket */
+  b2Pending(): string[];
+  b2Done(id: string): void;
   putUpload(u: UploadRow): void;
   getUpload(id: string): UploadRow | null;
   deleteUpload(id: string): void;
@@ -75,6 +85,7 @@ export class MemoryRepo implements JobRepo {
   private atts = new Map<string, AttRow>();
   private chunks = new Map<string, Uint8Array>();
   private ups = new Map<string, UploadRow>();
+  private gc = new Set<string>();
   private nextId = 1;
   ensure() {}
   getJob() { return this.job ? { ...this.job } : null; }
@@ -99,9 +110,15 @@ export class MemoryRepo implements JobRepo {
   attsBefore(ts: number) { return [...this.atts.values()].filter((a) => a.ts < ts).map((a) => a.id); }
   chunkIndexes(att: string) { return [...this.chunks.keys()].filter((k) => k.startsWith(`${att}:`)).map((k) => Number(k.slice(att.length + 1))).sort((a, b) => a - b); }
   deleteAtt(id: string) {
+    if (this.atts.get(id)?.store === 'b2') this.gc.add(id);
     this.atts.delete(id);
-    for (const k of [...this.chunks.keys()]) if (k.startsWith(`${id}:`)) this.chunks.delete(k);
+    this.dropChunks(id);
   }
+  dropChunks(id: string) { for (const k of [...this.chunks.keys()]) if (k.startsWith(`${id}:`)) this.chunks.delete(k); }
+  b2Bytes() { let n = 0; for (const a of this.atts.values()) if (a.store === 'b2') n += a.bytes; return n; }
+  b2Ids() { return [...this.atts.values()].filter((a) => a.store === 'b2').map((a) => a.id); }
+  b2Pending() { return [...this.gc]; }
+  b2Done(id: string) { this.gc.delete(id); }
 }
 
 /** What both Cloudflare's `ctx.storage.sql` and a test adapter provide */
@@ -131,6 +148,8 @@ export class SqlRepo implements JobRepo {
     q('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, thread TEXT, role TEXT, name TEXT, text TEXT, att TEXT)');
     q('CREATE TABLE IF NOT EXISTS atts (id TEXT PRIMARY KEY, name TEXT, mime TEXT, bytes INTEGER, ts INTEGER)');
     q('CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, json TEXT)');
+    try { q('ALTER TABLE atts ADD COLUMN store TEXT'); } catch { /* already there */ }
+    q('CREATE TABLE IF NOT EXISTS b2gc (id TEXT PRIMARY KEY)');
     q('CREATE TABLE IF NOT EXISTS blobs (att TEXT, idx INTEGER, data BLOB, PRIMARY KEY (att, idx))');
   }
   getJob(): JobRow | null {
@@ -152,10 +171,10 @@ export class SqlRepo implements JobRepo {
   }
   messageCount() { return Number(this.sql.exec('SELECT COUNT(*) AS n FROM messages').toArray()[0].n); }
   lastMessageId(thread: string) { return Number(this.sql.exec('SELECT COALESCE(MAX(id), 0) AS n FROM messages WHERE thread = ?', thread).toArray()[0].n); }
-  addAtt(a: AttRow) { this.sql.exec('INSERT OR REPLACE INTO atts (id, name, mime, bytes, ts) VALUES (?, ?, ?, ?, ?)', a.id, a.name, a.mime, a.bytes, a.ts); }
+  addAtt(a: AttRow) { this.sql.exec('INSERT OR REPLACE INTO atts (id, name, mime, bytes, ts, store) VALUES (?, ?, ?, ?, ?, ?)', a.id, a.name, a.mime, a.bytes, a.ts, a.store === 'b2' ? 'b2' : null); }
   getAtt(id: string): AttRow | null {
     const r = this.sql.exec('SELECT * FROM atts WHERE id = ?', id).toArray()[0];
-    return r ? { id: String(r.id), name: String(r.name), mime: String(r.mime), bytes: Number(r.bytes), ts: Number(r.ts) } : null;
+    return r ? { id: String(r.id), name: String(r.name), mime: String(r.mime), bytes: Number(r.bytes), ts: Number(r.ts), ...(r.store === 'b2' ? { store: 'b2' as const } : {}) } : null;
   }
   totalBytes() { return Number(this.sql.exec('SELECT COALESCE(SUM(LENGTH(data)), 0) AS n FROM blobs').toArray()[0].n); }
   putChunk(att: string, idx: number, data: Uint8Array) { this.sql.exec('INSERT OR REPLACE INTO blobs (att, idx, data) VALUES (?, ?, ?)', att, idx, asBuffer(data)); }
@@ -177,7 +196,13 @@ export class SqlRepo implements JobRepo {
   attsBefore(ts: number): string[] { return this.sql.exec('SELECT id FROM atts WHERE ts < ?', ts).toArray().map((r) => String(r.id)); }
   chunkIndexes(att: string): number[] { return this.sql.exec('SELECT idx FROM blobs WHERE att = ? ORDER BY idx', att).toArray().map((r) => Number(r.idx)); }
   deleteAtt(id: string) {
+    this.sql.exec("INSERT OR IGNORE INTO b2gc (id) SELECT id FROM atts WHERE id = ? AND store = 'b2'", id);
     this.sql.exec('DELETE FROM blobs WHERE att = ?', id);
     this.sql.exec('DELETE FROM atts WHERE id = ?', id);
   }
+  dropChunks(att: string) { this.sql.exec('DELETE FROM blobs WHERE att = ?', att); }
+  b2Bytes() { return Number(this.sql.exec("SELECT COALESCE(SUM(bytes), 0) AS n FROM atts WHERE store = 'b2'").toArray()[0].n); }
+  b2Ids() { return this.sql.exec("SELECT id FROM atts WHERE store = 'b2'").toArray().map((r) => String(r.id)); }
+  b2Pending() { return this.sql.exec('SELECT id FROM b2gc').toArray().map((r) => String(r.id)); }
+  b2Done(id: string) { this.sql.exec('DELETE FROM b2gc WHERE id = ?', id); }
 }
