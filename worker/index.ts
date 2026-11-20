@@ -35,7 +35,7 @@ export interface Env {
   MAX_TAKE_SECONDS?: string;
   /** Optional. If set, creating a job needs this code (typed once in the Jobs panel). */
   JOBS_CREATE_CODE?: string;
-  /** Optional limits on creating jobs, per network address and in total, per UTC day (defaults 10 and 300) */
+  /** Optional limits on creating jobs, per network address and in total, per UTC day (defaults 100 and 1000) */
   JOBS_PER_ADDRESS_PER_DAY?: string;
   JOBS_PER_DAY?: string;
   /** Accounts (Cloudflare D1). With FIREBASE_PROJECT_ID and SESSION_SECRET, this Worker handles sign-in itself. */
