@@ -46,11 +46,23 @@ export interface RegistryStore {
   /** Where new files go right now; 'do' until the high-water mark, then 'b2' until usage falls below the low-water mark */
   mode(): 'do' | 'b2';
   setMode(m: 'do' | 'b2'): void;
+  /** Which account created a job (written once, at creation) */
+  setOwner(id: string, owner: string): void;
+  ownerOf(id: string): string | null;
+  /** Bytes held by this store for one account's jobs */
+  byOwner(owner: string): number;
+  /** Per account: how many of its jobs hold audio here, and how many bytes. Jobs with no known owner are under ''. */
+  perOwner(): { owner: string; jobs: number; bytes: number }[];
 }
 
 export class MemoryRegistryStore implements RegistryStore {
   private m = new Map<string, number>();
   private md: 'do' | 'b2' = 'do';
+  private own = new Map<string, string>();
+  setOwner(id: string, owner: string) { if (!this.own.has(id)) this.own.set(id, owner); }
+  ownerOf(id: string) { return this.own.get(id) ?? null; }
+  byOwner(owner: string) { let n = 0; for (const [id, b] of this.m) if (this.own.get(id) === owner) n += b; return n; }
+  perOwner() { const o = new Map<string, { owner: string; jobs: number; bytes: number }>(); for (const [id, b] of this.m) { const k = this.own.get(id) ?? ''; const e = o.get(k) ?? { owner: k, jobs: 0, bytes: 0 }; e.jobs++; e.bytes += b; o.set(k, e); } return [...o.values()]; }
   mode() { return this.md; }
   setMode(m: 'do' | 'b2') { this.md = m; }
   set(id: string, bytes: number) { if (bytes > 0) this.m.set(id, Math.floor(bytes)); else this.m.delete(id); }
@@ -66,7 +78,12 @@ export class SqlRegistryStore implements RegistryStore {
   constructor(private sql: Sql, private table = 'usage') {
     sql.exec(`CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY, bytes INTEGER NOT NULL)`);
     sql.exec('CREATE TABLE IF NOT EXISTS registry_meta (k TEXT PRIMARY KEY, v TEXT)');
+    sql.exec('CREATE TABLE IF NOT EXISTS owners (job TEXT PRIMARY KEY, owner TEXT NOT NULL)');
   }
+  setOwner(id: string, owner: string) { this.sql.exec('INSERT OR IGNORE INTO owners (job, owner) VALUES (?, ?)', id, owner); }
+  ownerOf(id: string) { const r = this.sql.exec('SELECT owner FROM owners WHERE job = ?', id).toArray()[0]; return r ? String(r.owner) : null; }
+  byOwner(owner: string) { return Number(this.sql.exec(`SELECT COALESCE(SUM(u.bytes), 0) AS n FROM ${this.table} u JOIN owners o ON o.job = u.id WHERE o.owner = ?`, owner).toArray()[0].n); }
+  perOwner() { return this.sql.exec(`SELECT COALESCE(o.owner, '') AS owner, COUNT(*) AS jobs, SUM(u.bytes) AS bytes FROM ${this.table} u LEFT JOIN owners o ON o.job = u.id GROUP BY COALESCE(o.owner, '')`).toArray().map((r) => ({ owner: String(r.owner), jobs: Number(r.jobs), bytes: Number(r.bytes) })); }
   set(id: string, bytes: number) {
     if (bytes > 0) this.sql.exec(`INSERT OR REPLACE INTO ${this.table} (id, bytes) VALUES (?, ?)`, id, Math.floor(bytes));
     else this.sql.exec(`DELETE FROM ${this.table} WHERE id = ?`, id);
@@ -88,24 +105,45 @@ export const DEFAULT_B2_LIMIT = 9 * 1024 ** 3;
 /** Return to the job database when its usage falls below this: 65% of the 5 GB cap, so routing does not flap around the high-water mark */
 export const DEFAULT_LOW_WATER = Math.floor(3.25 * 1024 ** 3);
 
+/** Audio one account may hold on the service at a time. Starting value; it is a setting. */
+export const DEFAULT_ACCOUNT_LIMIT = 1.5 * 1024 ** 3;
+export const ACCOUNT_FULL_MESSAGE = 'You have reached the audio allowance for your account. Delete older jobs to free space, or save the file and send it yourself.';
+
 export interface OverflowOptions { b2: RegistryStore; b2Limit?: number; lowWater?: number }
 
 /** The registry's rules, independent of where it runs */
 export class Registry {
   private b2Limit: number;
   private lowWater: number;
-  constructor(private store: RegistryStore, readonly limit: number, private overflow?: OverflowOptions) {
+  constructor(private store: RegistryStore, readonly limit: number, private overflow?: OverflowOptions, readonly accountLimit: number = DEFAULT_ACCOUNT_LIMIT) {
     this.b2Limit = overflow?.b2Limit ?? DEFAULT_B2_LIMIT;
     // The low-water mark must sit below the high-water mark or routing would flap
     this.lowWater = Math.min(overflow?.lowWater ?? DEFAULT_LOW_WATER, Math.floor(limit * 0.8125));
   }
   set(id: string, bytes: number) { this.store.set(id, bytes); }
   setB2(id: string, bytes: number) { this.overflow?.b2.set(id, bytes); }
-  check(size: number): string | null { return refusalFor(this.store.total(), size, this.limit); }
+  setOwner(id: string, owner: string) { this.store.setOwner(id, owner); }
+  /** A refusal when this job's account would pass its allowance; accounts are known only for jobs made while signed in */
+  private accountRefusal(size: number, jobId?: string): string | null {
+    const owner = jobId ? this.store.ownerOf(jobId) : null;
+    if (!owner) return null;
+    const held = this.store.byOwner(owner) + (this.overflow ? this.overflow.b2.byOwner(owner) : 0);
+    return held + size > this.accountLimit ? ACCOUNT_FULL_MESSAGE : null;
+  }
+  check(size: number, jobId?: string): string | null { return this.accountRefusal(size, jobId) ?? refusalFor(this.store.total(), size, this.limit); }
+  /** Usage per account, DO and B2 together */
+  accounts(): { owner: string; jobs: number; doBytes: number; b2Bytes: number }[] {
+    const m = new Map<string, { owner: string; jobs: number; doBytes: number; b2Bytes: number }>();
+    for (const r of this.store.perOwner()) m.set(r.owner, { owner: r.owner, jobs: r.jobs, doBytes: r.bytes, b2Bytes: 0 });
+    for (const r of this.overflow?.b2.perOwner() ?? []) { const e = m.get(r.owner) ?? { owner: r.owner, jobs: 0, doBytes: 0, b2Bytes: 0 }; e.b2Bytes = r.bytes; e.jobs = Math.max(e.jobs, r.jobs); m.set(r.owner, e); }
+    return [...m.values()];
+  }
   /** Decides where one new file goes. Without overflow storage this is the plain limit check. */
-  place(size: number): Placement {
+  place(size: number, jobId?: string): Placement {
     const o = this.overflow;
-    if (!o) { const r = this.check(size); return r ? { refusal: r } : { where: 'do' }; }
+    const acct = this.accountRefusal(size, jobId);
+    if (acct) return { refusal: acct };
+    if (!o) { const r = this.check(size, jobId); return r ? { refusal: r } : { where: 'do' }; }
     const total = this.store.total();
     let mode = this.store.mode();
     if (mode === 'do' && total + size > this.limit) mode = 'b2';
@@ -128,8 +166,8 @@ export class Registry {
 /** A guard backed directly by a Registry in the same process (tests, Express) */
 export const localGuard = (reg: Registry, jobId: string, opts: { maxTakeBytes?: number; maxTakeSeconds?: number } = {}): StorageGuard => ({
   ...opts,
-  check: (size) => reg.check(size),
+  check: (size) => reg.check(size, jobId),
   report: (bytes) => reg.set(jobId, bytes),
-  place: (size) => reg.place(size),
+  place: (size) => reg.place(size, jobId),
   reportB2: (bytes) => reg.setB2(jobId, bytes),
 });

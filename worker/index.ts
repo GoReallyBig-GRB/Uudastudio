@@ -7,7 +7,8 @@ import { D1RelayLedger } from "./live/relayLedger";
 import { stateOf } from "./live/rules";
 import { isAuthProxyPath, proxyAuth } from "./authProxy";
 import { withOrigin } from "./pageMeta";
-import { handleAuth, type AuthEnv } from "./auth/handler";
+import { handleAuth, userFor, type AuthEnv } from "./auth/handler";
+import { buildInsights } from "./admin/insights";
 import { D1UserStore } from "./auth/users";
 import { makeLimiter } from "./auth/rateLimit";
 import { fetchGoogleKeys, keyCache } from "./auth/verifyIdToken";
@@ -38,6 +39,9 @@ export interface Env {
   /** Optional limits on creating jobs, per network address and in total, per UTC day (defaults 100 and 500) */
   JOBS_PER_ADDRESS_PER_DAY?: string;
   JOBS_PER_DAY?: string;
+  JOBS_PER_ACCOUNT_PER_DAY?: string;
+  /** Audio one account may hold on the service (default 1.5 GB) */
+  ACCOUNT_LIMIT_BYTES?: string;
   /** Accounts (Cloudflare D1). With FIREBASE_PROJECT_ID and SESSION_SECRET, this Worker handles sign-in itself. */
   AUTH_DB?: D1Full;
   /** Freesound sound library. FREESOUND_CLIENT_SECRET is a secret (Freesound's "Client Secret" and "API key" are the same string; FREESOUND_API_KEY also works); FREESOUND_CLIENT_ID is a plain variable. */
@@ -132,6 +136,18 @@ export default {
         return handleLive(request, rest, { auth: a, store: new D1LiveStore(env.AUTH_DB as unknown as D1Full), limits: liveLimits });
       }
     }
+    // Admin overview: read-only, for the admin account only. Everything else under /api/admin still goes to API_ORIGIN.
+    if (incoming.pathname === "/api/admin/insights" && request.method === "GET") {
+      const a = authEnv(env);
+      if (a && env.JOB_REGISTRY) {
+        const me = await userFor(request, a);
+        if (!me) return new Response(JSON.stringify({ error: "Sign in first." }), { status: 401, headers: jsonHeaders });
+        if (me.user.role !== "admin") return new Response(JSON.stringify({ error: "Not allowed." }), { status: 403, headers: jsonHeaders });
+        const reg = (await (await env.JOB_REGISTRY.get(env.JOB_REGISTRY.idFromName("main")).fetch(new Request("https://registry/accounts"))).json()) as { accounts: never[]; status: Record<string, unknown>; accountLimitBytes: number; creation: never };
+        const body = buildInsights({ users: await a.store.all(500), accounts: reg.accounts, now: Date.now(), status: reg.status, creation: reg.creation, accountLimitBytes: reg.accountLimitBytes });
+        return new Response(JSON.stringify(body), { headers: { ...jsonHeaders, "cache-control": "private, no-store" } });
+      }
+    }
     if (incoming.pathname.startsWith("/api/freesound/")) {
       const a = authEnv(env);
       if (a) {
@@ -209,21 +225,29 @@ const hex = (n: number): string => {
 async function handleJobs(request: Request, url: URL, env: Env): Promise<Response> {
   const rest = url.pathname.split("/").filter(Boolean).slice(2); // after api, jobs
   if (rest[0] === "ping" && request.method === "GET") {
-    return new Response(JSON.stringify({ ok: true, createRequiresCode: Boolean(env.JOBS_CREATE_CODE) }), { headers: jsonHeaders });
+    return new Response(JSON.stringify({ ok: true, createRequiresCode: !authEnv(env) && Boolean(env.JOBS_CREATE_CODE), needsSignIn: Boolean(authEnv(env)) }), { headers: jsonHeaders });
   }
   if (rest[0] === "_status" && request.method === "GET") {
     if (!env.JOB_REGISTRY) return new Response(JSON.stringify({ mode: "unguarded" }), { headers: jsonHeaders });
     return env.JOB_REGISTRY.get(env.JOB_REGISTRY.idFromName("main")).fetch(new Request("https://registry/status"));
   }
   if (rest.length === 0 && request.method === "POST") {
-    if (env.JOBS_CREATE_CODE && request.headers.get("x-jobs-create-code") !== env.JOBS_CREATE_CODE) {
+    // With accounts available, creating a job needs a signed-in account (and the shared code is not used).
+    // Without them, the older optional code applies.
+    const a = authEnv(env);
+    let owner = "";
+    if (a) {
+      const me = await userFor(request, a);
+      if (!me) return new Response(JSON.stringify({ error: "Sign in to create a job." }), { status: 401, headers: jsonHeaders });
+      owner = me.user.id;
+    } else if (env.JOBS_CREATE_CODE && request.headers.get("x-jobs-create-code") !== env.JOBS_CREATE_CODE) {
       return new Response(JSON.stringify({ error: "A code is needed to create jobs." }), { status: 403, headers: jsonHeaders });
     }
     if (env.JOB_REGISTRY) {
       // Fails closed: if the limit cannot be checked, no job is created
       let gate: { ok: boolean; refusal?: string; retryAfterSeconds?: number } = { ok: false, refusal: "Jobs cannot be created right now. Try again shortly.", retryAfterSeconds: 60 };
       try {
-        const r = await env.JOB_REGISTRY.get(env.JOB_REGISTRY.idFromName("main")).fetch(new Request("https://registry/create", { method: "POST", body: JSON.stringify({ address: request.headers.get("cf-connecting-ip") ?? "" }) }));
+        const r = await env.JOB_REGISTRY.get(env.JOB_REGISTRY.idFromName("main")).fetch(new Request("https://registry/create", { method: "POST", body: JSON.stringify({ address: request.headers.get("cf-connecting-ip") ?? "", account: owner }) }));
         if (r.ok) gate = (await r.json()) as typeof gate;
       } catch { /* keeps the refusal above */ }
       if (!gate.ok) return new Response(JSON.stringify({ error: gate.refusal }), { status: 429, headers: { ...jsonHeaders, "retry-after": String(gate.retryAfterSeconds ?? 60) } });
@@ -233,6 +257,10 @@ async function handleJobs(request: Request, url: URL, env: Env): Promise<Respons
     const init = await stub.fetch(new Request(new URL(`/api/jobs/${id}/init`, url), { method: "POST", body: request.body, headers: { "content-type": "application/json" } }));
     if (!init.ok) return init;
     const keys = (await init.json()) as Record<string, string>;
+    if (owner && env.JOB_REGISTRY) {
+      // Who owns the job, so audio can be counted per account. A failure here only means this job is not counted against the account.
+      try { await env.JOB_REGISTRY.get(env.JOB_REGISTRY.idFromName("main")).fetch(new Request("https://registry/owner", { method: "POST", body: JSON.stringify({ id, owner }) })); } catch { /* advisory */ }
+    }
     return new Response(JSON.stringify({ jobId: id, ...keys }), { status: 201, headers: jsonHeaders });
   }
   if (/^[0-9a-f]{32}$/.test(rest[0] ?? "")) {

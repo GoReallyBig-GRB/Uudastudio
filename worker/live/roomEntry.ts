@@ -1,4 +1,5 @@
 import { userFor, type AuthEnv } from '../auth/handler';
+import { shownName } from '../auth/users';
 import type { LiveStore } from './store';
 import { ROOM, cleanName, type Role } from './room';
 import { FREE_PLAN, quotaFor, resetText, sessionStart } from './plan';
@@ -44,7 +45,7 @@ export async function handleRoomConnect(req: Request, token: string, env: RoomEn
   const me = await userFor(req, env.auth).catch(() => null);
   const now = Date.now();
   const q = e && me?.user.id === e.userId ? quotaFor(await env.store.list(e.userId), now, e.id) : null;
-  const a = roomAccess(e, now, me?.user.id ?? null, me?.user.display_name ?? 'Host', new URL(req.url).searchParams.get('name') ?? '', q?.left ?? 1, q?.resetsAt ?? null);
+  const a = roomAccess(e, now, me?.user.id ?? null, (me ? shownName(me.user) : 'Host'), new URL(req.url).searchParams.get('name') ?? '', q?.left ?? 1, q?.resetsAt ?? null);
   if (!a.ok) return fail(a.status, a.error);
   const stub = env.rooms.get(env.rooms.idFromName(e!.id));
   const headers = new Headers({ upgrade: 'websocket', 'x-room-role': a.role, 'x-room-name': a.name, 'x-room-opened-at': String(a.openedAt ?? now), 'x-room-mode': e!.mode });

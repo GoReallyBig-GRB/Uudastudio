@@ -44,7 +44,7 @@ export function useAuth() {
   }, []);
 
   const updateProfile = useCallback(
-    async (updates: { display_name?: string; preferences?: Partial<UserPreferences> }) => {
+    async (updates: { display_name?: string; nickname?: string; preferences?: Partial<UserPreferences> }) => {
       return authService.updateProfile(updates);
     },
     []

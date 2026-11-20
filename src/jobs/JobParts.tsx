@@ -2,6 +2,7 @@
 import React, { useRef, useState } from 'react';
 import { Upload, X } from 'lucide-react';
 import { Button, Input } from '../components/ui';
+import { useAuth } from '../hooks/useAuth';
 import { AUDIO_ACCEPT, createJob, sendReference } from './api';
 import { CODE_KEY, STATUS_TEXT, type StoredJob } from './jobsStore';
 import type { JobSummary } from './useJobs';
@@ -37,7 +38,9 @@ export const JobRows: React.FC<{ jobs: StoredJob[]; summaries: Record<string, Jo
 
 export const NewJob: React.FC<{ needsCode: boolean; onCancel?: () => void; onCreated: (j: Omit<StoredJob, 'lastRead'>) => void }> = ({ needsCode, onCancel, onCreated }) => {
   const [title, setTitle] = useState('');
-  const [producer, setProducer] = useState(() => lsGet('uuda-producer-name'));
+  const { user } = useAuth();
+  // The account's nickname if it has one; otherwise the name last used here, then the Google name
+  const [producer, setProducer] = useState(() => user?.nickname || lsGet('uuda-producer-name') || user?.display_name || '');
   const [talent, setTalent] = useState('');
   const [script, setScript] = useState('');
   const [notes, setNotes] = useState('');

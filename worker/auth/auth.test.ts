@@ -249,7 +249,7 @@ describe('D1 user store', () => {
           log.push('write');
           if (q.startsWith('INSERT')) rows.set(String(v[0]), { id: v[0], email: v[1], display_name: v[2], photo_url: v[3], role: v[4], created_at: v[5], last_active_at: v[6], blocked: 0, prefs: v[7], valid_after: 0 });
           else if (q.startsWith('UPDATE users SET last_active_at')) { const r = rows.get(String(v[2])); r.last_active_at = v[0]; r.photo_url = v[1]; }
-          else if (q.startsWith('UPDATE users SET display_name')) { const r = rows.get(String(v[2])); r.display_name = v[0]; r.prefs = v[1]; }
+          else if (q.startsWith('UPDATE users SET display_name')) { const r = rows.get(String(v[3])); r.display_name = v[0]; r.nickname = v[1]; r.prefs = v[2]; }
           else if (q.startsWith('UPDATE users SET valid_after')) { const r = rows.get(String(v[1])); r.valid_after = Math.max(r.valid_after, Number(v[0])); }
         },
       }) }),
@@ -260,7 +260,7 @@ describe('D1 user store', () => {
     const { db, log } = fakeD1(); const s = new D1UserStore(db);
     const p = { id: 'u', email: 'a@b.c', name: 'A', photo: '', role: 'user' as const, now: NOW };
     expect((await s.signIn(p)).isNew).toBe(true);
-    expect(log.filter((x) => x === 'exec')).toHaveLength(1); // the table is made once
+    expect(log.filter((x) => x === 'exec')).toHaveLength(2); // the table is made once, and the nickname column added once
     const writes = () => log.filter((x) => x === 'write').length;
     const w0 = writes();
     expect((await s.signIn({ ...p, now: NOW + 60_000 })).isNew).toBe(false);

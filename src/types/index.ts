@@ -365,6 +365,8 @@ export interface UserRecord {
   id: string; // Google User ID (stable)
   email: string; // Permanent email (lowercase)
   display_name: string;
+  /** What the person chooses to be called to others; empty means the Google name is used */
+  nickname?: string;
   photo_url: string;
   role: 'user' | 'admin';
   created_at: string;

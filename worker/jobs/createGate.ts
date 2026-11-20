@@ -5,6 +5,8 @@
  */
 export const DEFAULT_JOBS_PER_ADDRESS_PER_DAY = 100;
 export const DEFAULT_JOBS_PER_DAY = 500;
+/** One signed-in account. A busy producer runs up to 25 a day; this leaves room above that. */
+export const DEFAULT_JOBS_PER_ACCOUNT_PER_DAY = 50;
 export const CREATE_LIMIT_MESSAGE = 'Too many jobs were started from your network today. Try again tomorrow, or ask the studio for access.';
 
 export interface GateStore {
@@ -39,19 +41,27 @@ const digest = async (s: string): Promise<string> => [...new Uint8Array(await cr
 export type GateResult = { ok: true } | { ok: false; refusal: string; retryAfterSeconds: number };
 
 export class CreateGate {
-  constructor(private store: GateStore, private perAddress = DEFAULT_JOBS_PER_ADDRESS_PER_DAY, private perDay = DEFAULT_JOBS_PER_DAY, private now: () => number = Date.now) {}
+  constructor(private store: GateStore, private perAddress = DEFAULT_JOBS_PER_ADDRESS_PER_DAY, private perDay = DEFAULT_JOBS_PER_DAY, private now: () => number = Date.now, private perAccount = DEFAULT_JOBS_PER_ACCOUNT_PER_DAY) {}
+
+  /** Jobs created so far today, all addresses together (for the admin view) */
+  today(): { day: string; created: number; perAddress: number; perAccount: number; perDay: number } {
+    const day = new Date(this.now()).toISOString().slice(0, 10);
+    return { day, created: this.store.peek(day, '*'), perAddress: this.perAddress, perAccount: this.perAccount, perDay: this.perDay };
+  }
 
   /** Call once per job-creation attempt. Counts the attempt when it is allowed. */
-  async take(address: string): Promise<GateResult> {
+  async take(address: string, account?: string): Promise<GateResult> {
     const t = this.now();
     const day = new Date(t).toISOString().slice(0, 10);
     const wait = Math.max(1, Math.ceil((Date.parse(day) + 24 * 3600_000 - t) / 1000));
     this.store.prune(day);
     const key = 'a:' + (await digest(`${day}|${address || 'unknown'}`));
     // Check both before counting either, so a refused attempt does not use up anyone's allowance
-    if (this.store.peek(day, key) >= this.perAddress || this.store.peek(day, '*') >= this.perDay) return { ok: false, refusal: CREATE_LIMIT_MESSAGE, retryAfterSeconds: wait };
+    const acct = account ? 'u:' + (await digest(`${day}|${account}`)) : '';
+    if (this.store.peek(day, key) >= this.perAddress || this.store.peek(day, '*') >= this.perDay || (acct && this.store.peek(day, acct) >= this.perAccount)) return { ok: false, refusal: CREATE_LIMIT_MESSAGE, retryAfterSeconds: wait };
     this.store.bump(day, key);
     this.store.bump(day, '*');
+    if (acct) this.store.bump(day, acct);
     return { ok: true };
   }
 }

@@ -58,10 +58,10 @@ export class JobRoom extends DurableObject {
       maxTakeBytes: parseSetting(this.roomEnv.MAX_TAKE_BYTES, DEFAULT_MAX_TAKE_BYTES),
       maxTakeSeconds: parseSetting(this.roomEnv.MAX_TAKE_SECONDS, DEFAULT_MAX_TAKE_SECONDS),
       ...(s3ConfigFrom(this.roomEnv) ? {
-        place: async (size: number) => (await (await post('/place', { size })).json()) as { where: 'do' | 'b2' } | { refusal: string },
+        place: async (size: number) => (await (await post('/place', { size, id: jobId })).json()) as { where: 'do' | 'b2' } | { refusal: string },
         reportB2: async (bytes: number) => { if (bytes !== this.lastReportedB2) { this.lastReportedB2 = bytes; await post('/set-b2', { id: jobId, bytes }); } },
       } : {}),
-      check: async (size) => ((await (await post('/check', { size })).json()) as { refusal: string | null }).refusal,
+      check: async (size) => ((await (await post('/check', { size, id: jobId })).json()) as { refusal: string | null }).refusal,
       report: async (bytes) => { if (bytes !== this.lastReported) { this.lastReported = bytes; await post('/set', { id: jobId, bytes }); } },
     };
   }
