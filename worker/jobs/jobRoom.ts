@@ -14,7 +14,7 @@ const newKey = (): string => {
 /** One voice-talent job: its script, keys, message thread and audio. One of these exists per job; it deletes itself after 60 days without activity. */
 type Th = 'talent' | 'client';
 
-type RoomEnv = { JOB_REGISTRY?: DurableObjectNamespace; MAX_TAKE_BYTES?: string; MAX_TAKE_SECONDS?: string; B2_ENDPOINT?: string; B2_BUCKET?: string; B2_KEY_ID?: string; B2_APPLICATION_KEY?: string; B2_REGION?: string };
+type RoomEnv = { JOB_REGISTRY?: DurableObjectNamespace; MAX_TAKE_BYTES?: string; MAX_TAKE_SECONDS?: string; B2_ENDPOINT?: string; B2_BUCKET?: string; B2_KEY_ID?: string; B2_APPLICATION_KEY?: string; B2_APP_KEY?: string; B2_REGION?: string };
 
 export class JobRoom extends DurableObject {
   private roomEnv: RoomEnv;

@@ -22,9 +22,13 @@ export const objectKey = (attId: string): string => `audio/${attId}`;
 export interface S3Config { endpoint: string; bucket: string; keyId: string; secret: string; region?: string }
 
 /** Reads the bucket settings from Worker variables and secrets; undefined when any is missing */
-export const s3ConfigFrom = (env: { B2_ENDPOINT?: string; B2_BUCKET?: string; B2_KEY_ID?: string; B2_APPLICATION_KEY?: string; B2_REGION?: string }): S3Config | undefined => {
-  const { B2_ENDPOINT: endpoint, B2_BUCKET: bucket, B2_KEY_ID: keyId, B2_APPLICATION_KEY: secret } = env;
+export const s3ConfigFrom = (env: { B2_ENDPOINT?: string; B2_BUCKET?: string; B2_KEY_ID?: string; B2_APPLICATION_KEY?: string; B2_APP_KEY?: string; B2_REGION?: string }): S3Config | undefined => {
+  // The secret may be stored as B2_APPLICATION_KEY or B2_APP_KEY; the endpoint may be given with or without https://
+  const { B2_ENDPOINT: raw, B2_BUCKET: bucket, B2_KEY_ID: keyId } = env;
+  const secret = env.B2_APPLICATION_KEY || env.B2_APP_KEY;
+  const endpoint = raw?.trim() ? (/^https?:\/\//i.test(raw.trim()) ? raw.trim() : `https://${raw.trim()}`) : '';
   if (!endpoint || !bucket || !keyId || !secret) return undefined;
+  try { new URL(endpoint); } catch { return undefined; }
   return { endpoint: endpoint.replace(/\/+$/, ''), bucket, keyId, secret, region: env.B2_REGION };
 };
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CHUNK, handleJob, type HandlerEnv } from './handler';
-import { MemoryObjectStore, PART_BYTES, S3Store, objectKey } from './blob';
+import { MemoryObjectStore, PART_BYTES, S3Store, objectKey, s3ConfigFrom } from './blob';
 import { MemoryRepo } from './repo';
 import { MemoryRegistryStore, Registry, STORAGE_FULL_MESSAGE, localGuard } from './storage';
 
@@ -171,5 +171,13 @@ describe('overflow routing', () => {
     const { wipeB2 } = await import('./handler');
     await wipeB2(b.repo, blobs);
     expect(blobs.objects.size).toBe(0);
+  });
+
+  it('reads the settings as they are stored in the dashboard (B2_APP_KEY, endpoint without https://)', () => {
+    const cfg = s3ConfigFrom({ B2_APP_KEY: 'secret', B2_BUCKET: 'uudastudio', B2_ENDPOINT: 's3.eu-central-003.backblazeb2.com', B2_KEY_ID: 'id', B2_REGION: 'eu-central-003' });
+    expect(cfg?.endpoint).toBe('https://s3.eu-central-003.backblazeb2.com');
+    expect(cfg?.secret).toBe('secret');
+    expect(s3ConfigFrom({ B2_BUCKET: 'b', B2_ENDPOINT: 'x.y', B2_KEY_ID: 'id' })).toBeUndefined(); // no secret: stays off
+    expect(s3ConfigFrom({ B2_APP_KEY: 's', B2_BUCKET: 'b', B2_ENDPOINT: 'ht!tp://bad host', B2_KEY_ID: 'id' })).toBeUndefined(); // unusable endpoint: stays off, never throws
   });
 });
