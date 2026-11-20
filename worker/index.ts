@@ -9,6 +9,7 @@ import { isAuthProxyPath, proxyAuth } from "./authProxy";
 import { withOrigin } from "./pageMeta";
 import { handleAuth, userFor, type AuthEnv } from "./auth/handler";
 import { buildInsights } from "./admin/insights";
+import { authorizeCreate } from "./jobs/createAccess";
 import { D1UserStore } from "./auth/users";
 import { makeLimiter } from "./auth/rateLimit";
 import { fetchGoogleKeys, keyCache } from "./auth/verifyIdToken";
@@ -232,17 +233,10 @@ async function handleJobs(request: Request, url: URL, env: Env): Promise<Respons
     return env.JOB_REGISTRY.get(env.JOB_REGISTRY.idFromName("main")).fetch(new Request("https://registry/status"));
   }
   if (rest.length === 0 && request.method === "POST") {
-    // With accounts available, creating a job needs a signed-in account (and the shared code is not used).
-    // Without them, the older optional code applies.
-    const a = authEnv(env);
-    let owner = "";
-    if (a) {
-      const me = await userFor(request, a);
-      if (!me) return new Response(JSON.stringify({ error: "Sign in to create a job." }), { status: 401, headers: jsonHeaders });
-      owner = me.user.id;
-    } else if (env.JOBS_CREATE_CODE && request.headers.get("x-jobs-create-code") !== env.JOBS_CREATE_CODE) {
-      return new Response(JSON.stringify({ error: "A code is needed to create jobs." }), { status: 403, headers: jsonHeaders });
-    }
+    // With accounts available, creating a job needs a signed-in account; without them the older optional code applies
+    const access = await authorizeCreate(request, authEnv(env), env.JOBS_CREATE_CODE);
+    if (!access.ok) return new Response(JSON.stringify({ error: access.error }), { status: access.status, headers: jsonHeaders });
+    const owner = access.owner;
     if (env.JOB_REGISTRY) {
       // Fails closed: if the limit cannot be checked, no job is created
       let gate: { ok: boolean; refusal?: string; retryAfterSeconds?: number } = { ok: false, refusal: "Jobs cannot be created right now. Try again shortly.", retryAfterSeconds: 60 };
