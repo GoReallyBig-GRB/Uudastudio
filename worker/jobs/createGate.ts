@@ -4,7 +4,7 @@
  * Addresses are stored only as a salted-day SHA-256 digest, never as the address itself.
  */
 export const DEFAULT_JOBS_PER_ADDRESS_PER_DAY = 100;
-export const DEFAULT_JOBS_PER_DAY = 1000;
+export const DEFAULT_JOBS_PER_DAY = 500;
 export const CREATE_LIMIT_MESSAGE = 'Too many jobs were started from your network today. Try again tomorrow, or ask the studio for access.';
 
 export interface GateStore {
