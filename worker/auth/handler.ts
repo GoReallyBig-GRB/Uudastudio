@@ -12,8 +12,10 @@ export interface AuthEnv {
   store: UserStore;
   projectId: string;
   sessionSecret: string;
-  /** This address is the admin account. Admin pages also need an emailed code, which this host does not offer yet, so they stay closed. */
+  /** This address is the super admin: always an administrator, and the only one who can add or remove others */
   superAdminEmail?: string;
+  /** True for an email the super admin has made an administrator. Checked at sign-in, so it works before that person's first visit. */
+  isGranted?: (email: string) => Promise<boolean>;
   keys: { find(kid: string): Promise<Jwk | undefined> };
   now: () => number;
   /** Optional cap on sign-in attempts per caller */
@@ -84,13 +86,13 @@ export const handleAuth = async (req: Request, rest: string[], env: AuthEnv): Pr
       const reason = e instanceof TokenError ? e.reason : 'malformed';
       return fail(reason === 'keys-unavailable' ? 503 : 401, REASONS[reason] ?? 'That sign-in was not valid. Try again.');
     }
-    const admin = !!env.superAdminEmail && who.email === env.superAdminEmail.trim().toLowerCase();
+    const admin = (!!env.superAdminEmail && who.email === env.superAdminEmail.trim().toLowerCase()) || (env.isGranted ? await env.isGranted(who.email) : false);
     let { user, isNew } = await env.store.signIn({ id: who.uid, email: who.email, name: who.name, photo: who.picture, role: admin ? 'admin' : 'user', now: env.now() });
-    // The admin email may be configured after the account already exists, so an existing account is promoted too
+    // An administrator may be named after their account already exists, so an existing account is promoted too
     if (admin && user.role !== 'admin' && !user.blocked) { await env.store.setRole(user.id, 'admin'); user = { ...user, role: 'admin' }; }
     if (user.blocked) return fail(403, 'This account has been blocked.');
     const s = await issueSession(env.sessionSecret, user.id, env.now());
-    return send({ user: publicUser(user), isNew, sessionToken: s.token, adminCodeSent: false }, 200, { 'set-cookie': setCookie(s.token, Math.max(1, Math.floor((s.expires - env.now()) / 1000))) });
+    return send({ user: publicUser(user), isNew, sessionToken: s.token, adminCodeSent: false, isAdminVerified: user.role === 'admin' }, 200, { 'set-cookie': setCookie(s.token, Math.max(1, Math.floor((s.expires - env.now()) / 1000))) });
   }
 
   if (route === 'me' && req.method === 'GET') {
@@ -99,7 +101,7 @@ export const handleAuth = async (req: Request, rest: string[], env: AuthEnv): Pr
     // Opening the app renews a session that is in use (up to 30 days from the sign-in that began it)
     const renewed = await renewSession(env.sessionSecret, me.claims, env.now());
     const extra: Record<string, string> = renewed ? { 'set-cookie': setCookie(renewed.token, Math.max(1, Math.floor((renewed.expires - env.now()) / 1000))) } : {};
-    return send({ user: publicUser(me.user), unreadTicketsCount: 0, isAdminVerified: false }, 200, extra);
+    return send({ user: publicUser(me.user), unreadTicketsCount: 0, isAdminVerified: me.user.role === 'admin' }, 200, extra);
   }
 
   if (route === 'signout' && post) {

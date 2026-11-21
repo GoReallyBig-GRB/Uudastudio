@@ -91,7 +91,7 @@ export const AdminTeam: React.FC = () => {
       <div>
         <h2 className="text-lg font-bold text-ink">Admin team</h2>
         <p className="text-xs text-ink-faint mt-0.5">
-          Administrators must confirm each sign-in with an emailed code. Only the super admin can change this list.
+          Administrators sign in with their Google account, so turn on 2-Step Verification for it. Only the super admin can change this list. A new administrator takes effect at once if they already have an account, or at their first sign-in.
         </p>
       </div>
 

@@ -198,12 +198,12 @@ describe('auth routes', () => {
     expect(((await (await call(m.env, 'GET', 'me', {})).json()) as any).user).toBeNull();
   });
 
-  it('gives the admin role only to the configured address, and still keeps admin pages closed', async () => {
+  it('gives the admin role only to the configured address, and opens the admin pages to it without an emailed code', async () => {
     const m = await mkEnv();
     const b = (await (await login(m, { email: 'boss@example.com', sub: 'boss' })).json()) as any;
     expect(b.user.role).toBe('admin');
     const me = (await (await call(m.env, 'GET', 'me', { token: b.sessionToken })).json()) as any;
-    expect(me.isAdminVerified).toBe(false);
+    expect(me.isAdminVerified).toBe(true);
   });
 
   it('signing out ends old sessions but a new sign-in works at once', async () => {
@@ -236,6 +236,19 @@ describe('auth routes', () => {
     expect((await m.store.get('boss'))?.role).toBe('admin');
     const other = (await (await login(m, { email: 'ada@example.com', sub: 'ada2' })).json()) as any;
     expect(other.user.role).toBe('user');
+  });
+
+  it('makes a named administrator one at their first sign-in, and tells the app an administrator needs no emailed code', async () => {
+    const m = await mkEnv();
+    m.env.isGranted = async (email) => email === 'chi@example.com';
+    const chi = (await (await login(m, { email: 'chi@example.com', sub: 'chi' })).json()) as any;
+    expect(chi.user.role).toBe('admin');
+    expect(chi.isAdminVerified).toBe(true);
+    const me = (await (await call(m.env, 'GET', 'me', { token: chi.sessionToken })).json()) as any;
+    expect(me.isAdminVerified).toBe(true);
+    const ada = (await (await login(m, { email: 'ada@example.com', sub: 'ada' })).json()) as any;
+    expect(ada.user.role).toBe('user');
+    expect(((await (await call(m.env, 'GET', 'me', { token: ada.sessionToken })).json()) as any).isAdminVerified).toBe(false);
   });
 
   it('keeps the email permanent when the profile is changed, and rejects cross-site writes', async () => {
