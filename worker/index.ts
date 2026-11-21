@@ -9,6 +9,7 @@ import { isAuthProxyPath, proxyAuth } from "./authProxy";
 import { withOrigin } from "./pageMeta";
 import { handleAuth, userFor, type AuthEnv } from "./auth/handler";
 import { buildInsights } from "./admin/insights";
+import { D1TeamStore, handleTeam } from "./admin/team";
 import { authorizeCreate } from "./jobs/createAccess";
 import { D1UserStore } from "./auth/users";
 import { makeLimiter } from "./auth/rateLimit";
@@ -77,7 +78,7 @@ const freesoundLimits = { search: makeLimiter(50, 60_000), sharedSearch: makeLim
 
 const authEnv = (env: Env): AuthEnv | null =>
   env.AUTH_DB && env.FIREBASE_PROJECT_ID && env.SESSION_SECRET
-    ? { store: new D1UserStore(env.AUTH_DB), projectId: env.FIREBASE_PROJECT_ID, sessionSecret: env.SESSION_SECRET, superAdminEmail: env.SUPER_ADMIN_EMAIL, keys: googleKeys, now: Date.now, limiter: signInLimiter, caller: (r) => r.headers.get("cf-connecting-ip") ?? "unknown" }
+    ? { store: new D1UserStore(env.AUTH_DB), projectId: env.FIREBASE_PROJECT_ID, sessionSecret: env.SESSION_SECRET, superAdminEmail: env.SUPER_ADMIN_EMAIL, isGranted: (email) => new D1TeamStore(env.AUTH_DB!).has(email), keys: googleKeys, now: Date.now, limiter: signInLimiter, caller: (r) => r.headers.get("cf-connecting-ip") ?? "unknown" }
     : null;
 
 export default {
@@ -134,6 +135,11 @@ export default {
         const rest = incoming.pathname.slice("/api/live/".length).split("/").filter(Boolean);
         return handleLive(request, rest, { auth: a, store: new D1LiveStore(env.AUTH_DB as unknown as D1Full), limits: liveLimits });
       }
+    }
+    // The admin team (who is an administrator, and the log of changes). Administrators see it; only the super admin changes it.
+    if (incoming.pathname === "/api/admin/admins" || incoming.pathname.startsWith("/api/admin/admins/") || incoming.pathname === "/api/admin/audit") {
+      const a = authEnv(env);
+      if (a && env.AUTH_DB) return handleTeam(request, incoming.pathname.slice("/api/admin/".length).split("/").filter(Boolean), { auth: a, team: new D1TeamStore(env.AUTH_DB) });
     }
     // Admin overview: read-only, for the admin account only. Everything else under /api/admin still goes to API_ORIGIN.
     if (incoming.pathname === "/api/admin/insights" && request.method === "GET") {

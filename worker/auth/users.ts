@@ -24,6 +24,8 @@ export const publicUser = (u: UserRow) => { const { validAfter: _v, ...rest } = 
 
 export interface UserStore {
   get(id: string): Promise<UserRow | null>;
+  /** The account with this Google email, if it has ever signed in (emails are unique and stored lower case) */
+  byEmail(email: string): Promise<UserRow | null>;
   /** Makes the user on first sign-in; later ones refresh name and photo. Never changes the email or role of an existing user. */
   signIn(p: { id: string; email: string; name: string; photo: string; role: 'user' | 'admin'; now: number }): Promise<{ user: UserRow; isNew: boolean }>;
   update(id: string, p: { display_name?: string; nickname?: string; preferences?: Partial<Preferences> }): Promise<UserRow | null>;
@@ -51,6 +53,7 @@ const cleanPrefs = (cur: Preferences, p: Partial<Preferences> | undefined): Pref
 export class MemoryUserStore implements UserStore {
   users = new Map<string, UserRow>();
   async get(id: string) { return this.users.get(id) ?? null; }
+  async byEmail(email: string) { const e = email.trim().toLowerCase(); return [...this.users.values()].find((u) => u.email.toLowerCase() === e) ?? null; }
   async signIn(p: Parameters<UserStore['signIn']>[0]) {
     const old = this.users.get(p.id);
     if (old) {
@@ -103,6 +106,7 @@ export class D1UserStore implements UserStore {
     return p;
   }
   async get(id: string) { await this.init(); const r = await this.db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first(); return r ? fromRow(r) : null; }
+  async byEmail(email: string) { await this.init(); const r = await this.db.prepare('SELECT * FROM users WHERE email = ?').bind(email.trim().toLowerCase()).first(); return r ? fromRow(r) : null; }
   async signIn(p: Parameters<UserStore['signIn']>[0]) {
     await this.init();
     const old = await this.get(p.id);
