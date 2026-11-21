@@ -25,8 +25,10 @@ const FINAL = new Set([4000, 4001, 4002, 4003]);
 export const backoffMs = (attempt: number): number => Math.min(10_000, 1000 * 2 ** Math.min(attempt, 4));
 /** A spread of ±30%, so a room full of guests whose network came back together do not all knock at the same instant */
 export const withJitter = (ms: number, random: () => number = Math.random): number => Math.round(ms * (0.7 + random() * 0.6));
-/** If nothing at all (not even a reply to our ping) has come in for this long, the connection is dead even though the browser has not noticed */
-export const DEAD_AFTER_MS = 70_000;
+/** A ping every few seconds. The room answers it without waking up, so it costs nothing. */
+export const PING_MS = 4_000;
+/** If nothing at all (not even a reply to our ping) has come in for this long, the connection is dead even though the browser has not noticed: about 10 to 14 seconds in all */
+export const DEAD_AFTER_MS = 10_000;
 
 const newKey = (): string => {
   const b = new Uint8Array(16);
@@ -57,6 +59,8 @@ export class RoomClient {
   private pending = new Map<number, number>();
   private lastHeard = Date.now();
   private readonly key: string;
+  /** The device says it has lost its network: no need to wait for the silence to prove it */
+  private onOffline = () => { const ws = this.ws; if (!this.closed && ws && this.view.connected) { try { ws.close(); } catch { /* gone */ } this.lostSilently(ws); } };
   private onOnline = () => { if (!this.closed && !this.view.connected && this.retry) { this.t.clearTimeout(this.retry); this.retry = null; this.attempt = 0; this.connect(); } };
   private t: NonNullable<RoomClientOptions['timers']>;
 
@@ -64,7 +68,7 @@ export class RoomClient {
     this.t = o.timers ?? { setTimeout, clearTimeout, setInterval, clearInterval };
     this.key = o.rejoinKey ?? (o.name ? keyFor(o.token) : '');
     // The network coming back is the moment to retry, not whenever the timer happens to fire
-    try { window.addEventListener('online', this.onOnline); } catch { /* not in a browser */ }
+    try { window.addEventListener('online', this.onOnline); window.addEventListener('offline', this.onOffline); } catch { /* not in a browser */ }
   }
 
   get state(): RoomView { return this.view; }
@@ -84,7 +88,7 @@ export class RoomClient {
         // A connection that died without saying so (a phone that left Wi-Fi) is closed here, which starts the usual reconnect
         if (Date.now() - this.lastHeard > DEAD_AFTER_MS) { try { ws.close(); } catch { /* gone */ } this.lostSilently(ws); return; }
         try { ws.send('ping'); } catch { /* closing */ }
-      }, 25_000);
+      }, PING_MS);
       // Four quick readings of the clock, then one every 5 minutes (each one wakes the room's server, so more would use up the free allowance)
       let quick = 0;
       const tick = () => this.sync();
@@ -149,7 +153,7 @@ export class RoomClient {
   close(): void {
     this.closed = true;
     this.stopTimers();
-    try { window.removeEventListener('online', this.onOnline); } catch { /* not in a browser */ }
+    try { window.removeEventListener('online', this.onOnline); window.removeEventListener('offline', this.onOffline); } catch { /* not in a browser */ }
     if (this.retry) this.t.clearTimeout(this.retry);
     try { this.ws?.close(1000, 'leaving'); } catch { /* already closed */ }
   }
