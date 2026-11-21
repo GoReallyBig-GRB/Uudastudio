@@ -500,6 +500,7 @@ class AuthService {
 
   public async updateProfile(updates: {
     display_name?: string;
+    nickname?: string;
     preferences?: Partial<UserPreferences>;
   }): Promise<UserRecord> {
     const res = await fetch('/api/auth/profile', {

@@ -229,9 +229,9 @@ describe('auth routes', () => {
     const m = await mkEnv();
     const a = (await (await login(m)).json()) as any;
     expect((await call(m.env, 'PUT', 'profile', { token: a.sessionToken, body: { email: 'x@y.z' } })).status).toBe(400);
-    const r = await call(m.env, 'PUT', 'profile', { token: a.sessionToken, body: { display_name: 'Ada L', preferences: { autoRefresh: false, defaultVoice: 'Puck' } } });
-    const u = ((await r.json()) as any).user;
-    expect(u.display_name).toBe('Ada L'); expect(u.preferences.autoRefresh).toBe(false); expect(u.preferences.defaultVoice).toBe('Puck'); expect(u.email).toBe('ada@example.com');
+    const r = await call(m.env, 'PUT', 'profile', { token: a.sessionToken, body: { display_name: 'Ada L', nickname: 'ada', preferences: { autoRefresh: false, defaultVoice: 'Puck' } } });
+    const u = ((await r.json()) as any).user; // the Google name cannot be edited through the API
+    expect(u.nickname).toBe('ada'); expect(u.display_name).not.toBe('Ada L'); expect(u.preferences.autoRefresh).toBe(false); expect(u.preferences.defaultVoice).toBe('Puck'); expect(u.email).toBe('ada@example.com');
     expect((await call(m.env, 'PUT', 'profile', { token: a.sessionToken, origin: 'https://evil.test', body: { display_name: 'x' } })).status).toBe(403);
     expect((await call(m.env, 'PUT', 'profile', { body: { display_name: 'x' } })).status).toBe(401);
   });
@@ -249,7 +249,7 @@ describe('D1 user store', () => {
           log.push('write');
           if (q.startsWith('INSERT')) rows.set(String(v[0]), { id: v[0], email: v[1], display_name: v[2], photo_url: v[3], role: v[4], created_at: v[5], last_active_at: v[6], blocked: 0, prefs: v[7], valid_after: 0 });
           else if (q.startsWith('UPDATE users SET last_active_at')) { const r = rows.get(String(v[2])); r.last_active_at = v[0]; r.photo_url = v[1]; }
-          else if (q.startsWith('UPDATE users SET display_name')) { const r = rows.get(String(v[2])); r.display_name = v[0]; r.prefs = v[1]; }
+          else if (q.startsWith('UPDATE users SET display_name')) { const r = rows.get(String(v[3])); r.display_name = v[0]; r.nickname = v[1]; r.prefs = v[2]; }
           else if (q.startsWith('UPDATE users SET valid_after')) { const r = rows.get(String(v[1])); r.valid_after = Math.max(r.valid_after, Number(v[0])); }
         },
       }) }),
@@ -260,7 +260,7 @@ describe('D1 user store', () => {
     const { db, log } = fakeD1(); const s = new D1UserStore(db);
     const p = { id: 'u', email: 'a@b.c', name: 'A', photo: '', role: 'user' as const, now: NOW };
     expect((await s.signIn(p)).isNew).toBe(true);
-    expect(log.filter((x) => x === 'exec')).toHaveLength(1); // the table is made once
+    expect(log.filter((x) => x === 'exec')).toHaveLength(2); // the table is made once, and the nickname column added once
     const writes = () => log.filter((x) => x === 'write').length;
     const w0 = writes();
     expect((await s.signIn({ ...p, now: NOW + 60_000 })).isNew).toBe(false);

@@ -4,6 +4,7 @@
  * Guest (link only): read one event by its secret token, and download its files.
  */
 import { userFor, type AuthEnv } from '../auth/handler';
+import { shownName } from '../auth/users';
 import type { Limiter } from '../auth/rateLimit';
 import { FREE_PLAN, quotaFor, resetText, upcomingCount } from './plan';
 import { LIMITS, cleanFileName, fileKindOf, liveElsewhere, randomId, stateOf, timeClash, validateEvent, type LiveEventRow } from './rules';
@@ -69,7 +70,7 @@ export const handleLive = async (req: Request, rest: string[], env: LiveEnv): Pr
       if (v.value.kind === 'quick') { const q = quotaFor(others, now); if (q.left === 0) return fail(409, `You have used your ${q.limit} live sessions for this week.${resetText(q.resetsAt)}`); }
       if (v.value.kind === 'quick') { const live = liveElsewhere(others, null, now); if (live) return fail(409, `"${live.title}" is live right now. End it before starting another.`); }
       else if (v.value.startsAt !== null) { const c = timeClash(others, null, v.value.startsAt, v.value.durationMin, now); if (c) return fail(409, `That time overlaps "${c.title}". Two live events cannot run at the same time.`); }
-      const row: LiveEventRow = { id: randomId(9), userId: uid, token: randomId(18), ...v.value, activatedAt: v.value.kind === 'quick' ? now : null, endedAt: null, hostName: me.user.display_name.slice(0, 80), createdAt: now, updatedAt: now };
+      const row: LiveEventRow = { id: randomId(9), userId: uid, token: randomId(18), ...v.value, activatedAt: v.value.kind === 'quick' ? now : null, endedAt: null, hostName: shownName(me.user).slice(0, 80), createdAt: now, updatedAt: now };
       await env.store.save(row);
       return send(await view(row, env.store, now), 201);
     }

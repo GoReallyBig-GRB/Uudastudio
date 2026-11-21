@@ -30,6 +30,7 @@ import {
 import { useAuth } from '../../hooks/useAuth';
 import { authService } from '../../services/authService';
 import { AdminOverviewStats, AdminUserRow, SupportTicket } from '../../types';
+import { AdminInsights } from './AdminInsights';
 
 interface AdminPanelProps {
   onBackToStudio: () => void;
@@ -49,6 +50,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
 
   // Active Admin Tab
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  // The account overview needs no emailed code; it checks the admin role on the server
+  const [showInsights, setShowInsights] = useState(false);
 
   // Overview Data
   const [overview, setOverview] = useState<AdminOverviewStats | null>(null);
@@ -230,6 +233,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
     );
   }
 
+  if (isAdmin && showInsights) return <AdminInsights onBack={() => setShowInsights(false)} />;
+
   // 2. Connection Code Security Gate (if not yet verified)
   if (!isAdminVerified) {
     return (
@@ -244,6 +249,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBackToStudio, initialC
               <p className="text-xs text-ink-dim">Two-Factor Connection Code Required</p>
             </div>
           </div>
+
+          <button onClick={() => setShowInsights(true)} className="w-full mb-4 px-4 py-2 rounded-control bg-accent/10 border border-accent/60 text-accent text-xs font-semibold">Open account overview</button>
 
           <p className="text-xs text-ink-dim leading-relaxed mb-4">
             A 6-digit connection code was generated when signing in as{' '}

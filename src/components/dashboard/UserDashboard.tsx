@@ -53,7 +53,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
   const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'account');
 
   // Account State
-  const [displayName, setDisplayName] = useState(user?.display_name || '');
+  const [nickname, setNickname] = useState(user?.nickname || '');
   const [isSavingAccount, setIsSavingAccount] = useState(false);
   const [accountSuccessMsg, setAccountSuccessMsg] = useState<string | null>(null);
   const [accountErrorMsg, setAccountErrorMsg] = useState<string | null>(null);
@@ -104,7 +104,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
   // Update initial form values when user changes
   useEffect(() => {
     if (user) {
-      setDisplayName(user.display_name);
+      setNickname(user.nickname || '');
       setDefaultVoice(user.preferences?.defaultVoice || 'Zephyr');
       setDefaultModel(user.preferences?.defaultModel || 'gemini-3.8-flash-tts');
       setDefaultDelivery(user.preferences?.defaultDelivery || 'Radio commercial style');
@@ -172,8 +172,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
     setAccountErrorMsg(null);
     setAccountSuccessMsg(null);
     try {
-      await updateProfile({ display_name: displayName });
-      setAccountSuccessMsg('Display name updated successfully.');
+      await updateProfile({ nickname: nickname.trim() });
+      setAccountSuccessMsg('Nickname saved.');
       setTimeout(() => setAccountSuccessMsg(null), 3000);
     } catch (err: unknown) {
       setAccountErrorMsg(err instanceof Error ? err.message : String(err));
@@ -531,18 +531,28 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                   </div>
                 </div>
 
-                {/* Editable Display Name */}
+                {/* Google name (read-only) and nickname (what other people see) */}
                 <div>
-                  <label className="block text-xs font-semibold text-ink-dim mb-1">Display Name</label>
+                  <label className="block text-xs font-semibold text-ink-dim mb-1">Google name</label>
                   <input
                     type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    minLength={2}
-                    maxLength={50}
+                    readOnly
+                    value={user.display_name}
+                    className="w-full px-3.5 py-2.5 bg-surface-1 border border-line rounded-control text-xs text-ink-dim cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="uuda-nickname" className="block text-xs font-semibold text-ink-dim mb-1">Nickname</label>
+                  <input
+                    id="uuda-nickname"
+                    type="text"
+                    value={nickname}
+                    onChange={(e) => setNickname(e.target.value)}
+                    maxLength={40}
+                    placeholder={user.display_name}
                     className="w-full px-3.5 py-2.5 bg-surface-1 border border-line-strong rounded-control text-xs text-ink focus:outline-hidden focus:border-accent"
                   />
-                  <p className="text-[11px] text-ink-faint mt-1">2 to 50 characters.</p>
+                  <p className="text-[11px] text-ink-faint mt-1">Shown to people you invite, in place of your Google name. 2 to 40 characters. Leave empty to use your Google name.</p>
                 </div>
 
                 {/* Permanent Email (Read-Only with Lock Icon) */}
@@ -576,7 +586,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onBackToStudio, on
                   <button
                     type="button"
                     onClick={handleSaveAccount}
-                    disabled={isSavingAccount || displayName.trim().length < 2}
+                    disabled={isSavingAccount || (nickname.trim().length > 0 && nickname.trim().length < 2)}
                     className="px-4 py-2 rounded-control bg-accent hover:brightness-110 text-surface-0 text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     <Save className="w-3.5 h-3.5" />

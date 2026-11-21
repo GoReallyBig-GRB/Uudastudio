@@ -10,7 +10,12 @@ export interface UserRow {
   created_at: string; last_active_at: string; blocked: boolean; preferences: Preferences;
   /** Session tokens issued before this time (ms) no longer work. Set on sign-out. */
   validAfter: number;
+  /** What the person chooses to be called to others (live and job invitations). Empty means the Google name is used. */
+  nickname: string;
 }
+
+/** The name shown to other people: the nickname if there is one, otherwise the Google name */
+export const shownName = (u: Pick<UserRow, 'nickname' | 'display_name'>): string => u.nickname || u.display_name;
 
 export const DEFAULT_PREFERENCES: Preferences = { defaultVoice: 'Zephyr', defaultModel: 'gemini-3.8-flash-tts', defaultDelivery: 'Clear broadcast style', autoRefresh: true };
 
@@ -21,7 +26,9 @@ export interface UserStore {
   get(id: string): Promise<UserRow | null>;
   /** Makes the user on first sign-in; later ones refresh name and photo. Never changes the email or role of an existing user. */
   signIn(p: { id: string; email: string; name: string; photo: string; role: 'user' | 'admin'; now: number }): Promise<{ user: UserRow; isNew: boolean }>;
-  update(id: string, p: { display_name?: string; preferences?: Partial<Preferences> }): Promise<UserRow | null>;
+  update(id: string, p: { display_name?: string; nickname?: string; preferences?: Partial<Preferences> }): Promise<UserRow | null>;
+  /** Every account, newest first (admin view). Capped so one call stays small. */
+  all(limit?: number): Promise<UserRow[]>;
   /** Sign out everywhere: tokens issued before `ms` stop working */
   revokeBefore(id: string, ms: number): Promise<void>;
 }
@@ -30,6 +37,8 @@ export interface UserStore {
 export const ACTIVE_WRITE_MS = 3600_000;
 const iso = (ms: number) => new Date(ms).toISOString();
 const clean = (s: unknown, max: number) => (typeof s === 'string' ? s : '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, max);
+/** A nickname is 2 to 40 characters; empty clears it */
+export const cleanNick = (s: unknown): string => { const n = clean(s, 40); return n.length >= 2 ? n : ''; };
 const cleanPrefs = (cur: Preferences, p: Partial<Preferences> | undefined): Preferences => ({
   defaultVoice: p && typeof p.defaultVoice === 'string' ? clean(p.defaultVoice, 60) || cur.defaultVoice : cur.defaultVoice,
   defaultModel: p && typeof p.defaultModel === 'string' ? clean(p.defaultModel, 80) || cur.defaultModel : cur.defaultModel,
@@ -47,36 +56,49 @@ export class MemoryUserStore implements UserStore {
       this.users.set(p.id, next);
       return { user: next, isNew: false };
     }
-    const user: UserRow = { id: p.id, email: p.email, display_name: clean(p.name, 120) || p.email.split('@')[0], photo_url: clean(p.photo, 500), role: p.role, created_at: iso(p.now), last_active_at: iso(p.now), blocked: false, preferences: { ...DEFAULT_PREFERENCES }, validAfter: 0 };
+    const user: UserRow = { id: p.id, email: p.email, display_name: clean(p.name, 120) || p.email.split('@')[0], photo_url: clean(p.photo, 500), role: p.role, created_at: iso(p.now), last_active_at: iso(p.now), blocked: false, preferences: { ...DEFAULT_PREFERENCES }, validAfter: 0, nickname: '' };
     this.users.set(p.id, user);
     return { user, isNew: true };
   }
-  async update(id: string, p: { display_name?: string; preferences?: Partial<Preferences> }) {
+  async update(id: string, p: { display_name?: string; nickname?: string; preferences?: Partial<Preferences> }) {
     const u = this.users.get(id); if (!u) return null;
-    const next = { ...u, display_name: p.display_name !== undefined ? clean(p.display_name, 120) || u.display_name : u.display_name, preferences: cleanPrefs(u.preferences, p.preferences) };
+    const next = { ...u, display_name: p.display_name !== undefined ? clean(p.display_name, 120) || u.display_name : u.display_name, nickname: p.nickname !== undefined ? cleanNick(p.nickname) : u.nickname, preferences: cleanPrefs(u.preferences, p.preferences) };
     this.users.set(id, next); return next;
   }
+  async all(limit = 500) { return [...this.users.values()].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, limit); }
   async revokeBefore(id: string, ms: number) { const u = this.users.get(id); if (u) this.users.set(id, { ...u, validAfter: Math.max(u.validAfter, ms) }); }
 }
 
 /** The parts of Cloudflare's D1 binding that are used */
 export interface D1Like {
-  prepare(q: string): { bind(...v: unknown[]): { first<T = Record<string, unknown>>(): Promise<T | null>; run(): Promise<unknown> } };
+  prepare(q: string): { bind(...v: unknown[]): { first<T = Record<string, unknown>>(): Promise<T | null>; run(): Promise<unknown>; all?(): Promise<{ results?: Record<string, unknown>[] }> } };
   exec(q: string): Promise<unknown>;
 }
 
-const SCHEMA = 'CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL, photo_url TEXT NOT NULL DEFAULT \'\', role TEXT NOT NULL DEFAULT \'user\', created_at INTEGER NOT NULL, last_active_at INTEGER NOT NULL, blocked INTEGER NOT NULL DEFAULT 0, prefs TEXT NOT NULL, valid_after INTEGER NOT NULL DEFAULT 0)';
+const SCHEMA = 'CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL, photo_url TEXT NOT NULL DEFAULT \'\', role TEXT NOT NULL DEFAULT \'user\', created_at INTEGER NOT NULL, last_active_at INTEGER NOT NULL, blocked INTEGER NOT NULL DEFAULT 0, prefs TEXT NOT NULL, valid_after INTEGER NOT NULL DEFAULT 0, nickname TEXT NOT NULL DEFAULT \'\')';
+/** Added later: existing databases get the column once */
+const ADD_NICKNAME = 'ALTER TABLE users ADD COLUMN nickname TEXT NOT NULL DEFAULT \'\'';
 
 const fromRow = (r: Record<string, unknown>): UserRow => {
   let prefs = DEFAULT_PREFERENCES;
   try { prefs = cleanPrefs(DEFAULT_PREFERENCES, JSON.parse(String(r.prefs))); } catch { /* defaults */ }
-  return { id: String(r.id), email: String(r.email), display_name: String(r.display_name), photo_url: String(r.photo_url ?? ''), role: r.role === 'admin' ? 'admin' : 'user', created_at: iso(Number(r.created_at)), last_active_at: iso(Number(r.last_active_at)), blocked: Number(r.blocked) === 1, preferences: prefs, validAfter: Number(r.valid_after) || 0 };
+  return { id: String(r.id), email: String(r.email), display_name: String(r.display_name), photo_url: String(r.photo_url ?? ''), role: r.role === 'admin' ? 'admin' : 'user', created_at: iso(Number(r.created_at)), last_active_at: iso(Number(r.last_active_at)), blocked: Number(r.blocked) === 1, preferences: prefs, validAfter: Number(r.valid_after) || 0, nickname: typeof r.nickname === 'string' ? r.nickname : '' };
 };
 
+/** The Worker builds a store for every request, so the one-time table setup is remembered per database binding, not per store */
+const prepared = new WeakMap<object, Promise<unknown>>();
+
 export class D1UserStore implements UserStore {
-  private ready: Promise<unknown> | null = null;
   constructor(private db: D1Like) {}
-  private init() { return (this.ready ??= this.db.exec(SCHEMA).catch((e) => { this.ready = null; throw e; })); }
+  private init() {
+    let p = prepared.get(this.db);
+    if (!p) {
+      p = this.db.exec(SCHEMA).then(() => this.db.exec(ADD_NICKNAME).catch(() => undefined));
+      prepared.set(this.db, p);
+      p.catch(() => prepared.delete(this.db)); // a failed setup is tried again on the next request
+    }
+    return p;
+  }
   async get(id: string) { await this.init(); const r = await this.db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first(); return r ? fromRow(r) : null; }
   async signIn(p: Parameters<UserStore['signIn']>[0]) {
     await this.init();
@@ -89,11 +111,18 @@ export class D1UserStore implements UserStore {
     await this.db.prepare('INSERT INTO users (id, email, display_name, photo_url, role, created_at, last_active_at, blocked, prefs, valid_after) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 0)').bind(p.id, p.email, name, clean(p.photo, 500), p.role, p.now, p.now, JSON.stringify(DEFAULT_PREFERENCES)).run();
     return { user: (await this.get(p.id))!, isNew: true };
   }
-  async update(id: string, p: { display_name?: string; preferences?: Partial<Preferences> }) {
+  async update(id: string, p: { display_name?: string; nickname?: string; preferences?: Partial<Preferences> }) {
     const u = await this.get(id); if (!u) return null;
     const name = p.display_name !== undefined ? clean(p.display_name, 120) || u.display_name : u.display_name;
-    await this.db.prepare('UPDATE users SET display_name = ?, prefs = ? WHERE id = ?').bind(name, JSON.stringify(cleanPrefs(u.preferences, p.preferences)), id).run();
+    const nick = p.nickname !== undefined ? cleanNick(p.nickname) : u.nickname;
+    await this.db.prepare('UPDATE users SET display_name = ?, nickname = ?, prefs = ? WHERE id = ?').bind(name, nick, JSON.stringify(cleanPrefs(u.preferences, p.preferences)), id).run();
     return this.get(id);
+  }
+  async all(limit = 500) {
+    await this.init();
+    const q = this.db.prepare('SELECT * FROM users ORDER BY created_at DESC LIMIT ?').bind(limit);
+    const r = await (q.all ? q.all() : Promise.resolve({ results: [] as Record<string, unknown>[] }));
+    return (r.results ?? []).map(fromRow);
   }
   async revokeBefore(id: string, ms: number) { await this.init(); await this.db.prepare('UPDATE users SET valid_after = MAX(valid_after, ?) WHERE id = ?').bind(ms, id).run(); }
 }
