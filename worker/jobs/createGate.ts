@@ -38,6 +38,8 @@ export class SqlGateStore implements GateStore {
 
 const digest = async (s: string): Promise<string> => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].slice(0, 12).map((x) => x.toString(16).padStart(2, '0')).join('');
 
+export const ACCOUNT_CREATE_LIMIT_MESSAGE = 'You have started the most jobs allowed for one day. Try again tomorrow.';
+
 export type GateResult = { ok: true } | { ok: false; refusal: string; retryAfterSeconds: number };
 
 export class CreateGate {
@@ -58,7 +60,8 @@ export class CreateGate {
     const key = 'a:' + (await digest(`${day}|${address || 'unknown'}`));
     // Check both before counting either, so a refused attempt does not use up anyone's allowance
     const acct = account ? 'u:' + (await digest(`${day}|${account}`)) : '';
-    if (this.store.peek(day, key) >= this.perAddress || this.store.peek(day, '*') >= this.perDay || (acct && this.store.peek(day, acct) >= this.perAccount)) return { ok: false, refusal: CREATE_LIMIT_MESSAGE, retryAfterSeconds: wait };
+    if (acct && this.store.peek(day, acct) >= this.perAccount) return { ok: false, refusal: ACCOUNT_CREATE_LIMIT_MESSAGE, retryAfterSeconds: wait };
+    if (this.store.peek(day, key) >= this.perAddress || this.store.peek(day, '*') >= this.perDay) return { ok: false, refusal: CREATE_LIMIT_MESSAGE, retryAfterSeconds: wait };
     this.store.bump(day, key);
     this.store.bump(day, '*');
     if (acct) this.store.bump(day, acct);

@@ -85,10 +85,20 @@ const fromRow = (r: Record<string, unknown>): UserRow => {
   return { id: String(r.id), email: String(r.email), display_name: String(r.display_name), photo_url: String(r.photo_url ?? ''), role: r.role === 'admin' ? 'admin' : 'user', created_at: iso(Number(r.created_at)), last_active_at: iso(Number(r.last_active_at)), blocked: Number(r.blocked) === 1, preferences: prefs, validAfter: Number(r.valid_after) || 0, nickname: typeof r.nickname === 'string' ? r.nickname : '' };
 };
 
+/** The Worker builds a store for every request, so the one-time table setup is remembered per database binding, not per store */
+const prepared = new WeakMap<object, Promise<unknown>>();
+
 export class D1UserStore implements UserStore {
-  private ready: Promise<unknown> | null = null;
   constructor(private db: D1Like) {}
-  private init() { return (this.ready ??= this.db.exec(SCHEMA).then(() => this.db.exec(ADD_NICKNAME).catch(() => undefined)).catch((e) => { this.ready = null; throw e; })); }
+  private init() {
+    let p = prepared.get(this.db);
+    if (!p) {
+      p = this.db.exec(SCHEMA).then(() => this.db.exec(ADD_NICKNAME).catch(() => undefined));
+      prepared.set(this.db, p);
+      p.catch(() => prepared.delete(this.db)); // a failed setup is tried again on the next request
+    }
+    return p;
+  }
   async get(id: string) { await this.init(); const r = await this.db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first(); return r ? fromRow(r) : null; }
   async signIn(p: Parameters<UserStore['signIn']>[0]) {
     await this.init();

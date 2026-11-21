@@ -116,7 +116,7 @@ export const handleAuth = async (req: Request, rest: string[], env: AuthEnv): Pr
     // The email is the account's identity and never changes
     if ('email' in b) return fail(400, 'Your Google account email is permanent for this account and cannot be modified.');
     if (typeof b.nickname === 'string' && b.nickname.trim() && !cleanNick(b.nickname)) return fail(400, 'A nickname needs at least 2 characters.');
-    const updated = await env.store.update(me.user.id, { display_name: typeof b.display_name === 'string' ? b.display_name : undefined, nickname: typeof b.nickname === 'string' ? b.nickname : undefined, preferences: b.preferences && typeof b.preferences === 'object' ? (b.preferences as Record<string, never>) : undefined });
+    const updated = await env.store.update(me.user.id, { nickname: typeof b.nickname === 'string' ? b.nickname : undefined, preferences: b.preferences && typeof b.preferences === 'object' ? (b.preferences as Record<string, never>) : undefined });
     return updated ? send({ user: publicUser(updated), message: 'Profile updated successfully.' }) : fail(404, 'Account not found.');
   }
 

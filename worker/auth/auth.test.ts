@@ -229,9 +229,9 @@ describe('auth routes', () => {
     const m = await mkEnv();
     const a = (await (await login(m)).json()) as any;
     expect((await call(m.env, 'PUT', 'profile', { token: a.sessionToken, body: { email: 'x@y.z' } })).status).toBe(400);
-    const r = await call(m.env, 'PUT', 'profile', { token: a.sessionToken, body: { display_name: 'Ada L', preferences: { autoRefresh: false, defaultVoice: 'Puck' } } });
-    const u = ((await r.json()) as any).user;
-    expect(u.display_name).toBe('Ada L'); expect(u.preferences.autoRefresh).toBe(false); expect(u.preferences.defaultVoice).toBe('Puck'); expect(u.email).toBe('ada@example.com');
+    const r = await call(m.env, 'PUT', 'profile', { token: a.sessionToken, body: { display_name: 'Ada L', nickname: 'ada', preferences: { autoRefresh: false, defaultVoice: 'Puck' } } });
+    const u = ((await r.json()) as any).user; // the Google name cannot be edited through the API
+    expect(u.nickname).toBe('ada'); expect(u.display_name).not.toBe('Ada L'); expect(u.preferences.autoRefresh).toBe(false); expect(u.preferences.defaultVoice).toBe('Puck'); expect(u.email).toBe('ada@example.com');
     expect((await call(m.env, 'PUT', 'profile', { token: a.sessionToken, origin: 'https://evil.test', body: { display_name: 'x' } })).status).toBe(403);
     expect((await call(m.env, 'PUT', 'profile', { body: { display_name: 'x' } })).status).toBe(401);
   });

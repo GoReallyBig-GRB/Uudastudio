@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CreateGate, MemoryGateStore } from './createGate';
 import { ACCOUNT_FULL_MESSAGE, MemoryRegistryStore, Registry, localGuard } from './storage';
-import { MemoryUserStore, cleanNick, shownName } from '../auth/users';
+import { D1UserStore, MemoryUserStore, cleanNick, shownName } from '../auth/users';
+import { ACCOUNT_CREATE_LIMIT_MESSAGE, CREATE_LIMIT_MESSAGE } from './createGate';
 
 const MB = 1024 * 1024;
 
@@ -47,6 +48,15 @@ describe('per-account creation limit', () => {
     expect((await g.take('1.1.1.1', 'bob')).ok).toBe(true);
     expect(g.today()).toMatchObject({ created: 4, perAccount: 3 });
   });
+
+  it('says which limit was hit', async () => {
+    const g = new CreateGate(new MemoryGateStore(), 1, 100, () => Date.parse('2026-11-21T10:00:00Z'), 5);
+    await g.take('1.1.1.1', 'alice');
+    expect(await g.take('1.1.1.1', 'bob')).toMatchObject({ ok: false, refusal: CREATE_LIMIT_MESSAGE });
+    const g2 = new CreateGate(new MemoryGateStore(), 100, 100, () => Date.parse('2026-11-21T10:00:00Z'), 1);
+    await g2.take('1.1.1.1', 'alice');
+    expect(await g2.take('2.2.2.2', 'alice')).toMatchObject({ ok: false, refusal: ACCOUNT_CREATE_LIMIT_MESSAGE });
+  });
 });
 
 describe('nickname', () => {
@@ -66,5 +76,14 @@ describe('nickname', () => {
     expect(cleanNick('ab')).toBe('ab');
     expect(cleanNick('x'.repeat(60))).toHaveLength(40);
     expect(cleanNick('bad\u0000name\n')).toBe('badname');
+  });
+});
+
+describe('user table setup', () => {
+  it('runs once per database, not once per request', async () => {
+    let execs = 0;
+    const db = { exec: async () => { execs++; }, prepare: () => ({ bind: () => ({ first: async () => null, run: async () => undefined }) }) };
+    for (let i = 0; i < 5; i++) await new D1UserStore(db as never).get('x'); // the Worker makes a new store for every request
+    expect(execs).toBe(2); // the table, and the nickname column
   });
 });
