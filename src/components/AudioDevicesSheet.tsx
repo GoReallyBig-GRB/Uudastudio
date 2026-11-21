@@ -114,7 +114,7 @@ export const AudioDevicesSheet: React.FC<Props> = ({ open, onClose, devices, def
 
   if (inline) return body;
   return (
-    <ModalShell open={open} onClose={onClose} title="Audio devices" description="Choose the microphone you record with and where you listen." size="sm"
+    <ModalShell open={open} onClose={onClose} title="Audio devices" description="Choose the microphone you record with and where you listen." size="sm" raised
       footer={<Button variant="primary" size="md" onClick={onClose}>Done</Button>}>
       {body}
     </ModalShell>
