@@ -27,6 +27,8 @@ export interface UserStore {
   /** Makes the user on first sign-in; later ones refresh name and photo. Never changes the email or role of an existing user. */
   signIn(p: { id: string; email: string; name: string; photo: string; role: 'user' | 'admin'; now: number }): Promise<{ user: UserRow; isNew: boolean }>;
   update(id: string, p: { display_name?: string; nickname?: string; preferences?: Partial<Preferences> }): Promise<UserRow | null>;
+  /** Gives an existing account a role. Used only to promote the configured super admin. */
+  setRole(id: string, role: 'user' | 'admin'): Promise<void>;
   /** Every account, newest first (admin view). Capped so one call stays small. */
   all(limit?: number): Promise<UserRow[]>;
   /** Sign out everywhere: tokens issued before `ms` stop working */
@@ -65,6 +67,7 @@ export class MemoryUserStore implements UserStore {
     const next = { ...u, display_name: p.display_name !== undefined ? clean(p.display_name, 120) || u.display_name : u.display_name, nickname: p.nickname !== undefined ? cleanNick(p.nickname) : u.nickname, preferences: cleanPrefs(u.preferences, p.preferences) };
     this.users.set(id, next); return next;
   }
+  async setRole(id: string, role: 'user' | 'admin') { const u = this.users.get(id); if (u) this.users.set(id, { ...u, role }); }
   async all(limit = 500) { return [...this.users.values()].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, limit); }
   async revokeBefore(id: string, ms: number) { const u = this.users.get(id); if (u) this.users.set(id, { ...u, validAfter: Math.max(u.validAfter, ms) }); }
 }
@@ -117,6 +120,10 @@ export class D1UserStore implements UserStore {
     const nick = p.nickname !== undefined ? cleanNick(p.nickname) : u.nickname;
     await this.db.prepare('UPDATE users SET display_name = ?, nickname = ?, prefs = ? WHERE id = ?').bind(name, nick, JSON.stringify(cleanPrefs(u.preferences, p.preferences)), id).run();
     return this.get(id);
+  }
+  async setRole(id: string, role: 'user' | 'admin') {
+    await this.init();
+    await this.db.prepare('UPDATE users SET role = ? WHERE id = ?').bind(role, id).run();
   }
   async all(limit = 500) {
     await this.init();
