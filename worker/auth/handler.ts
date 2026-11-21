@@ -85,7 +85,9 @@ export const handleAuth = async (req: Request, rest: string[], env: AuthEnv): Pr
       return fail(reason === 'keys-unavailable' ? 503 : 401, REASONS[reason] ?? 'That sign-in was not valid. Try again.');
     }
     const admin = !!env.superAdminEmail && who.email === env.superAdminEmail.trim().toLowerCase();
-    const { user, isNew } = await env.store.signIn({ id: who.uid, email: who.email, name: who.name, photo: who.picture, role: admin ? 'admin' : 'user', now: env.now() });
+    let { user, isNew } = await env.store.signIn({ id: who.uid, email: who.email, name: who.name, photo: who.picture, role: admin ? 'admin' : 'user', now: env.now() });
+    // The admin email may be configured after the account already exists, so an existing account is promoted too
+    if (admin && user.role !== 'admin' && !user.blocked) { await env.store.setRole(user.id, 'admin'); user = { ...user, role: 'admin' }; }
     if (user.blocked) return fail(403, 'This account has been blocked.');
     const s = await issueSession(env.sessionSecret, user.id, env.now());
     return send({ user: publicUser(user), isNew, sessionToken: s.token, adminCodeSent: false }, 200, { 'set-cookie': setCookie(s.token, Math.max(1, Math.floor((s.expires - env.now()) / 1000))) });

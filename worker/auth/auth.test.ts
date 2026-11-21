@@ -225,6 +225,19 @@ describe('auth routes', () => {
     expect((await login(m)).status).toBe(403);
   });
 
+  it('promotes an account that already exists when its email is the configured admin, and never promotes anyone else', async () => {
+    const m = await mkEnv();
+    m.env.superAdminEmail = undefined; // admin address not configured yet
+    const first = (await (await login(m, { email: 'boss@example.com', sub: 'boss' })).json()) as any;
+    expect(first.user.role).toBe('user');
+    m.env.superAdminEmail = 'Boss@Example.com '; // configured later, in any case
+    const again = (await (await login(m, { email: 'boss@example.com', sub: 'boss' })).json()) as any;
+    expect(again.user.role).toBe('admin');
+    expect((await m.store.get('boss'))?.role).toBe('admin');
+    const other = (await (await login(m, { email: 'ada@example.com', sub: 'ada2' })).json()) as any;
+    expect(other.user.role).toBe('user');
+  });
+
   it('keeps the email permanent when the profile is changed, and rejects cross-site writes', async () => {
     const m = await mkEnv();
     const a = (await (await login(m)).json()) as any;
@@ -250,6 +263,7 @@ describe('D1 user store', () => {
           if (q.startsWith('INSERT')) rows.set(String(v[0]), { id: v[0], email: v[1], display_name: v[2], photo_url: v[3], role: v[4], created_at: v[5], last_active_at: v[6], blocked: 0, prefs: v[7], valid_after: 0 });
           else if (q.startsWith('UPDATE users SET last_active_at')) { const r = rows.get(String(v[2])); r.last_active_at = v[0]; r.photo_url = v[1]; }
           else if (q.startsWith('UPDATE users SET display_name')) { const r = rows.get(String(v[3])); r.display_name = v[0]; r.nickname = v[1]; r.prefs = v[2]; }
+          else if (q.startsWith('UPDATE users SET role')) { rows.get(String(v[1])).role = v[0]; }
           else if (q.startsWith('UPDATE users SET valid_after')) { const r = rows.get(String(v[1])); r.valid_after = Math.max(r.valid_after, Number(v[0])); }
         },
       }) }),
