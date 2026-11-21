@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
-import { RETENTION_MS, handleJob } from './handler';
+import { RETENTION_MS, handleJob, wipeB2 } from './handler';
+import { S3Store, s3ConfigFrom, type ObjectStore } from './blob';
 import { SqlRepo } from './repo';
 import { DEFAULT_MAX_TAKE_BYTES, DEFAULT_MAX_TAKE_SECONDS, parseSetting, type StorageGuard } from './storage';
 
@@ -13,7 +14,7 @@ const newKey = (): string => {
 /** One voice-talent job: its script, keys, message thread and audio. One of these exists per job; it deletes itself after 60 days without activity. */
 type Th = 'talent' | 'client';
 
-type RoomEnv = { JOB_REGISTRY?: DurableObjectNamespace; MAX_TAKE_BYTES?: string; MAX_TAKE_SECONDS?: string };
+type RoomEnv = { JOB_REGISTRY?: DurableObjectNamespace; MAX_TAKE_BYTES?: string; MAX_TAKE_SECONDS?: string; B2_ENDPOINT?: string; B2_BUCKET?: string; B2_KEY_ID?: string; B2_APPLICATION_KEY?: string; B2_APP_KEY?: string; B2_REGION?: string };
 
 export class JobRoom extends DurableObject {
   private roomEnv: RoomEnv;
@@ -41,6 +42,12 @@ export class JobRoom extends DurableObject {
     }
   }
 
+  /** The overflow bucket, when its settings and secret are all present */
+  private blobs(): ObjectStore | undefined {
+    const cfg = s3ConfigFrom(this.roomEnv);
+    return cfg ? new S3Store(cfg) : undefined;
+  }
+
   /** Talks to the account-wide registry; absent when the binding is not configured */
   private guard(jobId: string): StorageGuard | undefined {
     const ns = this.roomEnv.JOB_REGISTRY;
@@ -50,11 +57,16 @@ export class JobRoom extends DurableObject {
     return {
       maxTakeBytes: parseSetting(this.roomEnv.MAX_TAKE_BYTES, DEFAULT_MAX_TAKE_BYTES),
       maxTakeSeconds: parseSetting(this.roomEnv.MAX_TAKE_SECONDS, DEFAULT_MAX_TAKE_SECONDS),
+      ...(s3ConfigFrom(this.roomEnv) ? {
+        place: async (size: number) => (await (await post('/place', { size })).json()) as { where: 'do' | 'b2' } | { refusal: string },
+        reportB2: async (bytes: number) => { if (bytes !== this.lastReportedB2) { this.lastReportedB2 = bytes; await post('/set-b2', { id: jobId, bytes }); } },
+      } : {}),
       check: async (size) => ((await (await post('/check', { size })).json()) as { refusal: string | null }).refusal,
       report: async (bytes) => { if (bytes !== this.lastReported) { this.lastReported = bytes; await post('/set', { id: jobId, bytes }); } },
     };
   }
   private lastReported = -1;
+  private lastReportedB2 = -1;
   private jobId = '';
 
   async fetch(request: Request): Promise<Response> {
@@ -75,12 +87,13 @@ export class JobRoom extends DurableObject {
     const guard = this.guard(id);
     return handleJob(request, rest, {
       storage: guard,
+      blobs: this.blobs(),
       repo,
       now: () => Date.now(),
       newKey,
       touch: (thread) => { void this.ctx.storage.setAlarm(Date.now() + RETENTION_MS); this.broadcast(thread); },
       closeLive: (role) => this.closeSockets(role),
-      wipe: async () => { await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll(); this.lastReported = -1; try { await guard?.report(0); } catch { /* advisory */ } },
+      wipe: async () => { await wipeB2(repo, this.blobs()); await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll(); this.lastReported = -1; this.lastReportedB2 = -1; try { await guard?.report(0); await guard?.reportB2?.(0); } catch { /* advisory */ } },
     });
   }
 
@@ -90,8 +103,11 @@ export class JobRoom extends DurableObject {
   async alarm(): Promise<void> {
     this.closeSockets();
     const id = this.jobId || String(this.ctx.storage.kv.get('jobId') ?? '');
+    // Bucket files first; whatever fails here is cleared by the bucket's own 31-day lifecycle rule
+    try { await wipeB2(new SqlRepo(this.ctx.storage.sql), this.blobs()); } catch { /* backstop above */ }
     await this.ctx.storage.deleteAll();
     this.lastReported = -1;
-    try { if (id) await this.guard(id)?.report(0); } catch { /* advisory */ }
+    this.lastReportedB2 = -1;
+    try { if (id) { const g = this.guard(id); await g?.report(0); await g?.reportB2?.(0); } } catch { /* advisory */ }
   }
 }

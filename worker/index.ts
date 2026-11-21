@@ -35,6 +35,9 @@ export interface Env {
   MAX_TAKE_SECONDS?: string;
   /** Optional. If set, creating a job needs this code (typed once in the Jobs panel). */
   JOBS_CREATE_CODE?: string;
+  /** Optional limits on creating jobs, per network address and in total, per UTC day (defaults 100 and 500) */
+  JOBS_PER_ADDRESS_PER_DAY?: string;
+  JOBS_PER_DAY?: string;
   /** Accounts (Cloudflare D1). With FIREBASE_PROJECT_ID and SESSION_SECRET, this Worker handles sign-in itself. */
   AUTH_DB?: D1Full;
   /** Freesound sound library. FREESOUND_CLIENT_SECRET is a secret (Freesound's "Client Secret" and "API key" are the same string; FREESOUND_API_KEY also works); FREESOUND_CLIENT_ID is a plain variable. */
@@ -215,6 +218,15 @@ async function handleJobs(request: Request, url: URL, env: Env): Promise<Respons
   if (rest.length === 0 && request.method === "POST") {
     if (env.JOBS_CREATE_CODE && request.headers.get("x-jobs-create-code") !== env.JOBS_CREATE_CODE) {
       return new Response(JSON.stringify({ error: "A code is needed to create jobs." }), { status: 403, headers: jsonHeaders });
+    }
+    if (env.JOB_REGISTRY) {
+      // Fails closed: if the limit cannot be checked, no job is created
+      let gate: { ok: boolean; refusal?: string; retryAfterSeconds?: number } = { ok: false, refusal: "Jobs cannot be created right now. Try again shortly.", retryAfterSeconds: 60 };
+      try {
+        const r = await env.JOB_REGISTRY.get(env.JOB_REGISTRY.idFromName("main")).fetch(new Request("https://registry/create", { method: "POST", body: JSON.stringify({ address: request.headers.get("cf-connecting-ip") ?? "" }) }));
+        if (r.ok) gate = (await r.json()) as typeof gate;
+      } catch { /* keeps the refusal above */ }
+      if (!gate.ok) return new Response(JSON.stringify({ error: gate.refusal }), { status: 429, headers: { ...jsonHeaders, "retry-after": String(gate.retryAfterSeconds ?? 60) } });
     }
     const id = hex(16);
     const stub = env.JOB_ROOM.get(env.JOB_ROOM.idFromName(id));

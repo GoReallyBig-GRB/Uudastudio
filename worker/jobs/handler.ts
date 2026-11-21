@@ -3,6 +3,7 @@
  * Host-neutral (Web Request and Response only) so it runs inside a Cloudflare Durable Object and inside Express.
  */
 import type { JobRepo, JobRow, MsgRow, Role, ScriptVersion } from './repo';
+import { objectKey, PART_BYTES, type ObjectStore } from './blob';
 import type { StorageGuard } from './storage';
 
 export const LIMITS = {
@@ -39,6 +40,8 @@ export interface HandlerEnv {
   wipe?: () => void | Promise<void>;
   /** Account-wide storage limit. Absent means no extra limit beyond the per-job ones. */
   storage?: StorageGuard;
+  /** The overflow bucket. Absent means every file stays in the job's own database. */
+  blobs?: ObjectStore;
 }
 
 const H = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' };
@@ -110,15 +113,23 @@ const roleOf = (req: Request, repo: JobRepo): Role | null => {
 };
 
 /** Deletes audio older than FILE_TTL_MS (the messages stay, marked as expired) */
-const purgeExpired = (repo: JobRepo, now: number) => {
+const purgeExpired = (repo: JobRepo, now: number): boolean => {
   const gone = repo.attsBefore(now - FILE_TTL_MS);
-  if (!gone.length) return;
+  if (!gone.length) return false;
   const j = repo.getJob();
   for (const id of gone) {
     if (j?.referenceAtt === id) repo.setReference(null);
     if (j && (j.previewAtt === id || j.finalAtt === id)) repo.putJob({ ...j, previewAtt: j.previewAtt === id ? null : j.previewAtt, finalAtt: j.finalAtt === id ? null : j.finalAtt, released: j.finalAtt === id ? false : j.released });
     repo.deleteAtt(id);
   }
+  return true;
+};
+
+/** Tells the storage guard this job's current sizes (values, not increments, so they cannot drift) */
+const reportSizes = async (env: HandlerEnv): Promise<void> => {
+  if (!env.storage) return;
+  try { await env.storage.report(env.repo.totalBytes()); } catch { /* advisory */ }
+  try { await env.storage.reportB2?.(env.repo.b2Bytes()); } catch { /* advisory */ }
 };
 
 const pubAtt = (a: { id: string; name: string; mime: string; bytes: number; ts: number }) => ({ id: a.id, name: a.name, mime: a.mime, bytes: a.bytes, expiresAt: a.ts + FILE_TTL_MS });
@@ -205,7 +216,62 @@ const storeStream = async (req: Request, repo: JobRepo, attId: string, max: numb
   return { bytes: total, head };
 };
 
-const serveAudio = (req: Request, repo: JobRepo, attId: string): Response => {
+/** Where a new file of `size` bytes goes: a refusal, or 'do' / 'b2'. Without overflow storage it is the plain limit check. */
+const placeFor = async (env: HandlerEnv, size: number): Promise<{ where: 'do' | 'b2' } | { refusal: string }> => {
+  if (!env.storage) return { where: 'do' };
+  if (env.storage.place && env.blobs) {
+    try { return await env.storage.place(size); } catch { /* the registry is advisory: fall through to the plain check */ }
+  }
+  let refusal: string | null = null;
+  try { refusal = await env.storage.check(size); } catch { /* advisory */ }
+  return refusal ? { refusal } : { where: 'do' };
+};
+
+/** Pieces of 5 MiB (the bucket's minimum part size) read one by one from the staged 1 MiB chunks */
+function* stagedParts(repo: JobRepo, id: string, size: number): Generator<Uint8Array> {
+  const per = Math.ceil(PART_BYTES / CHUNK), count = Math.ceil(size / CHUNK);
+  for (let i = 0; i < count; i += per) {
+    const pieces: Uint8Array[] = [];
+    for (let j = i; j < Math.min(count, i + per); j++) { const c = repo.getChunk(id, j); if (!c) throw new Error('missing staged piece'); pieces.push(c); }
+    const out = new Uint8Array(pieces.reduce((n, c) => n + c.length, 0));
+    let o = 0;
+    for (const c of pieces) { out.set(c, o); o += c.length; }
+    yield out;
+  }
+}
+
+/** Copies a fully staged file to the bucket, then frees the staging rows. On failure the staged pieces are removed too. */
+const moveToB2 = async (repo: JobRepo, blobs: ObjectStore, id: string, mime: string, size: number): Promise<boolean> => {
+  try {
+    await blobs.putParts(objectKey(id), mime, stagedParts(repo, id, size));
+  } catch {
+    repo.dropChunks(id);
+    return false;
+  }
+  return true;
+};
+
+/** Removes bucket files whose record is gone. Failures stay queued and are retried on the next request. */
+export const sweepB2 = async (repo: JobRepo, blobs: ObjectStore | undefined): Promise<void> => {
+  if (!blobs) return;
+  try {
+    for (const id of repo.b2Pending()) {
+      try { await blobs.delete(objectKey(id)); repo.b2Done(id); } catch { /* retried later; the bucket's lifecycle rule is the backstop */ }
+    }
+  } catch { /* the job was just deleted and its tables are gone */ }
+};
+
+/** Removes every bucket file of a job (the job is being deleted) */
+export const wipeB2 = async (repo: JobRepo, blobs: ObjectStore | undefined): Promise<void> => {
+  if (!blobs) return;
+  for (const id of [...repo.b2Ids(), ...repo.b2Pending()]) {
+    try { await blobs.delete(objectKey(id)); } catch { /* the bucket's lifecycle rule is the backstop */ }
+  }
+};
+
+const STORE_DOWN = 'The service could not store that file right now. Your recording is safe on this device. Try again in a moment.';
+
+const serveAudio = async (req: Request, repo: JobRepo, attId: string, blobs?: ObjectStore): Promise<Response> => {
   const att = repo.getAtt(attId);
   if (!att) return fail(404, 'Not found.');
   const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get('range') ?? '');
@@ -215,6 +281,16 @@ const serveAudio = (req: Request, repo: JobRepo, attId: string): Response => {
     else { start = Number(range[1]); if (range[2] !== '') end = Math.min(end, Number(range[2])); }
     if (start > end || start >= att.bytes) return new Response(null, { status: 416, headers: { 'content-range': `bytes */${att.bytes}` } });
     status = 206;
+  }
+  const headers: Record<string, string> = {
+    'content-type': safeMime(att.mime), 'content-length': String(end - start + 1), 'accept-ranges': 'bytes', 'cache-control': 'private, no-store',
+    'x-content-type-options': 'nosniff', 'content-disposition': `inline; filename="${safeName(att.name)}"`,
+  };
+  if (status === 206) headers['content-range'] = `bytes ${start}-${end}/${att.bytes}`;
+  if (att.store === 'b2') {
+    if (!blobs) return fail(503, 'That file is temporarily unavailable.');
+    if (req.method === 'HEAD') return new Response(null, { status, headers });
+    try { return new Response(await blobs.get(objectKey(attId), start, end), { status, headers }); } catch { return fail(503, 'That file is temporarily unavailable. Try again in a moment.'); }
   }
   const first = Math.floor(start / CHUNK), last = Math.floor(end / CHUNK);
   let next = first;
@@ -229,11 +305,6 @@ const serveAudio = (req: Request, repo: JobRepo, attId: string): Response => {
       next++;
     },
   });
-  const headers: Record<string, string> = {
-    'content-type': safeMime(att.mime), 'content-length': String(end - start + 1), 'accept-ranges': 'bytes', 'cache-control': 'private, no-store',
-    'x-content-type-options': 'nosniff', 'content-disposition': `inline; filename="${safeName(att.name)}"`,
-  };
-  if (status === 206) headers['content-range'] = `bytes ${start}-${end}/${att.bytes}`;
   return new Response(req.method === 'HEAD' ? null : body, { status, headers });
 };
 
@@ -264,7 +335,9 @@ const run = async (req: Request, rest: string[], env: HandlerEnv): Promise<Respo
   if (!job) return fail(404, 'This job does not exist or has been deleted.');
   const role = roleOf(req, repo);
   if (!role) return fail(403, 'This link is not valid any more. Ask the producer for a new one.');
-  purgeExpired(repo, now());
+  const purged = purgeExpired(repo, now());
+  await sweepB2(repo, env.blobs);
+  if (purged) await reportSizes(env);
 
   if (route === 'thread' && req.method === 'GET') {
     const thread = threadFor(role, url);
@@ -360,17 +433,25 @@ const run = async (req: Request, rest: string[], env: HandlerEnv): Promise<Respo
     if (repo.messageCount() >= LIMITS.messages) return fail(429, 'This thread is full.');
     const declared = Number(req.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > LIMITS.attachmentBytes) return fail(413, `That file is too large. The limit is ${LIMITS.attachmentBytes / 1048576} MB.`);
+    let where: 'do' | 'b2' = 'do';
     if (env.storage && Number.isFinite(declared) && declared > 0) {
-      let refusal: string | null = null;
-      try { refusal = await env.storage.check(declared); } catch { /* advisory */ }
-      if (refusal) return fail(507, refusal);
+      const p = await placeFor(env, declared);
+      if ('refusal' in p) return fail(507, p.refusal);
+      where = p.where;
     }
     const attId = env.newKey();
-    const stored = await storeStream(req, repo, attId, LIMITS.attachmentBytes, LIMITS.jobBytes - repo.totalBytes());
+    const stored = await storeStream(req, repo, attId, LIMITS.attachmentBytes, LIMITS.jobBytes - repo.totalBytes() - repo.b2Bytes());
     if ('error' in stored) return fail(stored.status, stored.error);
     const name = safeName(url.searchParams.get('name') || 'audio');
     const ts = now();
-    repo.addAtt({ id: attId, name, mime: safeMime(url.searchParams.get('mime') || 'audio/wav'), bytes: stored.bytes, ts });
+    const mime = safeMime(url.searchParams.get('mime') || 'audio/wav');
+    let store: 'do' | 'b2' = 'do';
+    if (where === 'b2' && env.blobs) {
+      if (!(await moveToB2(repo, env.blobs, attId, mime, stored.bytes))) return fail(502, STORE_DOWN);
+      repo.dropChunks(attId);
+      store = 'b2';
+    }
+    repo.addAtt({ id: attId, name, mime, bytes: stored.bytes, ts, ...(store === 'b2' ? { store } : {}) });
     if (route === 'reference') {
       if (job.referenceAtt) repo.deleteAtt(job.referenceAtt);
       repo.setReference(attId);
@@ -396,14 +477,15 @@ const run = async (req: Request, rest: string[], env: HandlerEnv): Promise<Respo
       if (size > maxTake) return bad(`That file is too large. The limit is ${Math.floor(maxTake / 1048576)} MB.`, 413);
       const seconds = Number(b.seconds);
       if (env.storage?.maxTakeSeconds && Number.isFinite(seconds) && seconds > env.storage.maxTakeSeconds) return bad(`That recording is too long. The limit is ${Math.floor(env.storage.maxTakeSeconds / 60)} minutes.`, 413);
-      if (size > Math.max(LIMITS.jobBytes, maxTake) - repo.totalBytes()) return bad('This job has no room left for more audio.', 413);
+      if (size > Math.max(LIMITS.jobBytes, maxTake) - repo.totalBytes() - repo.b2Bytes()) return bad('This job has no room left for more audio.', 413);
+      let where: 'do' | 'b2' = 'do';
       if (env.storage) {
-        let refusal: string | null = null;
-        try { refusal = await env.storage.check(size); } catch { /* the registry is advisory; the real cap is the backstop */ }
-        if (refusal) return bad(refusal, 507);
+        const p = await placeFor(env, size); // the registry is advisory; the real cap is the backstop
+        if ('refusal' in p) return bad(p.refusal, 507);
+        where = p.where;
       }
       const id = env.newKey();
-      repo.putUpload({ id, kind, name: safeName(clip(b.name, 120) || 'audio'), mime: safeMime(clip(b.mime, 60) || 'audio/wav'), who: clip(b.who, LIMITS.name).trim(), text: clip(b.text, LIMITS.text).trim(), thread: threadFor(role, new URL(`http://x/?thread=${b.thread === 'client' ? 'client' : 'talent'}`)), role, size, ts: now() });
+      repo.putUpload({ id, ...(where === 'b2' ? { store: 'b2' as const } : {}), kind, name: safeName(clip(b.name, 120) || 'audio'), mime: safeMime(clip(b.mime, 60) || 'audio/wav'), who: clip(b.who, LIMITS.name).trim(), text: clip(b.text, LIMITS.text).trim(), thread: threadFor(role, new URL(`http://x/?thread=${b.thread === 'client' ? 'client' : 'talent'}`)), role, size, ts: now() });
       return json({ uploadId: id, chunkSize: CHUNK, chunks: Math.ceil(size / CHUNK) }, 201);
     }
     const up = rest[1] ? repo.getUpload(rest[1]) : null;
@@ -428,7 +510,13 @@ const run = async (req: Request, rest: string[], env: HandlerEnv): Promise<Respo
       const first = repo.getChunk(up.id, 0);
       if (!first || !looksLikeAudio(first)) { repo.deleteAtt(up.id); repo.deleteUpload(up.id); return bad('That does not look like an audio file.', 415); }
       const ts = now();
-      repo.addAtt({ id: up.id, name: up.name, mime: up.mime, bytes: up.size, ts });
+      let store: 'do' | 'b2' = 'do';
+      if (up.store === 'b2' && env.blobs) {
+        if (!(await moveToB2(repo, env.blobs, up.id, up.mime, up.size))) { repo.deleteUpload(up.id); return bad(STORE_DOWN, 502); }
+        repo.dropChunks(up.id);
+        store = 'b2';
+      }
+      repo.addAtt({ id: up.id, name: up.name, mime: up.mime, bytes: up.size, ts, ...(store === 'b2' ? { store } : {}) });
       repo.deleteUpload(up.id);
       const att = { id: up.id, name: up.name, bytes: up.size, expiresAt: ts + FILE_TTL_MS };
       if (up.kind === 'reference') {
@@ -456,7 +544,7 @@ const run = async (req: Request, rest: string[], env: HandlerEnv): Promise<Respo
 
   if (route === 'audio' && (req.method === 'GET' || req.method === 'HEAD') && rest[1]) {
     if (!mayHear(role, job, repo, rest[1])) return fail(403, role === 'client' ? 'That file has not been released yet.' : 'Not allowed.');
-    return serveAudio(req, repo, rest[1]);
+    return serveAudio(req, repo, rest[1], env.blobs);
   }
 
   if (route === 'preview' && req.method === 'POST' && (rest[1] === 'approve' || rest[1] === 'changes')) {
@@ -521,11 +609,10 @@ const run = async (req: Request, rest: string[], env: HandlerEnv): Promise<Respo
 /** Handles one request for one job, then tells the storage guard the job's new size when it may have changed */
 export const handleJob = async (req: Request, rest: string[], env: HandlerEnv): Promise<Response> => {
   const res = await run(req, rest, env);
+  await sweepB2(env.repo, env.blobs);
   // Audio size changes only when a file is stored or replaced (a finished upload, a direct upload, a reference).
   // Single pieces are skipped: the total is reported once, when the upload completes.
   const stores = req.method === 'PUT' ? rest[0] === 'attachments' || rest[0] === 'reference' : req.method === 'POST' && rest[0] === 'uploads' && rest[2] === 'complete';
-  if (env.storage && stores && res.status < 500) {
-    try { await env.storage.report(env.repo.totalBytes()); } catch { /* advisory */ }
-  }
+  if (stores && res.status < 500) await reportSizes(env);
   return res;
 };
