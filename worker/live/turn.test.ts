@@ -14,7 +14,7 @@ describe('ice servers', () => {
     const r = await iceServersFor({ TURN_KEY_ID: 'k1', TURN_API_TOKEN: 'tok' }, f);
     expect(seen!.url).toBe('https://rtc.live.cloudflare.com/v1/turn/keys/k1/credentials/generate-ice-servers');
     expect(seen!.auth).toBe('Bearer tok');
-    expect(JSON.parse(seen!.body)).toEqual({ ttl: 43200 });
+    expect(JSON.parse(seen!.body)).toEqual({ ttl: 14400 });
     expect(r.relay).toBe(true);
     expect(r.iceServers[1].urls).toEqual(['turn:turn.cloudflare.com:3478?transport=udp', 'turns:turn.cloudflare.com:5349?transport=tcp']);
   });
@@ -46,11 +46,21 @@ describe('the monthly relay allowance', () => {
   });
   it('stops handing out relay when the cap is reached, but keeps an event already using it going', async () => {
     const ledger = new MemoryRelayLedger();
-    await ledger.reserve(monthKey(NOW), 'running', 810_000 - RELAY.reserveMb * 0); // past 80%
+    await ledger.reserve(monthKey(NOW), 'elsewhere', 810_000); // past 80%, spent by other events
+    await ledger.reserve(monthKey(NOW), 'running', RELAY.reserveMb); // this one already has relay
     const fresh = await iceServersForEvent(env, ledger, 'new', NOW, ok);
     expect(fresh).toEqual({ iceServers: STUN_ONLY, relay: false, capped: true });
     expect((await iceServersForEvent(env, ledger, 'running', NOW, ok)).relay).toBe(true);
     expect(await ledger.roomHasRelay(monthKey(NOW), 'new')).toBe(false); // a refusal reserves nothing
+  });
+  it('gives one event only a few sets of credentials a month, however often it asks', async () => {
+    const ledger = new MemoryRelayLedger();
+    let relayed = 0;
+    for (let i = 0; i < 50; i++) if ((await iceServersForEvent(env, ledger, 'busy', NOW, ok)).relay) relayed++;
+    expect(relayed).toBe(RELAY.roomCapMb / RELAY.reserveMb);
+    expect(await ledger.reserved(monthKey(NOW))).toBe(RELAY.roomCapMb);
+    expect((await iceServersForEvent(env, ledger, 'busy', NOW, ok))).toEqual({ iceServers: STUN_ONLY, relay: false, capped: true });
+    expect((await iceServersForEvent(env, ledger, 'other', NOW, ok)).relay).toBe(true); // another event is not affected
   });
   it('starts again on the first of the next month', async () => {
     const ledger = new MemoryRelayLedger();

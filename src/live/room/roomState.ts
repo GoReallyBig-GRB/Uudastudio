@@ -7,6 +7,8 @@ export interface RoomView {
   mode: 'conversation' | 'broadcast';
   me: { id: string; role: 'producer' | 'guest'; admitted: boolean } | null;
   peers: RoomPeer[];
+  /** The producer's list of people they removed, who can be invited back */
+  barred: Array<{ id: string; name: string }>;
   autoAdmit: boolean;
   take: RoomTake | null;
   markers: Array<{ take: string; at: number; n: number }>;
@@ -21,7 +23,7 @@ export interface RoomView {
   error: string | null;
 }
 
-export const initialView = (): RoomView => ({ connected: false, mode: 'conversation', me: null, peers: [], autoAdmit: false, take: null, markers: [], cue: null, endedAt: null, endedReason: null, limit: null, closedReason: null, error: null });
+export const initialView = (): RoomView => ({ connected: false, mode: 'conversation', me: null, peers: [], barred: [], autoAdmit: false, take: null, markers: [], cue: null, endedAt: null, endedReason: null, limit: null, closedReason: null, error: null });
 
 type Msg = Record<string, unknown> & { t?: string };
 
@@ -29,7 +31,7 @@ export function applyServerMessage(v: RoomView, m: Msg): RoomView {
   switch (m.t) {
     case 'welcome': {
       const peers = ((m.peers as RoomPeer[]) ?? []).slice();
-      return { ...v, connected: true, mode: m.mode === 'broadcast' ? 'broadcast' : 'conversation', error: null, closedReason: null, me: { id: String(m.id), role: m.role as 'producer' | 'guest', admitted: Boolean(m.admitted) }, peers, autoAdmit: Boolean(m.autoAdmit), take: (m.take as RoomTake | null) ?? null, endedAt: (m.endedAt as number | null) ?? null, limit: readLimit(m.limit) };
+      return { ...v, connected: true, mode: m.mode === 'broadcast' ? 'broadcast' : 'conversation', error: null, closedReason: null, barred: readBarred(m.barred), me: { id: String(m.id), role: m.role as 'producer' | 'guest', admitted: Boolean(m.admitted) }, peers, autoAdmit: Boolean(m.autoAdmit), take: (m.take as RoomTake | null) ?? null, endedAt: (m.endedAt as number | null) ?? null, limit: readLimit(m.limit) };
     }
     case 'joined': {
       const p = m.peer as RoomPeer;
@@ -42,6 +44,7 @@ export function applyServerMessage(v: RoomView, m: Msg): RoomView {
       const me = v.me && v.me.id === id ? { ...v.me, ...(patch.admitted !== undefined ? { admitted: Boolean(patch.admitted) } : {}) } : v.me;
       return { ...v, me, peers: v.peers.map((p) => (p.id === id ? { ...p, ...patch } : p)) };
     }
+    case 'barred': return { ...v, barred: readBarred(m.list) };
     case 'mode': return { ...v, mode: m.mode === 'broadcast' ? 'broadcast' : 'conversation' };
     case 'auto': return { ...v, autoAdmit: Boolean(m.on) };
     case 'record': return { ...v, take: { id: String(m.take), startAt: Number(m.startAt), stopAt: null }, markers: [] };
@@ -68,4 +71,8 @@ export function limitNotice(v: RoomView, now: number): string | null {
   if (!v.limit || v.limit.phase === 'none' || v.endedAt) return null;
   if (v.limit.phase === 'over') return `Time is up. Finish the current take — the room closes in ${Math.max(1, Math.ceil((v.limit.hardAt - now) / 60000))} min.`;
   return `${Math.max(1, Math.ceil((v.limit.limitAt - now) / 60000))} min left in this session.`;
+}
+
+function readBarred(x: unknown): Array<{ id: string; name: string }> {
+  return Array.isArray(x) ? x.filter((b): b is { id: string; name: string } => !!b && typeof (b as { id?: unknown }).id === 'string').map((b) => ({ id: b.id, name: String(b.name ?? '') })) : [];
 }
