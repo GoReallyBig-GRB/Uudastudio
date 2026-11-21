@@ -174,6 +174,12 @@ export const ProducerRoomPanel: React.FC<{ token: string; onTake?: (r: RoomRecor
                   <ul className="flex flex-col gap-1.5">{waiting.map((p) => (
                     <li key={p.id} className="flex items-center justify-between gap-2 rounded-control border border-line bg-surface-2 px-3 py-2"><span className="truncate text-ink">{p.name}</span>
                       <span className="flex gap-2"><button type="button" className={PRIMARY} onClick={() => send({ t: 'admit', id: p.id })}>Let in</button><button type="button" className={BTN} onClick={() => send({ t: 'remove', id: p.id })}>Remove</button></span></li>))}</ul></div>)}
+              {view.barred.length > 0 && (
+                <div><p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-faint">Removed</p>
+                  <ul className="flex flex-col gap-1.5">{view.barred.map((b) => (
+                    <li key={b.id} className="flex items-center justify-between gap-2 rounded-control border border-line bg-surface-2 px-3 py-2"><span className="truncate text-ink-dim">{b.name}</span>
+                      <button type="button" className={PRIMARY} onClick={() => send({ t: 'reinvite', id: b.id })}>Re-invite</button></li>))}</ul>
+                  <p className="mt-1 text-[11px] text-ink-faint">They cannot come back in until you re-invite them.</p></div>)}
               <div><p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-faint">In the room ({inCall.length + 1} of 4)</p>
                 <ul className="flex flex-col gap-1.5">
                   <li className="flex items-center justify-between rounded-control border border-line bg-surface-2 px-3 py-2"><span className="text-ink">You</span></li>

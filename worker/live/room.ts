@@ -13,6 +13,10 @@ export const ROOM = {
   admitted: FREE_PLAN.maxPeople,
   /** Guests waiting to be let in */
   waiting: 8,
+  /** Open connections to one room, anyone but the producer. Stops a flood of tabs, before and after the session ends. */
+  sockets: 24,
+  /** People the producer has removed whose names are kept so they can be invited back */
+  barred: 50,
   /** One call-signalling message (offer, answer or ICE), in bytes of JSON */
   signalBytes: 16_384,
   text: 500,
@@ -25,11 +29,14 @@ export const ROOM = {
 } as const;
 
 export type Role = 'producer' | 'guest';
-export interface Peer { id: string; role: Role; name: string; admitted: boolean; muted: boolean; recording: boolean; joinedAt: number }
+/** `rk` is a private hash of the browser's rejoin key. It is never sent to anyone. */
+export interface Peer { id: string; role: Role; name: string; admitted: boolean; muted: boolean; recording: boolean; joinedAt: number; rk?: string }
+/** Someone the producer removed. They cannot come back until invited again. */
+export interface Barred { id: string; name: string; rk: string }
 export interface Take { id: string; startAt: number; stopAt: number | null }
 /** `limitAt` is when the session's time is up (null until the room knows when it opened); `phase` is how far the clock has got */
-export interface RoomMeta { autoAdmit: boolean; take: Take | null; takes: number; markers: number; endedAt: number | null; openedAt: number | null; phase: 'none' | 'soon' | 'over'; mode: 'conversation' | 'broadcast' }
-export const freshMeta = (): RoomMeta => ({ autoAdmit: false, take: null, takes: 0, markers: 0, endedAt: null, openedAt: null, phase: 'none', mode: 'conversation' });
+export interface RoomMeta { barred: Barred[]; invited: string[]; autoAdmit: boolean; take: Take | null; takes: number; markers: number; endedAt: number | null; openedAt: number | null; phase: 'none' | 'soon' | 'over'; mode: 'conversation' | 'broadcast' }
+export const freshMeta = (): RoomMeta => ({ barred: [], invited: [], autoAdmit: false, take: null, takes: 0, markers: 0, endedAt: null, openedAt: null, phase: 'none', mode: 'conversation' });
 
 /** What the session clock should do at `now`: nothing, warn, say time is up, or end the room */
 export function clockStep(meta: RoomMeta, now: number): { meta: RoomMeta; out: Out[]; nextAt: number | null } {
@@ -51,6 +58,7 @@ export type ClientMsg =
   | { t: 'cue'; to: string; text: string }
   | { t: 'admit'; id: string }
   | { t: 'remove'; id: string }
+  | { t: 'reinvite'; id: string }
   | { t: 'auto'; on: boolean }
   | { t: 'mode'; mode: 'conversation' }
   | { t: 'record'; leadMs?: number }
@@ -82,7 +90,7 @@ export function parseClientMessage(raw: string): ClientMsg | null {
     case 'state': return { t: 'state', muted: typeof m.muted === 'boolean' ? m.muted : undefined, recording: typeof m.recording === 'boolean' ? m.recording : undefined };
     case 'signal': return typeof m.to === 'string' && m.to && m.data !== undefined && JSON.stringify(m.data).length <= ROOM.signalBytes ? { t: 'signal', to: m.to, data: m.data } : null;
     case 'cue': { const text = str(m.text, ROOM.text); return typeof m.to === 'string' && m.to && text ? { t: 'cue', to: m.to, text } : null; }
-    case 'admit': case 'remove': return typeof m.id === 'string' && m.id ? { t: m.t, id: m.id } : null;
+    case 'admit': case 'remove': case 'reinvite': return typeof m.id === 'string' && m.id ? { t: m.t, id: m.id } : null;
     case 'auto': return typeof m.on === 'boolean' ? { t: 'auto', on: m.on } : null;
     // Only a step down is allowed in a live room: a broadcast that cannot keep up becomes a conversation
     case 'mode': return m.mode === 'conversation' ? { t: 'mode', mode: 'conversation' } : null;
@@ -96,6 +104,7 @@ export interface JoinDecision { ok: boolean; admitted: boolean; error?: string }
 
 /** Whether someone can come in, and whether straight into the call or into the waiting room */
 export function decideJoin(peers: Peer[], role: Role, meta: RoomMeta, now = Date.now()): JoinDecision {
+  if (role !== 'producer' && peers.length >= ROOM.sockets) return { ok: false, admitted: false, error: 'This room is full. Try again in a moment.' };
   // After the end only the hand-over of recordings is left, so anyone with the link can still connect for a while
   if (meta.endedAt) return now - meta.endedAt < ROOM.deliveryMs ? { ok: true, admitted: true } : { ok: false, admitted: false, error: 'This session has ended.' };
   const inCall = peers.filter((p) => p.admitted).length;
@@ -106,6 +115,7 @@ export function decideJoin(peers: Peer[], role: Role, meta: RoomMeta, now = Date
   return { ok: true, admitted: false };
 }
 
+export const publicBarred = (list: Barred[]) => list.map((b) => ({ id: b.id, name: b.name }));
 const publicPeer = (p: Peer) => ({ id: p.id, role: p.role, name: p.name, admitted: p.admitted, muted: p.muted, recording: p.recording });
 export const roster = (peers: Peer[]) => peers.map(publicPeer);
 
@@ -159,7 +169,20 @@ export function step(meta: RoomMeta, peers: Peer[], from: Peer, msg: ClientMsg, 
       if (!producer) return only('remove people');
       const p = by.get(msg.id);
       if (!p || p.role !== 'guest') return err(meta, from.id, 'That person is not in the room.');
-      return { ...none(meta), kick: [{ id: p.id, reason: 'removed' }] };
+      // Kept so the same browser cannot walk back in. Auto-admit goes off too, so anyone else who turns up has to be let in by hand.
+      const barred = [...meta.barred.filter((b) => b.id !== p.id), { id: p.id, name: p.name, rk: p.rk ?? '' }].slice(-ROOM.barred);
+      const out: Out[] = [{ to: 'producer', msg: { t: 'barred', list: publicBarred(barred) } }];
+      if (meta.autoAdmit) out.push({ to: 'all', msg: { t: 'auto', on: false } });
+      return { meta: { ...meta, barred, autoAdmit: false, invited: meta.invited.filter((k) => k !== p.rk) }, peers: {}, out, kick: [{ id: p.id, reason: 'removed' }] };
+    }
+
+    case 'reinvite': {
+      if (!producer) return only('invite people back');
+      const b = meta.barred.find((x) => x.id === msg.id);
+      if (!b) return err(meta, from.id, 'That person was not removed.');
+      const barred = meta.barred.filter((x) => x.id !== b.id);
+      const invited = b.rk ? [...meta.invited.filter((k) => k !== b.rk), b.rk].slice(-ROOM.barred) : meta.invited;
+      return { meta: { ...meta, barred, invited }, peers: {}, out: [{ to: 'producer', msg: { t: 'barred', list: publicBarred(barred) } }], kick: [] };
     }
 
     case 'mode': {

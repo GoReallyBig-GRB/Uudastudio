@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { RoomClock, estimateOffset } from './clockSync';
 import { applyServerMessage, initialView, limitNotice } from './roomState';
-import { RoomClient, backoffMs } from './roomClient';
+import { RoomClient, backoffMs, withJitter, DEAD_AFTER_MS } from './roomClient';
 
 describe('clock sync', () => {
   it('trusts the fastest round trip', () => {
@@ -86,7 +86,7 @@ describe('room connection', () => {
   it('connects to the right address with the guest name, asks for the time, and reads the welcome', () => {
     const { c, sockets, urls } = make();
     c.connect();
-    expect(urls[0]).toBe('wss://uuda.test/api/live/room/tok12345?name=Chi%20N');
+    expect(urls[0]).toMatch(/^wss:\/\/uuda\.test\/api\/live\/room\/tok12345\?name=Chi%20N&resume=[A-Za-z0-9_-]{22}$/);
     sockets[0].open();
     const ask = JSON.parse(sockets[0].sent[0]);
     expect(ask.t).toBe('sync');
@@ -111,6 +111,45 @@ describe('room connection', () => {
   });
   it('backs off 1, 2, 4, 8 then 10 seconds', () => {
     expect([0, 1, 2, 3, 4, 9].map(backoffMs)).toEqual([1000, 2000, 4000, 8000, 10000, 10000]);
+  });
+  it('presents the same rejoin key on every reconnect, so the room knows it is the same person', () => {
+    const { c, sockets, urls, timeouts } = make();
+    c.connect(); sockets[0].open(); sockets[0].drop(1006);
+    timeouts[0]();
+    expect(urls).toHaveLength(2);
+    expect(urls[1].split('resume=')[1]).toBe(urls[0].split('resume=')[1]);
+  });
+  it('sends no rejoin key for the producer, whose name comes from the account', () => {
+    const urls: string[] = [];
+    const c = new RoomClient({ token: 'tok12345', origin: 'https://uuda.test', onView: () => undefined, open: (u) => { urls.push(u); return new FakeSocket() as unknown as WebSocket; } });
+    c.connect();
+    expect(urls[0]).toBe('wss://uuda.test/api/live/room/tok12345');
+    c.close();
+  });
+  it('spreads retries by up to 30% either way', () => {
+    expect(withJitter(1000, () => 0)).toBe(700);
+    expect(withJitter(1000, () => 0.5)).toBe(1000);
+    expect(withJitter(1000, () => 1)).toBe(1300);
+  });
+  it('treats a connection that has gone silent as dropped and reconnects once', () => {
+    const intervals: Array<() => void> = []; const sockets: FakeSocket[] = []; const timeouts: Array<() => void> = [];
+    let now = 1_000_000;
+    const real = Date.now; Date.now = () => now;
+    try {
+      const c = new RoomClient({
+        token: 'tok12345', name: 'Chi', origin: 'https://uuda.test', onView: () => undefined,
+        open: () => { const s = new FakeSocket(); sockets.push(s); return s as unknown as WebSocket; },
+        timers: { setTimeout: ((f: () => void) => { timeouts.push(f); return 1; }) as unknown as typeof setTimeout, clearTimeout: (() => undefined) as unknown as typeof clearTimeout, setInterval: ((f: () => void) => { intervals.push(f); return 1; }) as unknown as typeof setInterval, clearInterval: (() => undefined) as unknown as typeof clearInterval },
+      });
+      c.connect(); sockets[0].open();
+      const keepAlive = intervals[0];
+      now += DEAD_AFTER_MS - 1000; keepAlive();
+      expect(timeouts).toHaveLength(0); // quiet, but not long enough to worry
+      now += 2000; keepAlive();
+      expect(timeouts).toHaveLength(1);
+      sockets[0].drop(1006); // the browser finally reports it; no second retry
+      expect(timeouts).toHaveLength(1);
+    } finally { Date.now = real; }
   });
   it('does not send while the socket is not open', () => {
     const { c, sockets } = make();
@@ -142,5 +181,15 @@ describe('session type in the view', () => {
     expect(w.mode).toBe('broadcast');
     expect(applyServerMessage(w, { t: 'mode', mode: 'conversation' }).mode).toBe('conversation');
     expect(applyServerMessage(initialView(), { t: 'welcome', id: 'a', role: 'guest', admitted: true, peers: [] }).mode).toBe('conversation');
+  });
+});
+
+describe('removed people', () => {
+  it('keeps the producer\'s list of removed people up to date', () => {
+    const w = applyServerMessage(initialView(), { t: 'welcome', id: 'a', role: 'producer', admitted: true, peers: [], barred: [{ id: 'x', name: 'Sade' }] });
+    expect(w.barred).toEqual([{ id: 'x', name: 'Sade' }]);
+    expect(applyServerMessage(w, { t: 'barred', list: [] }).barred).toEqual([]);
+    expect(applyServerMessage(w, { t: 'barred', list: 'nonsense' }).barred).toEqual([]);
+    expect(applyServerMessage(initialView(), { t: 'welcome', id: 'g', role: 'guest', admitted: false, peers: [] }).barred).toEqual([]);
   });
 });

@@ -9,8 +9,8 @@ export interface TurnEnv { TURN_KEY_ID?: string; TURN_API_TOKEN?: string }
 export interface IceServer { urls: string | string[]; username?: string; credential?: string }
 
 export const STUN_ONLY: IceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
-/** Long enough for a long session plus the hand-over of recordings afterwards */
-export const TURN_TTL_SECONDS = 12 * 3600;
+/** A full session (3 hours) and its grace period, with a margin. Credentials are only worth stealing while they last, so no longer than that. */
+export const TURN_TTL_SECONDS = 4 * 3600;
 
 export async function iceServersFor(env: TurnEnv, doFetch: typeof fetch = fetch): Promise<{ iceServers: IceServer[]; relay: boolean }> {
   if (!env.TURN_KEY_ID || !env.TURN_API_TOKEN) return { iceServers: STUN_ONLY, relay: false };
@@ -35,6 +35,8 @@ export async function iceServersForEvent(env: TurnEnv, ledger: RelayLedger, even
   const month = monthKey(now);
   const verdict = relayDecision(await ledger.reserved(month), await ledger.roomHasRelay(month, eventId));
   if (verdict === 'deny') return { iceServers: STUN_ONLY, relay: false, capped: true };
+  // One event cannot ask again and again: after its own cap it is on direct connections only, which still work for most networks
+  if (await ledger.roomReserved(month, eventId) >= RELAY.roomCapMb) return { iceServers: STUN_ONLY, relay: false, capped: true };
   await ledger.reserve(month, eventId, RELAY.reserveMb); // reserve first: if the request below fails we have only been careful
   return { ...(await iceServersFor(env, doFetch)), capped: false };
 }
